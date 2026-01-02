@@ -7,27 +7,21 @@ import (
 
 func doCompletion(roots []*CommandNode, commandLine string) {
 	// 1. Tokenize the command line
-	// Note: simplistic split for now. 
 	// The commandLine includes the binary name. e.g. "myapp build -t"
-	parts := strings.Fields(commandLine)
+	parts, isNewArg := tokenizeCommandLine(commandLine)
 	if len(parts) == 0 {
 		return
 	}
-	
+
 	// Remove binary name
 	parts = parts[1:]
-	
+
 	// Traverse to find the current node and the word being completed
 	// We want to complete the LAST part.
-	
-	// If the line ends with a space, we are expecting a NEW argument.
-	// If it doesn't, we are completing the CURRENT argument.
-	
-	isNewArg := strings.HasSuffix(commandLine, " ")
-	
+
 	var prefix string
 	var processedArgs []string
-	
+
 	if !isNewArg && len(parts) > 0 {
 		prefix = parts[len(parts)-1]
 		processedArgs = parts[:len(parts)-1]
@@ -35,12 +29,12 @@ func doCompletion(roots []*CommandNode, commandLine string) {
 		prefix = ""
 		processedArgs = parts
 	}
-	
+
 	// Traverse
 	var currentNode *CommandNode
 	singleRoot := len(roots) == 1
 	atRoot := true
-	
+
 	// Find root
 	if singleRoot {
 		currentNode = roots[0]
@@ -70,11 +64,11 @@ func doCompletion(roots []*CommandNode, commandLine string) {
 			return
 		}
 	}
-	
+
 	if currentNode == nil {
 		return
 	}
-	
+
 	// Walk subcommands
 	for len(processedArgs) > 0 {
 		subName := processedArgs[0]
@@ -87,9 +81,9 @@ func doCompletion(roots []*CommandNode, commandLine string) {
 			return
 		}
 	}
-	
+
 	// Now we are at currentNode, and we need to suggest based on prefix
-	
+
 	// 1. Suggest Subcommands
 	for name := range currentNode.Subcommands {
 		if strings.HasPrefix(name, prefix) {
@@ -100,17 +94,72 @@ func doCompletion(roots []*CommandNode, commandLine string) {
 	if atRoot && strings.HasPrefix("completion", prefix) {
 		fmt.Println("completion")
 	}
-	
+
 	// 2. Suggest Flags
 	// We need to look at fields again.
 	// Note: We need to recreate the flag set logic or reuse parsing?
 	// Reusing parsing is hard because it consumes args.
 	// We just want to inspect the struct fields.
-	
+
 	// Check if prefix starts with "-"
 	if strings.HasPrefix(prefix, "-") || prefix == "" {
 		suggestFlags(currentNode, prefix)
 	}
+}
+
+func tokenizeCommandLine(commandLine string) ([]string, bool) {
+	var parts []string
+	var current strings.Builder
+	inSingle := false
+	inDouble := false
+	escaped := false
+	isNewArg := false
+
+	for i := 0; i < len(commandLine); i++ {
+		ch := commandLine[i]
+		if escaped {
+			current.WriteByte(ch)
+			escaped = false
+			isNewArg = false
+			continue
+		}
+		if ch == '\\' && !inSingle {
+			escaped = true
+			isNewArg = false
+			continue
+		}
+		if ch == '\'' && !inDouble {
+			inSingle = !inSingle
+			isNewArg = false
+			continue
+		}
+		if ch == '"' && !inSingle {
+			inDouble = !inDouble
+			isNewArg = false
+			continue
+		}
+		if (ch == ' ' || ch == '\t' || ch == '\n') && !inSingle && !inDouble {
+			if current.Len() > 0 {
+				parts = append(parts, current.String())
+				current.Reset()
+			}
+			isNewArg = true
+			continue
+		}
+		current.WriteByte(ch)
+		isNewArg = false
+	}
+
+	if escaped {
+		current.WriteByte('\\')
+	}
+	if current.Len() > 0 {
+		parts = append(parts, current.String())
+	}
+	if inSingle || inDouble {
+		isNewArg = false
+	}
+	return parts, isNewArg
 }
 
 func suggestFlags(node *CommandNode, prefix string) {
@@ -125,7 +174,7 @@ func suggestFlags(node *CommandNode, prefix string) {
 		if strings.Contains(tag, "subcommand") {
 			continue
 		}
-		
+
 		name := strings.ToLower(field.Name)
 		// Check override
 		parts := strings.Split(tag, ",")
@@ -135,7 +184,7 @@ func suggestFlags(node *CommandNode, prefix string) {
 				name = strings.TrimPrefix(p, "name=")
 			}
 		}
-		
+
 		flagName := "-" + name
 		if strings.HasPrefix(flagName, prefix) {
 			fmt.Println(flagName)
