@@ -148,21 +148,6 @@ Low
 **Acceptance**
 Add `target.Checksum(srcs, dest)`.
 
-### 21. Nil Pointer Inputs Can Panic
-
-#### Universal
-
-**Description**
-Nil pointers passed to `Run` or subcommand pointers can panic on `Elem()`.
-
-#### Planning
-
-**Priority**
-High
-
-**Acceptance**
-Validate pointers before `Elem()` and return descriptive errors.
-
 ### 23. Unexported Tagged Fields Can Panic
 
 #### Universal
