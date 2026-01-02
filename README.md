@@ -7,14 +7,13 @@ Commander is a Go library for building CLIs with minimal configuration, combinin
 - **Automatic Discovery**: Define commands as structs with a `Run` method.
 - **Struct-based Arguments**: Define flags and arguments using struct tags.
 - **Subcommands**: Use struct fields to create subcommands.
-- **Environment Variables**: Bind flags to environment variables.
-- **Positional Arguments**: Support for positional and variadic arguments.
+- **CLI Runner**: Run a folder of commands without writing a `main` function (Mage-style).
 
 ## Usage
 
-### Basic Command
+### 1. Library Mode
 
-Define commands as structs with a `Run` method. The struct fields define the arguments.
+Embed `commander` in your own main function.
 
 ```go
 package main
@@ -25,27 +24,49 @@ import (
 )
 
 type Greet struct {
-    Name string `commander:"required,desc=Name of the person"`
-    Age  int    `commander:"name=age,desc=Age of the person"`
+    Name string `commander:"required"`
 }
 
 func (g *Greet) Run() {
-    fmt.Printf("Hello %s (%d)\n", g.Name, g.Age)
+    fmt.Printf("Hello %s\n", g.Name)
 }
 
 func main() {
-    commander.Run(Greet{})
+    commander.Run(&Greet{})
 }
 ```
 
-Run it:
+### 2. CLI Mode (Mage-style)
+
+Create a `command.go` file (name doesn't matter) in a directory. DO NOT define a `main` function.
+
+```go
+package main
+
+import "fmt"
+
+type Build struct {
+    Target string `commander:"flag"`
+}
+
+func (b *Build) Run() {
+    fmt.Printf("Building %s\n", b.Target)
+}
+```
+
+Install the `commander` tool:
 ```bash
-$ go run main.go greet --name Alice --age 30
+go install github.com/yourusername/commander/cmd/commander@latest
+```
+
+Run commands in that directory:
+```bash
+$ commander build -target prod
 ```
 
 ### Subcommands
 
-Define subcommands using fields with the `commander:"subcommand"` tag. The field name becomes the command name (kebab-cased).
+Define subcommands using fields with the `commander:"subcommand"` tag.
 
 ```go
 type Math struct {
@@ -70,22 +91,12 @@ func (a *AddCmd) Run() {
 }
 ```
 
-Run it:
-```bash
-$ go run main.go math add 10 20
-$ go run main.go math run
-```
-
-Run it:
-```bash
-$ go run main.go math add 10 20
-```
-
 ### Tags
 
 - `commander:"required"`: Flag is required.
 - `commander:"desc=..."`: Description for help text.
 - `commander:"name=..."`: Custom flag name.
+- `commander:"subcommand=..."`: Rename subcommand.
 - `commander:"env=VAR_NAME"`: Default value from environment variable.
 - `commander:"positional"`: Map positional arguments to this field.
 

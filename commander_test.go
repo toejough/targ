@@ -182,3 +182,51 @@ func TestPositionalArgs(t *testing.T) {
 		t.Errorf("expected Dst='dest.txt', got '%s'", cmdStruct.Dst)
 	}
 }
+
+// --- Discovery Tests ---
+
+type RootA struct {
+	Sub *ChildB `commander:"subcommand"`
+}
+type ChildB struct {}
+type RootC struct {}
+
+func TestDetectRootCommands(t *testing.T) {
+	candidates := []interface{}{
+		&RootA{},
+		&ChildB{},
+		&RootC{},
+	}
+
+	roots := DetectRootCommands(candidates...)
+
+	if len(roots) != 2 {
+		t.Fatalf("expected 2 roots, got %d", len(roots))
+	}
+
+	// RootA and RootC should be present. ChildB should be filtered out.
+	hasA := false
+	hasC := false
+	hasB := false
+
+	for _, r := range roots {
+		switch r.(type) {
+		case *RootA:
+			hasA = true
+		case *RootC:
+			hasC = true
+		case *ChildB:
+			hasB = true
+		}
+	}
+
+	if !hasA {
+		t.Error("expected RootA to be detected")
+	}
+	if !hasC {
+		t.Error("expected RootC to be detected")
+	}
+	if hasB {
+		t.Error("ChildB should have been filtered out")
+	}
+}

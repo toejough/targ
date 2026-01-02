@@ -331,6 +331,55 @@ func (n *CommandNode) execute(args []string) error {
 	return fmt.Errorf("command %s is not runnable (no Run method)", n.Name)
 }
 
+// DetectRootCommands filters a list of possible command objects to find those
+// that are NOT subcommands of any other command in the list.
+// It uses the `commander:"subcommand"` tag to identify relationships.
+func DetectRootCommands(candidates ...interface{}) []interface{} {
+	// 1. Find all types that are referenced as subcommands
+	subcommandTypes := make(map[reflect.Type]bool)
+
+	for _, c := range candidates {
+		v := reflect.ValueOf(c)
+		t := v.Type()
+		// Handle pointer to struct
+		if t.Kind() == reflect.Ptr {
+			t = t.Elem()
+		}
+		if t.Kind() != reflect.Struct {
+			continue
+		}
+
+		for i := 0; i < t.NumField(); i++ {
+			field := t.Field(i)
+			tag := field.Tag.Get("commander")
+			if strings.Contains(tag, "subcommand") {
+				// This field type is a subcommand
+				subType := field.Type
+				if subType.Kind() == reflect.Ptr {
+					subType = subType.Elem()
+				}
+				subcommandTypes[subType] = true
+			}
+		}
+	}
+
+	// 2. Filter candidates
+	var roots []interface{}
+	for _, c := range candidates {
+		v := reflect.ValueOf(c)
+		t := v.Type()
+		if t.Kind() == reflect.Ptr {
+			t = t.Elem()
+		}
+
+		if !subcommandTypes[t] {
+			roots = append(roots, c)
+		}
+	}
+
+	return roots
+}
+
 func camelToKebab(s string) string {
 	var result strings.Builder
 	for i, r := range s {
