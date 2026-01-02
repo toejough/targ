@@ -140,20 +140,6 @@ Support grouping or display organization beyond strict struct nesting.
 
 #### Universal
 
-**Status**
-backlog
-
-**Description**
-Support types implementing `encoding.TextUnmarshaler` for flags.
-
-#### Planning
-
-**Priority**
-High
-
-**Acceptance**
-Parse flags into custom types via `UnmarshalText` or `Set(string) error`.
-
 ### 11. Default Value Tags
 
 #### Universal
@@ -429,6 +415,22 @@ Generate wrapper structs for function commands so descriptions are embedded in c
 **Details**
 - Build tool mode auto-generates `generated_commander_<pkg>.go` with `CommandName`/`Description`.
 - Direct binaries can opt in via `commander gen` and pass the generated struct to `Run`.
+
+### 10. Custom Type Support (TextUnmarshaler)
+
+#### Universal
+
+**Status**
+done
+
+**Description**
+Support types implementing `encoding.TextUnmarshaler` for flags.
+
+#### Implementation Notes
+
+**Details**
+- Flag parsing supports types that implement `UnmarshalText` or `Set(string) error`.
+- Positional parsing uses the same custom type logic.
 
 ### 5. Error Return Support
 

@@ -278,30 +278,46 @@ func (n *CommandNode) execute(args []string) error {
 			}
 		}
 
-		switch field.Type.Kind() {
-		case reflect.String:
-			fs.StringVar(fieldVal.Addr().Interface().(*string), name, defaultValue, usage)
+		if setter, ok := customSetter(fieldVal); ok {
+			if envSet && defaultValue != "" {
+				if err := setter(defaultValue); err != nil {
+					return err
+				}
+			}
+			value := &stringFlagValue{
+				set: setter,
+				str: func() string { return fmt.Sprint(fieldVal.Interface()) },
+			}
+			fs.Var(value, name, usage)
 			if shortName != "" {
-				fs.StringVar(fieldVal.Addr().Interface().(*string), shortName, defaultValue, usage)
+				fs.Var(value, shortName, usage)
 			}
-		case reflect.Int:
-			intVal := 0
-			if defaultValue != "" {
-				fmt.Sscanf(defaultValue, "%d", &intVal)
-			}
-			fs.IntVar(fieldVal.Addr().Interface().(*int), name, intVal, usage)
-			if shortName != "" {
-				fs.IntVar(fieldVal.Addr().Interface().(*int), shortName, intVal, usage)
-			}
-		case reflect.Bool:
-			// Bool env var handling
-			boolVal := false
-			if defaultValue == "true" || defaultValue == "1" {
-				boolVal = true
-			}
-			fs.BoolVar(fieldVal.Addr().Interface().(*bool), name, boolVal, usage)
-			if shortName != "" {
-				fs.BoolVar(fieldVal.Addr().Interface().(*bool), shortName, boolVal, usage)
+		} else {
+			switch field.Type.Kind() {
+			case reflect.String:
+				fs.StringVar(fieldVal.Addr().Interface().(*string), name, defaultValue, usage)
+				if shortName != "" {
+					fs.StringVar(fieldVal.Addr().Interface().(*string), shortName, defaultValue, usage)
+				}
+			case reflect.Int:
+				intVal := 0
+				if defaultValue != "" {
+					fmt.Sscanf(defaultValue, "%d", &intVal)
+				}
+				fs.IntVar(fieldVal.Addr().Interface().(*int), name, intVal, usage)
+				if shortName != "" {
+					fs.IntVar(fieldVal.Addr().Interface().(*int), shortName, intVal, usage)
+				}
+			case reflect.Bool:
+				// Bool env var handling
+				boolVal := false
+				if defaultValue == "true" || defaultValue == "1" {
+					boolVal = true
+				}
+				fs.BoolVar(fieldVal.Addr().Interface().(*bool), name, boolVal, usage)
+				if shortName != "" {
+					fs.BoolVar(fieldVal.Addr().Interface().(*bool), shortName, boolVal, usage)
+				}
 			}
 		}
 
@@ -428,13 +444,8 @@ func (n *CommandNode) execute(args []string) error {
 			val := remaining[posArgIdx]
 
 			fVal := inst.Field(i)
-			switch fVal.Kind() {
-			case reflect.String:
-				fVal.SetString(val)
-			case reflect.Int:
-				var i int64
-				fmt.Sscanf(val, "%d", &i)
-				fVal.SetInt(i)
+			if err := setFieldFromString(fVal, val); err != nil {
+				return err
 			}
 			posArgIdx++
 		}
@@ -573,23 +584,7 @@ func printCommandHelp(node *CommandNode) {
 			}
 		}
 
-		switch field.Type.Kind() {
-		case reflect.String:
-			fs.StringVar(new(string), name, "", usage)
-			if shortName != "" {
-				fs.StringVar(new(string), shortName, "", usage)
-			}
-		case reflect.Int:
-			fs.IntVar(new(int), name, 0, usage)
-			if shortName != "" {
-				fs.IntVar(new(int), shortName, 0, usage)
-			}
-		case reflect.Bool:
-			fs.BoolVar(new(bool), name, false, usage)
-			if shortName != "" {
-				fs.BoolVar(new(bool), shortName, false, usage)
-			}
-		}
+		registerHelpFlag(fs, field.Type, name, shortName, usage)
 	}
 	fs.SetOutput(os.Stdout)
 	fs.PrintDefaults()

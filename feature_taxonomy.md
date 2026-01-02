@@ -70,7 +70,7 @@ Tests:
 - Repeated flags (Extended) | Status: Planned
 - Variadic positionals (Extended) | Status: Planned
 - Map-type args (Extended) | Status: Planned
-- Custom types via TextUnmarshaler (Extended) | Status: Planned
+- Custom types via TextUnmarshaler (Extended) | Status: Implemented
 
 Tests:
 

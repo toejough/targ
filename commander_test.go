@@ -257,6 +257,54 @@ func TestFunctionReturnsError(t *testing.T) {
 	}
 }
 
+type TextValue struct {
+	Value string
+}
+
+func (t *TextValue) UnmarshalText(text []byte) error {
+	t.Value = strings.ToUpper(string(text))
+	return nil
+}
+
+type SetterValue struct {
+	Value string
+}
+
+func (s *SetterValue) Set(value string) error {
+	s.Value = value + "!"
+	return nil
+}
+
+type CustomTypeArgs struct {
+	Name TextValue   `commander:"flag"`
+	Nick SetterValue `commander:"flag"`
+	Pos  TextValue   `commander:"positional"`
+}
+
+func (c *CustomTypeArgs) Run() {}
+
+func TestCustomTypesFromFlagsAndPositionals(t *testing.T) {
+	cmdStruct := &CustomTypeArgs{}
+	cmd, err := parseCommand(cmdStruct)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if err := cmd.execute([]string{"--name", "alice", "--nick", "bob", "pos"}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if cmdStruct.Name.Value != "ALICE" {
+		t.Fatalf("expected name to be set via UnmarshalText, got %q", cmdStruct.Name.Value)
+	}
+	if cmdStruct.Nick.Value != "bob!" {
+		t.Fatalf("expected nick to be set via Set, got %q", cmdStruct.Nick.Value)
+	}
+	if cmdStruct.Pos.Value != "POS" {
+		t.Fatalf("expected positional to be set via UnmarshalText, got %q", cmdStruct.Pos.Value)
+	}
+}
+
 type SubCmd struct {
 	Verbose bool
 	Called  bool
