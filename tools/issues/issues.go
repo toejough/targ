@@ -62,7 +62,7 @@ type MoveCmd struct {
 }
 
 func (c *MoveCmd) Run() error {
-	content, issues, err := loadIssues(c.File)
+	content, _, err := loadIssues(c.File)
 	if err != nil {
 		return err
 	}
