@@ -112,6 +112,54 @@ func Sub() {}
 	}
 }
 
+func TestDiscover_FunctionWrappersOverrideFuncs(t *testing.T) {
+	fsMock := MockFileSystem(t)
+	opts := Options{StartDir: "/root"}
+	done := make(chan struct{})
+	var (
+		infos []PackageInfo
+		err   error
+	)
+
+	go func() {
+		infos, err = Discover(fsMock.Interface(), opts)
+		close(done)
+	}()
+
+	fsMock.ReadDir.ExpectCalledWithExactly("/root").InjectReturnValues([]fs.DirEntry{
+		fakeDirEntry{name: "cmd.go", dir: false},
+		fakeDirEntry{name: "generated_commander_build.go", dir: false},
+	}, nil)
+	fsMock.ReadFile.ExpectCalledWithExactly("/root/cmd.go").InjectReturnValues([]byte(`//go:build commander
+
+package build
+
+func Build() {}
+`), nil)
+	fsMock.ReadFile.ExpectCalledWithExactly("/root/generated_commander_build.go").InjectReturnValues([]byte(`//go:build commander
+
+package build
+
+type BuildCommand struct{}
+`), nil)
+
+	<-done
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(infos) != 1 {
+		t.Fatalf("expected 1 package info, got %d", len(infos))
+	}
+	info := infos[0]
+	if len(info.Structs) != 1 || info.Structs[0] != "BuildCommand" {
+		t.Fatalf("expected structs [BuildCommand], got %v", info.Structs)
+	}
+	if len(info.Funcs) != 0 {
+		t.Fatalf("expected funcs to be empty, got %v", info.Funcs)
+	}
+}
+
 func TestDiscover_RejectsNonNiladicFunctions(t *testing.T) {
 	fsMock := MockFileSystem(t)
 	opts := Options{StartDir: "/root"}

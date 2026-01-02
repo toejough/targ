@@ -18,6 +18,7 @@ import (
 type FileSystem interface {
 	ReadDir(name string) ([]fs.DirEntry, error)
 	ReadFile(name string) ([]byte, error)
+	WriteFile(name string, data []byte, perm fs.FileMode) error
 }
 
 type OSFileSystem struct{}
@@ -30,10 +31,19 @@ func (OSFileSystem) ReadFile(name string) ([]byte, error) {
 	return os.ReadFile(name)
 }
 
+func (OSFileSystem) WriteFile(name string, data []byte, perm fs.FileMode) error {
+	return os.WriteFile(name, data, perm)
+}
+
 type Options struct {
 	StartDir        string
 	PackageGrouping bool
 	BuildTag        string
+}
+
+type TaggedDir struct {
+	Path  string
+	Depth int
 }
 
 type PackageInfo struct {
@@ -72,34 +82,9 @@ func Discover(fs FileSystem, opts Options) ([]PackageInfo, error) {
 	if err != nil {
 		return nil, err
 	}
-	if len(dirs) == 0 {
-		return nil, ErrNoTaggedFiles
-	}
-
-	selected := dirs
-	if !opts.PackageGrouping {
-		minDepth := dirs[0].Depth
-		for _, dir := range dirs[1:] {
-			if dir.Depth < minDepth {
-				minDepth = dir.Depth
-			}
-		}
-
-		selected = []taggedDir{}
-		for _, dir := range dirs {
-			if dir.Depth == minDepth {
-				selected = append(selected, dir)
-			}
-		}
-
-		if len(selected) > 1 {
-			paths := make([]string, 0, len(selected))
-			for _, dir := range selected {
-				paths = append(paths, dir.Path)
-			}
-			sort.Strings(paths)
-			return nil, fmt.Errorf("multiple tagged directories at depth %d: %s", minDepth, strings.Join(paths, ", "))
-		}
+	selected, err := selectTaggedDirs(dirs, opts.PackageGrouping)
+	if err != nil {
+		return nil, err
 	}
 
 	var infos []PackageInfo
@@ -117,6 +102,66 @@ func Discover(fs FileSystem, opts Options) ([]PackageInfo, error) {
 	}
 
 	return infos, nil
+}
+
+func SelectTaggedDirs(fs FileSystem, opts Options) ([]TaggedDir, error) {
+	startDir := opts.StartDir
+	if startDir == "" {
+		startDir = "."
+	}
+	tag := opts.BuildTag
+	if tag == "" {
+		tag = "commander"
+	}
+
+	dirs, err := findTaggedDirs(fs, startDir, tag)
+	if err != nil {
+		return nil, err
+	}
+	selected, err := selectTaggedDirs(dirs, opts.PackageGrouping)
+	if err != nil {
+		return nil, err
+	}
+
+	paths := make([]TaggedDir, 0, len(selected))
+	for _, dir := range selected {
+		paths = append(paths, TaggedDir{Path: dir.Path, Depth: dir.Depth})
+	}
+	return paths, nil
+}
+
+func selectTaggedDirs(dirs []taggedDir, packageGrouping bool) ([]taggedDir, error) {
+	if len(dirs) == 0 {
+		return nil, ErrNoTaggedFiles
+	}
+	if packageGrouping {
+		return dirs, nil
+	}
+
+	minDepth := dirs[0].Depth
+	for _, dir := range dirs[1:] {
+		if dir.Depth < minDepth {
+			minDepth = dir.Depth
+		}
+	}
+
+	selected := []taggedDir{}
+	for _, dir := range dirs {
+		if dir.Depth == minDepth {
+			selected = append(selected, dir)
+		}
+	}
+
+	if len(selected) > 1 {
+		paths := make([]string, 0, len(selected))
+		for _, dir := range selected {
+			paths = append(paths, dir.Path)
+		}
+		sort.Strings(paths)
+		return nil, fmt.Errorf("multiple tagged directories at depth %d: %s", minDepth, strings.Join(paths, ", "))
+	}
+
+	return selected, nil
 }
 
 func findTaggedDirs(fs FileSystem, startDir string, tag string) ([]taggedDir, error) {
@@ -248,6 +293,27 @@ func parsePackageInfo(dir taggedDir) (PackageInfo, error) {
 
 	structList := filterStructs(structs, subcommandTypes)
 	funcList := filterCommands(funcs, subcommandNames)
+
+	if len(structList) > 0 && len(funcList) > 0 {
+		wrapped := make(map[string]bool)
+		for _, name := range structList {
+			if strings.HasSuffix(name, "Command") {
+				base := strings.TrimSuffix(name, "Command")
+				if base != "" {
+					wrapped[base] = true
+				}
+			}
+		}
+		if len(wrapped) > 0 {
+			filtered := make([]string, 0, len(funcList))
+			for _, name := range funcList {
+				if !wrapped[name] {
+					filtered = append(filtered, name)
+				}
+			}
+			funcList = filtered
+		}
+	}
 
 	seen := make(map[string]string)
 	for _, name := range structList {
