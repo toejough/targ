@@ -1,5 +1,6 @@
 //go:build commander
 
+// Package issues provides issue list tooling for commander.
 package issues
 
 import (
@@ -12,12 +13,20 @@ import (
 	"commander/internal/issuefile"
 )
 
-type Root struct {
+type Issues struct {
 	List     *ListCmd     `commander:"subcommand"`
 	Move     *MoveCmd     `commander:"subcommand"`
 	Dedupe   *DedupeCmd   `commander:"subcommand"`
 	Validate *ValidateCmd `commander:"subcommand"`
 	Create   *CreateCmd   `commander:"subcommand"`
+}
+
+func (i *Issues) CommandName() string {
+	return "issues"
+}
+
+func (i *Issues) Description() string {
+	return "Issue list tooling for this repo."
 }
 
 type ListCmd struct {
@@ -189,6 +198,10 @@ func (c *CreateCmd) Run() error {
 		return err
 	}
 	return writeIssues(c.File, content.Lines)
+}
+
+func (i *Issues) Run() {
+	fmt.Println("Use a subcommand: list, move, dedupe, validate, create")
 }
 
 func loadIssues(path string) (*issuefile.File, []issuefile.Issue, error) {
