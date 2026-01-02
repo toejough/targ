@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"unicode"
 )
@@ -264,6 +265,7 @@ func parsePackageInfo(dir taggedDir) (PackageInfo, error) {
 			return PackageInfo{}, fmt.Errorf("multiple package names in %s", dir.Path)
 		}
 
+		ctxAliases, ctxDotImport := contextImportInfo(parsed.Imports)
 		for _, decl := range parsed.Decls {
 			switch node := decl.(type) {
 			case *ast.GenDecl:
@@ -283,7 +285,7 @@ func parsePackageInfo(dir taggedDir) (PackageInfo, error) {
 				if node.Recv != nil || !node.Name.IsExported() {
 					continue
 				}
-				if err := validateFunctionSignature(node.Type); err != nil {
+				if err := validateFunctionSignature(node.Type, ctxAliases, ctxDotImport); err != nil {
 					return PackageInfo{}, fmt.Errorf("function %s %v", node.Name.Name, err)
 				}
 				funcs[node.Name.Name] = true
@@ -335,9 +337,16 @@ func parsePackageInfo(dir taggedDir) (PackageInfo, error) {
 	}, nil
 }
 
-func validateFunctionSignature(fnType *ast.FuncType) error {
-	if fnType.Params != nil && len(fnType.Params.List) > 0 {
-		return fmt.Errorf("must be niladic")
+func validateFunctionSignature(fnType *ast.FuncType, ctxAliases map[string]bool, ctxDotImport bool) error {
+	paramCount := 0
+	if fnType.Params != nil {
+		paramCount = len(fnType.Params.List)
+	}
+	if paramCount > 1 {
+		return fmt.Errorf("must be niladic or accept context")
+	}
+	if paramCount == 1 && !funcParamIsContext(fnType.Params.List[0].Type, ctxAliases, ctxDotImport) {
+		return fmt.Errorf("must accept context.Context")
 	}
 	if fnType.Results == nil || len(fnType.Results.List) == 0 {
 		return nil
@@ -346,6 +355,44 @@ func validateFunctionSignature(fnType *ast.FuncType) error {
 		return nil
 	}
 	return fmt.Errorf("must return only error")
+}
+
+func contextImportInfo(imports []*ast.ImportSpec) (map[string]bool, bool) {
+	aliases := map[string]bool{}
+	dotImport := false
+	for _, spec := range imports {
+		path, err := strconv.Unquote(spec.Path.Value)
+		if err != nil || path != "context" {
+			continue
+		}
+		if spec.Name != nil {
+			if spec.Name.Name == "." {
+				dotImport = true
+				continue
+			}
+			if spec.Name.Name == "_" {
+				continue
+			}
+			aliases[spec.Name.Name] = true
+			continue
+		}
+		aliases["context"] = true
+	}
+	return aliases, dotImport
+}
+
+func funcParamIsContext(expr ast.Expr, ctxAliases map[string]bool, ctxDotImport bool) bool {
+	switch t := expr.(type) {
+	case *ast.SelectorExpr:
+		if ident, ok := t.X.(*ast.Ident); ok && t.Sel != nil && t.Sel.Name == "Context" {
+			return ctxAliases[ident.Name]
+		}
+	case *ast.Ident:
+		if ctxDotImport && t.Name == "Context" {
+			return true
+		}
+	}
+	return false
 }
 
 func isErrorExpr(expr ast.Expr) bool {

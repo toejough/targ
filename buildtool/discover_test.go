@@ -241,6 +241,42 @@ func Fail() error { return nil }
 	}
 }
 
+func TestDiscover_AllowsContextFunctions(t *testing.T) {
+	fsMock := MockFileSystem(t)
+	opts := Options{StartDir: "/root"}
+	done := make(chan struct{})
+	var (
+		infos []PackageInfo
+		err   error
+	)
+
+	go func() {
+		infos, err = Discover(fsMock.Interface(), opts)
+		close(done)
+	}()
+
+	fsMock.ReadDir.ExpectCalledWithExactly("/root").InjectReturnValues([]fs.DirEntry{
+		fakeDirEntry{name: "cmd.go", dir: false},
+	}, nil)
+	fsMock.ReadFile.ExpectCalledWithExactly("/root/cmd.go").InjectReturnValues([]byte(`//go:build commander
+
+package build
+
+import "context"
+
+func Run(ctx context.Context) {}
+`), nil)
+
+	<-done
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(infos) != 1 || len(infos[0].Funcs) != 1 || infos[0].Funcs[0] != "Run" {
+		t.Fatalf("unexpected funcs: %v", infos)
+	}
+}
+
 func TestDiscover_RejectsNonErrorReturnFunctions(t *testing.T) {
 	fsMock := MockFileSystem(t)
 	opts := Options{StartDir: "/root"}

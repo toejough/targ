@@ -24,6 +24,7 @@ type functionDoc struct {
 	Name         string
 	Description  string
 	ReturnsError bool
+	UsesContext  bool
 }
 
 func GenerateFunctionWrappers(filesystem FileSystem, opts GenerateOptions) (string, error) {
@@ -50,6 +51,7 @@ func GenerateFunctionWrappers(filesystem FileSystem, opts GenerateOptions) (stri
 	typeNames := make(map[string]bool)
 	subcommandNames := make(map[string]bool)
 	var parsedFiles int
+	needsContextImport := false
 
 	for _, entry := range entries {
 		if entry.IsDir() {
@@ -83,6 +85,7 @@ func GenerateFunctionWrappers(filesystem FileSystem, opts GenerateOptions) (stri
 			return "", fmt.Errorf("multiple package names in %s", dir)
 		}
 
+		ctxAliases, ctxDotImport := contextImportInfo(parsed.Imports)
 		for _, decl := range parsed.Decls {
 			switch node := decl.(type) {
 			case *ast.GenDecl:
@@ -102,17 +105,25 @@ func GenerateFunctionWrappers(filesystem FileSystem, opts GenerateOptions) (stri
 				if node.Recv != nil || !node.Name.IsExported() {
 					continue
 				}
-				if err := validateFunctionSignature(node.Type); err != nil {
+				if err := validateFunctionSignature(node.Type, ctxAliases, ctxDotImport); err != nil {
 					return "", fmt.Errorf("function %s %v", node.Name.Name, err)
 				}
 				desc := ""
 				if node.Doc != nil {
 					desc = strings.TrimSpace(node.Doc.Text())
 				}
+				usesContext := false
+				if node.Type.Params != nil && len(node.Type.Params.List) == 1 {
+					usesContext = funcParamIsContext(node.Type.Params.List[0].Type, ctxAliases, ctxDotImport)
+				}
+				if usesContext {
+					needsContextImport = true
+				}
 				functions[node.Name.Name] = functionDoc{
 					Name:         node.Name.Name,
 					Description:  desc,
 					ReturnsError: functionReturnsError(node.Type),
+					UsesContext:  usesContext,
 				}
 			}
 		}
@@ -156,6 +167,9 @@ func GenerateFunctionWrappers(filesystem FileSystem, opts GenerateOptions) (stri
 	buf.WriteString("package ")
 	buf.WriteString(packageName)
 	buf.WriteString("\n\n")
+	if needsContextImport {
+		buf.WriteString("import \"context\"\n\n")
+	}
 
 	for idx, name := range functionNames {
 		if idx > 0 {
@@ -170,7 +184,11 @@ func GenerateFunctionWrappers(filesystem FileSystem, opts GenerateOptions) (stri
 
 		buf.WriteString("func (c *")
 		buf.WriteString(wrapperName)
-		buf.WriteString(") Run()")
+		buf.WriteString(") Run(")
+		if fn.UsesContext {
+			buf.WriteString("ctx context.Context")
+		}
+		buf.WriteString(")")
 		if fn.ReturnsError {
 			buf.WriteString(" error")
 		}
@@ -178,11 +196,19 @@ func GenerateFunctionWrappers(filesystem FileSystem, opts GenerateOptions) (stri
 		if fn.ReturnsError {
 			buf.WriteString("\treturn ")
 			buf.WriteString(name)
-			buf.WriteString("()\n")
+			buf.WriteString("(")
+			if fn.UsesContext {
+				buf.WriteString("ctx")
+			}
+			buf.WriteString(")\n")
 		} else {
 			buf.WriteString("\t")
 			buf.WriteString(name)
-			buf.WriteString("()\n")
+			buf.WriteString("(")
+			if fn.UsesContext {
+				buf.WriteString("ctx")
+			}
+			buf.WriteString(")\n")
 		}
 		buf.WriteString("}\n\n")
 
