@@ -33,24 +33,6 @@ High
 **Acceptance**
 Expose `sh.Run`, `sh.Output`, and `sh.RunV` plus basic cross-platform helpers.
 
-### 3. Dependency Management (Once)
-
-#### Universal
-
-**Status**
-backlog
-
-**Description**
-Allow targets to declare dependencies that run exactly once per execution graph.
-
-#### Planning
-
-**Priority**
-Medium
-
-**Acceptance**
-Add `commander.Deps` (or equivalent) to coordinate run-once dependencies.
-
 ### 4. File Modification Checks (target)
 
 #### Universal
@@ -441,6 +423,22 @@ Add tag-based default values (e.g. `default="value"`).
 **Details**
 - Defaults now come exclusively from `default=...` tags.
 - Passing non-zero command structs to `Run` returns a clear error.
+
+### 3. Dependency Management (Once)
+
+#### Universal
+
+**Status**
+done
+
+**Description**
+Allow targets to declare dependencies that run exactly once per execution graph.
+
+#### Implementation Notes
+
+**Details**
+- Added `commander.Deps` to run dependencies once per CLI execution.
+- Dependencies can be functions or struct command instances.
 
 ### 5. Error Return Support
 

@@ -117,7 +117,7 @@ Tests:
 ## Category: Multi-Command & Build-Tool Features (Build)
 
 - Multiple commands in one invocation (Build) | Status: Planned
-- Dependencies (run-once) (Build) | Status: Planned
+- Dependencies (run-once) (Build) | Status: Implemented
 - Parallel execution (Build) | Status: Planned
 - File modification checks (Build) | Status: Planned
 - Checksum-based caching (Build) | Status: Planned

@@ -207,6 +207,16 @@ This writes `generated_commander_<pkg>.go`, which defines a struct per function 
 
 Defaults only come from `default=...` tags. Passing non-zero values in the struct you give to `commander.Run` will return an error.
 
+## Dependencies
+
+Use `commander.Deps` to run command dependencies exactly once per invocation:
+
+```go
+func Build() error {
+    return commander.Deps(Test, Lint)
+}
+```
+
 ## Shell Helpers
 
 Use `commander/sh` for simple shell execution helpers:
