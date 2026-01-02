@@ -17,7 +17,7 @@
 - [x] **Root Command**: `Run(structs...)`.
 - [x] **Subcommands**: Struct fields as subcommands (Architecture Pivot).
 - [x] **Name Normalization**: CamelCase to kebab-case.
-- [x] **CLI Mode**: Mage-style execution without main function.
+- [x] **Build Tool Mode**: Mage-style execution without main function.
 
 ## Phase 4: Polish & Advanced Features (Done)
 - [x] **Shell Completion**: Bash/Zsh/Fish completion integration.

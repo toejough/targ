@@ -7,7 +7,7 @@ Commander is a Go library for building CLIs with minimal configuration, combinin
 - **Automatic Discovery**: Define commands as structs with a `Run` method.
 - **Struct-based Arguments**: Define flags and arguments using struct tags.
 - **Subcommands**: Use struct fields to create subcommands.
-- **CLI Runner**: Run a folder of commands without writing a `main` function (Mage-style).
+- **Build Tool Mode**: Run a folder of commands without writing a `main` function (Mage-style).
 
 ## Usage
 
@@ -44,7 +44,7 @@ $ your-binary --name Alice
 
 If you register multiple roots, you select a command name first (e.g. `your-binary greet --name Alice`).
 
-### 2. CLI Mode (Mage-style)
+### 2. Build Tool Mode (Mage-style)
 
 Create a `command.go` file (name doesn't matter) in a directory. DO NOT define a `main` function.
 

@@ -21,9 +21,9 @@ This repository contains the `commander` library, a Go toolkit for building CLIs
 - **Subcommands**: Field on a struct with `commander:"subcommand"` tag.
 - **Arguments**: Fields on the struct with tags (`commander:"flag"`, `commander:"positional"`).
 
-### CLI Mode
+### Build Tool Mode
 - Users can run `commander` in a directory to auto-discover exported structs in `package main`.
-- The CLI tool generates a bootstrap `main.go` that calls `DetectRootCommands`.
+- The build tool generates a bootstrap `main.go` that calls `DetectRootCommands`.
 
 ### Example
 ```go
