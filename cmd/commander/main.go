@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"text/template"
 
@@ -27,6 +28,7 @@ type bootstrapPackage struct {
 	TypeName   string
 	VarName    string
 	Commands   []bootstrapCommand
+	DescLit    string
 }
 
 type bootstrapImport struct {
@@ -53,7 +55,8 @@ func main() {
 	var packageGrouping bool
 
 	fs := flag.NewFlagSet("commander", flag.ContinueOnError)
-	fs.BoolVar(&packageGrouping, "package", false, "group commands under package name")
+	fs.BoolVar(&packageGrouping, "package", false, "group commands under package name (recursive package-scoped discovery)")
+	fs.BoolVar(&packageGrouping, "p", false, "alias for --package")
 	fs.SetOutput(os.Stdout)
 	if err := fs.Parse(os.Args[1:]); err != nil {
 		os.Exit(1)
@@ -272,6 +275,7 @@ func buildBootstrapData(
 			TypeName:   exportTypeName(info.Package),
 			VarName:    lowerFirst(exportTypeName(info.Package)),
 			Commands:   commands,
+			DescLit:    strconv.Quote(packageDescription(info.Doc, info.Dir)),
 		}
 		packages = append(packages, pkg)
 
@@ -331,6 +335,15 @@ func lowerFirst(name string) string {
 	return strings.ToLower(name[:1]) + name[1:]
 }
 
+func packageDescription(doc string, dir string) string {
+	doc = strings.TrimSpace(doc)
+	pathLine := fmt.Sprintf("Path: %s", dir)
+	if doc == "" {
+		return pathLine
+	}
+	return doc + "\n" + pathLine
+}
+
 const bootstrapTemplate = `
 package main
 
@@ -351,6 +364,10 @@ type {{ .TypeName }} struct {
 {{- range .Commands }}
 	{{ .Name }} {{ .TypeExpr }} ` + "`commander:\"subcommand\"`" + `
 {{- end }}
+}
+
+func (p *{{ .TypeName }}) Description() string {
+	return {{ .DescLit }}
 }
 {{- end }}
 {{- end }}

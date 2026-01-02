@@ -50,6 +50,7 @@ type TaggedDir struct {
 type PackageInfo struct {
 	Dir     string
 	Package string
+	Doc     string
 	Structs []string
 	Funcs   []string
 }
@@ -249,6 +250,7 @@ func hasBuildTag(content []byte, tag string) bool {
 func parsePackageInfo(dir taggedDir) (PackageInfo, error) {
 	fset := token.NewFileSet()
 	packageName := ""
+	packageDoc := ""
 	structs := make(map[string]bool)
 	funcs := make(map[string]bool)
 	subcommandNames := make(map[string]bool)
@@ -261,6 +263,9 @@ func parsePackageInfo(dir taggedDir) (PackageInfo, error) {
 		}
 		if packageName == "" {
 			packageName = parsed.Name.Name
+			if parsed.Doc != nil {
+				packageDoc = strings.TrimSpace(parsed.Doc.Text())
+			}
 		} else if packageName != parsed.Name.Name {
 			return PackageInfo{}, fmt.Errorf("multiple package names in %s", dir.Path)
 		}
@@ -332,6 +337,7 @@ func parsePackageInfo(dir taggedDir) (PackageInfo, error) {
 	return PackageInfo{
 		Dir:     dir.Path,
 		Package: packageName,
+		Doc:     packageDoc,
 		Structs: structList,
 		Funcs:   funcList,
 	}, nil
