@@ -114,6 +114,10 @@ func doCompletion(roots []*CommandNode, commandLine string) {
 }
 
 func suggestFlags(node *CommandNode, prefix string) {
+	if node.Type == nil {
+		return
+	}
+
 	typ := node.Type
 	for i := 0; i < typ.NumField(); i++ {
 		field := typ.Field(i)

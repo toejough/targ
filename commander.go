@@ -5,109 +5,24 @@ import (
 	"fmt"
 	"os"
 	"reflect"
+	"sort"
 	"strings"
 	"unicode"
-	"sort"
 )
 
 // Run executes the CLI.
 func Run(targets ...interface{}) {
-	roots := []*CommandNode{}
-	for _, t := range targets {
-		node, err := parseStruct(t)
-		if err != nil {
-			fmt.Printf("Error parsing target: %v\n", err)
-			continue
-		}
-		roots = append(roots, node)
-	}
+	RunWithOptions(RunOptions{AllowDefault: true}, targets...)
+}
 
-	if len(roots) == 0 {
-		fmt.Println("No commands found.")
-		return
-	}
+// RunOptions controls runtime behavior for RunWithOptions.
+type RunOptions struct {
+	AllowDefault bool
+}
 
-	singleRoot := len(roots) == 1
-
-	if len(os.Args) < 2 {
-		if singleRoot {
-			if err := roots[0].execute(nil); err != nil {
-				fmt.Printf("Error: %v\n", err)
-				os.Exit(1)
-			}
-			return
-		}
-		printUsage(roots)
-		return
-	}
-
-	args := os.Args[1:]
-
-	// 1. Check for completion script generation
-	if args[0] == "completion" {
-		if len(args) < 2 {
-			fmt.Println("Usage: completion [bash|zsh|fish]")
-			return
-		}
-		binName := os.Args[0]
-		// Determine binary name from path
-		if idx := strings.LastIndex(binName, "/"); idx != -1 {
-			binName = binName[idx+1:]
-		}
-		if idx := strings.LastIndex(binName, "\\"); idx != -1 {
-			binName = binName[idx+1:]
-		}
-		generateCompletionScript(args[1], binName)
-		return
-	}
-
-	// 2. Check for runtime completion request (Hidden command)
-	if args[0] == "__complete" {
-		// usage: __complete "entire command line"
-		if len(args) > 1 {
-			doCompletion(roots, args[1])
-		}
-		return
-	}
-
-	// Handle global help
-	if args[0] == "-h" || args[0] == "--help" {
-		if singleRoot {
-			printCommandHelp(roots[0])
-		} else {
-			printUsage(roots)
-		}
-		return
-	}
-
-	if singleRoot {
-		if err := roots[0].execute(args); err != nil {
-			fmt.Printf("Error: %v\n", err)
-			os.Exit(1)
-		}
-		return
-	}
-
-	// Find matching root
-	var matched *CommandNode
-	for _, root := range roots {
-		if strings.EqualFold(root.Name, args[0]) {
-			matched = root
-			break
-		}
-	}
-
-	if matched == nil {
-		fmt.Printf("Unknown command: %s\n", args[0])
-		printUsage(roots)
-		os.Exit(1)
-	}
-
-	// Execute the matched root
-	if err := matched.execute(args[1:]); err != nil {
-		fmt.Printf("Error: %v\n", err)
-		os.Exit(1)
-	}
+// RunWithOptions executes the CLI with configurable behavior.
+func RunWithOptions(opts RunOptions, targets ...interface{}) {
+	runWithEnv(osRunEnv{}, opts, targets...)
 }
 
 func printUsage(nodes []*CommandNode) {
@@ -140,6 +55,7 @@ type CommandNode struct {
 	Name        string
 	Type        reflect.Type
 	Value       reflect.Value // The struct instance
+	Func        reflect.Value // Niladic function target
 	Subcommands map[string]*CommandNode
 	RunMethod   reflect.Value
 	Description string
@@ -148,7 +64,7 @@ type CommandNode struct {
 func parseStruct(t interface{}) (*CommandNode, error) {
 	v := reflect.ValueOf(t)
 	typ := v.Type()
-	
+
 	// Handle pointer
 	if typ.Kind() == reflect.Ptr {
 		typ = typ.Elem()
@@ -160,7 +76,7 @@ func parseStruct(t interface{}) (*CommandNode, error) {
 	}
 
 	name := camelToKebab(typ.Name())
-	
+
 	node := &CommandNode{
 		Name:        name,
 		Type:        typ,
@@ -188,27 +104,35 @@ func parseStruct(t interface{}) (*CommandNode, error) {
 		if strings.Contains(tag, "subcommand") {
 			// This field is a subcommand
 			// Recurse
-			
-			// We need an instance of the field type to parse it?
-			// `parseStruct` expects interface value.
-			// We can create a zero value.
-			
+
 			fieldType := field.Type
-			// If pointer, get elem
 			if fieldType.Kind() == reflect.Ptr {
 				fieldType = fieldType.Elem()
 			}
-			
-			zeroVal := reflect.New(fieldType).Interface() // This is *Struct
-			subNode, err := parseStruct(zeroVal)
-			if err != nil {
-				return nil, err
+
+			var subNode *CommandNode
+			if fieldType.Kind() == reflect.Func {
+				if err := validateNiladicFuncType(field.Type); err != nil {
+					return nil, err
+				}
+				subNode = &CommandNode{
+					Func:        reflect.Zero(field.Type),
+					Subcommands: make(map[string]*CommandNode),
+				}
+			} else {
+				// We need an instance of the field type to parse it.
+				zeroVal := reflect.New(fieldType).Interface() // This is *Struct
+				var err error
+				subNode, err = parseStruct(zeroVal)
+				if err != nil {
+					return nil, err
+				}
 			}
-			
+
 			// Override name based on field or tag
 			// The node comes with a default name based on its Type, but the Field name usually takes precedence
 			// unless the tag explicitly sets a name.
-			
+
 			nameOverride := ""
 			parts := strings.Split(tag, ",")
 			for _, p := range parts {
@@ -219,13 +143,13 @@ func parseStruct(t interface{}) (*CommandNode, error) {
 					nameOverride = strings.TrimPrefix(p, "subcommand=")
 				}
 			}
-			
+
 			if nameOverride != "" {
 				subNode.Name = nameOverride
 			} else {
 				subNode.Name = camelToKebab(field.Name)
 			}
-			
+
 			node.Subcommands[subNode.Name] = subNode
 		}
 	}
@@ -237,6 +161,24 @@ func parseStruct(t interface{}) (*CommandNode, error) {
 }
 
 func (n *CommandNode) execute(args []string) error {
+	if n.Func.IsValid() {
+		if n.Func.Kind() == reflect.Func && n.Func.IsNil() {
+			return fmt.Errorf("command %s function is nil", n.Name)
+		}
+		if len(args) > 0 {
+			if args[0] == "-h" || args[0] == "--help" {
+				printCommandHelp(n)
+				return nil
+			}
+			return fmt.Errorf("unknown arguments: %v", args)
+		}
+		if n.Func.Type().NumIn() != 0 || n.Func.Type().NumOut() != 0 {
+			return fmt.Errorf("command %s function must be niladic", n.Name)
+		}
+		n.Func.Call(nil)
+		return nil
+	}
+
 	// 1. Use existing value if possible, otherwise create new
 	var inst reflect.Value
 	if n.Value.IsValid() && n.Value.CanAddr() {
@@ -245,17 +187,17 @@ func (n *CommandNode) execute(args []string) error {
 		// Create new pointer to make it addressable
 		instPtr := reflect.New(n.Type)
 		inst = instPtr.Elem()
-		
+
 		// Copy existing value if we have one
 		if n.Value.IsValid() {
 			inst.Set(n.Value)
 		}
 	}
-	
+
 	// 2. Parse flags for THIS level
 	fs := flag.NewFlagSet(n.Name, flag.ContinueOnError)
 	fs.Usage = func() { printCommandHelp(n) }
-	
+
 	// Map fields to flags
 	for i := 0; i < n.Type.NumField(); i++ {
 		field := n.Type.Field(i)
@@ -263,12 +205,12 @@ func (n *CommandNode) execute(args []string) error {
 		if strings.Contains(tag, "subcommand") {
 			continue
 		}
-		
+
 		name := strings.ToLower(field.Name)
 		usage := ""
 		defaultValue := ""
 		shortName := ""
-		
+
 		if tag != "" {
 			parts := strings.Split(tag, ",")
 			for _, p := range parts {
@@ -287,11 +229,11 @@ func (n *CommandNode) execute(args []string) error {
 			}
 		}
 
-		// Apply default from env if not zero? 
+		// Apply default from env if not zero?
 		// Actually flag sets default.
-		
+
 		fieldVal := inst.Field(i)
-		
+
 		switch field.Type.Kind() {
 		case reflect.String:
 			fs.StringVar(fieldVal.Addr().Interface().(*string), name, defaultValue, usage)
@@ -319,37 +261,37 @@ func (n *CommandNode) execute(args []string) error {
 			}
 		}
 	}
-	
+
 	if err := fs.Parse(args); err != nil {
 		if err == flag.ErrHelp {
-			// printCommandHelp(n) // We call printCommandHelp manually later if we want custom format, 
+			// printCommandHelp(n) // We call printCommandHelp manually later if we want custom format,
 			// but flag package prints its own help before returning ErrHelp.
 			// To suppress flag package help, we need to set Usage to empty func?
-			
+
 			// Actually fs.Parse prints usage to stderr by default.
 			// We can override Usage.
 			return nil
 		}
 		return err
 	}
-	
+
 	// Check required (simple check)
 	// We'd need to track which were set. `flag` package doesn't make this easy without `Visit`.
 	// Skipping precise required check for brevity in this iteration, but keeping logic structure.
-	
+
 	remaining := fs.Args()
-	
+
 	// 3. Check for subcommands in remaining args
 	if len(remaining) > 0 {
 		subName := remaining[0]
 		// fmt.Printf("Debug: searching for '%s' in %v\n", subName, n.Subcommands)
 		if sub, ok := n.Subcommands[subName]; ok {
-			// Found subcommand. 
+			// Found subcommand.
 			// We need to populate the field in `inst` with the subcommand instance?
 			// `sub` is a CommandNode. It has `Value` which is the zero value created in parsing.
 			// When `sub.execute` runs, it will populate `sub.Value`.
 			// We should assign `sub.Value` (pointer?) to the field in `inst`.
-			
+
 			// Find the field for this subcommand
 			// Note: We need to check for name override in tag here too to match subName
 			for i := 0; i < n.Type.NumField(); i++ {
@@ -367,21 +309,24 @@ func (n *CommandNode) execute(args []string) error {
 							name = strings.TrimPrefix(p, "subcommand=")
 						}
 					}
-					
+
 					if name == subName {
 						// Assign sub.Value to this field.
-						if sub.Value.CanAddr() {
-							inst.Field(i).Set(sub.Value.Addr())
+						fieldVal := inst.Field(i)
+						if fieldVal.Kind() == reflect.Func {
+							sub.Func = fieldVal
+						} else if sub.Value.CanAddr() {
+							fieldVal.Set(sub.Value.Addr())
 						}
 						break
 					}
 				}
 			}
-			
+
 			return sub.execute(remaining[1:])
 		}
 	}
-	
+
 	// 4. Handle Positional Args
 	posArgIdx := 0
 	for i := 0; i < n.Type.NumField(); i++ {
@@ -392,7 +337,7 @@ func (n *CommandNode) execute(args []string) error {
 				break
 			}
 			val := remaining[posArgIdx]
-			
+
 			fVal := inst.Field(i)
 			switch fVal.Kind() {
 			case reflect.String:
@@ -411,14 +356,14 @@ func (n *CommandNode) execute(args []string) error {
 	// inst is addressable.
 	method := inst.Addr().MethodByName("Run")
 	if method.IsValid() {
-		// Check for -h / --help in remaining args? 
+		// Check for -h / --help in remaining args?
 		// Actually Run handles args? No, Run is niladic.
 		// If there are remaining args and Run is niladic, we might warn or error?
 		// Unless they are positionals we already parsed.
 		// Flags were parsed. Subcommands were checked. Positional args were consumed.
 		// So `remaining` here should be empty if everything was consumed.
 		// If not empty, user provided extra args.
-		
+
 		// Wait, `posArgIdx` tracks consumed positionals.
 		// If `posArgIdx < len(remaining)`, we have unconsumed args.
 		if posArgIdx < len(remaining) {
@@ -435,20 +380,28 @@ func (n *CommandNode) execute(args []string) error {
 			return nil
 		}
 	}
-	
+
 	if len(n.Subcommands) > 0 {
 		// Just list subcommands if we didn't run anything
 		// Use the new help format
 		printCommandHelp(n)
 		return nil
 	}
-	
+
 	return fmt.Errorf("command %s is not runnable (no Run method)", n.Name)
 }
 
 func printCommandHelp(node *CommandNode) {
+	if node.Type == nil {
+		fmt.Printf("Usage: %s\n\n", node.Name)
+		if node.Description != "" {
+			fmt.Println(node.Description)
+		}
+		return
+	}
+
 	fmt.Printf("Usage: %s [flags] [subcommand]\n\n", node.Name)
-	
+
 	// If description is empty, try to fetch it if we haven't already
 	if node.Description == "" && node.RunMethod.IsValid() {
 		// Wait, we only have RunMethod marker if parsing succeeded.
@@ -463,7 +416,7 @@ func printCommandHelp(node *CommandNode) {
 		fmt.Println(node.Description)
 		fmt.Println()
 	}
-	
+
 	if len(node.Subcommands) > 0 {
 		fmt.Println("Subcommands:")
 		for name, sub := range node.Subcommands {
@@ -471,17 +424,17 @@ func printCommandHelp(node *CommandNode) {
 		}
 		fmt.Println()
 	}
-	
+
 	fmt.Println("Flags:")
 	// Re-inspect flags to print help
-	// We need to instantiate a flagset to use its PrintDefaults? 
+	// We need to instantiate a flagset to use its PrintDefaults?
 	// Or we can manually iterate fields like we do for completion/parsing.
 	fs := flag.NewFlagSet(node.Name, flag.ContinueOnError)
 	// We need to bind them to dummy vars to register them
 	// This duplicates logic from execute.
 	// For now, let's just use the same logic as execute to populate the flagset, then PrintDefaults.
 	// But `inst` is not available here. We need a zero value.
-	
+
 	// inst := reflect.New(node.Type).Elem()
 	for i := 0; i < node.Type.NumField(); i++ {
 		field := node.Type.Field(i)
@@ -489,11 +442,11 @@ func printCommandHelp(node *CommandNode) {
 		if strings.Contains(tag, "subcommand") {
 			continue
 		}
-		
+
 		name := strings.ToLower(field.Name)
 		usage := ""
 		shortName := ""
-		
+
 		if tag != "" {
 			parts := strings.Split(tag, ",")
 			for _, p := range parts {
@@ -511,7 +464,7 @@ func printCommandHelp(node *CommandNode) {
 				}
 			}
 		}
-		
+
 		switch field.Type.Kind() {
 		case reflect.String:
 			fs.StringVar(new(string), name, "", usage)
