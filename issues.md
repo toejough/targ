@@ -18,24 +18,6 @@ A simple md issue tracker.
 
 Issues to choose from for future work.
 
-### 4. File Modification Checks (target)
-
-#### Universal
-
-**Status**
-backlog
-
-**Description**
-Provide helpers for skipping work when outputs are newer than inputs.
-
-#### Planning
-
-**Priority**
-Medium
-
-**Acceptance**
-Add `commander.Newer(src, dst)` or equivalent timestamp checks.
-
 ### 8. Persistent Flags & Lifecycle Hooks
 
 #### Universal
@@ -93,24 +75,6 @@ Low
 
 **Acceptance**
 Support placeholder tag affecting help text.
-
-### 13. Watch Mode
-
-#### Universal
-
-**Status**
-backlog
-
-**Description**
-Watch files and re-run commands on changes.
-
-#### Planning
-
-**Priority**
-Medium
-
-**Acceptance**
-Implement `commander.Watch` with cancellation and globbing support.
 
 ### 14. Parallel Execution
 
@@ -414,6 +378,36 @@ Allow targets to declare dependencies that run exactly once per execution graph.
 **Details**
 - Added `commander.Deps` to run dependencies once per CLI execution.
 - Dependencies can be functions or struct command instances.
+
+### 4. File Modification Checks (target)
+
+#### Universal
+
+**Status**
+done
+
+**Description**
+Provide helpers for skipping work when outputs are newer than inputs.
+
+#### Implementation Notes
+
+**Details**
+- Added `commander.Newer` with tag/glob matching and XDG-backed cache when outputs are omitted.
+
+### 13. Watch Mode
+
+#### Universal
+
+**Status**
+done
+
+**Description**
+Watch files and re-run commands on changes.
+
+#### Implementation Notes
+
+**Details**
+- Added `commander.Watch` with polling, glob matching, and add/remove/modify detection.
 
 ### 5. Error Return Support
 

@@ -217,6 +217,32 @@ func Build() error {
 }
 ```
 
+## File Checks
+
+Use `commander.Newer` to check inputs against outputs (or an implicit cache when outputs are empty):
+
+```go
+needs, err := commander.Newer([]string{"**/*.go"}, []string{"bin/app"})
+if err != nil {
+    return err
+}
+if !needs {
+    return nil
+}
+```
+
+When outputs are empty, `Newer` compares the current matches and modtimes to a cached snapshot stored in the XDG cache directory.
+
+## Watch Mode
+
+Use `commander.Watch` to react to file additions, removals, and modifications:
+
+```go
+err := commander.Watch(ctx, []string{"**/*.go"}, commander.WatchOptions{}, func(changes commander.ChangeSet) error {
+    return sh.Run("go", "test", "./...")
+})
+```
+
 ## Shell Helpers
 
 Use `commander/sh` for simple shell execution helpers:

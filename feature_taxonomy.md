@@ -119,9 +119,9 @@ Tests:
 - Multiple commands in one invocation (Build) | Status: Planned
 - Dependencies (run-once) (Build) | Status: Implemented
 - Parallel execution (Build) | Status: Planned
-- File modification checks (Build) | Status: Planned
+- File modification checks (Build) | Status: Implemented
 - Checksum-based caching (Build) | Status: Planned
-- Watch mode (Build) | Status: Planned
+- Watch mode (Build) | Status: Implemented
 - Timeouts (Build) | Status: Planned
 - Syscall helpers (Build) | Status: Planned
 - Shell execution helpers (Build) | Status: Implemented
