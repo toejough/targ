@@ -224,6 +224,9 @@ func (n *CommandNode) execute(args []string) error {
 		if strings.Contains(tag, "subcommand") || strings.Contains(tag, "positional") {
 			continue
 		}
+		if !field.IsExported() {
+			return fmt.Errorf("field %s must be exported to use commander tags", field.Name)
+		}
 
 		name := strings.ToLower(field.Name)
 		usage := ""
@@ -535,6 +538,10 @@ func printCommandHelp(node *CommandNode) {
 		field := node.Type.Field(i)
 		tag := field.Tag.Get("commander")
 		if strings.Contains(tag, "subcommand") {
+			continue
+		}
+		if !field.IsExported() {
+			fmt.Printf("Error: field %s must be exported to use commander tags\n", field.Name)
 			continue
 		}
 

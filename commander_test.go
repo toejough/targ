@@ -207,6 +207,24 @@ func TestStructDefaults_EnvOverrides(t *testing.T) {
 	}
 }
 
+type UnexportedFlag struct {
+	hidden string `commander:"flag"`
+}
+
+func (c *UnexportedFlag) Run() {}
+
+func TestUnexportedFieldError(t *testing.T) {
+	cmdStruct := &UnexportedFlag{}
+	cmd, err := parseCommand(cmdStruct)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if err := cmd.execute([]string{}); err == nil {
+		t.Fatal("expected error for unexported tagged field")
+	}
+}
+
 type ErrorRunCmd struct{}
 
 func (c *ErrorRunCmd) Run() error {
