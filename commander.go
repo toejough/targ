@@ -68,11 +68,17 @@ type requiredFlagGroup struct {
 }
 
 func parseStruct(t interface{}) (*CommandNode, error) {
+	if t == nil {
+		return nil, fmt.Errorf("nil target")
+	}
 	v := reflect.ValueOf(t)
 	typ := v.Type()
 
 	// Handle pointer
 	if typ.Kind() == reflect.Ptr {
+		if v.IsNil() {
+			return nil, fmt.Errorf("nil pointer target")
+		}
 		typ = typ.Elem()
 		v = v.Elem()
 	}

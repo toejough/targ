@@ -29,6 +29,13 @@ func TestParseCommand(t *testing.T) {
 	}
 }
 
+func TestParseNilPointer(t *testing.T) {
+	var cmd *MyCommandStruct
+	if _, err := parseCommand(cmd); err == nil {
+		t.Fatal("expected error for nil pointer target")
+	}
+}
+
 type TestCmdStruct struct {
 	Name   string
 	Called bool
