@@ -116,14 +116,25 @@ func main() {
 		os.Exit(1)
 	}
 
-	filename := "commander_bootstrap.go"
+	tempDir := filepath.Join(moduleRoot, ".commander", "tmp")
+	if err := os.MkdirAll(tempDir, 0755); err != nil {
+		fmt.Printf("Error creating bootstrap dir: %v\n", err)
+		os.Exit(1)
+	}
+	tempFile, err := os.CreateTemp(tempDir, "bootstrap-*.go")
+	if err != nil {
+		fmt.Printf("Error creating bootstrap file: %v\n", err)
+		os.Exit(1)
+	}
+	filename := tempFile.Name()
+	_ = tempFile.Close()
 	if err := os.WriteFile(filename, buf.Bytes(), 0644); err != nil {
 		fmt.Printf("Error writing bootstrap file: %v\n", err)
 		os.Exit(1)
 	}
 	defer os.Remove(filename)
 
-	runArgs := []string{"run", "."}
+	runArgs := []string{"run", "-tags", "commander", filename}
 	runArgs = append(runArgs, args...)
 
 	cmd := exec.Command("go", runArgs...)
