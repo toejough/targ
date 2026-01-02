@@ -1,8 +1,8 @@
 package main
 
 import (
-	"fmt"
 	"commander"
+	"fmt"
 )
 
 type Greet struct {
@@ -14,24 +14,32 @@ func (g *Greet) Run() {
 	fmt.Printf("Hello %s, you are %d years old!\n", g.Name, g.Age)
 }
 
-type Math struct {}
+type Math struct {
+	Add    *AddCmd `commander:"subcommand,desc=Add two numbers"`
+	RunCmd *RunCmd `commander:"subcommand=run,desc=Run command"`
+}
 
-type AddArgs struct {
+func (m *Math) Run() {
+	fmt.Printf("example with just calling `math`!\n")
+}
+
+type AddCmd struct {
 	A int `commander:"positional"`
 	B int `commander:"positional"`
 }
 
-func (m Math) Add(args AddArgs) {
-	fmt.Printf("%d + %d = %d\n", args.A, args.B, args.A+args.B)
+func (a *AddCmd) Run() {
+	fmt.Printf("%d + %d = %d\n", a.A, a.B, a.A+a.B)
 }
 
 // Example of a subcommand named "run"
 // Usage: math run
-type RunArgs struct {}
-func (m Math) Run(args RunArgs) {
+type RunCmd struct{}
+
+func (r *RunCmd) Run() {
 	fmt.Println("Math run command executed")
 }
 
 func main() {
-	commander.Run(&Greet{}, Math{})
+	commander.Run(Greet{}, Math{})
 }

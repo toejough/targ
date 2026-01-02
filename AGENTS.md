@@ -14,13 +14,23 @@ This repository contains the `commander` library, a Go toolkit for building CLIs
 - `thoughts.md` & `thoughts2.md`: Design documents and RFC-style exploration of features.
 - `issues.md`: High-level tracking of project status.
 
-## Development Patterns (Planned)
-
-Since the code is currently being bootstrapped, follow these conventions as we build:
+## Development Patterns
 
 ### Command Definition
-- Commands are defined as exported functions: `func Greet(args MyArgs)`.
-- Arguments are defined as structs with tags: `type MyArgs struct { Name string \`commander:"required"\` }`.
+- **Root Commands**: Struct with a `Run()` method.
+- **Subcommands**: Field on a struct with `commander:"subcommand"` tag.
+- **Arguments**: Fields on the struct with tags (`commander:"flag"`, `commander:"positional"`).
+
+### Example
+```go
+type Root struct {
+    Sub *SubCmd `commander:"subcommand"`
+}
+type SubCmd struct {
+    Flag string `commander:"name=flag"`
+}
+func (s *SubCmd) Run() { ... }
+```
 
 ### Testing
 - Use standard Go testing: `go test ./...`.

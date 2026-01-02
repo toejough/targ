@@ -6,7 +6,7 @@ Commander is a Go library for building CLIs with minimal configuration, combinin
 
 - **Automatic Discovery**: Define commands as structs with a `Run` method.
 - **Struct-based Arguments**: Define flags and arguments using struct tags.
-- **Subcommands**: Use struct methods to create subcommands (e.g., `remote add`).
+- **Subcommands**: Use struct fields to create subcommands.
 - **Environment Variables**: Bind flags to environment variables.
 - **Positional Arguments**: Support for positional and variadic arguments.
 
@@ -34,7 +34,7 @@ func (g *Greet) Run() {
 }
 
 func main() {
-    commander.Run(&Greet{})
+    commander.Run(Greet{})
 }
 ```
 
@@ -45,23 +45,35 @@ $ go run main.go greet --name Alice --age 30
 
 ### Subcommands
 
-Define subcommands using methods on a struct. The arguments are passed as a struct to the method.
+Define subcommands using fields with the `commander:"subcommand"` tag. The field name becomes the command name (kebab-cased).
 
 ```go
-type Math struct{}
+type Math struct {
+    // Command: "add"
+    Add *AddCmd `commander:"subcommand"`
+    // Command: "run" (aliased)
+    RunCmd *RunCmd `commander:"subcommand=run"`
+}
 
-type AddArgs struct {
+func (m *Math) Run() {
+    // This runs if you type just `math`
+    fmt.Println("Math root")
+}
+
+type AddCmd struct {
     A int `commander:"positional"`
     B int `commander:"positional"`
 }
 
-func (m Math) Add(args AddArgs) {
-    fmt.Printf("%d + %d = %d\n", args.A, args.B, args.A+args.B)
+func (a *AddCmd) Run() {
+    fmt.Printf("%d + %d = %d\n", a.A, a.B, a.A+a.B)
 }
+```
 
-func main() {
-    commander.Run(Math{})
-}
+Run it:
+```bash
+$ go run main.go math add 10 20
+$ go run main.go math run
 ```
 
 Run it:
