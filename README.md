@@ -204,6 +204,19 @@ This writes `generated_commander_<pkg>.go`, which defines a struct per function 
 - `commander:"env=VAR_NAME"`: Default value from environment variable.
 - `commander:"positional"`: Map positional arguments to this field.
 
+## Shell Helpers
+
+Use `commander/sh` for simple shell execution helpers:
+
+```go
+import "commander/sh"
+
+if err := sh.Run("go", "test", "./..."); err != nil {
+    panic(err)
+}
+out, err := sh.Output("go", "env", "GOMOD")
+```
+
 ## Shell Completion
 
 To enable shell completion, generate the script and source it.

@@ -124,6 +124,7 @@ Tests:
 - Watch mode (Build) | Status: Planned
 - Timeouts (Build) | Status: Planned
 - Syscall helpers (Build) | Status: Planned
+- Shell execution helpers (Build) | Status: Implemented
 
 Tests:
 

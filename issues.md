@@ -22,9 +22,6 @@ Issues to choose from for future work.
 
 #### Universal
 
-**Status**
-backlog
-
 **Description**
 Provide Mage-style helpers for shell execution to avoid verbose os/exec usage.
 
@@ -430,6 +427,22 @@ Support cancellation/timeouts for long-running tasks.
 - `Run` methods accept `context.Context` and receive a root context.
 - Function commands support `func(context.Context)` and `func(context.Context) error`.
 - Root context is cancelled on SIGINT/SIGTERM in CLI runs.
+
+### 2. Shell Execution Helpers (commander/sh)
+
+#### Universal
+
+**Status**
+done
+
+**Description**
+Provide Mage-style helpers for shell execution to avoid verbose os/exec usage.
+
+#### Implementation Notes
+
+**Details**
+- Added `sh.Run`, `sh.RunV`, and `sh.Output` for command execution.
+- Included helpers for Windows executable suffix handling.
 
 ### 5. Error Return Support
 
