@@ -36,6 +36,14 @@ func main() {
 }
 ```
 
+With a single root, you run flags directly without a command name:
+
+```bash
+$ your-binary --name Alice
+```
+
+If you register multiple roots, you select a command name first (e.g. `your-binary greet --name Alice`).
+
 ### 2. CLI Mode (Mage-style)
 
 Create a `command.go` file (name doesn't matter) in a directory. DO NOT define a `main` function.
@@ -90,6 +98,8 @@ func (a *AddCmd) Run() {
     fmt.Printf("%d + %d = %d\n", a.A, a.B, a.A+a.B)
 }
 ```
+
+When a root has subcommands, its `Run` method is used as the fallback when no subcommand is provided.
 
 ### Command Description
 

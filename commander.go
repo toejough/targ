@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"strings"
 	"unicode"
+	"sort"
 )
 
 // Run executes the CLI.
@@ -21,7 +22,21 @@ func Run(targets ...interface{}) {
 		roots = append(roots, node)
 	}
 
+	if len(roots) == 0 {
+		fmt.Println("No commands found.")
+		return
+	}
+
+	singleRoot := len(roots) == 1
+
 	if len(os.Args) < 2 {
+		if singleRoot {
+			if err := roots[0].execute(nil); err != nil {
+				fmt.Printf("Error: %v\n", err)
+				os.Exit(1)
+			}
+			return
+		}
 		printUsage(roots)
 		return
 	}
@@ -57,7 +72,19 @@ func Run(targets ...interface{}) {
 
 	// Handle global help
 	if args[0] == "-h" || args[0] == "--help" {
-		printUsage(roots)
+		if singleRoot {
+			printCommandHelp(roots[0])
+		} else {
+			printUsage(roots)
+		}
+		return
+	}
+
+	if singleRoot {
+		if err := roots[0].execute(args); err != nil {
+			fmt.Printf("Error: %v\n", err)
+			os.Exit(1)
+		}
 		return
 	}
 
@@ -86,17 +113,26 @@ func Run(targets ...interface{}) {
 func printUsage(nodes []*CommandNode) {
 	fmt.Println("Usage: <command> [args]")
 	fmt.Println("\nAvailable commands:")
+
 	for _, node := range nodes {
-		desc := node.Description
-		// If description is empty, check if we can get it dynamically 
-		// (this might happen if not parsed yet, though parseStruct tries)
-		if desc == "" && node.RunMethod.IsValid() {
-			// This path is usually not hit because parseStruct does it, 
-			// but good for safety? Actually parseStruct sets node.Description.
-		}
-		
-		// Align
-		fmt.Printf("  %-20s %s\n", node.Name, desc)
+		printCommandSummary(node, "  ")
+	}
+}
+
+func printCommandSummary(node *CommandNode, indent string) {
+	fmt.Printf("%s%-20s %s\n", indent, node.Name, node.Description)
+
+	// Recursively print subcommands
+	// Sort subcommands by name for consistent output
+	subcommandNames := make([]string, 0, len(node.Subcommands))
+	for name := range node.Subcommands {
+		subcommandNames = append(subcommandNames, name)
+	}
+	sort.Strings(subcommandNames)
+
+	for _, name := range subcommandNames {
+		sub := node.Subcommands[name]
+		printCommandSummary(sub, indent+"  ")
 	}
 }
 

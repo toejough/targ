@@ -38,30 +38,37 @@ func doCompletion(roots []*CommandNode, commandLine string) {
 	
 	// Traverse
 	var currentNode *CommandNode
+	singleRoot := len(roots) == 1
+	atRoot := true
 	
 	// Find root
-	if len(processedArgs) > 0 {
-		rootName := processedArgs[0]
-		for _, r := range roots {
-			if strings.EqualFold(r.Name, rootName) {
-				currentNode = r
-				break
-			}
-		}
-		processedArgs = processedArgs[1:]
+	if singleRoot {
+		currentNode = roots[0]
 	} else {
-		// We are at root level
-		// Suggest roots
-		for _, r := range roots {
-			if strings.HasPrefix(r.Name, prefix) {
-				fmt.Println(r.Name)
+		if len(processedArgs) > 0 {
+			rootName := processedArgs[0]
+			for _, r := range roots {
+				if strings.EqualFold(r.Name, rootName) {
+					currentNode = r
+					break
+				}
 			}
+			processedArgs = processedArgs[1:]
+			atRoot = false
+		} else {
+			// We are at root level
+			// Suggest roots
+			for _, r := range roots {
+				if strings.HasPrefix(r.Name, prefix) {
+					fmt.Println(r.Name)
+				}
+			}
+			// Also suggest "completion"
+			if strings.HasPrefix("completion", prefix) {
+				fmt.Println("completion")
+			}
+			return
 		}
-		// Also suggest "completion"
-		if strings.HasPrefix("completion", prefix) {
-			fmt.Println("completion")
-		}
-		return
 	}
 	
 	if currentNode == nil {
@@ -74,6 +81,7 @@ func doCompletion(roots []*CommandNode, commandLine string) {
 		if sub, ok := currentNode.Subcommands[subName]; ok {
 			currentNode = sub
 			processedArgs = processedArgs[1:]
+			atRoot = false
 		} else {
 			// Unknown path, cannot complete further
 			return
@@ -87,6 +95,10 @@ func doCompletion(roots []*CommandNode, commandLine string) {
 		if strings.HasPrefix(name, prefix) {
 			fmt.Println(name)
 		}
+	}
+
+	if atRoot && strings.HasPrefix("completion", prefix) {
+		fmt.Println("completion")
 	}
 	
 	// 2. Suggest Flags
