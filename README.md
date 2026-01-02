@@ -116,6 +116,14 @@ $ commander --package deploy deploy
 $ commander --package gen generate
 ```
 
+Build tool example in this repo:
+
+```bash
+$ commander issues list
+$ commander issues create --title "New Issue" --description "..." --priority Medium
+$ commander issues move 4 --status done
+```
+
 ### Subcommands
 
 Define subcommands using fields with the `commander:"subcommand"` tag.
