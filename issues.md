@@ -78,7 +78,6 @@ Add `commander.Newer(src, dst)` or equivalent timestamp checks.
 
 **Description**
 Allow `Run` methods to return error for consistent failure handling.
-
 ### 6. Context Support & Timeout
 
 #### Universal
@@ -430,6 +429,22 @@ Generate wrapper structs for function commands so descriptions are embedded in c
 **Details**
 - Build tool mode auto-generates `generated_commander_<pkg>.go` with `CommandName`/`Description`.
 - Direct binaries can opt in via `commander gen` and pass the generated struct to `Run`.
+
+### 5. Error Return Support
+
+#### Universal
+
+**Status**
+done
+
+**Description**
+Allow `Run` methods to return error for consistent failure handling.
+
+#### Implementation Notes
+
+**Details**
+- `Run` methods returning `error` propagate through `execute` and `RunWithOptions`.
+- Niladic function commands returning `error` propagate similarly.
 
 ### 27. Build Tag Filtering For Build Tool Mode
 

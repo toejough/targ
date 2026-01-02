@@ -102,7 +102,7 @@ Tests:
 ## Category: Execution Semantics (Essential)
 
 - Run method signatures (niladic) (Essential) | Status: Implemented
-- Error return support (Extended) | Status: Planned
+- Error return support (Extended) | Status: Implemented
 - Context/cancellation support (Extended) | Status: Planned
 - Lifecycle hooks (Before/After) (Extended) | Status: Planned
 
