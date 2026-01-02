@@ -203,6 +203,9 @@ This writes `generated_commander_<pkg>.go`, which defines a struct per function 
 - `commander:"subcommand=..."`: Rename subcommand.
 - `commander:"env=VAR_NAME"`: Default value from environment variable.
 - `commander:"positional"`: Map positional arguments to this field.
+- `commander:"default=VALUE"`: Default value (only supported default mechanism).
+
+Defaults only come from `default=...` tags. Passing non-zero values in the struct you give to `commander.Run` will return an error.
 
 ## Shell Helpers
 

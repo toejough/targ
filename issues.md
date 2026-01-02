@@ -119,24 +119,6 @@ Support grouping or display organization beyond strict struct nesting.
 
 #### Universal
 
-### 11. Default Value Tags
-
-#### Universal
-
-**Status**
-backlog
-
-**Description**
-Add tag-based default values (e.g. `default="value"`).
-
-#### Planning
-
-**Priority**
-Low
-
-**Acceptance**
-Support `default` tags for auto-instantiated subcommands.
-
 ### 12. Placeholder Customization
 
 #### Universal
@@ -443,6 +425,22 @@ Provide Mage-style helpers for shell execution to avoid verbose os/exec usage.
 **Details**
 - Added `sh.Run`, `sh.RunV`, and `sh.Output` for command execution.
 - Included helpers for Windows executable suffix handling.
+
+### 11. Default Value Tags
+
+#### Universal
+
+**Status**
+done
+
+**Description**
+Add tag-based default values (e.g. `default="value"`).
+
+#### Implementation Notes
+
+**Details**
+- Defaults now come exclusively from `default=...` tags.
+- Passing non-zero command structs to `Run` returns a clear error.
 
 ### 5. Error Return Support
 

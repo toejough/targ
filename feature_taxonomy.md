@@ -64,7 +64,7 @@ Tests:
 - Short flags (-f) (Essential) | Status: Implemented
 - Positional args (Essential) | Status: Implemented (but see Issues)
 - Required vs optional (Essential) | Status: Planned
-- Default values from struct (Essential) | Status: Planned
+- Default values from tags (Essential) | Status: Implemented
 - Env var defaults (Essential) | Status: Implemented
 - Boolean flags (Essential) | Status: Implemented
 - Repeated flags (Extended) | Status: Planned
