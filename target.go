@@ -43,10 +43,20 @@ func parseFunc(v reflect.Value) (*CommandNode, error) {
 }
 
 func validateNiladicFuncType(typ reflect.Type) error {
-	if typ.NumIn() != 0 || typ.NumOut() != 0 {
+	if typ.NumIn() != 0 {
 		return fmt.Errorf("function command must be niladic")
 	}
-	return nil
+	if typ.NumOut() == 0 {
+		return nil
+	}
+	if typ.NumOut() == 1 && isErrorType(typ.Out(0)) {
+		return nil
+	}
+	return fmt.Errorf("function command must return only error")
+}
+
+func isErrorType(t reflect.Type) bool {
+	return t.Implements(reflect.TypeOf((*error)(nil)).Elem())
 }
 
 func functionName(v reflect.Value) string {

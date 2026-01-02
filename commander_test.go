@@ -1,6 +1,7 @@
 package commander
 
 import (
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -196,6 +197,38 @@ func TestStructDefaults_EnvOverrides(t *testing.T) {
 	}
 	if cmdStruct.Flag {
 		t.Error("expected Flag=false")
+	}
+}
+
+type ErrorRunCmd struct{}
+
+func (c *ErrorRunCmd) Run() error {
+	return fmt.Errorf("boom")
+}
+
+func TestRunReturnsError(t *testing.T) {
+	cmdStruct := &ErrorRunCmd{}
+	cmd, err := parseCommand(cmdStruct)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if err := cmd.execute([]string{}); err == nil {
+		t.Fatal("expected error from Run")
+	}
+}
+
+func ErrorFunc() error {
+	return fmt.Errorf("nope")
+}
+
+func TestFunctionReturnsError(t *testing.T) {
+	node, err := parseTarget(ErrorFunc)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if err := node.execute([]string{}); err == nil {
+		t.Fatal("expected error from function command")
 	}
 }
 

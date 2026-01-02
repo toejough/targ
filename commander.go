@@ -178,10 +178,15 @@ func (n *CommandNode) execute(args []string) error {
 			}
 			return fmt.Errorf("unknown arguments: %v", args)
 		}
-		if n.Func.Type().NumIn() != 0 || n.Func.Type().NumOut() != 0 {
-			return fmt.Errorf("command %s function must be niladic", n.Name)
+		if err := validateNiladicFuncType(n.Func.Type()); err != nil {
+			return fmt.Errorf("command %s %v", n.Name, err)
 		}
-		n.Func.Call(nil)
+		out := n.Func.Call(nil)
+		if len(out) == 1 {
+			if err, ok := out[0].Interface().(error); ok && err != nil {
+				return err
+			}
+		}
 		return nil
 	}
 
@@ -448,8 +453,20 @@ func (n *CommandNode) execute(args []string) error {
 		}
 
 		if method.Type().NumIn() == 0 {
-			method.Call(nil)
-			return nil
+			if method.Type().NumOut() == 0 {
+				method.Call(nil)
+				return nil
+			}
+			if method.Type().NumOut() == 1 && isErrorType(method.Type().Out(0)) {
+				out := method.Call(nil)
+				if len(out) == 1 {
+					if err, ok := out[0].Interface().(error); ok && err != nil {
+						return err
+					}
+				}
+				return nil
+			}
+			return fmt.Errorf("command %s Run must return only error", n.Name)
 		}
 	}
 
