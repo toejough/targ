@@ -242,10 +242,21 @@ func (n *CommandNode) execute(args []string) error {
 			}
 		}
 
-		// Apply default from env if not zero?
-		// Actually flag sets default.
-
 		fieldVal := inst.Field(i)
+		if !envSet {
+			switch field.Type.Kind() {
+			case reflect.String:
+				defaultValue = fieldVal.String()
+			case reflect.Int:
+				defaultValue = fmt.Sprintf("%d", fieldVal.Int())
+			case reflect.Bool:
+				if fieldVal.Bool() {
+					defaultValue = "true"
+				} else {
+					defaultValue = "false"
+				}
+			}
+		}
 
 		switch field.Type.Kind() {
 		case reflect.String:

@@ -111,13 +111,92 @@ func (c *EnvArgs) Run() {}
 
 func TestEnvVars(t *testing.T) {
 	cmdStruct := &EnvArgs{}
-	_, _ = parseCommand(cmdStruct)
+	cmd, _ := parseCommand(cmdStruct)
 
 	os.Setenv("TEST_USER", "EnvAlice")
 	defer os.Unsetenv("TEST_USER")
 
-	// I didn't implement Env in the new execute either.
-	// For now let's just test the structure.
+	if err := cmd.execute([]string{}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cmdStruct.User != "EnvAlice" {
+		t.Errorf("expected User='EnvAlice', got '%s'", cmdStruct.User)
+	}
+}
+
+type DefaultArgs struct {
+	Name    string
+	Count   int
+	Enabled bool
+}
+
+func (c *DefaultArgs) Run() {}
+
+func TestStructDefaults(t *testing.T) {
+	cmdStruct := &DefaultArgs{
+		Name:    "Alice",
+		Count:   42,
+		Enabled: true,
+	}
+	cmd, err := parseCommand(cmdStruct)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if err := cmd.execute([]string{}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cmdStruct.Name != "Alice" {
+		t.Errorf("expected Name='Alice', got '%s'", cmdStruct.Name)
+	}
+	if cmdStruct.Count != 42 {
+		t.Errorf("expected Count=42, got %d", cmdStruct.Count)
+	}
+	if !cmdStruct.Enabled {
+		t.Error("expected Enabled=true")
+	}
+}
+
+type DefaultEnvArgs struct {
+	Name  string `commander:"env=TEST_DEFAULT_NAME"`
+	Count int    `commander:"env=TEST_DEFAULT_COUNT"`
+	Flag  bool   `commander:"env=TEST_DEFAULT_FLAG"`
+}
+
+func (c *DefaultEnvArgs) Run() {}
+
+func TestStructDefaults_EnvOverrides(t *testing.T) {
+	cmdStruct := &DefaultEnvArgs{
+		Name:  "Alice",
+		Count: 42,
+		Flag:  true,
+	}
+	cmd, err := parseCommand(cmdStruct)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	os.Setenv("TEST_DEFAULT_NAME", "Bob")
+	os.Setenv("TEST_DEFAULT_COUNT", "7")
+	os.Setenv("TEST_DEFAULT_FLAG", "false")
+	defer func() {
+		os.Unsetenv("TEST_DEFAULT_NAME")
+		os.Unsetenv("TEST_DEFAULT_COUNT")
+		os.Unsetenv("TEST_DEFAULT_FLAG")
+	}()
+
+	if err := cmd.execute([]string{}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cmdStruct.Name != "Bob" {
+		t.Errorf("expected Name='Bob', got '%s'", cmdStruct.Name)
+	}
+	if cmdStruct.Count != 7 {
+		t.Errorf("expected Count=7, got %d", cmdStruct.Count)
+	}
+	if cmdStruct.Flag {
+		t.Error("expected Flag=false")
+	}
 }
 
 type SubCmd struct {
