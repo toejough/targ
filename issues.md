@@ -76,19 +76,8 @@ Add `commander.Newer(src, dst)` or equivalent timestamp checks.
 
 #### Universal
 
-**Status**
-backlog
-
 **Description**
 Allow `Run` methods to return error for consistent failure handling.
-
-#### Planning
-
-**Priority**
-High
-
-**Acceptance**
-Support `func() error` in reflection parsing and propagate exit codes.
 
 ### 6. Context Support & Timeout
 
@@ -555,3 +544,13 @@ done
 
 **Description**
 Struct defaults are overwritten by zero/env defaults during flag registration.
+
+### 5. Error Return Support
+
+#### Universal
+
+**Status**
+done
+
+**Description**
+Allow `Run` methods to return error for consistent failure handling.
