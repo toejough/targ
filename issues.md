@@ -310,24 +310,6 @@ High
 **Acceptance**
 Validate pointers before `Elem()` and return descriptive errors.
 
-### 22. Subcommand Assignment Fails For Non-Pointer Fields
-
-#### Universal
-
-**Status**
-backlog
-
-**Description**
-Subcommand assignment assumes pointer fields and can panic on value fields.
-
-#### Planning
-
-**Priority**
-Medium
-
-**Acceptance**
-Support assigning into both pointer and value subcommand fields.
-
 ### 23. Unexported Tagged Fields Can Panic
 
 #### Universal
@@ -561,3 +543,18 @@ done
 
 **Description**
 Nil pointers passed to `Run` or subcommand pointers can panic on `Elem()`.
+
+### 22. Subcommand Assignment Fails For Non-Pointer Fields
+
+#### Universal
+
+**Status**
+cancelled
+
+**Description**
+Subcommand assignment assumes pointer fields and can panic on value fields.
+
+#### Planning
+
+**Note**
+Value-type subcommands are ambiguous (cannot distinguish "not called" from zero-value args). We require pointer subcommands for explicit invocation semantics.
