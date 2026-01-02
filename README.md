@@ -4,7 +4,7 @@ Commander is a Go library for building CLIs with minimal configuration, combinin
 
 ## Features
 
-- **Automatic Discovery**: Define commands as structs with a `Run` method.
+- **Automatic Discovery**: Define commands as structs with a `Run` method or niladic functions.
 - **Struct-based Arguments**: Define flags and arguments using struct tags.
 - **Subcommands**: Use struct fields to create subcommands.
 - **Build Tool Mode**: Run a folder of commands without writing a `main` function (Mage-style).
@@ -44,11 +44,24 @@ $ your-binary --name Alice
 
 If you register multiple roots, you select a command name first (e.g. `your-binary greet --name Alice`).
 
+Niladic functions can also be commands:
+
+```go
+func Clean() { fmt.Println("cleaning") }
+
+func main() {
+    commander.Run(Clean)
+}
+```
+
 ### 2. Build Tool Mode (Mage-style)
 
 Create a `command.go` file (name doesn't matter) in a directory. DO NOT define a `main` function.
+Add the build tag `//go:build commander` to any file you want scanned.
 
 ```go
+//go:build commander
+
 package main
 
 import "fmt"
@@ -70,6 +83,37 @@ go install github.com/yourusername/commander/cmd/commander@latest
 Run commands in that directory:
 ```bash
 $ commander build -target prod
+```
+
+Build tool mode rules:
+- Discovery is recursive and only includes directories with the `//go:build commander` tag.
+- Without `--package`, Commander selects the shallowest tagged directory; if multiple exist at that depth, it errors.
+- With `--package`, package names are always inserted as the first subcommand (even for a single directory).
+- Build tool mode never has a default command.
+
+Example layout:
+
+```text
+repo/
+  mage/
+    build.go   //go:build commander (package build)
+    deploy.go  //go:build commander (package deploy)
+  tools/
+    gen/
+      gen.go   //go:build commander (package gen)
+```
+
+Example usage:
+
+```bash
+# Without --package, Commander uses the shallowest tagged dir (repo/mage)
+$ commander build
+$ commander deploy
+
+# With --package, package name is always the first subcommand
+$ commander --package build build
+$ commander --package deploy deploy
+$ commander --package gen generate
 ```
 
 ### Subcommands

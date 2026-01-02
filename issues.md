@@ -1,234 +1,581 @@
-# Issues & Roadmap
+# Issue Tracker
 
-## Active Issues
+A simple md issue tracker.
 
-### Issue #1: Explore CLI Tool Design
-- **Status**: Done
-- **Description**: Initial exploration and prototyping of the library.
+## Statuses
 
-## Backlog: Mage Feature Parity & Enhancements
+- backlog (to choose from)
+- selected (to work on next)
+- in progress (currently being worked on)
+- review (ready for review/testing)
+- done (completed)
+- cancelled (not going to be done, for whatever reason, should have a reason)
+- blocked (waiting on something else)
 
-The following issues are recommendations to bring `commander` closer to `mage` in terms of utility for build tasks, and to address current architectural limitations.
+---
 
-### Issue #2: Shell Execution Helpers (`commander/sh`)
-- **Type**: Feature (Mage Parity)
-- **Priority**: High
-- **Description**: Currently, users must use `os/exec` manually, which is verbose. Mage provides a `sh` package for one-line command execution.
-- **Proposed Features**:
-  - `sh.Run(cmd, args...)`: Stream stdout/stderr.
-  - `sh.Output(cmd, args...)`: Capture stdout.
-  - `sh.RunV(cmd, args...)`: Run verbose (always print) vs quiet (print only on error).
-  - Cross-platform `rm`, `copy` helpers.
+## Backlog
 
-### Issue #3: Dependency Management (`Once`)
-- **Type**: Feature (Mage Parity)
-- **Priority**: Medium
-- **Description**: Build targets often depend on other targets (e.g., `Build` depends on `Generate`). Simply calling the method `g.Run()` works, but if multiple targets depend on it, it runs multiple times.
-- **Proposed Feature**: A mechanism like `commander.Deps(TargetFunc)` that ensures a target runs exactly once per execution graph.
+Issues to choose from for future work.
 
-### Issue #4: File Modification Checks (`target`)
-- **Type**: Feature (Mage Parity)
-- **Priority**: Medium
-- **Description**: Build tools often need to skip steps if the output is newer than the input.
-- **Proposed Feature**: Helper functions to compare file modification times (e.g., `commander.Newer(src, dst)`).
+### 2. Shell Execution Helpers (commander/sh)
 
-### Issue #5: Error Return Support
-- **Type**: Enhancement
-- **Priority**: High
-- **Description**: Currently `Run` methods must be `func()`. They should optionally return `error` so the library can handle exit codes and logging consistently.
-- **Proposed Change**: Support `func() error` signature in reflection parsing.
+#### Universal
 
-### Issue #6: Context Support & Timeout
-- **Type**: Enhancement
-- **Priority**: Medium
-- **Description**: Long-running build tasks often need cancellation or timeouts.
-- **Proposed Change**: Support `func(context.Context)` signature. `commander.Run` should set up a signal-canceling root context.
+**Status**
+backlog
 
-### Issue #7: Compilation-Safe Documentation
-- **Type**: Bug/Enhancement
-- **Priority**: High
-- **Description**: The current Help system parses Go source files at runtime to extract doc strings. This works in "Build Tool Mode" (go run), but fails if the application is compiled into a binary and moved away from the source code.
-- **Proposed Fix**:
-  - **Option A**: For standalone binaries, require `desc` tags (fallback).
-  - **Option B**: In Build Tool Mode (bootstrap), generate code that embeds the comments into the compiled struct, so the binary is self-contained.
+**Description**
+Provide Mage-style helpers for shell execution to avoid verbose os/exec usage.
 
-### Issue #8: Persistent Flags & Lifecycle Hooks
-- **Type**: Enhancement (Cobra Parity)
-- **Priority**: Low
-- **Description**: There is no way to define a flag like `--verbose` at the root that applies to all subcommands, or code that runs *before* a subcommand (setup/teardown).
-- **Proposed Feature**:
-  - Support `PersistentBefore() error` and `PersistentAfter() error` methods on parent structs.
-  - Mechanism to propagate flags down the tree.
+#### Planning
 
-### Issue #9: Namespace/Category Organization
-- **Type**: Enhancement
-- **Priority**: Low
-- **Description**: As build files grow, flat command lists get messy. Mage supports `// mg:ns` namespaces. Commander handles this via Struct nesting, but we might want a way to "flatten" or "group" commands visually in the help output.
+**Priority**
+High
 
-## Backlog: go-arg Feature Parity
+**Acceptance**
+Expose `sh.Run`, `sh.Output`, and `sh.RunV` plus basic cross-platform helpers.
 
-### Issue #10: Custom Type Support (TextUnmarshaler)
-- **Type**: Feature (go-arg Parity)
-- **Priority**: High
-- **Description**: Currently `commander` only supports basic types (string, int, bool). `go-arg` supports any type that implements `encoding.TextUnmarshaler` (e.g., `time.Duration`, `net.IP`, custom types).
-- **Proposed Feature**: Add interface check in flag parsing loop to support `Set(string) error` or `UnmarshalText([]byte) error`.
+### 3. Dependency Management (Once)
 
-### Issue #11: Default Value Tags
-- **Type**: Feature (go-arg Parity)
-- **Priority**: Low
-- **Description**: Support `default="value"` in tags. Currently defaults must be set by initializing the struct before passing it to Run, which works for Root commands but is harder for auto-instantiated subcommands.
+#### Universal
 
-### Issue #12: Placeholder Customization
-- **Type**: Enhancement
-- **Priority**: Low
-- **Description**: Support `placeholder="FILE"` tag to change help text from `-output string` to `-output FILE`.
+**Status**
+backlog
 
-## Backlog: Advanced Features
+**Description**
+Allow targets to declare dependencies that run exactly once per execution graph.
 
-### Issue #13: Watch Mode
-- **Type**: Feature (Enhancement)
-- **Priority**: Medium
-- **Description**: Helper to watch for file changes and re-run a command. Should support cancelling the previous run if it's still in progress.
-- **Proposed Feature**:
-  - `commander.Watch(patterns []string, runFunc func() error)`
-  - Use globbing (fish-like `**/*.go`) for file patterns.
-  - Handle process cancellation (context cancellation or killing process).
+#### Planning
 
-### Issue #14: Parallel Execution
-- **Type**: Feature (Performance)
-- **Priority**: Medium
-- **Description**: When running dependencies (Issue #3) or lists of tasks, support parallel execution to speed up builds.
-- **Proposed Feature**: `commander.Parallel(funcs...)` or `commander.Deps(Parallel(Build, Lint))`.
+**Priority**
+Medium
 
-### Issue #15: .env File Loading
-- **Type**: Feature (DX)
-- **Priority**: Medium
-- **Description**: Automatically load environment variables from a `.env` file if present, populating flags that use `env=...` tags.
-- **Proposed Feature**: `commander.LoadEnv()` or auto-load in `Run()`.
+**Acceptance**
+Add `commander.Deps` (or equivalent) to coordinate run-once dependencies.
 
-### Issue #16: Interactive UI Helpers
-- **Type**: Feature (DX)
-- **Priority**: Low
-- **Description**: Helpers for common CLI interactions.
-- **Proposed Feature**: `ui` package with `Confirm(msg)`, `Select(msg, options)`, `Prompt(msg)`.
+### 4. File Modification Checks (target)
 
-### Issue #17: Checksum-based Caching
-- **Type**: Feature (Build Efficiency)
-- **Priority**: Low
-- **Description**: Skip tasks if input files haven't changed content (more robust than timestamp checks).
-- **Proposed Feature**: `target.Checksum(srcs, dest)` to complement timestamp checks.
+#### Universal
 
-## Audit Findings
+**Status**
+backlog
 
-### Issue #18: Positional Args Are Also Registered As Flags
-- **Type**: Bug
-- **Priority**: High
-- **Description**: Fields tagged `commander:"positional"` are still registered as flags, so they can be set via `-field` and conflict with positional parsing.
-- **Impact**: Positional semantics are inconsistent and can mask argument errors.
-- **Proposed Fix**: Skip flag registration for `positional` fields during parsing and help output.
+**Description**
+Provide helpers for skipping work when outputs are newer than inputs.
 
-### Issue #19: Struct Default Values Are Overwritten By Flag Defaults
-- **Type**: Bug/Enhancement
-- **Priority**: Medium
-- **Description**: Field defaults set on the struct instance are overwritten by flag registration, which uses zero or env defaults only.
-- **Impact**: Preconfigured defaults are lost at runtime.
-- **Proposed Fix**: Initialize defaults from the struct instance when registering flags, and only override with env if present.
+#### Planning
 
-### Issue #20: `required` Tags Are Not Enforced
-- **Type**: Bug
-- **Priority**: High
-- **Description**: `commander:"required"` is parsed but never validated.
-- **Impact**: Missing required args pass silently.
-- **Proposed Fix**: Track `flag.Visit` and validate required flags/positionals after parsing.
+**Priority**
+Medium
 
-### Issue #21: Nil Pointer Inputs Can Panic
-- **Type**: Bug
-- **Priority**: High
-- **Description**: Passing nil pointers to `Run` (or nil subcommand pointers) causes `v.Elem()` panics.
-- **Impact**: Crashes on common misconfiguration.
-- **Proposed Fix**: Validate pointers before `Elem()` and return a descriptive error.
+**Acceptance**
+Add `commander.Newer(src, dst)` or equivalent timestamp checks.
 
-### Issue #22: Subcommand Assignment Fails For Non-Pointer Fields
-- **Type**: Bug
-- **Priority**: Medium
-- **Description**: Subcommand assignment always uses a pointer, which panics if the struct field is not a pointer type.
-- **Impact**: Non-pointer subcommand fields fail at runtime.
-- **Proposed Fix**: Support both pointer and value subcommand fields during assignment.
+### 5. Error Return Support
 
-### Issue #23: Unexported Tagged Fields Can Panic
-- **Type**: Bug
-- **Priority**: Medium
-- **Description**: Unexported fields tagged for flags/positionals can panic when set via reflection.
-- **Impact**: Runtime panics with minimal guidance.
-- **Proposed Fix**: Validate field export status and emit a friendly error.
+#### Universal
 
-### Issue #24: Build Tool Mode Includes Non-Commands
-- **Type**: Bug/Enhancement
-- **Priority**: Low
-- **Description**: Build tool mode includes every exported struct, even those without `Run` or subcommands.
-- **Impact**: Non-commands show up in help and can error on invocation.
-- **Proposed Fix**: Filter to structs with `Run` or subcommands in `cmd/commander`.
+**Status**
+backlog
 
-### Issue #25: Completion Tokenization Ignores Quotes/Escapes
-- **Type**: Bug/Enhancement
-- **Priority**: Low
-- **Description**: Completion uses `strings.Fields`, so quoted/escaped args are split incorrectly.
-- **Impact**: Completion breaks for args with spaces.
-- **Proposed Fix**: Use a shell-aware tokenizer for completion input.
+**Description**
+Allow `Run` methods to return error for consistent failure handling.
 
-### Issue #26: Invalid Env Defaults Are Silently Ignored
-- **Type**: Bug/Enhancement
-- **Priority**: Low
-- **Description**: Invalid env values for int/bool fall back to zero/false without warning.
-- **Impact**: Misconfigurations are hard to spot.
-- **Proposed Fix**: Validate env parsing and surface errors or warnings.
+#### Planning
 
-## Backlog: Build Tool Mode Parity (Mage Lessons)
+**Priority**
+High
 
-### Issue #27: Build Tag Filtering For Build Tool Mode
-- **Type**: Feature (Build Tool Mode)
-- **Priority**: Medium
-- **Description**: Restrict command discovery to Go files with a specific build tag (Mage-style), to avoid accidental inclusion.
-- **Proposed Feature**: Support a build tag (e.g. `//go:build commander`) for discovery in build tool mode.
+**Acceptance**
+Support `func() error` in reflection parsing and propagate exit codes.
 
-### Issue #28: Build Tool Mode Compiled Binary Cache
-- **Type**: Feature (Build Tool Mode Performance)
-- **Priority**: Medium
-- **Description**: Cache a compiled binary to avoid `go run` on every invocation.
-- **Proposed Feature**: Generate a deterministic cache key (source hash + args) and reuse the compiled executable when valid.
+### 6. Context Support & Timeout
 
-### Issue #29: Temporary Generated Main File Handling
-- **Type**: Feature (Build Tool Mode)
-- **Priority**: Low
-- **Description**: Improve handling of generated bootstrap file (naming, location, cleanup).
-- **Proposed Feature**: Generate into a temp dir with a stable name, keep with a `--keep` flag, and ensure robust cleanup.
+#### Universal
 
-### Issue #30: Function Targets Support (Direct + Build Tool Modes)
-- **Type**: Feature
-- **Priority**: High
-- **Description**: Support niladic functions as commands alongside struct-based commands.
-- **Proposed Feature**: Allow `Run` to accept functions; build tool mode discovers exported niladic functions.
+**Status**
+backlog
 
-### Issue #31: Build Tool Mode Build-Tag Discovery
-- **Type**: Feature (Build Tool Mode)
-- **Priority**: High
-- **Description**: Discover commands only in directories containing files with `//go:build commander`.
-- **Proposed Feature**: Recursive search for tagged files; enforce a single package per directory per Go rules.
+**Description**
+Support cancellation/timeouts for long-running tasks.
 
-### Issue #32: Build Tool Mode Depth Gating
-- **Type**: Feature (Build Tool Mode)
-- **Priority**: High
-- **Description**: Without `--package`, stop at the first depth where tagged files are found and error if multiple directories exist at that depth.
-- **Proposed Feature**: Track depth in recursive search; emit a clear error listing the conflicting directories.
+#### Planning
 
-### Issue #33: Build Tool Mode Package Grouping
-- **Type**: Feature (Build Tool Mode)
-- **Priority**: High
-- **Description**: When `--package` is set, always add the package name as the first subcommand (even for a single directory).
-- **Proposed Feature**: Wrap discovered commands under a package node; require no default command in build tool mode.
+**Priority**
+Medium
 
-### Issue #34: Build Tool Mode Subcommand Filtering For Functions
-- **Type**: Feature (Build Tool Mode)
-- **Priority**: Medium
-- **Description**: Filter out exported functions that are named as subcommands of exported structs.
-- **Proposed Feature**: Treat struct field subcommand names as occupied and exclude matching functions.
+**Acceptance**
+Support `func(context.Context)` and set up signal-canceling root context.
+
+### 7. Compilation-Safe Documentation
+
+#### Universal
+
+**Status**
+backlog
+
+**Description**
+Help currently parses source files at runtime, which breaks for relocated binaries.
+
+#### Planning
+
+**Priority**
+High
+
+**Acceptance**
+Either require `desc` tags for binaries or embed comments in build tool mode.
+
+### 8. Persistent Flags & Lifecycle Hooks
+
+#### Universal
+
+**Status**
+backlog
+
+**Description**
+Add persistent flags and setup/teardown hooks on parent commands.
+
+#### Planning
+
+**Priority**
+Low
+
+**Acceptance**
+Support `PersistentBefore()`/`PersistentAfter()` and propagate flags down the tree.
+
+### 9. Namespace/Category Organization
+
+#### Universal
+
+**Status**
+backlog
+
+**Description**
+Allow grouping/namespace organization in help output for large command sets.
+
+#### Planning
+
+**Priority**
+Low
+
+**Acceptance**
+Support grouping or display organization beyond strict struct nesting.
+
+### 10. Custom Type Support (TextUnmarshaler)
+
+#### Universal
+
+**Status**
+backlog
+
+**Description**
+Support types implementing `encoding.TextUnmarshaler` for flags.
+
+#### Planning
+
+**Priority**
+High
+
+**Acceptance**
+Parse flags into custom types via `UnmarshalText` or `Set(string) error`.
+
+### 11. Default Value Tags
+
+#### Universal
+
+**Status**
+backlog
+
+**Description**
+Add tag-based default values (e.g. `default="value"`).
+
+#### Planning
+
+**Priority**
+Low
+
+**Acceptance**
+Support `default` tags for auto-instantiated subcommands.
+
+### 12. Placeholder Customization
+
+#### Universal
+
+**Status**
+backlog
+
+**Description**
+Allow placeholder text in help output (e.g. `placeholder="FILE"`).
+
+#### Planning
+
+**Priority**
+Low
+
+**Acceptance**
+Support placeholder tag affecting help text.
+
+### 13. Watch Mode
+
+#### Universal
+
+**Status**
+backlog
+
+**Description**
+Watch files and re-run commands on changes.
+
+#### Planning
+
+**Priority**
+Medium
+
+**Acceptance**
+Implement `commander.Watch` with cancellation and globbing support.
+
+### 14. Parallel Execution
+
+#### Universal
+
+**Status**
+backlog
+
+**Description**
+Run independent tasks in parallel when safe.
+
+#### Planning
+
+**Priority**
+Medium
+
+**Acceptance**
+Add a parallel execution helper integrated with dependencies.
+
+### 15. .env File Loading
+
+#### Universal
+
+**Status**
+backlog
+
+**Description**
+Load `.env` files to populate env-backed flags.
+
+#### Planning
+
+**Priority**
+Medium
+
+**Acceptance**
+Add `commander.LoadEnv()` or auto-load in `Run()`.
+
+### 16. Interactive UI Helpers
+
+#### Universal
+
+**Status**
+backlog
+
+**Description**
+Add basic CLI interaction helpers (confirm/select/prompt).
+
+#### Planning
+
+**Priority**
+Low
+
+**Acceptance**
+Provide a `ui` package for common prompts.
+
+### 17. Checksum-based Caching
+
+#### Universal
+
+**Status**
+backlog
+
+**Description**
+Skip tasks when inputs have not changed content (checksum-based).
+
+#### Planning
+
+**Priority**
+Low
+
+**Acceptance**
+Add `target.Checksum(srcs, dest)`.
+
+### 18. Positional Args Are Also Registered As Flags
+
+#### Universal
+
+**Status**
+backlog
+
+**Description**
+Fields tagged `commander:"positional"` are also registered as flags.
+
+#### Planning
+
+**Priority**
+High
+
+**Acceptance**
+Skip flag registration for positional fields and update help output.
+
+### 19. Struct Default Values Are Overwritten By Flag Defaults
+
+#### Universal
+
+**Status**
+backlog
+
+**Description**
+Struct defaults are overwritten by zero/env defaults during flag registration.
+
+#### Planning
+
+**Priority**
+Medium
+
+**Acceptance**
+Initialize defaults from struct values and only override with env when present.
+
+### 20. Required Tags Are Not Enforced
+
+#### Universal
+
+**Status**
+backlog
+
+**Description**
+`commander:"required"` is parsed but never validated.
+
+#### Planning
+
+**Priority**
+High
+
+**Acceptance**
+Track `flag.Visit` and validate required flags/positionals after parsing.
+
+### 21. Nil Pointer Inputs Can Panic
+
+#### Universal
+
+**Status**
+backlog
+
+**Description**
+Nil pointers passed to `Run` or subcommand pointers can panic on `Elem()`.
+
+#### Planning
+
+**Priority**
+High
+
+**Acceptance**
+Validate pointers before `Elem()` and return descriptive errors.
+
+### 22. Subcommand Assignment Fails For Non-Pointer Fields
+
+#### Universal
+
+**Status**
+backlog
+
+**Description**
+Subcommand assignment assumes pointer fields and can panic on value fields.
+
+#### Planning
+
+**Priority**
+Medium
+
+**Acceptance**
+Support assigning into both pointer and value subcommand fields.
+
+### 23. Unexported Tagged Fields Can Panic
+
+#### Universal
+
+**Status**
+backlog
+
+**Description**
+Unexported tagged fields panic when set via reflection.
+
+#### Planning
+
+**Priority**
+Medium
+
+**Acceptance**
+Validate field export status and return friendly errors.
+
+### 24. Build Tool Mode Includes Non-Commands
+
+#### Universal
+
+**Status**
+backlog
+
+**Description**
+Build tool mode includes exported structs without `Run` or subcommands.
+
+#### Planning
+
+**Priority**
+Low
+
+**Acceptance**
+Filter to runnable structs or those with subcommands.
+
+### 25. Completion Tokenization Ignores Quotes/Escapes
+
+#### Universal
+
+**Status**
+backlog
+
+**Description**
+Completion uses `strings.Fields` and breaks for quoted/escaped args.
+
+#### Planning
+
+**Priority**
+Low
+
+**Acceptance**
+Use a shell-aware tokenizer for completion input.
+
+### 26. Invalid Env Defaults Are Silently Ignored
+
+#### Universal
+
+**Status**
+backlog
+
+**Description**
+Invalid env values for int/bool silently fall back to zero/false.
+
+#### Planning
+
+**Priority**
+Low
+
+**Acceptance**
+Validate env parsing and surface errors or warnings.
+
+### 28. Build Tool Mode Compiled Binary Cache
+
+#### Universal
+
+**Status**
+backlog
+
+**Description**
+Cache compiled build tool binaries to avoid `go run` on every invocation.
+
+#### Planning
+
+**Priority**
+Medium
+
+**Acceptance**
+Generate a cache key and reuse the compiled executable when valid.
+
+### 29. Temporary Generated Main File Handling
+
+#### Universal
+
+**Status**
+backlog
+
+**Description**
+Improve handling of generated bootstrap files (naming, location, cleanup).
+
+#### Planning
+
+**Priority**
+Low
+
+**Acceptance**
+Generate into a temp dir with a stable name and support `--keep`.
+
+---
+
+## Done
+
+Completed issues.
+
+### 1. Explore CLI Tool Design
+
+#### Universal
+
+**Status**
+done
+
+**Description**
+Initial exploration and prototyping of the library.
+
+### 27. Build Tag Filtering For Build Tool Mode
+
+#### Universal
+
+**Status**
+done
+
+**Description**
+Restrict command discovery to Go files with a specific build tag.
+
+### 30. Function Targets Support (Direct + Build Tool Modes)
+
+#### Universal
+
+**Status**
+done
+
+**Description**
+Support niladic functions as commands alongside struct-based commands.
+
+### 31. Build Tool Mode Build-Tag Discovery
+
+#### Universal
+
+**Status**
+done
+
+**Description**
+Discover commands only in directories containing files with `//go:build commander`.
+
+### 32. Build Tool Mode Depth Gating
+
+#### Universal
+
+**Status**
+done
+
+**Description**
+Without `--package`, stop at the first depth with tagged files and error on ties.
+
+### 33. Build Tool Mode Package Grouping
+
+#### Universal
+
+**Status**
+done
+
+**Description**
+When `--package` is set, always add package name as the first subcommand.
+
+### 34. Build Tool Mode Subcommand Filtering For Functions
+
+#### Universal
+
+**Status**
+done
+
+**Description**
+Filter out exported functions named as subcommands of exported structs.

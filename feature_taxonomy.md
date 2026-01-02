@@ -18,7 +18,7 @@ Legend:
 ## Category: Command Model (Core)
 
 - Root + subcommand discovery by struct graph (Core) | Status: Implemented
-- Function targets (niladic) as commands (Core) | Status: Planned
+- Function targets (niladic) as commands (Core) | Status: Implemented
 - Root behavior when no subcommand selected (Core) | Status: Implemented
 - Subcommand naming overrides (Core) | Status: Implemented
 - Help text from doc comments or tags (Essential) | Status: Implemented (doc comments only)
@@ -40,15 +40,15 @@ Status Notes:
 ## Category: Execution Modes (Core)
 
 - Direct binary usage: main calls commander.Run(...) (Core) | Status: Implemented
-- Build Tool Mode: external `commander` binary discovers commands and runs (Core) | Status: Implemented (structs only)
+- Build Tool Mode: external `commander` binary discovers commands and runs (Core) | Status: Implemented
 - "Single root" shorthand (no command name) (Essential) | Status: Implemented
 - Multiple root selection by name (Essential) | Status: Implemented
-- Build tool mode discovery by build tag (Core) | Status: Planned
-- Build tool mode recursive search with depth gating (Core) | Status: Planned
-- Build tool mode package grouping (Core) | Status: Planned
-- Build tool mode function discovery (Core) | Status: Planned
-- Build tool mode filters subcommand structs/functions (Core) | Status: Planned
-- Build tool mode: no default command (Core) | Status: Planned
+- Build tool mode discovery by build tag (Core) | Status: Implemented
+- Build tool mode recursive search with depth gating (Core) | Status: Implemented
+- Build tool mode package grouping (Core) | Status: Implemented
+- Build tool mode function discovery (Core) | Status: Implemented
+- Build tool mode filters subcommand structs/functions (Core) | Status: Implemented
+- Build tool mode: no default command (Core) | Status: Implemented
 
 Tests:
 
