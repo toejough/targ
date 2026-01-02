@@ -1,6 +1,7 @@
 package commander
 
 import (
+	"context"
 	"fmt"
 	"reflect"
 	"runtime"
@@ -26,7 +27,7 @@ func parseFunc(v reflect.Value) (*CommandNode, error) {
 		return nil, fmt.Errorf("expected func, got %v", typ.Kind())
 	}
 
-	if err := validateNiladicFuncType(typ); err != nil {
+	if err := validateFuncType(typ); err != nil {
 		return nil, err
 	}
 
@@ -42,9 +43,12 @@ func parseFunc(v reflect.Value) (*CommandNode, error) {
 	}, nil
 }
 
-func validateNiladicFuncType(typ reflect.Type) error {
-	if typ.NumIn() != 0 {
-		return fmt.Errorf("function command must be niladic")
+func validateFuncType(typ reflect.Type) error {
+	if typ.NumIn() > 1 {
+		return fmt.Errorf("function command must be niladic or accept context")
+	}
+	if typ.NumIn() == 1 && !isContextType(typ.In(0)) {
+		return fmt.Errorf("function command must accept context.Context")
 	}
 	if typ.NumOut() == 0 {
 		return nil
@@ -53,6 +57,10 @@ func validateNiladicFuncType(typ reflect.Type) error {
 		return nil
 	}
 	return fmt.Errorf("function command must return only error")
+}
+
+func isContextType(t reflect.Type) bool {
+	return t == reflect.TypeOf((*context.Context)(nil)).Elem()
 }
 
 func isErrorType(t reflect.Type) bool {

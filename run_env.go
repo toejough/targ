@@ -1,9 +1,12 @@
 package commander
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 )
 
 type runEnv interface {
@@ -32,6 +35,12 @@ func (osRunEnv) Exit(code int) {
 }
 
 func runWithEnv(env runEnv, opts RunOptions, targets ...interface{}) {
+	ctx := context.Background()
+	if _, ok := env.(osRunEnv); ok {
+		rootCtx, cancel := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+		defer cancel()
+		ctx = rootCtx
+	}
 	roots := []*CommandNode{}
 	for _, t := range targets {
 		node, err := parseTarget(t)
@@ -52,7 +61,7 @@ func runWithEnv(env runEnv, opts RunOptions, targets ...interface{}) {
 	args := env.Args()
 	if len(args) < 2 {
 		if hasDefault {
-			if err := roots[0].execute(nil); err != nil {
+			if err := roots[0].execute(ctx, nil); err != nil {
 				env.Printf("Error: %v\n", err)
 				env.Exit(1)
 			}
@@ -102,7 +111,7 @@ func runWithEnv(env runEnv, opts RunOptions, targets ...interface{}) {
 	}
 
 	if hasDefault {
-		if err := roots[0].execute(rest); err != nil {
+		if err := roots[0].execute(ctx, rest); err != nil {
 			env.Printf("Error: %v\n", err)
 			env.Exit(1)
 		}
@@ -125,7 +134,7 @@ func runWithEnv(env runEnv, opts RunOptions, targets ...interface{}) {
 	}
 
 	// Execute the matched root
-	if err := matched.execute(rest[1:]); err != nil {
+	if err := matched.execute(ctx, rest[1:]); err != nil {
 		env.Printf("Error: %v\n", err)
 		env.Exit(1)
 	}

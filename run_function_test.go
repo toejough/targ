@@ -1,6 +1,9 @@
 package commander
 
-import "testing"
+import (
+	"context"
+	"testing"
+)
 
 var (
 	defaultFuncCalled bool
@@ -31,6 +34,31 @@ func TestRunWithEnv_SingleFunction_DefaultCommand(t *testing.T) {
 
 	if !defaultFuncCalled {
 		t.Fatal("expected function command to be called")
+	}
+}
+
+func ContextFunc(ctx context.Context) {
+	if ctx != nil {
+		helloWorldCalled = true
+	}
+}
+
+func TestRunWithEnv_ContextFunction(t *testing.T) {
+	helloWorldCalled = false
+
+	env := MockrunEnv(t)
+	done := make(chan struct{})
+
+	go func() {
+		runWithEnv(env.Interface(), RunOptions{AllowDefault: true}, ContextFunc)
+		close(done)
+	}()
+
+	env.Args.ExpectCalledWithExactly().InjectReturnValues([]string{"cmd"})
+	<-done
+
+	if !helloWorldCalled {
+		t.Fatal("expected context function command to be called")
 	}
 }
 

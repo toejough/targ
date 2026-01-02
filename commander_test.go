@@ -1,6 +1,7 @@
 package commander
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
@@ -54,7 +55,7 @@ func TestExecuteCommand(t *testing.T) {
 	}
 
 	args := []string{"-name", "Alice"}
-	if err := cmd.execute(args); err != nil {
+	if err := cmd.execute(context.Background(), args); err != nil {
 		t.Fatalf("execution failed: %v", err)
 	}
 
@@ -85,7 +86,7 @@ func TestCustomFlagName(t *testing.T) {
 
 	// use -user_name instead of -user
 	args := []string{"-user_name", "Bob"}
-	if err := cmd.execute(args); err != nil {
+	if err := cmd.execute(context.Background(), args); err != nil {
 		t.Fatalf("execution failed: %v", err)
 	}
 
@@ -104,7 +105,7 @@ func TestRequiredFlag(t *testing.T) {
 	cmd, _ := parseCommand(&RequiredArgs{})
 
 	// Missing required flag should error
-	if err := cmd.execute([]string{}); err == nil {
+	if err := cmd.execute(context.Background(), []string{}); err == nil {
 		t.Fatal("expected error for missing required flag")
 	} else if !strings.Contains(err.Error(), "--id") {
 		t.Fatalf("expected error to mention --id, got: %v", err)
@@ -124,7 +125,7 @@ func TestEnvVars(t *testing.T) {
 	os.Setenv("TEST_USER", "EnvAlice")
 	defer os.Unsetenv("TEST_USER")
 
-	if err := cmd.execute([]string{}); err != nil {
+	if err := cmd.execute(context.Background(), []string{}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if cmdStruct.User != "EnvAlice" {
@@ -151,7 +152,7 @@ func TestStructDefaults(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if err := cmd.execute([]string{}); err != nil {
+	if err := cmd.execute(context.Background(), []string{}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if cmdStruct.Name != "Alice" {
@@ -193,7 +194,7 @@ func TestStructDefaults_EnvOverrides(t *testing.T) {
 		os.Unsetenv("TEST_DEFAULT_FLAG")
 	}()
 
-	if err := cmd.execute([]string{}); err != nil {
+	if err := cmd.execute(context.Background(), []string{}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if cmdStruct.Name != "Bob" {
@@ -220,7 +221,7 @@ func TestUnexportedFieldError(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if err := cmd.execute([]string{}); err == nil {
+	if err := cmd.execute(context.Background(), []string{}); err == nil {
 		t.Fatal("expected error for unexported tagged field")
 	}
 }
@@ -238,7 +239,7 @@ func TestRunReturnsError(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if err := cmd.execute([]string{}); err == nil {
+	if err := cmd.execute(context.Background(), []string{}); err == nil {
 		t.Fatal("expected error from Run")
 	}
 }
@@ -252,7 +253,7 @@ func TestFunctionReturnsError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if err := node.execute([]string{}); err == nil {
+	if err := node.execute(context.Background(), []string{}); err == nil {
 		t.Fatal("expected error from function command")
 	}
 }
@@ -290,7 +291,7 @@ func TestCustomTypesFromFlagsAndPositionals(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if err := cmd.execute([]string{"--name", "alice", "--nick", "bob", "pos"}); err != nil {
+	if err := cmd.execute(context.Background(), []string{"--name", "alice", "--nick", "bob", "pos"}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -302,6 +303,31 @@ func TestCustomTypesFromFlagsAndPositionals(t *testing.T) {
 	}
 	if cmdStruct.Pos.Value != "POS" {
 		t.Fatalf("expected positional to be set via UnmarshalText, got %q", cmdStruct.Pos.Value)
+	}
+}
+
+type ContextRunCmd struct {
+	Seen bool
+}
+
+func (c *ContextRunCmd) Run(ctx context.Context) {
+	if ctx != nil {
+		c.Seen = true
+	}
+}
+
+func TestRunWithContext(t *testing.T) {
+	cmdStruct := &ContextRunCmd{}
+	cmd, err := parseCommand(cmdStruct)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if err := cmd.execute(context.Background(), []string{}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !cmdStruct.Seen {
+		t.Fatal("expected Run(ctx) to be called with context")
 	}
 }
 
@@ -342,13 +368,13 @@ func TestSubcommands(t *testing.T) {
 
 	// Execute subcommand "sub"
 	args := []string{"sub", "-verbose"}
-	if err := cmd.execute(args); err != nil {
+	if err := cmd.execute(context.Background(), args); err != nil {
 		t.Fatalf("execution failed: %v", err)
 	}
 
 	// Execute subcommand "custom"
 	args2 := []string{"custom", "-verbose"}
-	if err := cmd.execute(args2); err != nil {
+	if err := cmd.execute(context.Background(), args2); err != nil {
 		t.Fatalf("execution failed: %v", err)
 	}
 }
@@ -368,7 +394,7 @@ func TestShortFlags(t *testing.T) {
 	}
 
 	args := []string{"-n", "Alice", "-a", "30"}
-	if err := cmd.execute(args); err != nil {
+	if err := cmd.execute(context.Background(), args); err != nil {
 		t.Fatalf("execution failed: %v", err)
 	}
 
@@ -391,7 +417,7 @@ func TestPositionalArgs(t *testing.T) {
 	cmdStruct := &PositionalArgs{}
 	cmd, _ := parseCommand(cmdStruct)
 
-	if err := cmd.execute([]string{"source.txt", "dest.txt"}); err != nil {
+	if err := cmd.execute(context.Background(), []string{"source.txt", "dest.txt"}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -414,7 +440,7 @@ func TestRequiredPositionals(t *testing.T) {
 	cmdStruct := &RequiredPositionals{}
 	cmd, _ := parseCommand(cmdStruct)
 
-	if err := cmd.execute([]string{}); err == nil {
+	if err := cmd.execute(context.Background(), []string{}); err == nil {
 		t.Fatal("expected error for missing required positional")
 	} else if !strings.Contains(err.Error(), "Src") {
 		t.Fatalf("expected error to mention Src, got: %v", err)
@@ -431,7 +457,7 @@ func TestRequiredShortFlagErrorIncludesShort(t *testing.T) {
 	cmdStruct := &RequiredShortFlag{}
 	cmd, _ := parseCommand(cmdStruct)
 
-	if err := cmd.execute([]string{}); err == nil {
+	if err := cmd.execute(context.Background(), []string{}); err == nil {
 		t.Fatal("expected error for missing required flag")
 	} else if !strings.Contains(err.Error(), "--name") || !strings.Contains(err.Error(), "-n") {
 		t.Fatalf("expected error to mention --name and -n, got: %v", err)
@@ -451,7 +477,7 @@ func TestRequiredEnvFlagEmptyDoesNotSatisfy(t *testing.T) {
 	os.Setenv("TEST_REQUIRED", "")
 	defer os.Unsetenv("TEST_REQUIRED")
 
-	if err := cmd.execute([]string{}); err == nil {
+	if err := cmd.execute(context.Background(), []string{}); err == nil {
 		t.Fatal("expected error for missing required flag when env is empty")
 	}
 }

@@ -1,6 +1,7 @@
 package commander
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"os"
@@ -130,7 +131,7 @@ func parseStruct(t interface{}) (*CommandNode, error) {
 
 			var subNode *CommandNode
 			if fieldType.Kind() == reflect.Func {
-				if err := validateNiladicFuncType(field.Type); err != nil {
+				if err := validateFuncType(field.Type); err != nil {
 					return nil, err
 				}
 				subNode = &CommandNode{
@@ -178,7 +179,7 @@ func parseStruct(t interface{}) (*CommandNode, error) {
 	return node, nil
 }
 
-func (n *CommandNode) execute(args []string) error {
+func (n *CommandNode) execute(ctx context.Context, args []string) error {
 	if n.Func.IsValid() {
 		if n.Func.Kind() == reflect.Func && n.Func.IsNil() {
 			return fmt.Errorf("command %s function is nil", n.Name)
@@ -190,10 +191,15 @@ func (n *CommandNode) execute(args []string) error {
 			}
 			return fmt.Errorf("unknown arguments: %v", args)
 		}
-		if err := validateNiladicFuncType(n.Func.Type()); err != nil {
+		if err := validateFuncType(n.Func.Type()); err != nil {
 			return fmt.Errorf("command %s %v", n.Name, err)
 		}
-		out := n.Func.Call(nil)
+		var out []reflect.Value
+		if n.Func.Type().NumIn() == 1 {
+			out = n.Func.Call([]reflect.Value{reflect.ValueOf(ctx)})
+		} else {
+			out = n.Func.Call(nil)
+		}
 		if len(out) == 1 {
 			if err, ok := out[0].Interface().(error); ok && err != nil {
 				return err
@@ -414,7 +420,7 @@ func (n *CommandNode) execute(args []string) error {
 				}
 			}
 
-			return sub.execute(remaining[1:])
+			return sub.execute(ctx, remaining[1:])
 		}
 	}
 
@@ -478,17 +484,21 @@ func (n *CommandNode) execute(args []string) error {
 			return fmt.Errorf("unknown arguments: %v", remaining[posArgIdx:])
 		}
 
-		if method.Type().NumIn() == 0 {
-			if method.Type().NumOut() == 0 {
-				method.Call(nil)
+		callWithCtx := method.Type().NumIn() == 1 && isContextType(method.Type().In(0))
+		callWithNiladic := method.Type().NumIn() == 0
+		if callWithNiladic || callWithCtx {
+			var out []reflect.Value
+			if callWithCtx {
+				out = method.Call([]reflect.Value{reflect.ValueOf(ctx)})
+			} else {
+				out = method.Call(nil)
+			}
+			if len(out) == 0 {
 				return nil
 			}
-			if method.Type().NumOut() == 1 && isErrorType(method.Type().Out(0)) {
-				out := method.Call(nil)
-				if len(out) == 1 {
-					if err, ok := out[0].Interface().(error); ok && err != nil {
-						return err
-					}
+			if len(out) == 1 && isErrorType(method.Type().Out(0)) {
+				if err, ok := out[0].Interface().(error); ok && err != nil {
+					return err
 				}
 				return nil
 			}
