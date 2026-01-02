@@ -145,6 +145,8 @@ func (a *AddCmd) Run() {
 
 When a root has subcommands, its `Run` method is used as the fallback when no subcommand is provided.
 
+`Run` can be `func()`, `func() error`, `func(context.Context)`, or `func(context.Context) error`. Function commands support the same signatures.
+
 ### Command Description
 
 Add documentation comments to your `Run` methods to populate the help text.

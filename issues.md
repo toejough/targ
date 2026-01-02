@@ -78,24 +78,6 @@ Add `commander.Newer(src, dst)` or equivalent timestamp checks.
 
 **Description**
 Allow `Run` methods to return error for consistent failure handling.
-### 6. Context Support & Timeout
-
-#### Universal
-
-**Status**
-backlog
-
-**Description**
-Support cancellation/timeouts for long-running tasks.
-
-#### Planning
-
-**Priority**
-Medium
-
-**Acceptance**
-Support `func(context.Context)` and set up signal-canceling root context.
-
 ### 7. Compilation-Safe Documentation
 
 #### Universal
@@ -431,6 +413,23 @@ Support types implementing `encoding.TextUnmarshaler` for flags.
 **Details**
 - Flag parsing supports types that implement `UnmarshalText` or `Set(string) error`.
 - Positional parsing uses the same custom type logic.
+
+### 6. Context Support & Timeout
+
+#### Universal
+
+**Status**
+done
+
+**Description**
+Support cancellation/timeouts for long-running tasks.
+
+#### Implementation Notes
+
+**Details**
+- `Run` methods accept `context.Context` and receive a root context.
+- Function commands support `func(context.Context)` and `func(context.Context) error`.
+- Root context is cancelled on SIGINT/SIGTERM in CLI runs.
 
 ### 5. Error Return Support
 
