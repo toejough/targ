@@ -299,9 +299,6 @@ Add `target.Checksum(srcs, dest)`.
 
 #### Universal
 
-**Status**
-backlog
-
 **Description**
 Nil pointers passed to `Run` or subcommand pointers can panic on `Elem()`.
 
@@ -554,3 +551,13 @@ done
 
 **Description**
 Allow `Run` methods to return error for consistent failure handling.
+
+### 21. Nil Pointer Inputs Can Panic
+
+#### Universal
+
+**Status**
+done
+
+**Description**
+Nil pointers passed to `Run` or subcommand pointers can panic on `Elem()`.
