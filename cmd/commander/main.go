@@ -42,6 +42,14 @@ type bootstrapData struct {
 }
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "gen" {
+		if err := runGenerate(); err != nil {
+			fmt.Printf("Error generating wrappers: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
+
 	var packageGrouping bool
 
 	fs := flag.NewFlagSet("commander", flag.ContinueOnError)
@@ -56,6 +64,27 @@ func main() {
 	if err != nil {
 		fmt.Printf("Error resolving working directory: %v\n", err)
 		os.Exit(1)
+	}
+
+	taggedDirs, err := buildtool.SelectTaggedDirs(buildtool.OSFileSystem{}, buildtool.Options{
+		StartDir:        startDir,
+		PackageGrouping: packageGrouping,
+		BuildTag:        "commander",
+	})
+	if err != nil {
+		fmt.Printf("Error discovering commands: %v\n", err)
+		os.Exit(1)
+	}
+
+	for _, dir := range taggedDirs {
+		if _, err := buildtool.GenerateFunctionWrappers(buildtool.OSFileSystem{}, buildtool.GenerateOptions{
+			Dir:        dir.Path,
+			BuildTag:   "commander",
+			OnlyTagged: true,
+		}); err != nil {
+			fmt.Printf("Error generating command wrappers: %v\n", err)
+			os.Exit(1)
+		}
 	}
 
 	infos, err := buildtool.Discover(buildtool.OSFileSystem{}, buildtool.Options{
@@ -104,6 +133,28 @@ func main() {
 	if err := cmd.Run(); err != nil {
 		os.Exit(1)
 	}
+}
+
+func runGenerate() error {
+	var buildTag string
+	fs := flag.NewFlagSet("gen", flag.ContinueOnError)
+	fs.StringVar(&buildTag, "tag", "", "optional build tag for generated wrappers")
+	fs.SetOutput(os.Stdout)
+	if err := fs.Parse(os.Args[2:]); err != nil {
+		return err
+	}
+
+	dir, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("error resolving working directory: %w", err)
+	}
+
+	_, err = buildtool.GenerateFunctionWrappers(buildtool.OSFileSystem{}, buildtool.GenerateOptions{
+		Dir:        dir,
+		BuildTag:   buildTag,
+		OnlyTagged: false,
+	})
+	return err
 }
 
 func findModuleRootAndPath(startDir string) (string, string, error) {
