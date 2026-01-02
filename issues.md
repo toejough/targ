@@ -54,10 +54,6 @@ Low
 **Acceptance**
 Support grouping or display organization beyond strict struct nesting.
 
-### 10. Custom Type Support (TextUnmarshaler)
-
-#### Universal
-
 ### 12. Placeholder Customization
 
 #### Universal
@@ -148,21 +144,6 @@ Low
 **Acceptance**
 Add `target.Checksum(srcs, dest)`.
 
-### 23. Unexported Tagged Fields Can Panic
-
-#### Universal
-
-**Description**
-Unexported tagged fields panic when set via reflection.
-
-#### Planning
-
-**Priority**
-Medium
-
-**Acceptance**
-Validate field export status and return friendly errors.
-
 ### 24. Build Tool Mode Includes Non-Commands
 
 #### Universal
@@ -180,22 +161,6 @@ Low
 
 **Acceptance**
 Filter to runnable structs or those with subcommands.
-
-### 25. Completion Tokenization Ignores Quotes/Escapes
-
-#### Universal
-
-**Status**
-**Description**
-Completion uses `strings.Fields` and breaks for quoted/escaped args.
-
-#### Planning
-
-**Priority**
-Low
-
-**Acceptance**
-Use a shell-aware tokenizer for completion input.
 
 ### 26. Invalid Env Defaults Are Silently Ignored
 
