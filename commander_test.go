@@ -455,3 +455,28 @@ func TestDetectRootCommands(t *testing.T) {
 		t.Error("ChildB should have been filtered out")
 	}
 }
+
+type MetaOverrideCmd struct{}
+
+func (m *MetaOverrideCmd) Run() {}
+
+func (m *MetaOverrideCmd) CommandName() string {
+	return "CustomName"
+}
+
+func (m MetaOverrideCmd) Description() string {
+	return "Custom description."
+}
+
+func TestCommandMetaOverrides(t *testing.T) {
+	node, err := parseStruct(&MetaOverrideCmd{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if node.Name != "custom-name" {
+		t.Fatalf("expected command name custom-name, got %q", node.Name)
+	}
+	if node.Description != "Custom description." {
+		t.Fatalf("expected description override, got %q", node.Description)
+	}
+}

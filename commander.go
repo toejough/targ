@@ -108,6 +108,12 @@ func parseStruct(t interface{}) (*CommandNode, error) {
 			node.Description = strings.TrimSpace(doc)
 		}
 	}
+	if cmdName := getCommandName(v, typ); cmdName != "" {
+		node.Name = cmdName
+	}
+	if desc := getDescription(v, typ); desc != "" {
+		node.Description = desc
+	}
 
 	// 2. Look for fields with `commander:"subcommand"`
 	for i := 0; i < typ.NumField(); i++ {
