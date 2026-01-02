@@ -134,19 +134,15 @@ func TestEnvVars(t *testing.T) {
 }
 
 type DefaultArgs struct {
-	Name    string
-	Count   int
-	Enabled bool
+	Name    string `commander:"default=Alice"`
+	Count   int    `commander:"default=42"`
+	Enabled bool   `commander:"default=true"`
 }
 
 func (c *DefaultArgs) Run() {}
 
 func TestStructDefaults(t *testing.T) {
-	cmdStruct := &DefaultArgs{
-		Name:    "Alice",
-		Count:   42,
-		Enabled: true,
-	}
+	cmdStruct := &DefaultArgs{}
 	cmd, err := parseCommand(cmdStruct)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -167,19 +163,15 @@ func TestStructDefaults(t *testing.T) {
 }
 
 type DefaultEnvArgs struct {
-	Name  string `commander:"env=TEST_DEFAULT_NAME"`
-	Count int    `commander:"env=TEST_DEFAULT_COUNT"`
-	Flag  bool   `commander:"env=TEST_DEFAULT_FLAG"`
+	Name  string `commander:"default=Alice,env=TEST_DEFAULT_NAME"`
+	Count int    `commander:"default=42,env=TEST_DEFAULT_COUNT"`
+	Flag  bool   `commander:"default=true,env=TEST_DEFAULT_FLAG"`
 }
 
 func (c *DefaultEnvArgs) Run() {}
 
 func TestStructDefaults_EnvOverrides(t *testing.T) {
-	cmdStruct := &DefaultEnvArgs{
-		Name:  "Alice",
-		Count: 42,
-		Flag:  true,
-	}
+	cmdStruct := &DefaultEnvArgs{}
 	cmd, err := parseCommand(cmdStruct)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -303,6 +295,88 @@ func TestCustomTypesFromFlagsAndPositionals(t *testing.T) {
 	}
 	if cmdStruct.Pos.Value != "POS" {
 		t.Fatalf("expected positional to be set via UnmarshalText, got %q", cmdStruct.Pos.Value)
+	}
+}
+
+type DefaultTagArgs struct {
+	Name  string `commander:"default=alice"`
+	Count int    `commander:"default=2"`
+	Flag  bool   `commander:"default=true"`
+	Pos   string `commander:"positional,default=pos"`
+}
+
+func (d *DefaultTagArgs) Run() {}
+
+func TestDefaultTags(t *testing.T) {
+	cmdStruct := &DefaultTagArgs{}
+	cmd, err := parseCommand(cmdStruct)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if err := cmd.execute(context.Background(), []string{}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if cmdStruct.Name != "alice" {
+		t.Fatalf("expected default name, got %q", cmdStruct.Name)
+	}
+	if cmdStruct.Count != 2 {
+		t.Fatalf("expected default count 2, got %d", cmdStruct.Count)
+	}
+	if !cmdStruct.Flag {
+		t.Fatal("expected default flag true")
+	}
+	if cmdStruct.Pos != "pos" {
+		t.Fatalf("expected default positional, got %q", cmdStruct.Pos)
+	}
+}
+
+type DefaultTagCustom struct {
+	Name TextValue `commander:"default=alice"`
+}
+
+func (d *DefaultTagCustom) Run() {}
+
+func TestDefaultTagCustomType(t *testing.T) {
+	cmdStruct := &DefaultTagCustom{}
+	cmd, err := parseCommand(cmdStruct)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if err := cmd.execute(context.Background(), []string{}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if cmdStruct.Name.Value != "ALICE" {
+		t.Fatalf("expected custom default to be applied, got %q", cmdStruct.Name.Value)
+	}
+}
+
+type NonZeroRoot struct {
+	Name string `commander:"flag"`
+}
+
+func (n *NonZeroRoot) Run() {}
+
+func TestNonZeroRootErrors(t *testing.T) {
+	_, err := parseCommand(&NonZeroRoot{Name: "set"})
+	if err == nil {
+		t.Fatal("expected error for non-zero root value")
+	}
+}
+
+type RootWithPresetSub struct {
+	Sub *SubCmd `commander:"subcommand"`
+}
+
+func (r *RootWithPresetSub) Run() {}
+
+func TestNonZeroSubcommandErrors(t *testing.T) {
+	_, err := parseCommand(&RootWithPresetSub{Sub: &SubCmd{}})
+	if err == nil {
+		t.Fatal("expected error for non-zero subcommand field")
 	}
 }
 

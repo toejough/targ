@@ -63,9 +63,10 @@ type CommandNode struct {
 }
 
 type requiredFlagGroup struct {
-	names   []string
-	fromEnv bool
-	display string
+	names      []string
+	fromEnv    bool
+	defaultSet bool
+	display    string
 }
 
 func parseStruct(t interface{}) (*CommandNode, error) {
@@ -86,6 +87,26 @@ func parseStruct(t interface{}) (*CommandNode, error) {
 
 	if typ.Kind() != reflect.Struct {
 		return nil, fmt.Errorf("expected struct, got %v", typ.Kind())
+	}
+	for i := 0; i < typ.NumField(); i++ {
+		field := typ.Field(i)
+		tag := field.Tag.Get("commander")
+		if tag == "" {
+			continue
+		}
+		fieldVal := v.Field(i)
+		if strings.Contains(tag, "subcommand") {
+			if fieldVal.Kind() == reflect.Func {
+				continue
+			}
+			if !fieldVal.IsZero() {
+				return nil, fmt.Errorf("command %s must not prefill subcommand %s; use default tags instead", typ.Name(), field.Name)
+			}
+			continue
+		}
+		if !fieldVal.IsZero() {
+			return nil, fmt.Errorf("command %s must be zero value; use default tags instead of prefilled fields", typ.Name())
+		}
 	}
 
 	name := camelToKebab(typ.Name())
@@ -246,6 +267,9 @@ func (n *CommandNode) execute(ctx context.Context, args []string) error {
 		shortName := ""
 		required := false
 		envSet := false
+		defaultSet := false
+		defaultTagValue := ""
+		envVar := ""
 
 		if tag != "" {
 			parts := strings.Split(tag, ",")
@@ -256,11 +280,10 @@ func (n *CommandNode) execute(ctx context.Context, args []string) error {
 				} else if strings.HasPrefix(p, "short=") {
 					shortName = strings.TrimPrefix(p, "short=")
 				} else if strings.HasPrefix(p, "env=") {
-					envVar := strings.TrimPrefix(p, "env=")
-					if val, ok := os.LookupEnv(envVar); ok && val != "" {
-						defaultValue = val
-						envSet = true
-					}
+					envVar = strings.TrimPrefix(p, "env=")
+				} else if strings.HasPrefix(p, "default=") {
+					defaultTagValue = strings.TrimPrefix(p, "default=")
+					defaultSet = true
 				} else if p == "required" {
 					required = true
 				}
@@ -268,24 +291,21 @@ func (n *CommandNode) execute(ctx context.Context, args []string) error {
 			}
 		}
 
-		fieldVal := inst.Field(i)
-		if !envSet {
-			switch field.Type.Kind() {
-			case reflect.String:
-				defaultValue = fieldVal.String()
-			case reflect.Int:
-				defaultValue = fmt.Sprintf("%d", fieldVal.Int())
-			case reflect.Bool:
-				if fieldVal.Bool() {
-					defaultValue = "true"
-				} else {
-					defaultValue = "false"
-				}
+		if envVar != "" {
+			if val, ok := os.LookupEnv(envVar); ok && val != "" {
+				defaultValue = val
+				envSet = true
+				defaultSet = true
 			}
 		}
+		if !envSet && defaultSet {
+			defaultValue = defaultTagValue
+		}
+
+		fieldVal := inst.Field(i)
 
 		if setter, ok := customSetter(fieldVal); ok {
-			if envSet && defaultValue != "" {
+			if defaultSet {
 				if err := setter(defaultValue); err != nil {
 					return err
 				}
@@ -335,9 +355,10 @@ func (n *CommandNode) execute(ctx context.Context, args []string) error {
 				displayParts = append(displayParts, "-"+shortName)
 			}
 			requiredFlags = append(requiredFlags, requiredFlagGroup{
-				names:   names,
-				fromEnv: envSet,
-				display: strings.Join(displayParts, "/"),
+				names:      names,
+				fromEnv:    envSet,
+				defaultSet: defaultSet,
+				display:    strings.Join(displayParts, "/"),
 			})
 		}
 	}
@@ -361,7 +382,7 @@ func (n *CommandNode) execute(ctx context.Context, args []string) error {
 		visited[f.Name] = true
 	})
 	for _, group := range requiredFlags {
-		if group.fromEnv {
+		if group.fromEnv || group.defaultSet {
 			continue
 		}
 		satisfied := false
@@ -432,16 +453,26 @@ func (n *CommandNode) execute(ctx context.Context, args []string) error {
 		tag := field.Tag.Get("commander")
 		if strings.Contains(tag, "positional") {
 			required := false
+			defaultValue := ""
+			defaultSet := false
 			if tag != "" {
 				parts := strings.Split(tag, ",")
 				for _, p := range parts {
 					if strings.TrimSpace(p) == "required" {
 						required = true
-						break
+					} else if strings.HasPrefix(strings.TrimSpace(p), "default=") {
+						defaultValue = strings.TrimPrefix(strings.TrimSpace(p), "default=")
+						defaultSet = true
 					}
 				}
 			}
 			if posArgIdx >= len(remaining) {
+				if defaultSet {
+					if err := setFieldFromString(inst.Field(i), defaultValue); err != nil {
+						return err
+					}
+					continue
+				}
 				if required {
 					missingPositionals = append(missingPositionals, field.Name)
 				}
@@ -449,8 +480,7 @@ func (n *CommandNode) execute(ctx context.Context, args []string) error {
 			}
 			val := remaining[posArgIdx]
 
-			fVal := inst.Field(i)
-			if err := setFieldFromString(fVal, val); err != nil {
+			if err := setFieldFromString(inst.Field(i), val); err != nil {
 				return err
 			}
 			posArgIdx++
