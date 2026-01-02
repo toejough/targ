@@ -91,16 +91,59 @@ func (a *AddCmd) Run() {
 }
 ```
 
+### Command Description
+
+Add documentation comments to your `Run` methods to populate the help text.
+
+```go
+// Greet the user.
+// This command prints a greeting message.
+func (g *Greet) Run() {
+    // ...
+}
+```
+
+This will appear in the help output:
+
+```
+$ commander greet --help
+Usage: greet [flags] [subcommand]
+
+Greet the user.
+This command prints a greeting message.
+
+Flags:
+...
+```
+
 ### Tags
 
 - `commander:"required"`: Flag is required.
-- `commander:"desc=..."`: Description for help text.
+- `commander:"desc=..."`: Description for help text (for flags).
 - `commander:"name=..."`: Custom flag name.
+- `commander:"short=..."`: Short flag alias (e.g., `short=n` for `-n`).
 - `commander:"subcommand=..."`: Rename subcommand.
 - `commander:"env=VAR_NAME"`: Default value from environment variable.
 - `commander:"positional"`: Map positional arguments to this field.
 
-## Installation
+## Shell Completion
+
+To enable shell completion, generate the script and source it.
+
+```bash
+# Bash
+source <(your-binary completion bash)
+
+# Zsh
+source <(your-binary completion zsh)
+
+# Fish
+your-binary completion fish | source
+```
+
+The completion supports:
+- Commands and subcommands
+- Flags (including short flags)
 
 ```bash
 go get github.com/yourusername/commander

@@ -28,6 +28,33 @@ func Run(targets ...interface{}) {
 
 	args := os.Args[1:]
 
+	// 1. Check for completion script generation
+	if args[0] == "completion" {
+		if len(args) < 2 {
+			fmt.Println("Usage: completion [bash|zsh|fish]")
+			return
+		}
+		binName := os.Args[0]
+		// Determine binary name from path
+		if idx := strings.LastIndex(binName, "/"); idx != -1 {
+			binName = binName[idx+1:]
+		}
+		if idx := strings.LastIndex(binName, "\\"); idx != -1 {
+			binName = binName[idx+1:]
+		}
+		generateCompletionScript(args[1], binName)
+		return
+	}
+
+	// 2. Check for runtime completion request (Hidden command)
+	if args[0] == "__complete" {
+		// usage: __complete "entire command line"
+		if len(args) > 1 {
+			doCompletion(roots, args[1])
+		}
+		return
+	}
+
 	// Handle global help
 	if args[0] == "-h" || args[0] == "--help" {
 		printUsage(roots)
@@ -60,8 +87,16 @@ func printUsage(nodes []*CommandNode) {
 	fmt.Println("Usage: <command> [args]")
 	fmt.Println("\nAvailable commands:")
 	for _, node := range nodes {
-		fmt.Printf("  %s\n", node.Name)
-		// Todo: print subcommands?
+		desc := node.Description
+		// If description is empty, check if we can get it dynamically 
+		// (this might happen if not parsed yet, though parseStruct tries)
+		if desc == "" && node.RunMethod.IsValid() {
+			// This path is usually not hit because parseStruct does it, 
+			// but good for safety? Actually parseStruct sets node.Description.
+		}
+		
+		// Align
+		fmt.Printf("  %-20s %s\n", node.Name, desc)
 	}
 }
 
@@ -100,9 +135,14 @@ func parseStruct(t interface{}) (*CommandNode, error) {
 	// 1. Look for Run method on the *pointer* to the struct
 	// Check for Run method on Pointer type
 	ptrType := reflect.PtrTo(typ)
-	_, hasRun := ptrType.MethodByName("Run")
+	runMethod, hasRun := ptrType.MethodByName("Run")
 	if hasRun {
 		node.RunMethod = reflect.Value{} // Marker
+		// Extract description from doc string
+		doc := getMethodDoc(runMethod)
+		if doc != "" {
+			node.Description = strings.TrimSpace(doc)
+		}
 	}
 
 	// 2. Look for fields with `commander:"subcommand"`
@@ -178,6 +218,7 @@ func (n *CommandNode) execute(args []string) error {
 	
 	// 2. Parse flags for THIS level
 	fs := flag.NewFlagSet(n.Name, flag.ContinueOnError)
+	fs.Usage = func() { printCommandHelp(n) }
 	
 	// Map fields to flags
 	for i := 0; i < n.Type.NumField(); i++ {
@@ -190,6 +231,7 @@ func (n *CommandNode) execute(args []string) error {
 		name := strings.ToLower(field.Name)
 		usage := ""
 		defaultValue := ""
+		shortName := ""
 		
 		if tag != "" {
 			parts := strings.Split(tag, ",")
@@ -197,6 +239,8 @@ func (n *CommandNode) execute(args []string) error {
 				p = strings.TrimSpace(p)
 				if strings.HasPrefix(p, "name=") {
 					name = strings.TrimPrefix(p, "name=")
+				} else if strings.HasPrefix(p, "short=") {
+					shortName = strings.TrimPrefix(p, "short=")
 				} else if strings.HasPrefix(p, "env=") {
 					envVar := strings.TrimPrefix(p, "env=")
 					if val, ok := os.LookupEnv(envVar); ok {
@@ -215,12 +259,18 @@ func (n *CommandNode) execute(args []string) error {
 		switch field.Type.Kind() {
 		case reflect.String:
 			fs.StringVar(fieldVal.Addr().Interface().(*string), name, defaultValue, usage)
+			if shortName != "" {
+				fs.StringVar(fieldVal.Addr().Interface().(*string), shortName, defaultValue, usage)
+			}
 		case reflect.Int:
 			intVal := 0
 			if defaultValue != "" {
 				fmt.Sscanf(defaultValue, "%d", &intVal)
 			}
 			fs.IntVar(fieldVal.Addr().Interface().(*int), name, intVal, usage)
+			if shortName != "" {
+				fs.IntVar(fieldVal.Addr().Interface().(*int), shortName, intVal, usage)
+			}
 		case reflect.Bool:
 			// Bool env var handling
 			boolVal := false
@@ -228,10 +278,22 @@ func (n *CommandNode) execute(args []string) error {
 				boolVal = true
 			}
 			fs.BoolVar(fieldVal.Addr().Interface().(*bool), name, boolVal, usage)
+			if shortName != "" {
+				fs.BoolVar(fieldVal.Addr().Interface().(*bool), shortName, boolVal, usage)
+			}
 		}
 	}
 	
 	if err := fs.Parse(args); err != nil {
+		if err == flag.ErrHelp {
+			// printCommandHelp(n) // We call printCommandHelp manually later if we want custom format, 
+			// but flag package prints its own help before returning ErrHelp.
+			// To suppress flag package help, we need to set Usage to empty func?
+			
+			// Actually fs.Parse prints usage to stderr by default.
+			// We can override Usage.
+			return nil
+		}
 		return err
 	}
 	
@@ -313,6 +375,25 @@ func (n *CommandNode) execute(args []string) error {
 	// inst is addressable.
 	method := inst.Addr().MethodByName("Run")
 	if method.IsValid() {
+		// Check for -h / --help in remaining args? 
+		// Actually Run handles args? No, Run is niladic.
+		// If there are remaining args and Run is niladic, we might warn or error?
+		// Unless they are positionals we already parsed.
+		// Flags were parsed. Subcommands were checked. Positional args were consumed.
+		// So `remaining` here should be empty if everything was consumed.
+		// If not empty, user provided extra args.
+		
+		// Wait, `posArgIdx` tracks consumed positionals.
+		// If `posArgIdx < len(remaining)`, we have unconsumed args.
+		if posArgIdx < len(remaining) {
+			// Check if help
+			if remaining[posArgIdx] == "-h" || remaining[posArgIdx] == "--help" {
+				printCommandHelp(n)
+				return nil
+			}
+			return fmt.Errorf("unknown arguments: %v", remaining[posArgIdx:])
+		}
+
 		if method.Type().NumIn() == 0 {
 			method.Call(nil)
 			return nil
@@ -321,14 +402,100 @@ func (n *CommandNode) execute(args []string) error {
 	
 	if len(n.Subcommands) > 0 {
 		// Just list subcommands if we didn't run anything
-		fmt.Printf("Command '%s' requires a subcommand:\n", n.Name)
-		for name := range n.Subcommands {
-			fmt.Println(" -", name)
-		}
+		// Use the new help format
+		printCommandHelp(n)
 		return nil
 	}
 	
 	return fmt.Errorf("command %s is not runnable (no Run method)", n.Name)
+}
+
+func printCommandHelp(node *CommandNode) {
+	fmt.Printf("Usage: %s [flags] [subcommand]\n\n", node.Name)
+	
+	// If description is empty, try to fetch it if we haven't already
+	if node.Description == "" && node.RunMethod.IsValid() {
+		// Wait, we only have RunMethod marker if parsing succeeded.
+		// But getting doc requires the Run method to be available.
+		// node.Value might be the struct value.
+		// Let's try to get the method from Type or Value.
+		// Actually parseStruct already calls getMethodDoc.
+		// If it's empty, maybe it failed to parse the file.
+	}
+
+	if node.Description != "" {
+		fmt.Println(node.Description)
+		fmt.Println()
+	}
+	
+	if len(node.Subcommands) > 0 {
+		fmt.Println("Subcommands:")
+		for name, sub := range node.Subcommands {
+			fmt.Printf("  %-20s %s\n", name, sub.Description)
+		}
+		fmt.Println()
+	}
+	
+	fmt.Println("Flags:")
+	// Re-inspect flags to print help
+	// We need to instantiate a flagset to use its PrintDefaults? 
+	// Or we can manually iterate fields like we do for completion/parsing.
+	fs := flag.NewFlagSet(node.Name, flag.ContinueOnError)
+	// We need to bind them to dummy vars to register them
+	// This duplicates logic from execute.
+	// For now, let's just use the same logic as execute to populate the flagset, then PrintDefaults.
+	// But `inst` is not available here. We need a zero value.
+	
+	// inst := reflect.New(node.Type).Elem()
+	for i := 0; i < node.Type.NumField(); i++ {
+		field := node.Type.Field(i)
+		tag := field.Tag.Get("commander")
+		if strings.Contains(tag, "subcommand") {
+			continue
+		}
+		
+		name := strings.ToLower(field.Name)
+		usage := ""
+		shortName := ""
+		
+		if tag != "" {
+			parts := strings.Split(tag, ",")
+			for _, p := range parts {
+				p = strings.TrimSpace(p)
+				if strings.HasPrefix(p, "name=") {
+					name = strings.TrimPrefix(p, "name=")
+				} else if strings.HasPrefix(p, "short=") {
+					shortName = strings.TrimPrefix(p, "short=")
+				} else if strings.HasPrefix(p, "desc=") || strings.HasPrefix(p, "description=") {
+					if strings.HasPrefix(p, "desc=") {
+						usage = strings.TrimPrefix(p, "desc=")
+					} else {
+						usage = strings.TrimPrefix(p, "description=")
+					}
+				}
+			}
+		}
+		
+		switch field.Type.Kind() {
+		case reflect.String:
+			fs.StringVar(new(string), name, "", usage)
+			if shortName != "" {
+				fs.StringVar(new(string), shortName, "", usage)
+			}
+		case reflect.Int:
+			fs.IntVar(new(int), name, 0, usage)
+			if shortName != "" {
+				fs.IntVar(new(int), shortName, 0, usage)
+			}
+		case reflect.Bool:
+			fs.BoolVar(new(bool), name, false, usage)
+			if shortName != "" {
+				fs.BoolVar(new(bool), shortName, false, usage)
+			}
+		}
+	}
+	fs.SetOutput(os.Stdout)
+	fs.PrintDefaults()
 }
 
 // DetectRootCommands filters a list of possible command objects to find those

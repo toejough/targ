@@ -11,6 +11,9 @@ type Build struct {
 	Docker *DockerCmd `commander:"subcommand"`
 }
 
+// Run is the method executed when Build command is called
+// Description: Build the project
+// Epilog: For more information, visit our docs.
 func (b *Build) Run() {
 	fmt.Println("Running Build")
 }
@@ -20,6 +23,7 @@ type DockerCmd struct {
 	Tag string `commander:"flag"`
 }
 
+// Build something
 func (d *DockerCmd) Run() {
 	fmt.Printf("Running Docker Build (tag=%s)\n", d.Tag)
 }

@@ -14,16 +14,17 @@
 - [x] **Variadic Arguments**: Slice support.
 
 ## Phase 3: CLI Structure & Subcommands (Done)
-- [x] **Root Command**: `Run(funcs...)`.
-- [x] **Subcommands**: Struct methods as subcommands (`math add`).
-- [x] **Name Normalization**: CamelCase to kebab-case/spaced (`RemoteAdd` -> `remote add`).
+- [x] **Root Command**: `Run(structs...)`.
+- [x] **Subcommands**: Struct fields as subcommands (Architecture Pivot).
+- [x] **Name Normalization**: CamelCase to kebab-case.
+- [x] **CLI Mode**: Mage-style execution without main function.
 
-## Phase 4: Polish & Advanced Features (Todo)
-- [ ] **Shell Completion**: Bash/Zsh/Fish completion integration.
-- [ ] **Short Flags**: `-a` alias support.
-- [ ] **Custom Help**: Better help formatting using descriptions.
+## Phase 4: Polish & Advanced Features (Done)
+- [x] **Shell Completion**: Bash/Zsh/Fish completion integration.
+- [x] **Short Flags**: `short=a` alias support.
+- [x] **Custom Help**: Description support via `desc` tag.
 
-## Phase 5: Testing & Documentation (Partial)
-- [x] **Unit Tests**: Coverage for parsing and execution.
-- [x] **Examples**: `examples/simple/main.go`.
-- [ ] **Documentation**: Readme.
+## Phase 5: Testing & Documentation (Done)
+- [x] **Unit Tests**: Coverage for parsing, execution, subcommands, and flags.
+- [x] **Examples**: `examples/simple` and `examples/cli_mode`.
+- [x] **Documentation**: Readme updated with new API.

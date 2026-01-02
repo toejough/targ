@@ -161,6 +161,32 @@ func TestSubcommands(t *testing.T) {
 	}
 }
 
+type ShortFlagCmd struct {
+	Name string `commander:"flag,short=n"`
+	Age  int    `commander:"flag,short=a"`
+}
+func (c *ShortFlagCmd) Run() {}
+
+func TestShortFlags(t *testing.T) {
+	cmdStruct := &ShortFlagCmd{}
+	cmd, err := parseCommand(cmdStruct)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	args := []string{"-n", "Alice", "-a", "30"}
+	if err := cmd.execute(args); err != nil {
+		t.Fatalf("execution failed: %v", err)
+	}
+
+	if cmdStruct.Name != "Alice" {
+		t.Errorf("expected Name='Alice', got '%s'", cmdStruct.Name)
+	}
+	if cmdStruct.Age != 30 {
+		t.Errorf("expected Age=30, got %d", cmdStruct.Age)
+	}
+}
+
 type PositionalArgs struct {
 	Src string `commander:"positional"`
 	Dst string `commander:"positional"`
