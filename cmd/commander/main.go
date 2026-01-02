@@ -2,79 +2,87 @@ package main
 
 import (
 	"bytes"
+	"flag"
 	"fmt"
-	"go/ast"
-	"go/parser"
-	"go/token"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"strings"
 	"text/template"
+
+	"commander/buildtool"
 )
 
-func main() {
-	// 1. Scan current directory for go files
-	fset := token.NewFileSet()
-	pkgs, err := parser.ParseDir(fset, ".", nil, 0)
-	if err != nil {
-		fmt.Printf("Error parsing directory: %v\n", err)
-		os.Exit(1)
-	}
-
-	mainPkg, ok := pkgs["main"]
-	if !ok {
-		fmt.Println("No package main found in current directory")
-		os.Exit(1)
-	}
-
-	// 2. Find exported structs
-	var structs []string
-	for _, file := range mainPkg.Files {
-		ast.Inspect(file, func(n ast.Node) bool {
-			// Look for TypeSpec
-			if t, ok := n.(*ast.TypeSpec); ok {
-				// Check if it's a struct
-				if _, ok := t.Type.(*ast.StructType); ok {
-					// Check if exported
-					if t.Name.IsExported() {
-						structs = append(structs, t.Name.Name)
-					}
-				}
-			}
-			return true
-		})
-	}
-
-	if len(structs) == 0 {
-		fmt.Println("No exported structs found")
-		os.Exit(1)
-	}
-
-	// 3. Generate bootstrap file
-	tmpl := `
-package main
-
-import (
-	"commander"
-)
-
-func main() {
-	// Auto-detected commands
-	cmds := []interface{}{
-{{- range .Structs }}
-		&{{ . }}{},
-{{- end }}
-	}
-	
-	// Filter roots
-	roots := commander.DetectRootCommands(cmds...)
-	
-	// Run
-	commander.Run(roots...)
+type bootstrapCommand struct {
+	Name      string
+	TypeExpr  string
+	ValueExpr string
 }
-`
-	t := template.Must(template.New("main").Parse(tmpl))
+
+type bootstrapPackage struct {
+	Name       string
+	ImportPath string
+	ImportName string
+	Local      bool
+	TypeName   string
+	VarName    string
+	Commands   []bootstrapCommand
+}
+
+type bootstrapImport struct {
+	Path  string
+	Alias string
+}
+
+type bootstrapData struct {
+	PackageGrouping bool
+	Imports         []bootstrapImport
+	Packages        []bootstrapPackage
+	Targets         []string
+}
+
+func main() {
+	var packageGrouping bool
+
+	fs := flag.NewFlagSet("commander", flag.ContinueOnError)
+	fs.BoolVar(&packageGrouping, "package", false, "group commands under package name")
+	fs.SetOutput(os.Stdout)
+	if err := fs.Parse(os.Args[1:]); err != nil {
+		os.Exit(1)
+	}
+	args := fs.Args()
+
+	startDir, err := os.Getwd()
+	if err != nil {
+		fmt.Printf("Error resolving working directory: %v\n", err)
+		os.Exit(1)
+	}
+
+	infos, err := buildtool.Discover(buildtool.OSFileSystem{}, buildtool.Options{
+		StartDir:        startDir,
+		PackageGrouping: packageGrouping,
+		BuildTag:        "commander",
+	})
+	if err != nil {
+		fmt.Printf("Error discovering commands: %v\n", err)
+		os.Exit(1)
+	}
+
+	moduleRoot, modulePath, err := findModuleRootAndPath(startDir)
+	if err != nil {
+		fmt.Printf("Error finding module root: %v\n", err)
+		os.Exit(1)
+	}
+
+	data, err := buildBootstrapData(infos, startDir, moduleRoot, modulePath, packageGrouping)
+	if err != nil {
+		fmt.Printf("Error preparing bootstrap: %v\n", err)
+		os.Exit(1)
+	}
+
+	tmpl := template.Must(template.New("main").Parse(bootstrapTemplate))
 	var buf bytes.Buffer
-	if err := t.Execute(&buf, struct{ Structs []string }{Structs: structs}); err != nil {
+	if err := tmpl.Execute(&buf, data); err != nil {
 		fmt.Printf("Error generating code: %v\n", err)
 		os.Exit(1)
 	}
@@ -86,17 +94,229 @@ func main() {
 	}
 	defer os.Remove(filename)
 
-	// 4. Run "go run ."
-	// We need to pass arguments through
-	args := []string{"run", "."}
-	args = append(args, os.Args[1:]...)
+	runArgs := []string{"run", "."}
+	runArgs = append(runArgs, args...)
 
-	cmd := exec.Command("go", args...)
+	cmd := exec.Command("go", runArgs...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin
 	if err := cmd.Run(); err != nil {
-		// Don't print error if it's just exit code
 		os.Exit(1)
 	}
 }
+
+func findModuleRootAndPath(startDir string) (string, string, error) {
+	dir := startDir
+	for {
+		modPath := filepath.Join(dir, "go.mod")
+		data, err := os.ReadFile(modPath)
+		if err == nil {
+			modulePath := parseModulePath(string(data))
+			if modulePath == "" {
+				return "", "", fmt.Errorf("module path not found in %s", modPath)
+			}
+			return dir, modulePath, nil
+		}
+
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+
+	return "", "", fmt.Errorf("go.mod not found from %s", startDir)
+}
+
+func parseModulePath(content string) string {
+	for _, line := range strings.Split(content, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "module ") {
+			return strings.TrimSpace(strings.TrimPrefix(line, "module "))
+		}
+	}
+	return ""
+}
+
+func buildBootstrapData(
+	infos []buildtool.PackageInfo,
+	startDir string,
+	moduleRoot string,
+	modulePath string,
+	packageGrouping bool,
+) (bootstrapData, error) {
+	absStart, err := filepath.Abs(startDir)
+	if err != nil {
+		return bootstrapData{}, err
+	}
+	imports := []bootstrapImport{{Path: "commander"}}
+	usedImports := map[string]bool{"commander": true}
+	var packages []bootstrapPackage
+	var targets []string
+	seenPackages := make(map[string]string)
+
+	for _, info := range infos {
+		if len(info.Structs) == 0 && len(info.Funcs) == 0 {
+			return bootstrapData{}, fmt.Errorf("no commands found in package %s", info.Package)
+		}
+		if existing, ok := seenPackages[info.Package]; ok {
+			return bootstrapData{}, fmt.Errorf("duplicate package name %q in %s and %s", info.Package, existing, info.Dir)
+		}
+		seenPackages[info.Package] = info.Dir
+
+		local := sameDir(absStart, info.Dir)
+		importPath := ""
+		importName := ""
+		prefix := ""
+		if !local {
+			rel, err := filepath.Rel(moduleRoot, info.Dir)
+			if err != nil {
+				return bootstrapData{}, err
+			}
+			importPath = modulePath
+			if rel != "." {
+				importPath = modulePath + "/" + filepath.ToSlash(rel)
+			}
+			importName = uniqueImportName(info.Package, usedImports)
+			prefix = importName + "."
+			imports = append(imports, bootstrapImport{
+				Path:  importPath,
+				Alias: importName,
+			})
+		}
+
+		var commands []bootstrapCommand
+		for _, name := range info.Structs {
+			commands = append(commands, bootstrapCommand{
+				Name:      name,
+				TypeExpr:  "*" + prefix + name,
+				ValueExpr: "&" + prefix + name + "{}",
+			})
+		}
+		for _, name := range info.Funcs {
+			commands = append(commands, bootstrapCommand{
+				Name:      name,
+				TypeExpr:  "func()",
+				ValueExpr: prefix + name,
+			})
+		}
+
+		pkg := bootstrapPackage{
+			Name:       info.Package,
+			ImportPath: importPath,
+			ImportName: importName,
+			Local:      local,
+			TypeName:   exportTypeName(info.Package),
+			VarName:    lowerFirst(exportTypeName(info.Package)),
+			Commands:   commands,
+		}
+		packages = append(packages, pkg)
+
+		if !packageGrouping {
+			for _, cmd := range commands {
+				targets = append(targets, cmd.ValueExpr)
+			}
+		}
+	}
+
+	return bootstrapData{
+		PackageGrouping: packageGrouping,
+		Imports:         imports,
+		Packages:        packages,
+		Targets:         targets,
+	}, nil
+}
+
+func sameDir(a string, b string) bool {
+	absA, err := filepath.Abs(a)
+	if err != nil {
+		return false
+	}
+	absB, err := filepath.Abs(b)
+	if err != nil {
+		return false
+	}
+	return absA == absB
+}
+
+func uniqueImportName(name string, used map[string]bool) string {
+	candidate := name
+	if candidate == "" {
+		candidate = "pkg"
+	}
+	if candidate == "commander" {
+		candidate = "cmdpkg"
+	}
+	for used[candidate] {
+		candidate += "pkg"
+	}
+	used[candidate] = true
+	return candidate
+}
+
+func exportTypeName(name string) string {
+	if name == "" {
+		return "Package"
+	}
+	return strings.ToUpper(name[:1]) + name[1:]
+}
+
+func lowerFirst(name string) string {
+	if name == "" {
+		return "pkg"
+	}
+	return strings.ToLower(name[:1]) + name[1:]
+}
+
+const bootstrapTemplate = `
+package main
+
+import (
+	"commander"
+{{- range .Imports }}
+{{- if and (ne .Path "commander") (ne .Alias "") }}
+	{{ .Alias }} "{{ .Path }}"
+{{- else if ne .Path "commander" }}
+	"{{ .Path }}"
+{{- end }}
+{{- end }}
+)
+
+{{- if .PackageGrouping }}
+{{- range .Packages }}
+type {{ .TypeName }} struct {
+{{- range .Commands }}
+	{{ .Name }} {{ .TypeExpr }} ` + "`commander:\"subcommand\"`" + `
+{{- end }}
+}
+{{- end }}
+{{- end }}
+
+func main() {
+{{- if .PackageGrouping }}
+{{- range .Packages }}
+	{{ .VarName }} := &{{ .TypeName }}{
+{{- range .Commands }}
+		{{ .Name }}: {{ .ValueExpr }},
+{{- end }}
+	}
+{{- end }}
+
+	roots := []interface{}{
+{{- range .Packages }}
+		{{ .VarName }},
+{{- end }}
+	}
+
+	commander.RunWithOptions(commander.RunOptions{AllowDefault: false}, roots...)
+{{- else }}
+	cmds := []interface{}{
+{{- range .Targets }}
+		{{ . }},
+{{- end }}
+	}
+	commander.RunWithOptions(commander.RunOptions{AllowDefault: false}, cmds...)
+{{- end }}
+}
+`
