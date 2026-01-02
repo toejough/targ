@@ -61,6 +61,12 @@ type CommandNode struct {
 	Description string
 }
 
+type requiredFlagGroup struct {
+	names   []string
+	fromEnv bool
+	display string
+}
+
 func parseStruct(t interface{}) (*CommandNode, error) {
 	v := reflect.ValueOf(t)
 	typ := v.Type()
@@ -198,11 +204,13 @@ func (n *CommandNode) execute(args []string) error {
 	fs := flag.NewFlagSet(n.Name, flag.ContinueOnError)
 	fs.Usage = func() { printCommandHelp(n) }
 
+	requiredFlags := []requiredFlagGroup{}
+
 	// Map fields to flags
 	for i := 0; i < n.Type.NumField(); i++ {
 		field := n.Type.Field(i)
 		tag := field.Tag.Get("commander")
-		if strings.Contains(tag, "subcommand") {
+		if strings.Contains(tag, "subcommand") || strings.Contains(tag, "positional") {
 			continue
 		}
 
@@ -210,6 +218,8 @@ func (n *CommandNode) execute(args []string) error {
 		usage := ""
 		defaultValue := ""
 		shortName := ""
+		required := false
+		envSet := false
 
 		if tag != "" {
 			parts := strings.Split(tag, ",")
@@ -221,9 +231,12 @@ func (n *CommandNode) execute(args []string) error {
 					shortName = strings.TrimPrefix(p, "short=")
 				} else if strings.HasPrefix(p, "env=") {
 					envVar := strings.TrimPrefix(p, "env=")
-					if val, ok := os.LookupEnv(envVar); ok {
+					if val, ok := os.LookupEnv(envVar); ok && val != "" {
 						defaultValue = val
+						envSet = true
 					}
+				} else if p == "required" {
+					required = true
 				}
 				// desc handling...
 			}
@@ -260,6 +273,20 @@ func (n *CommandNode) execute(args []string) error {
 				fs.BoolVar(fieldVal.Addr().Interface().(*bool), shortName, boolVal, usage)
 			}
 		}
+
+		if required {
+			names := []string{name}
+			displayParts := []string{"--" + name}
+			if shortName != "" {
+				names = append(names, shortName)
+				displayParts = append(displayParts, "-"+shortName)
+			}
+			requiredFlags = append(requiredFlags, requiredFlagGroup{
+				names:   names,
+				fromEnv: envSet,
+				display: strings.Join(displayParts, "/"),
+			})
+		}
 	}
 
 	if err := fs.Parse(args); err != nil {
@@ -275,9 +302,26 @@ func (n *CommandNode) execute(args []string) error {
 		return err
 	}
 
-	// Check required (simple check)
-	// We'd need to track which were set. `flag` package doesn't make this easy without `Visit`.
-	// Skipping precise required check for brevity in this iteration, but keeping logic structure.
+	// Check required flags
+	visited := map[string]bool{}
+	fs.Visit(func(f *flag.Flag) {
+		visited[f.Name] = true
+	})
+	for _, group := range requiredFlags {
+		if group.fromEnv {
+			continue
+		}
+		satisfied := false
+		for _, name := range group.names {
+			if visited[name] {
+				satisfied = true
+				break
+			}
+		}
+		if !satisfied {
+			return fmt.Errorf("missing required flag: %s", group.display)
+		}
+	}
 
 	remaining := fs.Args()
 
@@ -329,12 +373,26 @@ func (n *CommandNode) execute(args []string) error {
 
 	// 4. Handle Positional Args
 	posArgIdx := 0
+	var missingPositionals []string
 	for i := 0; i < n.Type.NumField(); i++ {
 		field := n.Type.Field(i)
 		tag := field.Tag.Get("commander")
 		if strings.Contains(tag, "positional") {
+			required := false
+			if tag != "" {
+				parts := strings.Split(tag, ",")
+				for _, p := range parts {
+					if strings.TrimSpace(p) == "required" {
+						required = true
+						break
+					}
+				}
+			}
 			if posArgIdx >= len(remaining) {
-				break
+				if required {
+					missingPositionals = append(missingPositionals, field.Name)
+				}
+				continue
 			}
 			val := remaining[posArgIdx]
 
@@ -349,6 +407,9 @@ func (n *CommandNode) execute(args []string) error {
 			}
 			posArgIdx++
 		}
+	}
+	if len(missingPositionals) > 0 {
+		return fmt.Errorf("missing required positional: %s", missingPositionals[0])
 	}
 
 	// 5. Execute Run

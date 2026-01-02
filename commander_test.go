@@ -1,8 +1,9 @@
 package commander
 
 import (
-	"testing"
 	"os"
+	"strings"
+	"testing"
 )
 
 // Helper for tests
@@ -13,6 +14,7 @@ func parseCommand(f interface{}) (*CommandNode, error) {
 type MyCommandStruct struct {
 	Name string
 }
+
 func (c *MyCommandStruct) Run() {}
 
 func TestParseCommand(t *testing.T) {
@@ -27,16 +29,17 @@ func TestParseCommand(t *testing.T) {
 }
 
 type TestCmdStruct struct {
-	Name string
+	Name   string
 	Called bool
 }
+
 func (c *TestCmdStruct) Run() {
 	c.Called = true
 }
 
 func TestExecuteCommand(t *testing.T) {
 	cmdStruct := &TestCmdStruct{}
-	
+
 	cmd, err := parseCommand(cmdStruct)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -57,9 +60,10 @@ func TestExecuteCommand(t *testing.T) {
 }
 
 type CustomArgs struct {
-	User string `commander:"name=user_name"`
+	User   string `commander:"name=user_name"`
 	Called bool
 }
+
 func (c *CustomArgs) Run() {
 	c.Called = true
 }
@@ -85,22 +89,24 @@ func TestCustomFlagName(t *testing.T) {
 type RequiredArgs struct {
 	ID string `commander:"required"`
 }
+
 func (c *RequiredArgs) Run() {}
 
 func TestRequiredFlag(t *testing.T) {
-	_, _ = parseCommand(&RequiredArgs{})
+	cmd, _ := parseCommand(&RequiredArgs{})
 
-	// Missing required flag
-	// Note: simplified logic in current implementation might not check required yet?
-	// I didn't port the "required" check explicitly in the new execute method yet.
-	// Let's comment this out or accept failure until fixed.
-	// Actually, I should probably fix it in commander.go first if I want this to pass.
-	// I'll skip this test for a moment or expect failure.
+	// Missing required flag should error
+	if err := cmd.execute([]string{}); err == nil {
+		t.Fatal("expected error for missing required flag")
+	} else if !strings.Contains(err.Error(), "--id") {
+		t.Fatalf("expected error to mention --id, got: %v", err)
+	}
 }
 
 type EnvArgs struct {
 	User string `commander:"env=TEST_USER"`
 }
+
 func (c *EnvArgs) Run() {}
 
 func TestEnvVars(t *testing.T) {
@@ -109,15 +115,16 @@ func TestEnvVars(t *testing.T) {
 
 	os.Setenv("TEST_USER", "EnvAlice")
 	defer os.Unsetenv("TEST_USER")
-	
+
 	// I didn't implement Env in the new execute either.
 	// For now let's just test the structure.
 }
 
 type SubCmd struct {
 	Verbose bool
-	Called bool
+	Called  bool
 }
+
 func (s *SubCmd) Run() {
 	s.Called = true
 }
@@ -140,20 +147,20 @@ func TestSubcommands(t *testing.T) {
 	if len(cmd.Subcommands) != 2 {
 		t.Fatalf("expected 2 subcommands, got %d", len(cmd.Subcommands))
 	}
-	
+
 	if _, ok := cmd.Subcommands["sub"]; !ok {
 		t.Errorf("expected subcommand 'sub'")
 	}
 	if _, ok := cmd.Subcommands["custom"]; !ok {
 		t.Errorf("expected subcommand 'custom'")
 	}
-	
+
 	// Execute subcommand "sub"
 	args := []string{"sub", "-verbose"}
 	if err := cmd.execute(args); err != nil {
 		t.Fatalf("execution failed: %v", err)
 	}
-	
+
 	// Execute subcommand "custom"
 	args2 := []string{"custom", "-verbose"}
 	if err := cmd.execute(args2); err != nil {
@@ -165,6 +172,7 @@ type ShortFlagCmd struct {
 	Name string `commander:"flag,short=n"`
 	Age  int    `commander:"flag,short=a"`
 }
+
 func (c *ShortFlagCmd) Run() {}
 
 func TestShortFlags(t *testing.T) {
@@ -191,6 +199,7 @@ type PositionalArgs struct {
 	Src string `commander:"positional"`
 	Dst string `commander:"positional"`
 }
+
 func (c *PositionalArgs) Run() {}
 
 func TestPositionalArgs(t *testing.T) {
@@ -209,13 +218,66 @@ func TestPositionalArgs(t *testing.T) {
 	}
 }
 
+type RequiredPositionals struct {
+	Src string `commander:"positional,required"`
+	Dst string `commander:"positional"`
+}
+
+func (c *RequiredPositionals) Run() {}
+
+func TestRequiredPositionals(t *testing.T) {
+	cmdStruct := &RequiredPositionals{}
+	cmd, _ := parseCommand(cmdStruct)
+
+	if err := cmd.execute([]string{}); err == nil {
+		t.Fatal("expected error for missing required positional")
+	} else if !strings.Contains(err.Error(), "Src") {
+		t.Fatalf("expected error to mention Src, got: %v", err)
+	}
+}
+
+type RequiredShortFlag struct {
+	Name string `commander:"required,short=n"`
+}
+
+func (c *RequiredShortFlag) Run() {}
+
+func TestRequiredShortFlagErrorIncludesShort(t *testing.T) {
+	cmdStruct := &RequiredShortFlag{}
+	cmd, _ := parseCommand(cmdStruct)
+
+	if err := cmd.execute([]string{}); err == nil {
+		t.Fatal("expected error for missing required flag")
+	} else if !strings.Contains(err.Error(), "--name") || !strings.Contains(err.Error(), "-n") {
+		t.Fatalf("expected error to mention --name and -n, got: %v", err)
+	}
+}
+
+type RequiredEnvFlag struct {
+	Name string `commander:"required,env=TEST_REQUIRED"`
+}
+
+func (c *RequiredEnvFlag) Run() {}
+
+func TestRequiredEnvFlagEmptyDoesNotSatisfy(t *testing.T) {
+	cmdStruct := &RequiredEnvFlag{}
+	cmd, _ := parseCommand(cmdStruct)
+
+	os.Setenv("TEST_REQUIRED", "")
+	defer os.Unsetenv("TEST_REQUIRED")
+
+	if err := cmd.execute([]string{}); err == nil {
+		t.Fatal("expected error for missing required flag when env is empty")
+	}
+}
+
 // --- Discovery Tests ---
 
 type RootA struct {
 	Sub *ChildB `commander:"subcommand"`
 }
-type ChildB struct {}
-type RootC struct {}
+type ChildB struct{}
+type RootC struct{}
 
 func TestDetectRootCommands(t *testing.T) {
 	candidates := []interface{}{
