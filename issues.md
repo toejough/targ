@@ -18,21 +18,6 @@ A simple md issue tracker.
 
 Issues to choose from for future work.
 
-### 2. Shell Execution Helpers (commander/sh)
-
-#### Universal
-
-**Description**
-Provide Mage-style helpers for shell execution to avoid verbose os/exec usage.
-
-#### Planning
-
-**Priority**
-High
-
-**Acceptance**
-Expose `sh.Run`, `sh.Output`, and `sh.RunV` plus basic cross-platform helpers.
-
 ### 4. File Modification Checks (target)
 
 #### Universal
@@ -50,16 +35,6 @@ Medium
 
 **Acceptance**
 Add `commander.Newer(src, dst)` or equivalent timestamp checks.
-
-### 5. Error Return Support
-
-#### Universal
-
-**Description**
-Allow `Run` methods to return error for consistent failure handling.
-### 7. Compilation-Safe Documentation
-
-#### Universal
 
 ### 8. Persistent Flags & Lifecycle Hooks
 
@@ -545,16 +520,6 @@ done
 
 **Description**
 Struct defaults are overwritten by zero/env defaults during flag registration.
-
-### 5. Error Return Support
-
-#### Universal
-
-**Status**
-done
-
-**Description**
-Allow `Run` methods to return error for consistent failure handling.
 
 ### 21. Nil Pointer Inputs Can Panic
 
