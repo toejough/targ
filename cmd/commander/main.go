@@ -18,6 +18,7 @@ type bootstrapCommand struct {
 	Name      string
 	TypeExpr  string
 	ValueExpr string
+	IsFunc    bool
 }
 
 type bootstrapPackage struct {
@@ -59,8 +60,22 @@ func main() {
 	fs := flag.NewFlagSet("commander", flag.ContinueOnError)
 	fs.BoolVar(&packageGrouping, "package", false, "group commands under package name (recursive package-scoped discovery)")
 	fs.BoolVar(&packageGrouping, "p", false, "alias for --package")
+	fs.Usage = func() {
+		fmt.Fprintln(os.Stdout, "Usage: commander [--package|-p] [args]")
+		fmt.Fprintln(os.Stdout, "")
+		fmt.Fprintln(os.Stdout, "Flags:")
+		fmt.Fprintln(os.Stdout, "  --package, -p    group commands under package name (recursive package-scoped discovery)")
+	}
 	fs.SetOutput(os.Stdout)
-	if err := fs.Parse(os.Args[1:]); err != nil {
+	parseArgs := make([]string, 0, len(os.Args[1:]))
+	for _, arg := range os.Args[1:] {
+		if arg == "--package" {
+			parseArgs = append(parseArgs, "-package")
+			continue
+		}
+		parseArgs = append(parseArgs, arg)
+	}
+	if err := fs.Parse(parseArgs); err != nil {
 		os.Exit(1)
 	}
 	args := fs.Args()
@@ -260,6 +275,7 @@ func buildBootstrapData(
 				Name:      name,
 				TypeExpr:  "*" + prefix + name,
 				ValueExpr: "&" + prefix + name + "{}",
+				IsFunc:    false,
 			})
 		}
 		for _, name := range info.Funcs {
@@ -267,6 +283,7 @@ func buildBootstrapData(
 				Name:      name,
 				TypeExpr:  "func()",
 				ValueExpr: prefix + name,
+				IsFunc:    true,
 			})
 		}
 
@@ -383,7 +400,9 @@ func main() {
 {{- range .Packages }}
 	{{ .VarName }} := &{{ .TypeName }}{
 {{- range .Commands }}
+{{- if .IsFunc }}
 		{{ .Name }}: {{ .ValueExpr }},
+{{- end }}
 {{- end }}
 	}
 {{- end }}
