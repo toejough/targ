@@ -306,24 +306,6 @@ Low
 **Acceptance**
 Add `target.Checksum(srcs, dest)`.
 
-### 19. Struct Default Values Are Overwritten By Flag Defaults
-
-#### Universal
-
-**Status**
-backlog
-
-**Description**
-Struct defaults are overwritten by zero/env defaults during flag registration.
-
-#### Planning
-
-**Priority**
-Medium
-
-**Acceptance**
-Initialize defaults from struct values and only override with env when present.
-
 ### 21. Nil Pointer Inputs Can Panic
 
 #### Universal
@@ -563,3 +545,13 @@ done
 
 **Description**
 `commander:"required"` is parsed but never validated.
+
+### 19. Struct Default Values Are Overwritten By Flag Defaults
+
+#### Universal
+
+**Status**
+done
+
+**Description**
+Struct defaults are overwritten by zero/env defaults during flag registration.
