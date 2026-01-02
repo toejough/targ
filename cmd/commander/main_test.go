@@ -26,8 +26,14 @@ func TestBuildBootstrapData_NoPackageGrouping_Local(t *testing.T) {
 	if data.PackageGrouping {
 		t.Fatal("expected package grouping to be false")
 	}
-	if len(data.Targets) != 2 || data.Targets[0] != "&Build{}" || data.Targets[1] != "Lint" {
-		t.Fatalf("unexpected targets: %v", data.Targets)
+	if !data.UsePackageWrapper {
+		t.Fatal("expected package wrapper for single package")
+	}
+	if !data.AllowDefault {
+		t.Fatal("expected AllowDefault for single package")
+	}
+	if len(data.Targets) != 0 {
+		t.Fatalf("expected no targets when package wrapper is used, got %v", data.Targets)
 	}
 	if len(data.Packages) != 1 {
 		t.Fatalf("expected 1 package, got %d", len(data.Packages))
@@ -62,6 +68,9 @@ func TestBuildBootstrapData_PackageGrouping_Remote(t *testing.T) {
 	}
 	if !data.PackageGrouping {
 		t.Fatal("expected package grouping to be true")
+	}
+	if !data.UsePackageWrapper {
+		t.Fatal("expected package wrapper for package grouping")
 	}
 	if len(data.Targets) != 0 {
 		t.Fatalf("expected no targets when package grouping is enabled, got %v", data.Targets)
@@ -102,13 +111,10 @@ func TestBootstrapTemplate_NoPackageGrouping(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	rendered := renderBootstrap(t, data)
-	if !strings.Contains(rendered, "cmds := []interface{}") {
-		t.Fatalf("expected cmds list in template, got:\n%s", rendered)
+	if !strings.Contains(rendered, "type App struct") {
+		t.Fatalf("expected package wrapper type in template, got:\n%s", rendered)
 	}
-	if !strings.Contains(rendered, "&Build{}") || !strings.Contains(rendered, "Lint") {
-		t.Fatalf("expected targets in template, got:\n%s", rendered)
-	}
-	if !strings.Contains(rendered, "RunWithOptions(commander.RunOptions{AllowDefault: false}") {
+	if !strings.Contains(rendered, "RunWithOptions(commander.RunOptions{AllowDefault: true}") {
 		t.Fatalf("expected RunWithOptions in template, got:\n%s", rendered)
 	}
 }

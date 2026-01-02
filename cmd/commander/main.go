@@ -37,10 +37,12 @@ type bootstrapImport struct {
 }
 
 type bootstrapData struct {
-	PackageGrouping bool
-	Imports         []bootstrapImport
-	Packages        []bootstrapPackage
-	Targets         []string
+	PackageGrouping   bool
+	UsePackageWrapper bool
+	AllowDefault      bool
+	Imports           []bootstrapImport
+	Packages          []bootstrapPackage
+	Targets           []string
 }
 
 func main() {
@@ -220,6 +222,7 @@ func buildBootstrapData(
 	var packages []bootstrapPackage
 	var targets []string
 	seenPackages := make(map[string]string)
+	usePackageWrapper := packageGrouping || (!packageGrouping && len(infos) == 1)
 
 	for _, info := range infos {
 		if len(info.Structs) == 0 && len(info.Funcs) == 0 {
@@ -279,18 +282,21 @@ func buildBootstrapData(
 		}
 		packages = append(packages, pkg)
 
-		if !packageGrouping {
+		if !usePackageWrapper {
 			for _, cmd := range commands {
 				targets = append(targets, cmd.ValueExpr)
 			}
 		}
 	}
 
+	allowDefault := usePackageWrapper && len(infos) == 1 && !packageGrouping
 	return bootstrapData{
-		PackageGrouping: packageGrouping,
-		Imports:         imports,
-		Packages:        packages,
-		Targets:         targets,
+		PackageGrouping:   packageGrouping,
+		UsePackageWrapper: usePackageWrapper,
+		AllowDefault:      allowDefault,
+		Imports:           imports,
+		Packages:          packages,
+		Targets:           targets,
 	}, nil
 }
 
@@ -358,7 +364,7 @@ import (
 {{- end }}
 )
 
-{{- if .PackageGrouping }}
+{{- if .UsePackageWrapper }}
 {{- range .Packages }}
 type {{ .TypeName }} struct {
 {{- range .Commands }}
@@ -373,7 +379,7 @@ func (p *{{ .TypeName }}) Description() string {
 {{- end }}
 
 func main() {
-{{- if .PackageGrouping }}
+{{- if .UsePackageWrapper }}
 {{- range .Packages }}
 	{{ .VarName }} := &{{ .TypeName }}{
 {{- range .Commands }}
@@ -388,14 +394,14 @@ func main() {
 {{- end }}
 	}
 
-	commander.RunWithOptions(commander.RunOptions{AllowDefault: false}, roots...)
+	commander.RunWithOptions(commander.RunOptions{AllowDefault: {{ .AllowDefault }}}, roots...)
 {{- else }}
 	cmds := []interface{}{
 {{- range .Targets }}
 		{{ . }},
 {{- end }}
 	}
-	commander.RunWithOptions(commander.RunOptions{AllowDefault: false}, cmds...)
+	commander.RunWithOptions(commander.RunOptions{AllowDefault: {{ .AllowDefault }}}, cmds...)
 {{- end }}
 }
 `
