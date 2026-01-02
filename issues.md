@@ -306,24 +306,6 @@ Low
 **Acceptance**
 Add `target.Checksum(srcs, dest)`.
 
-### 18. Positional Args Are Also Registered As Flags
-
-#### Universal
-
-**Status**
-backlog
-
-**Description**
-Fields tagged `commander:"positional"` are also registered as flags.
-
-#### Planning
-
-**Priority**
-High
-
-**Acceptance**
-Skip flag registration for positional fields and update help output.
-
 ### 19. Struct Default Values Are Overwritten By Flag Defaults
 
 #### Universal
@@ -341,24 +323,6 @@ Medium
 
 **Acceptance**
 Initialize defaults from struct values and only override with env when present.
-
-### 20. Required Tags Are Not Enforced
-
-#### Universal
-
-**Status**
-backlog
-
-**Description**
-`commander:"required"` is parsed but never validated.
-
-#### Planning
-
-**Priority**
-High
-
-**Acceptance**
-Track `flag.Visit` and validate required flags/positionals after parsing.
 
 ### 21. Nil Pointer Inputs Can Panic
 
@@ -579,3 +543,23 @@ done
 
 **Description**
 Filter out exported functions named as subcommands of exported structs.
+
+### 18. Positional Args Are Also Registered As Flags
+
+#### Universal
+
+**Status**
+done
+
+**Description**
+Fields tagged `commander:"positional"` are also registered as flags.
+
+### 20. Required Tags Are Not Enforced
+
+#### Universal
+
+**Status**
+done
+
+**Description**
+`commander:"required"` is parsed but never validated.
