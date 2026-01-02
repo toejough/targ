@@ -314,9 +314,6 @@ Validate pointers before `Elem()` and return descriptive errors.
 
 #### Universal
 
-**Status**
-backlog
-
 **Description**
 Unexported tagged fields panic when set via reflection.
 
@@ -558,3 +555,13 @@ Subcommand assignment assumes pointer fields and can panic on value fields.
 
 **Note**
 Value-type subcommands are ambiguous (cannot distinguish "not called" from zero-value args). We require pointer subcommands for explicit invocation semantics.
+
+### 23. Unexported Tagged Fields Can Panic
+
+#### Universal
+
+**Status**
+done
+
+**Description**
+Unexported tagged fields panic when set via reflection.
