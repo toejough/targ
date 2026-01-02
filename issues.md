@@ -348,8 +348,6 @@ Filter to runnable structs or those with subcommands.
 #### Universal
 
 **Status**
-backlog
-
 **Description**
 Completion uses `strings.Fields` and breaks for quoted/escaped args.
 
@@ -565,3 +563,13 @@ done
 
 **Description**
 Unexported tagged fields panic when set via reflection.
+
+### 25. Completion Tokenization Ignores Quotes/Escapes
+
+#### Universal
+
+**Status**
+done
+
+**Description**
+Completion uses `strings.Fields` and breaks for quoted/escaped args.
