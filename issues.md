@@ -101,20 +101,6 @@ Support `func(context.Context)` and set up signal-canceling root context.
 
 #### Universal
 
-**Status**
-backlog
-
-**Description**
-Help currently parses source files at runtime, which breaks for relocated binaries.
-
-#### Planning
-
-**Priority**
-High
-
-**Acceptance**
-Either require `desc` tags for binaries or embed comments in build tool mode.
-
 ### 8. Persistent Flags & Lifecycle Hooks
 
 #### Universal
@@ -428,6 +414,22 @@ done
 
 **Description**
 Initial exploration and prototyping of the library.
+
+### 7. Compilation-Safe Documentation
+
+#### Universal
+
+**Status**
+done
+
+**Description**
+Generate wrapper structs for function commands so descriptions are embedded in compiled binaries.
+
+#### Implementation Notes
+
+**Details**
+- Build tool mode auto-generates `generated_commander_<pkg>.go` with `CommandName`/`Description`.
+- Direct binaries can opt in via `commander gen` and pass the generated struct to `Run`.
 
 ### 27. Build Tag Filtering For Build Tool Mode
 

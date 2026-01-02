@@ -162,26 +162,32 @@ CommandNode
 1) For each target:
    - If struct: parse fields, identify subcommands.
    - If function: wrap as CommandNode with a callable FuncValue.
+   - Function descriptions are only available via generated wrappers.
 2) Determine default command:
    - If exactly one root, treat it as default.
    - If multiple roots, no default.
 
 ### Build Tool Mode
 
-1) Recursively walk from start dir.
-2) Collect directories containing files with `//go:build commander`.
-3) Enforce per-directory package name consistency.
-4) Without `--package`:
+1) Generate function wrapper structs for exported niladic functions (one file per package):
+   - File name: `generated_commander_<pkg>.go`
+   - Contains `Run`, `CommandName`, and optional `Description` based on function comments.
+   - Uses the build tag `commander` so the wrappers are only included in build tool mode.
+2) Recursively walk from start dir.
+3) Collect directories containing files with `//go:build commander`.
+4) Enforce per-directory package name consistency.
+5) Without `--package`:
    - Find minimum depth with tagged dirs.
    - If multiple dirs at that depth, error with paths.
    - Use that single directory for command discovery.
-5) With `--package`:
+6) With `--package`:
    - Discover commands per directory.
    - Create a package root node for each directory (name = package name).
-6) In each package:
+7) In each package:
    - Parse exported structs and niladic functions.
    - Collect subcommand names from exported structs.
    - Filter any struct/function whose name matches a subcommand name.
+   - Prefer generated `*Command` wrapper structs over same-named functions.
 
 ## Examples
 
@@ -236,4 +242,3 @@ Result:
 - Duplicate package names in same directory: list files + package names.
 - Multiple tagged dirs at same depth without `--package`: list directory paths.
 - Invalid command: show available command names at that level.
-

@@ -170,6 +170,28 @@ Flags:
 ...
 ```
 
+For function commands, descriptions are only available via generated wrappers.
+In build tool mode, `commander` generates wrappers automatically from function comments.
+In direct binary mode, you can generate wrappers manually (see `commander gen`) and pass the generated struct to `Run`.
+
+### Command Metadata Overrides
+
+If you need to override the command name or description, implement the following optional methods:
+
+```go
+func (c *MyCmd) CommandName() string { return "CustomName" }
+func (c *MyCmd) Description() string { return "Custom description." }
+```
+
+`CommandName` is treated like a struct name (it will be converted to kebab-case).
+`Description` replaces any comment-derived description.
+
+### Command Wrapper Generation
+
+Use `commander gen` to generate wrappers for exported niladic functions in the current package.
+This writes `generated_commander_<pkg>.go`, which defines a struct per function with `Run`,
+`CommandName`, and (when comments exist) `Description`.
+
 ### Tags
 
 - `commander:"required"`: Flag is required.

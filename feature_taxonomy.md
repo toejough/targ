@@ -21,7 +21,7 @@ Legend:
 - Function targets (niladic) as commands (Core) | Status: Implemented
 - Root behavior when no subcommand selected (Core) | Status: Implemented
 - Subcommand naming overrides (Core) | Status: Implemented
-- Help text from doc comments or tags (Essential) | Status: Implemented (doc comments only)
+- Help text from doc comments or tags (Essential) | Status: Implemented (struct Run comments + generated function wrappers)
 - Errors for invalid/missing commands (Essential) | Status: Implemented
 
 Tests:
@@ -33,7 +33,7 @@ Tests:
 
 Status Notes:
 
-- Implemented (doc comments only) means `desc` tags are not currently used for command help.
+- Implemented (struct Run comments + generated function wrappers) means `desc` tags are not currently used for command help.
 
 ---
 
