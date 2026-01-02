@@ -238,8 +238,8 @@ func parsePackageInfo(dir taggedDir) (PackageInfo, error) {
 				if node.Recv != nil || !node.Name.IsExported() {
 					continue
 				}
-				if hasParams(node.Type) {
-					return PackageInfo{}, fmt.Errorf("function %s must be niladic", node.Name.Name)
+				if err := validateFunctionSignature(node.Type); err != nil {
+					return PackageInfo{}, fmt.Errorf("function %s %v", node.Name.Name, err)
 				}
 				funcs[node.Name.Name] = true
 			}
@@ -269,14 +269,22 @@ func parsePackageInfo(dir taggedDir) (PackageInfo, error) {
 	}, nil
 }
 
-func hasParams(fnType *ast.FuncType) bool {
+func validateFunctionSignature(fnType *ast.FuncType) error {
 	if fnType.Params != nil && len(fnType.Params.List) > 0 {
-		return true
+		return fmt.Errorf("must be niladic")
 	}
-	if fnType.Results != nil && len(fnType.Results.List) > 0 {
-		return true
+	if fnType.Results == nil || len(fnType.Results.List) == 0 {
+		return nil
 	}
-	return false
+	if len(fnType.Results.List) == 1 && isErrorExpr(fnType.Results.List[0].Type) {
+		return nil
+	}
+	return fmt.Errorf("must return only error")
+}
+
+func isErrorExpr(expr ast.Expr) bool {
+	ident, ok := expr.(*ast.Ident)
+	return ok && ident.Name == "error"
 }
 
 func filterCommands(candidates map[string]bool, subcommandNames map[string]bool) []string {
