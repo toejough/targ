@@ -18,24 +18,6 @@ A simple md issue tracker.
 
 Issues to choose from for future work.
 
-### 9. Namespace/Category Organization
-
-#### Universal
-
-**Status**
-backlog
-
-**Description**
-Allow grouping/namespace organization in help output for large command sets.
-
-#### Planning
-
-**Priority**
-Low
-
-**Acceptance**
-Support grouping or display organization beyond strict struct nesting.
-
 ### 12. Placeholder Customization
 
 #### Universal
@@ -221,6 +203,24 @@ TBD
 ## Done
 
 Completed issues.
+
+### 9. Namespace/Category Organization
+
+#### Universal
+
+**Status**
+done
+
+**Description**
+Allow grouping/namespace organization in help output for large command sets.
+
+#### Planning
+
+**Priority**
+Low
+
+**Acceptance**
+Support grouping or display organization beyond strict struct nesting.
 
 ### 8. Persistent Flags & Lifecycle Hooks
 
