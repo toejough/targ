@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -569,6 +570,122 @@ func TestUsageLine_NoSubcommandWithRequiredPositional(t *testing.T) {
 	}
 	if !strings.HasSuffix(usage, "ID") {
 		t.Fatalf("expected ID positional at end: %s", usage)
+	}
+}
+
+var hookLog []string
+
+type HookRoot struct {
+	Verbose bool     `commander:"flag,short=v"`
+	Child   *HookCmd `commander:"subcommand"`
+}
+
+func (h *HookRoot) PersistentBefore() {
+	hookLog = append(hookLog, "root:before")
+}
+
+func (h *HookRoot) PersistentAfter() {
+	hookLog = append(hookLog, "root:after")
+}
+
+type HookCmd struct {
+	Name string `commander:"flag"`
+}
+
+func (h *HookCmd) PersistentBefore() {
+	hookLog = append(hookLog, "child:before")
+}
+
+func (h *HookCmd) PersistentAfter() {
+	hookLog = append(hookLog, "child:after")
+}
+
+func (h *HookCmd) Run() {
+	hookLog = append(hookLog, "child:run")
+}
+
+func TestPersistentFlagsInherited(t *testing.T) {
+	hookLog = nil
+	root := &HookRoot{}
+	cmd, err := parseCommand(root)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if err := cmd.execute(context.Background(), []string{"child", "--verbose", "--name", "ok"}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !root.Verbose {
+		t.Fatal("expected root verbose flag to be set from subcommand args")
+	}
+}
+
+func TestPersistentHooksOrder(t *testing.T) {
+	hookLog = nil
+	root := &HookRoot{}
+	cmd, err := parseCommand(root)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if err := cmd.execute(context.Background(), []string{"child"}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := []string{"root:before", "child:before", "child:run", "child:after", "root:after"}
+	if !reflect.DeepEqual(hookLog, want) {
+		t.Fatalf("unexpected hook order: %v", hookLog)
+	}
+}
+
+func TestHelpIncludesInheritedFlags(t *testing.T) {
+	root := &HookRoot{}
+	cmd, err := parseCommand(root)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	child := cmd.Subcommands["child"]
+	if child == nil {
+		t.Fatal("expected child subcommand")
+	}
+	out := captureStdout(t, func() {
+		printCommandHelp(child)
+	})
+	if !strings.Contains(out, "--verbose") {
+		t.Fatalf("expected inherited flag in help, got: %q", out)
+	}
+}
+
+func TestCompletionIncludesInheritedFlags(t *testing.T) {
+	root := &HookRoot{}
+	cmd, err := parseCommand(root)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	out := captureStdout(t, func() {
+		doCompletion([]*CommandNode{cmd}, "app child --")
+	})
+	if !strings.Contains(out, "--verbose") {
+		t.Fatalf("expected inherited flag in completion, got: %q", out)
+	}
+}
+
+type ConflictRoot struct {
+	Flag string        `commander:"flag"`
+	Sub  *ConflictChild `commander:"subcommand"`
+}
+
+type ConflictChild struct {
+	Flag string `commander:"flag"`
+}
+
+func (c *ConflictChild) Run() {}
+
+func TestPersistentFlagConflicts(t *testing.T) {
+	root := &ConflictRoot{}
+	cmd, err := parseCommand(root)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if err := cmd.execute(context.Background(), []string{"sub", "--flag", "ok"}); err == nil {
+		t.Fatal("expected error for conflicting flag names")
 	}
 }
 

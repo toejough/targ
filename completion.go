@@ -168,39 +168,48 @@ func tokenizeCommandLine(commandLine string) ([]string, bool) {
 }
 
 func suggestFlags(node *CommandNode, prefix string, includeCompletion bool) {
-	if node.Type == nil {
+	if node == nil || node.Type == nil {
 		return
 	}
 
-	typ := node.Type
-	for i := 0; i < typ.NumField(); i++ {
-		field := typ.Field(i)
-		tag := field.Tag.Get("commander")
-		if strings.Contains(tag, "subcommand") || strings.Contains(tag, "positional") {
+	seen := map[string]bool{}
+	chain := nodeChain(node)
+	for _, current := range chain {
+		if current.Type == nil {
 			continue
 		}
-
-		name := strings.ToLower(field.Name)
-		shortName := ""
-		// Check override
-		parts := strings.Split(tag, ",")
-		for _, p := range parts {
-			p = strings.TrimSpace(p)
-			if strings.HasPrefix(p, "name=") {
-				name = strings.TrimPrefix(p, "name=")
-			} else if strings.HasPrefix(p, "short=") {
-				shortName = strings.TrimPrefix(p, "short=")
+		typ := current.Type
+		for i := 0; i < typ.NumField(); i++ {
+			field := typ.Field(i)
+			tag := field.Tag.Get("commander")
+			if strings.Contains(tag, "subcommand") || strings.Contains(tag, "positional") {
+				continue
 			}
-		}
 
-		longFlag := "--" + name
-		if strings.HasPrefix(longFlag, prefix) {
-			fmt.Println(longFlag)
-		}
-		if shortName != "" {
-			shortFlag := "-" + shortName
-			if strings.HasPrefix(shortFlag, prefix) {
-				fmt.Println(shortFlag)
+			name := strings.ToLower(field.Name)
+			shortName := ""
+			// Check override
+			parts := strings.Split(tag, ",")
+			for _, p := range parts {
+				p = strings.TrimSpace(p)
+				if strings.HasPrefix(p, "name=") {
+					name = strings.TrimPrefix(p, "name=")
+				} else if strings.HasPrefix(p, "short=") {
+					shortName = strings.TrimPrefix(p, "short=")
+				}
+			}
+
+			longFlag := "--" + name
+			if strings.HasPrefix(longFlag, prefix) && !seen[longFlag] {
+				fmt.Println(longFlag)
+				seen[longFlag] = true
+			}
+			if shortName != "" {
+				shortFlag := "-" + shortName
+				if strings.HasPrefix(shortFlag, prefix) && !seen[shortFlag] {
+					fmt.Println(shortFlag)
+					seen[shortFlag] = true
+				}
 			}
 		}
 	}
@@ -214,37 +223,49 @@ func suggestFlags(node *CommandNode, prefix string, includeCompletion bool) {
 }
 
 func enumValuesForArg(node *CommandNode, args []string, prefix string, isNewArg bool) ([]string, bool) {
-	if node.Type == nil {
+	if node == nil || node.Type == nil {
 		return nil, false
 	}
 
 	enumByFlag := map[string][]string{}
-	for i := 0; i < node.Type.NumField(); i++ {
-		field := node.Type.Field(i)
-		tag := field.Tag.Get("commander")
-		if strings.Contains(tag, "subcommand") {
+	chain := nodeChain(node)
+	for _, current := range chain {
+		if current.Type == nil {
 			continue
 		}
-		name := strings.ToLower(field.Name)
-		shortName := ""
-		enumValues := []string{}
-		parts := strings.Split(tag, ",")
-		for _, p := range parts {
-			p = strings.TrimSpace(p)
-			if strings.HasPrefix(p, "name=") {
-				name = strings.TrimPrefix(p, "name=")
-			} else if strings.HasPrefix(p, "short=") {
-				shortName = strings.TrimPrefix(p, "short=")
-			} else if strings.HasPrefix(p, "enum=") {
-				enumValues = strings.Split(strings.TrimPrefix(p, "enum="), "|")
+		for i := 0; i < current.Type.NumField(); i++ {
+			field := current.Type.Field(i)
+			tag := field.Tag.Get("commander")
+			if strings.Contains(tag, "subcommand") || strings.Contains(tag, "positional") {
+				continue
 			}
-		}
-		if len(enumValues) == 0 {
-			continue
-		}
-		enumByFlag["--"+name] = enumValues
-		if shortName != "" {
-			enumByFlag["-"+shortName] = enumValues
+			name := strings.ToLower(field.Name)
+			shortName := ""
+			enumValues := []string{}
+			parts := strings.Split(tag, ",")
+			for _, p := range parts {
+				p = strings.TrimSpace(p)
+				if strings.HasPrefix(p, "name=") {
+					name = strings.TrimPrefix(p, "name=")
+				} else if strings.HasPrefix(p, "short=") {
+					shortName = strings.TrimPrefix(p, "short=")
+				} else if strings.HasPrefix(p, "enum=") {
+					enumValues = strings.Split(strings.TrimPrefix(p, "enum="), "|")
+				}
+			}
+			if len(enumValues) == 0 {
+				continue
+			}
+			key := "--" + name
+			if _, exists := enumByFlag[key]; !exists {
+				enumByFlag[key] = enumValues
+			}
+			if shortName != "" {
+				key = "-" + shortName
+				if _, exists := enumByFlag[key]; !exists {
+					enumByFlag[key] = enumValues
+				}
+			}
 		}
 	}
 	if len(enumByFlag) == 0 {

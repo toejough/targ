@@ -7,7 +7,6 @@ import (
 	"os"
 	"reflect"
 	"sort"
-	"strconv"
 	"strings"
 	"unicode"
 )
@@ -60,16 +59,22 @@ type CommandNode struct {
 	Type        reflect.Type
 	Value       reflect.Value // The struct instance
 	Func        reflect.Value // Niladic function target
+	Parent      *CommandNode
 	Subcommands map[string]*CommandNode
 	RunMethod   reflect.Value
 	Description string
 }
 
-type requiredFlagGroup struct {
-	names      []string
-	fromEnv    bool
-	defaultSet bool
-	display    string
+type flagSpec struct {
+	value          reflect.Value
+	name           string
+	short          string
+	usage          string
+	env            string
+	defaultValue   *string
+	required       bool
+	defaultApplied bool
+	envApplied     bool
 }
 
 func parseStruct(t interface{}) (*CommandNode, error) {
@@ -171,6 +176,7 @@ func parseStruct(t interface{}) (*CommandNode, error) {
 					return nil, err
 				}
 			}
+			subNode.Parent = node
 
 			// Override name based on field or tag
 			// The node comes with a default name based on its Type, but the Field name usually takes precedence
@@ -204,370 +210,534 @@ func parseStruct(t interface{}) (*CommandNode, error) {
 }
 
 func (n *CommandNode) execute(ctx context.Context, args []string) error {
+	return n.executeWithParents(ctx, args, nil, map[string]bool{})
+}
+
+type commandInstance struct {
+	node  *CommandNode
+	value reflect.Value
+}
+
+func (n *CommandNode) executeWithParents(
+	ctx context.Context,
+	args []string,
+	parents []commandInstance,
+	visited map[string]bool,
+) error {
 	if n.Func.IsValid() {
-		if n.Func.Kind() == reflect.Func && n.Func.IsNil() {
-			return fmt.Errorf("command %s function is nil", n.Name)
-		}
-		if len(args) > 0 {
-			if args[0] == "-h" || args[0] == "--help" {
-				printCommandHelp(n)
-				return nil
-			}
-			return fmt.Errorf("unknown arguments: %v", args)
-		}
-		if err := validateFuncType(n.Func.Type()); err != nil {
-			return fmt.Errorf("command %s %v", n.Name, err)
-		}
-		var out []reflect.Value
-		if n.Func.Type().NumIn() == 1 {
-			out = n.Func.Call([]reflect.Value{reflect.ValueOf(ctx)})
-		} else {
-			out = n.Func.Call(nil)
-		}
-		if len(out) == 1 {
-			if err, ok := out[0].Interface().(error); ok && err != nil {
-				return err
-			}
-		}
-		return nil
+		return executeFunctionWithParents(ctx, args, n, parents, visited)
 	}
 
-	// 1. Use existing value if possible, otherwise create new
-	var inst reflect.Value
-	if n.Value.IsValid() && n.Value.CanAddr() {
-		inst = n.Value
-	} else {
-		// Create new pointer to make it addressable
-		instPtr := reflect.New(n.Type)
-		inst = instPtr.Elem()
+	inst := nodeInstance(n)
+	chain := append(parents, commandInstance{node: n, value: inst})
 
-		// Copy existing value if we have one
-		if n.Value.IsValid() {
-			inst.Set(n.Value)
-		}
-	}
-
-	// 2. Parse flags for THIS level
 	fs := flag.NewFlagSet(n.Name, flag.ContinueOnError)
 	fs.Usage = func() { printCommandHelp(n) }
 
-	requiredFlags := []requiredFlagGroup{}
-	longNames := map[string]bool{"help": true}
+	specs, longNames, err := registerChainFlags(fs, chain)
+	if err != nil {
+		return err
+	}
+	if err := validateLongFlagArgs(args, longNames); err != nil {
+		return err
+	}
+	if err := fs.Parse(args); err != nil {
+		if err == flag.ErrHelp {
+			return nil
+		}
+		return err
+	}
+	fs.Visit(func(f *flag.Flag) {
+		visited[f.Name] = true
+	})
 
-	// Map fields to flags
-	for i := 0; i < n.Type.NumField(); i++ {
-		field := n.Type.Field(i)
+	remaining := fs.Args()
+	if len(remaining) > 0 {
+		subName := remaining[0]
+		if sub, ok := n.Subcommands[subName]; ok {
+			if err := assignSubcommandField(n, inst, subName, sub); err != nil {
+				return err
+			}
+			return sub.executeWithParents(ctx, remaining[1:], chain, visited)
+		}
+	}
+
+	if err := applyDefaultsAndEnv(specs, visited); err != nil {
+		return err
+	}
+	if err := checkRequiredFlags(specs, visited); err != nil {
+		return err
+	}
+	posArgIdx, err := applyPositionals(inst, n, remaining)
+	if err != nil {
+		return err
+	}
+
+	if err := runPersistentHooks(ctx, chain, "PersistentBefore"); err != nil {
+		return err
+	}
+	if err := runCommand(ctx, n, inst, remaining, posArgIdx); err != nil {
+		return err
+	}
+	if err := runPersistentHooks(ctx, reverseChain(chain), "PersistentAfter"); err != nil {
+		return err
+	}
+	return nil
+}
+
+func executeFunctionWithParents(
+	ctx context.Context,
+	args []string,
+	node *CommandNode,
+	parents []commandInstance,
+	visited map[string]bool,
+) error {
+	fs := flag.NewFlagSet(node.Name, flag.ContinueOnError)
+	fs.Usage = func() { printCommandHelp(node) }
+
+	specs, longNames, err := registerChainFlags(fs, parents)
+	if err != nil {
+		return err
+	}
+	if err := validateLongFlagArgs(args, longNames); err != nil {
+		return err
+	}
+	if err := fs.Parse(args); err != nil {
+		if err == flag.ErrHelp {
+			return nil
+		}
+		return err
+	}
+	fs.Visit(func(f *flag.Flag) {
+		visited[f.Name] = true
+	})
+
+	remaining := fs.Args()
+	if err := applyDefaultsAndEnv(specs, visited); err != nil {
+		return err
+	}
+	if err := checkRequiredFlags(specs, visited); err != nil {
+		return err
+	}
+	if len(remaining) > 0 {
+		return fmt.Errorf("unexpected argument: %s", remaining[0])
+	}
+	if err := runPersistentHooks(ctx, parents, "PersistentBefore"); err != nil {
+		return err
+	}
+	if err := callFunction(ctx, node.Func); err != nil {
+		return err
+	}
+	if err := runPersistentHooks(ctx, reverseChain(parents), "PersistentAfter"); err != nil {
+		return err
+	}
+	return nil
+}
+
+func nodeInstance(node *CommandNode) reflect.Value {
+	if node != nil && node.Value.IsValid() && node.Value.Kind() == reflect.Struct && node.Value.CanAddr() {
+		return node.Value
+	}
+	if node != nil && node.Type != nil {
+		inst := reflect.New(node.Type).Elem()
+		if node.Value.IsValid() && node.Value.Kind() == reflect.Struct {
+			typ := node.Type
+			for i := 0; i < typ.NumField(); i++ {
+				field := typ.Field(i)
+				tag := field.Tag.Get("commander")
+				if strings.Contains(tag, "subcommand") && field.Type.Kind() == reflect.Func {
+					inst.Field(i).Set(node.Value.Field(i))
+				}
+			}
+		}
+		return inst
+	}
+	return reflect.Value{}
+}
+
+type dynamicFlagValue struct {
+	set    func(string) error
+	str    func() string
+	isBool bool
+}
+
+func (d *dynamicFlagValue) String() string {
+	if d.str == nil {
+		return ""
+	}
+	return d.str()
+}
+
+func (d *dynamicFlagValue) Set(value string) error {
+	if d.set == nil {
+		return fmt.Errorf("no setter defined")
+	}
+	return d.set(value)
+}
+
+func (d *dynamicFlagValue) IsBoolFlag() bool {
+	return d.isBool
+}
+
+func registerChainFlags(fs *flag.FlagSet, chain []commandInstance) ([]*flagSpec, map[string]bool, error) {
+	var specs []*flagSpec
+	longNames := map[string]bool{}
+	usedNames := map[string]bool{}
+
+	for _, inst := range chain {
+		if inst.node == nil || inst.node.Type == nil {
+			continue
+		}
+		typ := inst.node.Type
+		for i := 0; i < typ.NumField(); i++ {
+			field := typ.Field(i)
+			fieldVal := inst.value.Field(i)
+			spec, ok, err := flagSpecForField(field, fieldVal)
+			if err != nil {
+				return nil, nil, err
+			}
+			if !ok {
+				continue
+			}
+			if usedNames[spec.name] {
+				return nil, nil, fmt.Errorf("flag %s already defined", spec.name)
+			}
+			usedNames[spec.name] = true
+			if spec.short != "" {
+				if usedNames[spec.short] {
+					return nil, nil, fmt.Errorf("flag %s already defined", spec.short)
+				}
+				usedNames[spec.short] = true
+			}
+			longNames[spec.name] = true
+			specs = append(specs, spec)
+
+			specLocal := spec
+			flagValue := &dynamicFlagValue{
+				set: func(value string) error {
+					return setFieldFromString(specLocal.value, value)
+				},
+				str: func() string {
+					return fmt.Sprint(specLocal.value.Interface())
+				},
+				isBool: specLocal.value.Kind() == reflect.Bool,
+			}
+			fs.Var(flagValue, spec.name, spec.usage)
+			if spec.short != "" {
+				fs.Var(flagValue, spec.short, spec.usage)
+			}
+		}
+	}
+	return specs, longNames, nil
+}
+
+func flagSpecForField(field reflect.StructField, fieldVal reflect.Value) (*flagSpec, bool, error) {
+	tag := field.Tag.Get("commander")
+	if !field.IsExported() {
+		if strings.TrimSpace(tag) != "" {
+			return nil, false, fmt.Errorf("field %s must be exported", field.Name)
+		}
+		return nil, false, nil
+	}
+	if strings.Contains(tag, "subcommand") || strings.Contains(tag, "positional") {
+		return nil, false, nil
+	}
+
+	name := strings.ToLower(field.Name)
+	shortName := ""
+	usage := ""
+	env := ""
+	required := false
+	var defaultValue *string
+
+	if tag != "" {
+		parts := strings.Split(tag, ",")
+		for _, p := range parts {
+			p = strings.TrimSpace(p)
+			switch {
+			case strings.HasPrefix(p, "name="):
+				name = strings.TrimPrefix(p, "name=")
+			case strings.HasPrefix(p, "short="):
+				shortName = strings.TrimPrefix(p, "short=")
+			case strings.HasPrefix(p, "env="):
+				env = strings.TrimPrefix(p, "env=")
+			case strings.HasPrefix(p, "default="):
+				val := strings.TrimPrefix(p, "default=")
+				defaultValue = &val
+			case strings.HasPrefix(p, "desc="):
+				usage = strings.TrimPrefix(p, "desc=")
+			case strings.HasPrefix(p, "description="):
+				usage = strings.TrimPrefix(p, "description=")
+			case p == "required":
+				required = true
+			}
+		}
+	}
+
+	return &flagSpec{
+		value:        fieldVal,
+		name:         name,
+		short:        shortName,
+		usage:        usage,
+		env:          env,
+		defaultValue: defaultValue,
+		required:     required,
+	}, true, nil
+}
+
+func applyDefaultsAndEnv(specs []*flagSpec, visited map[string]bool) error {
+	for _, spec := range specs {
+		if flagVisited(spec, visited) {
+			continue
+		}
+		if spec.env != "" {
+			if value := os.Getenv(spec.env); value != "" {
+				if err := setFieldFromString(spec.value, value); err != nil {
+					return fmt.Errorf("invalid value for env %s: %w", spec.env, err)
+				}
+				spec.envApplied = true
+				continue
+			}
+		}
+		if spec.defaultValue != nil {
+			if err := setFieldFromString(spec.value, *spec.defaultValue); err != nil {
+				return fmt.Errorf("invalid default for --%s: %w", spec.name, err)
+			}
+			spec.defaultApplied = true
+		}
+	}
+	return nil
+}
+
+func checkRequiredFlags(specs []*flagSpec, visited map[string]bool) error {
+	for _, spec := range specs {
+		if !spec.required {
+			continue
+		}
+		if flagVisited(spec, visited) || spec.defaultApplied || spec.envApplied {
+			continue
+		}
+		display := fmt.Sprintf("--%s", spec.name)
+		if spec.short != "" {
+			display = fmt.Sprintf("--%s, -%s", spec.name, spec.short)
+		}
+		return fmt.Errorf("missing required flag %s", display)
+	}
+	return nil
+}
+
+func flagVisited(spec *flagSpec, visited map[string]bool) bool {
+	if visited[spec.name] {
+		return true
+	}
+	if spec.short != "" && visited[spec.short] {
+		return true
+	}
+	return false
+}
+
+func applyPositionals(inst reflect.Value, node *CommandNode, args []string) (int, error) {
+	if node == nil || node.Type == nil {
+		if len(args) > 0 {
+			return 0, fmt.Errorf("unexpected argument: %s", args[0])
+		}
+		return 0, nil
+	}
+	typ := node.Type
+	posIndex := 0
+	for i := 0; i < typ.NumField(); i++ {
+		field := typ.Field(i)
 		tag := field.Tag.Get("commander")
-		if strings.Contains(tag, "subcommand") || strings.Contains(tag, "positional") {
+		if !strings.Contains(tag, "positional") {
 			continue
 		}
 		if !field.IsExported() {
-			return fmt.Errorf("field %s must be exported to use commander tags", field.Name)
+			if strings.TrimSpace(tag) != "" {
+				return posIndex, fmt.Errorf("field %s must be exported", field.Name)
+			}
+			continue
+		}
+		fieldVal := inst.Field(i)
+		required := false
+		displayName := field.Name
+		var defaultValue *string
+
+		parts := strings.Split(tag, ",")
+		for _, p := range parts {
+			p = strings.TrimSpace(p)
+			switch {
+			case strings.HasPrefix(p, "name="):
+				displayName = strings.TrimPrefix(p, "name=")
+			case strings.HasPrefix(p, "default="):
+				val := strings.TrimPrefix(p, "default=")
+				defaultValue = &val
+			case p == "required":
+				required = true
+			}
 		}
 
-		name := strings.ToLower(field.Name)
-		usage := ""
-		defaultValue := ""
-		shortName := ""
-		required := false
-		envSet := false
-		defaultSet := false
-		defaultTagValue := ""
-		envVar := ""
+		if posIndex < len(args) {
+			if err := setFieldFromString(fieldVal, args[posIndex]); err != nil {
+				return posIndex, err
+			}
+			posIndex++
+			continue
+		}
+		if defaultValue != nil {
+			if err := setFieldFromString(fieldVal, *defaultValue); err != nil {
+				return posIndex, err
+			}
+			continue
+		}
+		if required {
+			return posIndex, fmt.Errorf("missing required positional %s", displayName)
+		}
+	}
+	if posIndex < len(args) {
+		return posIndex, fmt.Errorf("unexpected argument: %s", args[posIndex])
+	}
+	return posIndex, nil
+}
 
+func assignSubcommandField(parent *CommandNode, parentInst reflect.Value, subName string, sub *CommandNode) error {
+	if parent == nil || parent.Type == nil {
+		return nil
+	}
+	typ := parent.Type
+	for i := 0; i < typ.NumField(); i++ {
+		field := typ.Field(i)
+		tag := field.Tag.Get("commander")
+		if !strings.Contains(tag, "subcommand") {
+			continue
+		}
+		name := camelToKebab(field.Name)
 		if tag != "" {
 			parts := strings.Split(tag, ",")
 			for _, p := range parts {
 				p = strings.TrimSpace(p)
 				if strings.HasPrefix(p, "name=") {
 					name = strings.TrimPrefix(p, "name=")
-				} else if strings.HasPrefix(p, "short=") {
-					shortName = strings.TrimPrefix(p, "short=")
-				} else if strings.HasPrefix(p, "env=") {
-					envVar = strings.TrimPrefix(p, "env=")
-				} else if strings.HasPrefix(p, "default=") {
-					defaultTagValue = strings.TrimPrefix(p, "default=")
-					defaultSet = true
-				} else if p == "required" {
-					required = true
-				}
-				// desc handling...
-			}
-		}
-
-		longNames[name] = true
-
-		if envVar != "" {
-			if val, ok := os.LookupEnv(envVar); ok && val != "" {
-				defaultValue = val
-				envSet = true
-				defaultSet = true
-			}
-		}
-		if !envSet && defaultSet {
-			defaultValue = defaultTagValue
-		}
-
-		fieldVal := inst.Field(i)
-		defaultSource := ""
-		if envSet {
-			defaultSource = "env " + envVar
-		} else if defaultSet {
-			defaultSource = "default tag"
-		}
-
-		if setter, ok := customSetter(fieldVal); ok {
-			if defaultSet {
-				if err := setter(defaultValue); err != nil {
-					return fmt.Errorf("invalid value for --%s from %s: %q", name, defaultSource, defaultValue)
-				}
-			}
-			value := &stringFlagValue{
-				set: setter,
-				str: func() string { return fmt.Sprint(fieldVal.Interface()) },
-			}
-			fs.Var(value, name, usage)
-			if shortName != "" {
-				fs.Var(value, shortName, usage)
-			}
-		} else {
-			switch field.Type.Kind() {
-			case reflect.String:
-				fs.StringVar(fieldVal.Addr().Interface().(*string), name, defaultValue, usage)
-				if shortName != "" {
-					fs.StringVar(fieldVal.Addr().Interface().(*string), shortName, defaultValue, usage)
-				}
-			case reflect.Int:
-				intVal := 0
-				if defaultSet {
-					parsed, err := strconv.Atoi(defaultValue)
-					if err != nil {
-						return fmt.Errorf("invalid value for --%s from %s: %q", name, defaultSource, defaultValue)
-					}
-					intVal = parsed
-				}
-				fs.IntVar(fieldVal.Addr().Interface().(*int), name, intVal, usage)
-				if shortName != "" {
-					fs.IntVar(fieldVal.Addr().Interface().(*int), shortName, intVal, usage)
-				}
-			case reflect.Bool:
-				// Bool env var handling
-				boolVal := false
-				if defaultSet {
-					parsed, err := strconv.ParseBool(defaultValue)
-					if err != nil {
-						return fmt.Errorf("invalid value for --%s from %s: %q", name, defaultSource, defaultValue)
-					}
-					boolVal = parsed
-				}
-				fs.BoolVar(fieldVal.Addr().Interface().(*bool), name, boolVal, usage)
-				if shortName != "" {
-					fs.BoolVar(fieldVal.Addr().Interface().(*bool), shortName, boolVal, usage)
+				} else if strings.HasPrefix(p, "subcommand=") {
+					name = strings.TrimPrefix(p, "subcommand=")
 				}
 			}
 		}
-
-		if required {
-			names := []string{name}
-			displayParts := []string{"--" + name}
-			if shortName != "" {
-				names = append(names, shortName)
-				displayParts = append(displayParts, "-"+shortName)
-			}
-			requiredFlags = append(requiredFlags, requiredFlagGroup{
-				names:      names,
-				fromEnv:    envSet,
-				defaultSet: defaultSet,
-				display:    strings.Join(displayParts, "/"),
-			})
-		}
-	}
-
-	if err := validateLongFlagArgs(args, longNames); err != nil {
-		return err
-	}
-
-	if err := fs.Parse(args); err != nil {
-		if err == flag.ErrHelp {
-			// printCommandHelp(n) // We call printCommandHelp manually later if we want custom format,
-			// but flag package prints its own help before returning ErrHelp.
-			// To suppress flag package help, we need to set Usage to empty func?
-
-			// Actually fs.Parse prints usage to stderr by default.
-			// We can override Usage.
-			return nil
-		}
-		return err
-	}
-
-	// Check required flags
-	visited := map[string]bool{}
-	fs.Visit(func(f *flag.Flag) {
-		visited[f.Name] = true
-	})
-	for _, group := range requiredFlags {
-		if group.fromEnv || group.defaultSet {
+		if name != subName {
 			continue
 		}
-		satisfied := false
-		for _, name := range group.names {
-			if visited[name] {
-				satisfied = true
-				break
+
+		fieldVal := parentInst.Field(i)
+		fieldType := field.Type
+		if fieldType.Kind() == reflect.Func {
+			if fieldVal.IsNil() {
+				return fmt.Errorf("subcommand %s is nil", subName)
 			}
+			sub.Func = fieldVal
+			return nil
 		}
-		if !satisfied {
-			return fmt.Errorf("missing required flag: %s", group.display)
+
+		if fieldType.Kind() == reflect.Ptr {
+			newInst := reflect.New(fieldType.Elem())
+			fieldVal.Set(newInst)
+			sub.Value = newInst.Elem()
+			return nil
 		}
-	}
 
-	remaining := fs.Args()
-
-	// 3. Check for subcommands in remaining args
-	if len(remaining) > 0 {
-		subName := remaining[0]
-		// fmt.Printf("Debug: searching for '%s' in %v\n", subName, n.Subcommands)
-		if sub, ok := n.Subcommands[subName]; ok {
-			// Found subcommand.
-			// We need to populate the field in `inst` with the subcommand instance?
-			// `sub` is a CommandNode. It has `Value` which is the zero value created in parsing.
-			// When `sub.execute` runs, it will populate `sub.Value`.
-			// We should assign `sub.Value` (pointer?) to the field in `inst`.
-
-			// Find the field for this subcommand
-			// Note: We need to check for name override in tag here too to match subName
-			for i := 0; i < n.Type.NumField(); i++ {
-				field := n.Type.Field(i)
-				tag := field.Tag.Get("commander")
-				if strings.Contains(tag, "subcommand") {
-					name := camelToKebab(field.Name)
-					// Check override
-					parts := strings.Split(tag, ",")
-					for _, p := range parts {
-						p = strings.TrimSpace(p)
-						if strings.HasPrefix(p, "name=") {
-							name = strings.TrimPrefix(p, "name=")
-						} else if strings.HasPrefix(p, "subcommand=") {
-							name = strings.TrimPrefix(p, "subcommand=")
-						}
-					}
-
-					if name == subName {
-						// Assign sub.Value to this field.
-						fieldVal := inst.Field(i)
-						if fieldVal.Kind() == reflect.Func {
-							sub.Func = fieldVal
-						} else if sub.Value.CanAddr() {
-							fieldVal.Set(sub.Value.Addr())
-						}
-						break
-					}
-				}
-			}
-
-			return sub.execute(ctx, remaining[1:])
+		if fieldType.Kind() == reflect.Struct {
+			newInst := reflect.New(fieldType).Elem()
+			fieldVal.Set(newInst)
+			sub.Value = newInst
+			return nil
 		}
 	}
+	return nil
+}
 
-	// 4. Handle Positional Args
-	posArgIdx := 0
-	var missingPositionals []string
-	for i := 0; i < n.Type.NumField(); i++ {
-		field := n.Type.Field(i)
-		tag := field.Tag.Get("commander")
-		if strings.Contains(tag, "positional") {
-			required := false
-			defaultValue := ""
-			defaultSet := false
-			if tag != "" {
-				parts := strings.Split(tag, ",")
-				for _, p := range parts {
-					if strings.TrimSpace(p) == "required" {
-						required = true
-					} else if strings.HasPrefix(strings.TrimSpace(p), "default=") {
-						defaultValue = strings.TrimPrefix(strings.TrimSpace(p), "default=")
-						defaultSet = true
-					}
-				}
-			}
-			if posArgIdx >= len(remaining) {
-				if defaultSet {
-					if err := setFieldFromString(inst.Field(i), defaultValue); err != nil {
-						return err
-					}
-					continue
-				}
-				if required {
-					missingPositionals = append(missingPositionals, field.Name)
-				}
-				continue
-			}
-			val := remaining[posArgIdx]
-
-			if err := setFieldFromString(inst.Field(i), val); err != nil {
-				return err
-			}
-			posArgIdx++
+func runPersistentHooks(ctx context.Context, chain []commandInstance, methodName string) error {
+	for _, inst := range chain {
+		if inst.node == nil || inst.node.Type == nil {
+			continue
+		}
+		if _, err := callMethod(ctx, inst.value, methodName); err != nil {
+			return err
 		}
 	}
-	if len(missingPositionals) > 0 {
-		return fmt.Errorf("missing required positional: %s", missingPositionals[0])
-	}
+	return nil
+}
 
-	// 5. Execute Run
-	// We need to call Run on the Pointer to inst?
-	// inst is addressable.
-	method := inst.Addr().MethodByName("Run")
-	if method.IsValid() {
-		// Check for -h / --help in remaining args?
-		// Actually Run handles args? No, Run is niladic.
-		// If there are remaining args and Run is niladic, we might warn or error?
-		// Unless they are positionals we already parsed.
-		// Flags were parsed. Subcommands were checked. Positional args were consumed.
-		// So `remaining` here should be empty if everything was consumed.
-		// If not empty, user provided extra args.
-
-		// Wait, `posArgIdx` tracks consumed positionals.
-		// If `posArgIdx < len(remaining)`, we have unconsumed args.
-		if posArgIdx < len(remaining) {
-			// Check if help
-			if remaining[posArgIdx] == "-h" || remaining[posArgIdx] == "--help" {
-				printCommandHelp(n)
-				return nil
-			}
-			return fmt.Errorf("unknown arguments: %v", remaining[posArgIdx:])
-		}
-
-		callWithCtx := method.Type().NumIn() == 1 && isContextType(method.Type().In(0))
-		callWithNiladic := method.Type().NumIn() == 0
-		if callWithNiladic || callWithCtx {
-			var out []reflect.Value
-			if callWithCtx {
-				out = method.Call([]reflect.Value{reflect.ValueOf(ctx)})
-			} else {
-				out = method.Call(nil)
-			}
-			if len(out) == 0 {
-				return nil
-			}
-			if len(out) == 1 && isErrorType(method.Type().Out(0)) {
-				if err, ok := out[0].Interface().(error); ok && err != nil {
-					return err
-				}
-				return nil
-			}
-			return fmt.Errorf("command %s Run must return only error", n.Name)
-		}
-	}
-
-	if len(n.Subcommands) > 0 {
-		// Just list subcommands if we didn't run anything
-		// Use the new help format
-		printCommandHelp(n)
+func reverseChain(chain []commandInstance) []commandInstance {
+	if len(chain) == 0 {
 		return nil
 	}
+	out := make([]commandInstance, len(chain))
+	for i := range chain {
+		out[i] = chain[len(chain)-1-i]
+	}
+	return out
+}
 
-	return fmt.Errorf("command %s is not runnable (no Run method)", n.Name)
+func runCommand(ctx context.Context, node *CommandNode, inst reflect.Value, args []string, posArgIdx int) error {
+	if node == nil {
+		return nil
+	}
+	_, err := callMethod(ctx, inst, "Run")
+	return err
+}
+
+func callFunction(ctx context.Context, fn reflect.Value) error {
+	if !fn.IsValid() || (fn.Kind() == reflect.Func && fn.IsNil()) {
+		return fmt.Errorf("nil function command")
+	}
+	if err := validateFuncType(fn.Type()); err != nil {
+		return err
+	}
+	var args []reflect.Value
+	if fn.Type().NumIn() == 1 {
+		args = []reflect.Value{reflect.ValueOf(ctx)}
+	}
+	results := fn.Call(args)
+	if len(results) == 1 && !results[0].IsNil() {
+		return results[0].Interface().(error)
+	}
+	return nil
+}
+
+func callMethod(ctx context.Context, receiver reflect.Value, name string) (bool, error) {
+	if !receiver.IsValid() {
+		return false, nil
+	}
+	target := receiver
+	if receiver.Kind() != reflect.Ptr {
+		if receiver.CanAddr() {
+			target = receiver.Addr()
+		}
+	}
+	method := target.MethodByName(name)
+	if !method.IsValid() {
+		return false, nil
+	}
+	mtype := method.Type()
+	if mtype.NumIn() > 1 {
+		return true, fmt.Errorf("%s must accept context.Context or no args", name)
+	}
+	var callArgs []reflect.Value
+	if mtype.NumIn() == 1 {
+		if !isContextType(mtype.In(0)) {
+			return true, fmt.Errorf("%s must accept context.Context", name)
+		}
+		callArgs = []reflect.Value{reflect.ValueOf(ctx)}
+	}
+	if mtype.NumOut() > 1 {
+		return true, fmt.Errorf("%s must return only error", name)
+	}
+	if mtype.NumOut() == 1 && !isErrorType(mtype.Out(0)) {
+		return true, fmt.Errorf("%s must return only error", name)
+	}
+	results := method.Call(callArgs)
+	if len(results) == 1 && !results[0].IsNil() {
+		return true, results[0].Interface().(error)
+	}
+	return true, nil
 }
 
 func printCommandHelp(node *CommandNode) {
@@ -605,7 +775,7 @@ func printCommandHelp(node *CommandNode) {
 		fmt.Println()
 	}
 
-	flags := collectFlagHelp(node)
+	flags := collectFlagHelpChain(node)
 	if len(flags) > 0 {
 		fmt.Println("Flags:")
 		for _, item := range flags {
@@ -637,7 +807,7 @@ func printCommanderOptions() {
 
 func buildUsageLine(node *CommandNode) string {
 	parts := []string{node.Name}
-	flags := collectFlagHelp(node)
+	flags := collectFlagHelpChain(node)
 	for _, item := range flags {
 		if item.Required {
 			parts = append(parts, formatFlagUsage(item))
@@ -681,6 +851,7 @@ type flagHelp struct {
 	Options     string
 	Placeholder string
 	Required    bool
+	Inherited   bool
 }
 
 func collectFlagHelp(node *CommandNode) []flagHelp {
@@ -749,6 +920,19 @@ func collectFlagHelp(node *CommandNode) []flagHelp {
 	return flags
 }
 
+func collectFlagHelpChain(node *CommandNode) []flagHelp {
+	chain := nodeChain(node)
+	var flags []flagHelp
+	for i, current := range chain {
+		inherited := i < len(chain)-1
+		for _, item := range collectFlagHelp(current) {
+			item.Inherited = inherited
+			flags = append(flags, item)
+		}
+	}
+	return flags
+}
+
 type positionalHelp struct {
 	Name     string
 	Required bool
@@ -807,6 +991,20 @@ func validateLongFlagArgs(args []string, longNames map[string]bool) error {
 		}
 	}
 	return nil
+}
+
+func nodeChain(node *CommandNode) []*CommandNode {
+	if node == nil {
+		return nil
+	}
+	var chain []*CommandNode
+	for current := node; current != nil; current = current.Parent {
+		chain = append(chain, current)
+	}
+	for i, j := 0, len(chain)-1; i < j; i, j = i+1, j-1 {
+		chain[i], chain[j] = chain[j], chain[i]
+	}
+	return chain
 }
 
 // DetectRootCommands filters a list of possible command objects to find those
