@@ -18,24 +18,6 @@ A simple md issue tracker.
 
 Issues to choose from for future work.
 
-### 12. Placeholder Customization
-
-#### Universal
-
-**Status**
-backlog
-
-**Description**
-Allow placeholder text in help output (e.g. `placeholder="FILE"`).
-
-#### Planning
-
-**Priority**
-Low
-
-**Acceptance**
-Support placeholder tag affecting help text.
-
 ### 14. Parallel Execution
 
 #### Universal
@@ -682,3 +664,21 @@ Low
 
 **Acceptance**
 TBD
+
+### 12. Placeholder Customization
+
+#### Universal
+
+**Status**
+done
+
+**Description**
+Allow placeholder text in help output (e.g. `placeholder="FILE"`).
+
+#### Planning
+
+**Priority**
+Low
+
+**Acceptance**
+Support placeholder tag affecting help text.
