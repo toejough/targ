@@ -123,6 +123,7 @@ Build tool example in this repo:
 $ commander list
 $ commander create --title "New Issue" --description "..." --priority Medium
 $ commander move 4 --status done
+$ commander update 40 --status done --description "..." --details "..."
 ```
 
 ### Subcommands
