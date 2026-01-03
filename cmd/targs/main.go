@@ -6,6 +6,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -73,13 +74,7 @@ func main() {
 	fs.BoolVar(&keepBootstrap, "keep", false, "keep generated bootstrap file")
 	fs.StringVar(&completionShell, "completion", "", "print shell completion (bash|zsh|fish)")
 	fs.Usage = func() {
-		fmt.Fprintln(os.Stdout, "Usage: targs [--multipackage|-m] [--no-cache] [--keep] [args]")
-		fmt.Fprintln(os.Stdout, "")
-		fmt.Fprintln(os.Stdout, "Flags:")
-		fmt.Fprintln(os.Stdout, "  --multipackage, -m    enable multipackage mode (recursive package-scoped discovery)")
-		fmt.Fprintln(os.Stdout, "  --no-cache            disable cached build tool binaries")
-		fmt.Fprintln(os.Stdout, "  --keep                keep generated bootstrap file")
-		fmt.Fprintln(os.Stdout, "  --completion [bash|zsh|fish]")
+		printBuildToolUsage(os.Stdout)
 	}
 	fs.SetOutput(os.Stdout)
 	rawArgs := os.Args[1:]
@@ -408,6 +403,20 @@ func printMultiPackageError(startDir string, multiErr *buildtool.MultipleTaggedD
 	fmt.Println("")
 	fmt.Println("For more information, run `targs --help`.")
 	return nil
+}
+
+func printBuildToolUsage(out io.Writer) {
+	fmt.Fprintln(out, "targs is a build-tool runner that discovers tagged commands and executes them.")
+	fmt.Fprintln(out, "")
+	fmt.Fprintln(out, "Usage: targs [--multipackage|-m] [--no-cache] [--keep] [args]")
+	fmt.Fprintln(out, "")
+	fmt.Fprintln(out, "Flags:")
+	fmt.Fprintln(out, "  --multipackage, -m    enable multipackage mode (recursive package-scoped discovery)")
+	fmt.Fprintln(out, "  --no-cache            disable cached build tool binaries")
+	fmt.Fprintln(out, "  --keep                keep generated bootstrap file")
+	fmt.Fprintln(out, "  --completion [bash|zsh|fish]")
+	fmt.Fprintln(out, "")
+	fmt.Fprintln(out, "More info: see README.md for build tool mode details.")
 }
 
 func buildBootstrapData(

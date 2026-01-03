@@ -219,3 +219,18 @@ func TestWriteBootstrapFileCleanup(t *testing.T) {
 	}
 	_ = os.Remove(path)
 }
+
+func TestPrintBuildToolUsageIncludesSummaryAndEpilog(t *testing.T) {
+	var buf bytes.Buffer
+	printBuildToolUsage(&buf)
+	out := buf.String()
+	if !strings.Contains(out, "build-tool runner") {
+		t.Fatalf("expected summary in usage output, got: %s", out)
+	}
+	if !strings.Contains(out, "More info:") {
+		t.Fatalf("expected epilog in usage output, got: %s", out)
+	}
+	if !strings.Contains(out, "README.md") {
+		t.Fatalf("expected README reference, got: %s", out)
+	}
+}
