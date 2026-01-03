@@ -18,13 +18,16 @@ func TestWatchDetectsAddModifyRemove(t *testing.T) {
 	changesCh := make(chan ChangeSet, 8)
 	done := make(chan error, 1)
 
+	interval := 20 * time.Millisecond
 	go func() {
-		err := Watch(ctx, []string{pattern}, WatchOptions{Interval: 20 * time.Millisecond}, func(set ChangeSet) error {
+		err := Watch(ctx, []string{pattern}, WatchOptions{Interval: interval}, func(set ChangeSet) error {
 			changesCh <- set
 			return nil
 		})
 		done <- err
 	}()
+
+	time.Sleep(2 * interval)
 
 	file := filepath.Join(dir, "a.txt")
 	if err := os.WriteFile(file, []byte("one"), 0644); err != nil {
