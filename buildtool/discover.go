@@ -245,6 +245,9 @@ func findTaggedDirs(fs FileSystem, startDir string, tag string) ([]taggedDir, er
 			if !strings.HasSuffix(name, ".go") {
 				continue
 			}
+			if strings.HasSuffix(name, "_test.go") {
+				continue
+			}
 
 			content, err := fs.ReadFile(fullPath)
 			if err != nil {
