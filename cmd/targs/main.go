@@ -416,7 +416,7 @@ func printBuildToolUsage(out io.Writer) {
 	fmt.Fprintln(out, "  --keep                keep generated bootstrap file")
 	fmt.Fprintln(out, "  --completion [bash|zsh|fish]")
 	fmt.Fprintln(out, "")
-	fmt.Fprintln(out, "More info: see README.md for build tool mode details.")
+	fmt.Fprintln(out, "More info: https://github.com/toejough/targs#readme")
 }
 
 func buildBootstrapData(

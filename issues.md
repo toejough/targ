@@ -108,6 +108,24 @@ Medium
 **Acceptance**
 Add `targs.LoadEnv()` or auto-load in `Run()`.
 
+### 46. Publish repository
+
+#### Universal
+
+**Status**
+backlog
+
+**Description**
+Push targs to GitHub and set up the canonical repo at github.com/toejough/targs.
+
+#### Planning
+
+**Priority**
+Medium
+
+**Acceptance**
+Repository exists on GitHub and README link is valid.
+
 ## Done
 
 Completed issues.
