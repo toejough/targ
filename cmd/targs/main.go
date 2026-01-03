@@ -66,6 +66,7 @@ func main() {
 	var noCache bool
 	var keepBootstrap bool
 	var completionShell string
+	var helpFlag bool
 
 	fs := flag.NewFlagSet("targs", flag.ContinueOnError)
 	fs.BoolVar(&multiPackage, "multipackage", false, "enable multipackage mode (recursive package-scoped discovery)")
@@ -73,6 +74,8 @@ func main() {
 	fs.BoolVar(&noCache, "no-cache", false, "disable cached build tool binaries")
 	fs.BoolVar(&keepBootstrap, "keep", false, "keep generated bootstrap file")
 	fs.StringVar(&completionShell, "completion", "", "print shell completion (bash|zsh|fish)")
+	fs.BoolVar(&helpFlag, "help", false, "print help information")
+	fs.BoolVar(&helpFlag, "h", false, "alias for --help")
 	fs.Usage = func() {
 		printBuildToolUsage(os.Stdout)
 	}
@@ -103,15 +106,14 @@ func main() {
 		parseArgs = append(parseArgs, arg)
 	}
 	if err := fs.Parse(parseArgs); err != nil {
-		if err == flag.ErrHelp {
-			helpRequested = true
-		} else {
-			fmt.Fprintln(os.Stderr, err)
-			printBuildToolUsage(os.Stderr)
-			os.Exit(1)
-		}
+		fmt.Fprintln(os.Stderr, err)
+		printBuildToolUsage(os.Stderr)
+		os.Exit(1)
 	}
 	args := fs.Args()
+	if helpFlag {
+		helpRequested = true
+	}
 
 	if helpRequested && !helpTargets {
 		startDir, err := os.Getwd()
@@ -124,6 +126,9 @@ func main() {
 			os.Exit(1)
 		}
 		return
+	}
+	if helpRequested && helpTargets {
+		args = append(args, "--help")
 	}
 
 	if completionRequested {
@@ -428,22 +433,22 @@ func printMultiPackageError(startDir string, multiErr *buildtool.MultipleTaggedD
 func printBuildToolUsage(out io.Writer) {
 	fmt.Fprintln(out, "targs is a build-tool runner that discovers tagged commands and executes them.")
 	fmt.Fprintln(out, "")
-	fmt.Fprintln(out, "Usage: targs [--multipackage|-m] [--no-cache] [--keep] [args]")
+	fmt.Fprintln(out, "Usage: targs [FLAGS...] COMMAND [COMMAND_ARGS...]")
 	fmt.Fprintln(out, "")
 	fmt.Fprintln(out, "Flags:")
-	fmt.Fprintln(out, "  --multipackage, -m    enable multipackage mode (recursive package-scoped discovery)")
-	fmt.Fprintln(out, "  --no-cache            disable cached build tool binaries")
-	fmt.Fprintln(out, "  --keep                keep generated bootstrap file")
-	fmt.Fprintln(out, "  --completion [bash|zsh|fish]")
-	fmt.Fprintln(out, "")
-	fmt.Fprintln(out, "More info: https://github.com/toejough/targs#readme")
+	fmt.Fprintf(out, "    %-28s %s\n", "--multipackage, -m", "enable multipackage mode (recursive package-scoped discovery)")
+	fmt.Fprintf(out, "    %-28s %s\n", "--no-cache", "disable cached build tool binaries")
+	fmt.Fprintf(out, "    %-28s %s\n", "--keep", "keep generated bootstrap file")
+	fmt.Fprintf(out, "    %-28s %s\n", "--completion [bash|zsh|fish]", "print completion script for specified shell. Uses the current shell if none is")
+	fmt.Fprintf(out, "    %-28s %s\n", "", "specified. The output should be eval'd/sourced in the shell to enable completions.")
+	fmt.Fprintf(out, "    %-28s %s\n", "", "(e.g. 'targs --completion fish | source')")
+	fmt.Fprintf(out, "    %-28s %s\n", "--help", "Print help information")
 }
 
 type packageSummary struct {
-	Name     string
-	Path     string
-	Doc      string
-	Commands []string
+	Name string
+	Path string
+	Doc  string
 }
 
 func printBuildToolHelp(out io.Writer, startDir string, multiPackage bool) error {
@@ -473,17 +478,27 @@ func printBuildToolHelp(out io.Writer, startDir string, multiPackage bool) error
 
 	if len(currentSummaries) == 0 {
 		fmt.Fprintln(out, "No tagged packages found in this directory.")
+		fmt.Fprintln(out, "")
+		fmt.Fprintln(out, "More info: https://github.com/toejough/targs#readme")
 		return nil
 	}
 
 	if multiPackage {
 		fmt.Fprintln(out, "Subcommands:")
 		printPackageSummaries(out, currentSummaries)
+		fmt.Fprintln(out, "")
+		fmt.Fprintln(out, "More info: https://github.com/toejough/targs#readme")
 		return nil
 	}
 
 	fmt.Fprintln(out, "Loaded package:")
 	printPackageSummaries(out, currentSummaries)
+
+	if len(currentInfos) > 0 {
+		fmt.Fprintln(out, "")
+		fmt.Fprintln(out, "Commands:")
+		printCommandSummaries(out, commandSummaries(currentInfos[0]))
+	}
 
 	otherSummaries := filterOtherPackages(currentSummaries, allSummaries)
 	fmt.Fprintln(out, "")
@@ -493,27 +508,22 @@ func printBuildToolHelp(out io.Writer, startDir string, multiPackage bool) error
 		fmt.Fprintln(out, "")
 		fmt.Fprintln(out, "Use -m/--multipackage or run from a package directory to access these.")
 	}
+	fmt.Fprintln(out, "")
+	fmt.Fprintln(out, "More info: https://github.com/toejough/targs#readme")
 	return nil
 }
 
 func summarizePackages(infos []buildtool.PackageInfo, startDir string) []packageSummary {
 	summaries := make([]packageSummary, 0, len(infos))
 	for _, info := range infos {
-		commands := append([]string{}, info.Structs...)
-		commands = append(commands, info.Funcs...)
-		for i, name := range commands {
-			commands[i] = camelToKebab(name)
-		}
-		sort.Strings(commands)
 		path := info.Dir
 		if rel, err := filepath.Rel(startDir, info.Dir); err == nil {
 			path = rel
 		}
 		summaries = append(summaries, packageSummary{
-			Name:     info.Package,
-			Path:     path,
-			Doc:      info.Doc,
-			Commands: commands,
+			Name: info.Package,
+			Path: path,
+			Doc:  info.Doc,
 		})
 	}
 	sort.Slice(summaries, func(i, j int) bool {
@@ -541,18 +551,63 @@ func filterOtherPackages(loaded []packageSummary, all []packageSummary) []packag
 
 func printPackageSummaries(out io.Writer, summaries []packageSummary) {
 	if len(summaries) == 0 {
-		fmt.Fprintln(out, "  (none)")
+		fmt.Fprintln(out, "    (none)")
 		return
 	}
 	for _, summary := range summaries {
-		line := fmt.Sprintf("  %s", summary.Name)
+		name := summary.Name
 		if summary.Doc != "" {
-			line = fmt.Sprintf("%s - %s", line, summary.Doc)
+			fmt.Fprintf(out, "    %-10s %s\n", name, summary.Doc)
+		} else {
+			fmt.Fprintf(out, "    %s\n", name)
 		}
-		fmt.Fprintln(out, line)
-		fmt.Fprintf(out, "    Path: %s\n", summary.Path)
-		if len(summary.Commands) > 0 {
-			fmt.Fprintf(out, "    Commands: %s\n", strings.Join(summary.Commands, ", "))
+		fmt.Fprintf(out, "                Path: %s\n", summary.Path)
+	}
+}
+
+type commandSummary struct {
+	Name        string
+	Description string
+}
+
+func commandSummaries(info buildtool.PackageInfo) []commandSummary {
+	commands := make([]commandSummary, 0, len(info.Structs)+len(info.Funcs))
+	for _, name := range info.Structs {
+		desc := ""
+		if info.StructDescriptions != nil {
+			desc = info.StructDescriptions[name]
+		}
+		commands = append(commands, commandSummary{
+			Name:        camelToKebab(name),
+			Description: desc,
+		})
+	}
+	for _, name := range info.Funcs {
+		desc := ""
+		if info.FuncDescriptions != nil {
+			desc = info.FuncDescriptions[name]
+		}
+		commands = append(commands, commandSummary{
+			Name:        camelToKebab(name),
+			Description: desc,
+		})
+	}
+	sort.Slice(commands, func(i, j int) bool {
+		return commands[i].Name < commands[j].Name
+	})
+	return commands
+}
+
+func printCommandSummaries(out io.Writer, summaries []commandSummary) {
+	if len(summaries) == 0 {
+		fmt.Fprintln(out, "    (none)")
+		return
+	}
+	for _, summary := range summaries {
+		if summary.Description != "" {
+			fmt.Fprintf(out, "    %-10s %s\n", summary.Name, summary.Description)
+		} else {
+			fmt.Fprintf(out, "    %s\n", summary.Name)
 		}
 	}
 }

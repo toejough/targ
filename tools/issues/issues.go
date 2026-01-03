@@ -19,6 +19,10 @@ type List struct {
 	Query  string `targs:"flag,desc=Case-insensitive title filter"`
 }
 
+func (c *List) Description() string {
+	return "List issues"
+}
+
 func (c *List) Run() error {
 	file, issues, err := loadIssues(c.File)
 	if err != nil {
@@ -53,6 +57,10 @@ type Move struct {
 	Status string `targs:"flag,required,desc=New status,enum=backlog|selected|in-progress|review|done|cancelled|blocked"`
 }
 
+func (c *Move) Description() string {
+	return "Move an issue to a new status"
+}
+
 func (c *Move) Run() error {
 	content, _, err := loadIssues(c.File)
 	if err != nil {
@@ -83,6 +91,10 @@ type Dedupe struct {
 	File string `targs:"flag,default=issues.md,desc=Issue file to update"`
 }
 
+func (c *Dedupe) Description() string {
+	return "Remove duplicate done issues from backlog"
+}
+
 func (c *Dedupe) Run() error {
 	content, _, err := loadIssues(c.File)
 	if err != nil {
@@ -109,6 +121,10 @@ type Validate struct {
 	File string `targs:"flag,default=issues.md,desc=Issue file to validate"`
 }
 
+func (c *Validate) Description() string {
+	return "Validate issue formatting and structure"
+}
+
 func (c *Validate) Run() error {
 	_, issues, err := loadIssues(c.File)
 	if err != nil {
@@ -133,22 +149,30 @@ func (c *Validate) Run() error {
 }
 
 type Create struct {
-	File        string `targs:"flag,default=issues.md,desc=Issue file to update"`
-	Title       string `targs:"flag,required,desc=Issue title"`
-	Status      string `targs:"flag,default=backlog,desc=Initial status,enum=backlog|selected|in-progress|review|done|cancelled|blocked"`
-	Description string `targs:"flag,default=TBD,desc=Issue description"`
-	Priority    string `targs:"flag,default=Low,desc=Priority,enum=low|medium|high"`
-	Acceptance  string `targs:"flag,default=TBD,desc=Acceptance criteria"`
+	File       string `targs:"flag,default=issues.md,desc=Issue file to update"`
+	Title      string `targs:"flag,required,desc=Issue title"`
+	Status     string `targs:"flag,default=backlog,desc=Initial status,enum=backlog|selected|in-progress|review|done|cancelled|blocked"`
+	Desc       string `targs:"flag,name=description,default=TBD,desc=Issue description"`
+	Priority   string `targs:"flag,default=Low,desc=Priority,enum=low|medium|high"`
+	Acceptance string `targs:"flag,default=TBD,desc=Acceptance criteria"`
+}
+
+func (c *Create) Description() string {
+	return "Create a new issue entry"
 }
 
 type Update struct {
-	File        string `targs:"flag,default=issues.md,desc=Issue file to update"`
-	ID          int    `targs:"positional,required"`
-	Status      string `targs:"flag,desc=New status,enum=backlog|selected|in-progress|review|done|cancelled|blocked"`
-	Description string `targs:"flag,desc=Description text"`
-	Priority    string `targs:"flag,desc=Priority,enum=low|medium|high"`
-	Acceptance  string `targs:"flag,desc=Acceptance criteria"`
-	Details     string `targs:"flag,desc=Implementation details"`
+	File       string `targs:"flag,default=issues.md,desc=Issue file to update"`
+	ID         int    `targs:"positional,required"`
+	Status     string `targs:"flag,desc=New status,enum=backlog|selected|in-progress|review|done|cancelled|blocked"`
+	Desc       string `targs:"flag,name=description,desc=Description text"`
+	Priority   string `targs:"flag,desc=Priority,enum=low|medium|high"`
+	Acceptance string `targs:"flag,desc=Acceptance criteria"`
+	Details    string `targs:"flag,desc=Implementation details"`
+}
+
+func (c *Update) Description() string {
+	return "Update an existing issue entry"
 }
 
 func (c *Update) Run() error {
@@ -162,8 +186,8 @@ func (c *Update) Run() error {
 		status := normalizeStatus(c.Status)
 		updates.Status = &status
 	}
-	if c.Description != "" {
-		updates.Description = &c.Description
+	if c.Desc != "" {
+		updates.Description = &c.Desc
 	}
 	if c.Priority != "" {
 		priority := normalizePriority(c.Priority)
@@ -210,7 +234,7 @@ func (c *Create) Run() error {
 		status,
 		"",
 		"**Description**",
-		c.Description,
+		c.Desc,
 		"",
 		"#### Planning",
 		"",

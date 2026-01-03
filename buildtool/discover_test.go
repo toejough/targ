@@ -112,6 +112,46 @@ func Sub() {}
 	}
 }
 
+func TestDiscover_DescriptionMethod(t *testing.T) {
+	fsMock := MockFileSystem(t)
+	opts := Options{StartDir: "/root"}
+	done := make(chan struct{})
+	var (
+		infos []PackageInfo
+		err   error
+	)
+
+	go func() {
+		infos, err = Discover(fsMock.Interface(), opts)
+		close(done)
+	}()
+
+	fsMock.ReadDir.ExpectCalledWithExactly("/root").InjectReturnValues([]fs.DirEntry{
+		fakeDirEntry{name: "cmd.go", dir: false},
+	}, nil)
+	fsMock.ReadFile.ExpectCalledWithExactly("/root/cmd.go").InjectReturnValues([]byte(`//go:build targs
+
+package build
+
+type Build struct{}
+
+func (b *Build) Run() {}
+func (b *Build) Description() string { return "Build the project" }
+`), nil)
+
+	<-done
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(infos) != 1 {
+		t.Fatalf("expected 1 package info, got %d", len(infos))
+	}
+	desc := infos[0].StructDescriptions["Build"]
+	if desc != "Build the project" {
+		t.Fatalf("expected description, got %q", desc)
+	}
+}
 func TestDiscover_FiltersNonRunnableStructs(t *testing.T) {
 	fsMock := MockFileSystem(t)
 	opts := Options{StartDir: "/root"}

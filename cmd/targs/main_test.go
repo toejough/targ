@@ -220,18 +220,15 @@ func TestWriteBootstrapFileCleanup(t *testing.T) {
 	_ = os.Remove(path)
 }
 
-func TestPrintBuildToolUsageIncludesSummaryAndEpilog(t *testing.T) {
+func TestPrintBuildToolUsageIncludesSummary(t *testing.T) {
 	var buf bytes.Buffer
 	printBuildToolUsage(&buf)
 	out := buf.String()
 	if !strings.Contains(out, "build-tool runner") {
 		t.Fatalf("expected summary in usage output, got: %s", out)
 	}
-	if !strings.Contains(out, "More info:") {
-		t.Fatalf("expected epilog in usage output, got: %s", out)
-	}
-	if !strings.Contains(out, "github.com/toejough/targs") {
-		t.Fatalf("expected README link, got: %s", out)
+	if strings.Contains(out, "More info:") {
+		t.Fatalf("did not expect epilog in usage output, got: %s", out)
 	}
 }
 
@@ -256,7 +253,12 @@ func TestSummarizePackagesFormatsCommands(t *testing.T) {
 	if summary.Doc != "Issue tools." {
 		t.Fatalf("unexpected doc: %s", summary.Doc)
 	}
-	if got := strings.Join(summary.Commands, ","); got != "do-work,list-items" {
+	cmds := commandSummaries(infos[0])
+	var names []string
+	for _, cmd := range cmds {
+		names = append(names, cmd.Name)
+	}
+	if got := strings.Join(names, ","); got != "do-work,list-items" {
 		t.Fatalf("unexpected commands: %s", got)
 	}
 }

@@ -53,11 +53,13 @@ type TaggedFile struct {
 }
 
 type PackageInfo struct {
-	Dir     string
-	Package string
-	Doc     string
-	Structs []string
-	Funcs   []string
+	Dir                string
+	Package            string
+	Doc                string
+	Structs            []string
+	Funcs              []string
+	StructDescriptions map[string]string
+	FuncDescriptions   map[string]string
 }
 
 type taggedFile struct {
@@ -303,6 +305,8 @@ func parsePackageInfo(dir taggedDir) (PackageInfo, error) {
 	structHasSubcommands := make(map[string]bool)
 	structHasRun := make(map[string]bool)
 	funcs := make(map[string]bool)
+	structDescriptions := make(map[string]string)
+	funcDescriptions := make(map[string]string)
 	subcommandNames := make(map[string]bool)
 	subcommandTypes := make(map[string]bool)
 
@@ -340,6 +344,11 @@ func parsePackageInfo(dir taggedDir) (PackageInfo, error) {
 				}
 			case *ast.FuncDecl:
 				if node.Recv != nil {
+					if desc, ok := descriptionMethodValue(node); ok {
+						if recvName := receiverTypeName(node.Recv); recvName != "" {
+							structDescriptions[recvName] = desc
+						}
+					}
 					if node.Name.Name == "Run" {
 						if recvName := receiverTypeName(node.Recv); recvName != "" {
 							structHasRun[recvName] = true
@@ -354,6 +363,9 @@ func parsePackageInfo(dir taggedDir) (PackageInfo, error) {
 					return PackageInfo{}, fmt.Errorf("function %s %v", node.Name.Name, err)
 				}
 				funcs[node.Name.Name] = true
+				if desc, ok := functionDocValue(node); ok {
+					funcDescriptions[node.Name.Name] = desc
+				}
 			}
 		}
 	}
@@ -395,12 +407,65 @@ func parsePackageInfo(dir taggedDir) (PackageInfo, error) {
 	}
 
 	return PackageInfo{
-		Dir:     dir.Path,
-		Package: packageName,
-		Doc:     packageDoc,
-		Structs: structList,
-		Funcs:   funcList,
+		Dir:                dir.Path,
+		Package:            packageName,
+		Doc:                packageDoc,
+		Structs:            structList,
+		Funcs:              funcList,
+		StructDescriptions: structDescriptions,
+		FuncDescriptions:   funcDescriptions,
 	}, nil
+}
+
+func descriptionMethodValue(node *ast.FuncDecl) (string, bool) {
+	if node.Name.Name != "Description" || node.Recv == nil {
+		return "", false
+	}
+	if node.Type.Params != nil && len(node.Type.Params.List) > 0 {
+		return "", false
+	}
+	if node.Type.Results == nil || len(node.Type.Results.List) != 1 {
+		return "", false
+	}
+	if !isStringExpr(node.Type.Results.List[0].Type) {
+		return "", false
+	}
+	return returnStringLiteral(node.Body)
+}
+
+func functionDocValue(node *ast.FuncDecl) (string, bool) {
+	if node.Doc == nil {
+		return "", false
+	}
+	text := strings.TrimSpace(node.Doc.Text())
+	if text == "" {
+		return "", false
+	}
+	return text, true
+}
+
+func isStringExpr(expr ast.Expr) bool {
+	ident, ok := expr.(*ast.Ident)
+	return ok && ident.Name == "string"
+}
+
+func returnStringLiteral(body *ast.BlockStmt) (string, bool) {
+	if body == nil || len(body.List) != 1 {
+		return "", false
+	}
+	ret, ok := body.List[0].(*ast.ReturnStmt)
+	if !ok || len(ret.Results) != 1 {
+		return "", false
+	}
+	lit, ok := ret.Results[0].(*ast.BasicLit)
+	if !ok || lit.Kind != token.STRING {
+		return "", false
+	}
+	value, err := strconv.Unquote(lit.Value)
+	if err != nil {
+		return "", false
+	}
+	return strings.TrimSpace(value), true
 }
 
 func validateFunctionSignature(fnType *ast.FuncType, ctxAliases map[string]bool, ctxDotImport bool) error {
