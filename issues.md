@@ -90,26 +90,6 @@ Low
 **Acceptance**
 Add `target.Checksum(srcs, dest)`.
 
-### 29. Temporary Generated Main File Handling
-
-#### Universal
-
-**Status**
-backlog
-
-**Description**
-Improve handling of generated bootstrap files (naming, location, cleanup).
-
-#### Planning
-
-**Priority**
-Low
-
-**Acceptance**
-Generate into a temp dir with a stable name and support `--keep`.
-
----
-
 ### 36. add some help for targs itself when running in build-tool mode (add a description)
 
 #### Universal
@@ -164,7 +144,7 @@ Low
 **Acceptance**
 Shortlist parsers and document tradeoffs; decide whether to keep manual parser.
 
-### 44. rename to something more concise, like subcmd
+### 45. add methods for dynamically setting tags
 
 #### Universal
 
@@ -682,3 +662,41 @@ Low
 
 **Acceptance**
 Support placeholder tag affecting help text.
+
+### 44. rename to something more concise, like subcmd
+
+#### Universal
+
+**Status**
+done
+
+**Description**
+TBD
+
+#### Planning
+
+**Priority**
+Low
+
+**Acceptance**
+TBD
+
+### 29. Temporary Generated Main File Handling
+
+#### Universal
+
+**Status**
+done
+
+**Description**
+Improve handling of generated bootstrap files (naming, location, cleanup).
+
+#### Planning
+
+**Priority**
+Low
+
+**Acceptance**
+Generate into a temp dir with a stable name and support `--keep`.
+
+---
