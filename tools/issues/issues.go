@@ -13,30 +13,14 @@ import (
 	"commander/internal/issuefile"
 )
 
-type Issues struct {
-	List     *ListCmd     `commander:"subcommand"`
-	Move     *MoveCmd     `commander:"subcommand"`
-	Dedupe   *DedupeCmd   `commander:"subcommand"`
-	Validate *ValidateCmd `commander:"subcommand"`
-	Create   *CreateCmd   `commander:"subcommand"`
-}
-
-func (i *Issues) CommandName() string {
-	return "issues"
-}
-
-func (i *Issues) Description() string {
-	return "Issue list tooling for this repo."
-}
-
-type ListCmd struct {
+type List struct {
 	File    string `commander:"flag,default=issues.md"`
 	Status  string `commander:"flag"`
 	Section string `commander:"flag"`
 	Query   string `commander:"flag"`
 }
 
-func (c *ListCmd) Run() error {
+func (c *List) Run() error {
 	file, issues, err := loadIssues(c.File)
 	if err != nil {
 		return err
@@ -64,13 +48,13 @@ func (c *ListCmd) Run() error {
 	return nil
 }
 
-type MoveCmd struct {
+type Move struct {
 	File   string `commander:"flag,default=issues.md"`
 	ID     int    `commander:"positional,required"`
 	Status string `commander:"flag,required"`
 }
 
-func (c *MoveCmd) Run() error {
+func (c *Move) Run() error {
 	content, _, err := loadIssues(c.File)
 	if err != nil {
 		return err
@@ -95,11 +79,11 @@ func (c *MoveCmd) Run() error {
 	return writeIssues(c.File, file.Lines)
 }
 
-type DedupeCmd struct {
+type Dedupe struct {
 	File string `commander:"flag,default=issues.md"`
 }
 
-func (c *DedupeCmd) Run() error {
+func (c *Dedupe) Run() error {
 	content, _, err := loadIssues(c.File)
 	if err != nil {
 		return err
@@ -121,11 +105,11 @@ func (c *DedupeCmd) Run() error {
 	return writeIssues(c.File, file.Lines)
 }
 
-type ValidateCmd struct {
+type Validate struct {
 	File string `commander:"flag,default=issues.md"`
 }
 
-func (c *ValidateCmd) Run() error {
+func (c *Validate) Run() error {
 	_, issues, err := loadIssues(c.File)
 	if err != nil {
 		return err
@@ -148,7 +132,7 @@ func (c *ValidateCmd) Run() error {
 	return nil
 }
 
-type CreateCmd struct {
+type Create struct {
 	File        string `commander:"flag,default=issues.md"`
 	Title       string `commander:"flag,required"`
 	Status      string `commander:"flag,default=backlog"`
@@ -157,7 +141,7 @@ type CreateCmd struct {
 	Acceptance  string `commander:"flag,default=TBD"`
 }
 
-func (c *CreateCmd) Run() error {
+func (c *Create) Run() error {
 	content, issues, err := loadIssues(c.File)
 	if err != nil {
 		return err
@@ -198,10 +182,6 @@ func (c *CreateCmd) Run() error {
 		return err
 	}
 	return writeIssues(c.File, content.Lines)
-}
-
-func (i *Issues) Run() {
-	fmt.Println("Use a subcommand: list, move, dedupe, validate, create")
 }
 
 func loadIssues(path string) (*issuefile.File, []issuefile.Issue, error) {
