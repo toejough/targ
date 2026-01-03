@@ -18,24 +18,6 @@ A simple md issue tracker.
 
 Issues to choose from for future work.
 
-### 15. .env File Loading
-
-#### Universal
-
-**Status**
-backlog
-
-**Description**
-Load `.env` files to populate env-backed flags.
-
-#### Planning
-
-**Priority**
-Medium
-
-**Acceptance**
-Add `targs.LoadEnv()` or auto-load in `Run()`.
-
 ### 16. Interactive UI Helpers
 
 #### Universal
@@ -143,6 +125,24 @@ Low
 
 **Acceptance**
 TBD
+
+### 15. .env File Loading
+
+#### Universal
+
+**Status**
+cancelled
+
+**Description**
+Load `.env` files to populate env-backed flags.
+
+#### Planning
+
+**Priority**
+Medium
+
+**Acceptance**
+Add `targs.LoadEnv()` or auto-load in `Run()`.
 
 ## Done
 
