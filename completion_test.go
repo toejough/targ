@@ -1,4 +1,4 @@
-package commander
+package targs
 
 import (
 	"bytes"
@@ -9,8 +9,8 @@ import (
 )
 
 type EnumCmd struct {
-	Mode string `commander:"flag,enum=dev|prod,short=m"`
-	Kind string `commander:"flag,enum=fast|slow"`
+	Mode string `targs:"flag,enum=dev|prod,short=m"`
+	Kind string `targs:"flag,enum=fast|slow"`
 }
 
 func (c *EnumCmd) Run() {}

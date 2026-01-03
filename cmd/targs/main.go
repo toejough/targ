@@ -15,8 +15,8 @@ import (
 	"text/template"
 	"unicode/utf8"
 
-	"commander"
-	"commander/buildtool"
+	"targs"
+	"targs/buildtool"
 )
 
 type bootstrapCommand struct {
@@ -65,13 +65,13 @@ func main() {
 	var noCache bool
 	var completionShell string
 
-	fs := flag.NewFlagSet("commander", flag.ContinueOnError)
+	fs := flag.NewFlagSet("targs", flag.ContinueOnError)
 	fs.BoolVar(&multiPackage, "multipackage", false, "enable multipackage mode (recursive package-scoped discovery)")
 	fs.BoolVar(&multiPackage, "m", false, "alias for --multipackage")
 	fs.BoolVar(&noCache, "no-cache", false, "disable cached build tool binaries")
 	fs.StringVar(&completionShell, "completion", "", "print shell completion (bash|zsh|fish)")
 	fs.Usage = func() {
-		fmt.Fprintln(os.Stdout, "Usage: commander [--multipackage|-m] [--no-cache] [args]")
+		fmt.Fprintln(os.Stdout, "Usage: targs [--multipackage|-m] [--no-cache] [args]")
 		fmt.Fprintln(os.Stdout, "")
 		fmt.Fprintln(os.Stdout, "Flags:")
 		fmt.Fprintln(os.Stdout, "  --multipackage, -m    enable multipackage mode (recursive package-scoped discovery)")
@@ -123,7 +123,7 @@ func main() {
 		if idx := strings.LastIndex(binName, "\\"); idx != -1 {
 			binName = binName[idx+1:]
 		}
-		if err := commander.PrintCompletionScript(completionShell, binName); err != nil {
+		if err := targs.PrintCompletionScript(completionShell, binName); err != nil {
 			fmt.Fprintf(os.Stderr, "Unsupported shell: %s. Supported: bash, zsh, fish\n", completionShell)
 			os.Exit(1)
 		}
@@ -139,7 +139,7 @@ func main() {
 	taggedDirs, err := buildtool.SelectTaggedDirs(buildtool.OSFileSystem{}, buildtool.Options{
 		StartDir:     startDir,
 		MultiPackage: multiPackage,
-		BuildTag:     "commander",
+		BuildTag:     "targs",
 	})
 	if err != nil {
 		var multiErr *buildtool.MultipleTaggedDirsError
@@ -155,7 +155,7 @@ func main() {
 	for _, dir := range taggedDirs {
 		if _, err := buildtool.GenerateFunctionWrappers(buildtool.OSFileSystem{}, buildtool.GenerateOptions{
 			Dir:        dir.Path,
-			BuildTag:   "commander",
+			BuildTag:   "targs",
 			OnlyTagged: true,
 		}); err != nil {
 			fmt.Printf("Error generating command wrappers: %v\n", err)
@@ -166,7 +166,7 @@ func main() {
 	infos, err := buildtool.Discover(buildtool.OSFileSystem{}, buildtool.Options{
 		StartDir:     startDir,
 		MultiPackage: multiPackage,
-		BuildTag:     "commander",
+		BuildTag:     "targs",
 	})
 	if err != nil {
 		var multiErr *buildtool.MultipleTaggedDirsError
@@ -198,7 +198,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	tempDir := filepath.Join(moduleRoot, ".commander", "tmp")
+	tempDir := filepath.Join(moduleRoot, ".targs", "tmp")
 	if err := os.MkdirAll(tempDir, 0755); err != nil {
 		fmt.Printf("Error creating bootstrap dir: %v\n", err)
 		os.Exit(1)
@@ -207,7 +207,7 @@ func main() {
 	taggedFiles, err := buildtool.TaggedFiles(buildtool.OSFileSystem{}, buildtool.Options{
 		StartDir:     startDir,
 		MultiPackage: multiPackage,
-		BuildTag:     "commander",
+		BuildTag:     "targs",
 	})
 	if err != nil {
 		fmt.Printf("Error gathering tagged files: %v\n", err)
@@ -219,24 +219,24 @@ func main() {
 		os.Exit(1)
 	}
 	cacheInputs := append(taggedFiles, moduleFiles...)
-	cacheKey, err := computeCacheKey(modulePath, moduleRoot, "commander", buf.Bytes(), cacheInputs)
+	cacheKey, err := computeCacheKey(modulePath, moduleRoot, "targs", buf.Bytes(), cacheInputs)
 	if err != nil {
 		fmt.Printf("Error computing cache key: %v\n", err)
 		os.Exit(1)
 	}
 
-	tempFile := filepath.Join(tempDir, fmt.Sprintf("commander_bootstrap_%s.go", cacheKey))
+	tempFile := filepath.Join(tempDir, fmt.Sprintf("targs_bootstrap_%s.go", cacheKey))
 	if err := os.WriteFile(tempFile, buf.Bytes(), 0644); err != nil {
 		fmt.Printf("Error writing bootstrap file: %v\n", err)
 		os.Exit(1)
 	}
 
-	cacheDir := filepath.Join(moduleRoot, ".commander", "cache")
+	cacheDir := filepath.Join(moduleRoot, ".targs", "cache")
 	if err := os.MkdirAll(cacheDir, 0755); err != nil {
 		fmt.Printf("Error creating cache directory: %v\n", err)
 		os.Exit(1)
 	}
-	binaryPath := filepath.Join(cacheDir, fmt.Sprintf("commander_%s", cacheKey))
+	binaryPath := filepath.Join(cacheDir, fmt.Sprintf("targs_%s", cacheKey))
 
 	if !noCache {
 		if info, err := os.Stat(binaryPath); err == nil && info.Mode().IsRegular() && info.Mode()&0111 != 0 {
@@ -255,7 +255,7 @@ func main() {
 		}
 	}
 
-	buildArgs := []string{"build", "-tags", "commander", "-o", binaryPath, tempFile}
+	buildArgs := []string{"build", "-tags", "targs", "-o", binaryPath, tempFile}
 	buildCmd := exec.Command("go", buildArgs...)
 	buildCmd.Stdout = os.Stdout
 	buildCmd.Stderr = os.Stderr
@@ -352,7 +352,7 @@ func printMultiPackageError(startDir string, multiErr *buildtool.MultipleTaggedD
 	infos, err := buildtool.Discover(buildtool.OSFileSystem{}, buildtool.Options{
 		StartDir:     startDir,
 		MultiPackage: true,
-		BuildTag:     "commander",
+		BuildTag:     "targs",
 	})
 	if err != nil {
 		return err
@@ -376,7 +376,7 @@ func printMultiPackageError(startDir string, multiErr *buildtool.MultipleTaggedD
 		fmt.Printf("  tasks found in package %q at %q\n", pkg, path)
 	}
 	fmt.Println("")
-	fmt.Println("For more information, run `commander --help`.")
+	fmt.Println("For more information, run `targs --help`.")
 	return nil
 }
 
@@ -391,8 +391,8 @@ func buildBootstrapData(
 	if err != nil {
 		return bootstrapData{}, err
 	}
-	imports := []bootstrapImport{{Path: "commander"}}
-	usedImports := map[string]bool{"commander": true}
+	imports := []bootstrapImport{{Path: "targs"}}
+	usedImports := map[string]bool{"targs": true}
 	var packages []bootstrapPackage
 	var targets []string
 	seenPackages := make(map[string]string)
@@ -498,7 +498,7 @@ func uniqueImportName(name string, used map[string]bool) string {
 	if candidate == "" {
 		candidate = "pkg"
 	}
-	if candidate == "commander" {
+	if candidate == "targs" {
 		candidate = "cmdpkg"
 	}
 	for used[candidate] {
@@ -578,7 +578,7 @@ func collectModuleFiles(moduleRoot string) ([]buildtool.TaggedFile, error) {
 		}
 		if entry.IsDir() {
 			name := entry.Name()
-			if name == ".git" || name == ".commander" || name == "vendor" {
+			if name == ".git" || name == ".targs" || name == "vendor" {
 				return filepath.SkipDir
 			}
 			return nil
@@ -606,15 +606,15 @@ const bootstrapTemplate = `
 package main
 
 import (
-	"commander"
+	"targs"
 {{- if .BannerLit }}
 	"fmt"
 	"os"
 {{- end }}
 {{- range .Imports }}
-{{- if and (ne .Path "commander") (ne .Alias "") }}
+{{- if and (ne .Path "targs") (ne .Alias "") }}
 	{{ .Alias }} "{{ .Path }}"
-{{- else if ne .Path "commander" }}
+{{- else if ne .Path "targs" }}
 	"{{ .Path }}"
 {{- end }}
 {{- end }}
@@ -624,7 +624,7 @@ import (
 {{- range .Packages }}
 type {{ .TypeName }} struct {
 {{- range .Commands }}
-	{{ .Name }} {{ .TypeExpr }} ` + "`commander:\"subcommand\"`" + `
+	{{ .Name }} {{ .TypeExpr }} ` + "`targs:\"subcommand\"`" + `
 {{- end }}
 }
 
@@ -658,14 +658,14 @@ func main() {
 {{- end }}
 	}
 
-	commander.RunWithOptions(commander.RunOptions{AllowDefault: {{ .AllowDefault }}}, roots...)
+	targs.RunWithOptions(targs.RunOptions{AllowDefault: {{ .AllowDefault }}}, roots...)
 {{- else }}
 	cmds := []interface{}{
 {{- range .Targets }}
 		{{ . }},
 {{- end }}
 	}
-	commander.RunWithOptions(commander.RunOptions{AllowDefault: {{ .AllowDefault }}}, cmds...)
+	targs.RunWithOptions(targs.RunOptions{AllowDefault: {{ .AllowDefault }}}, cmds...)
 {{- end }}
 }
 `

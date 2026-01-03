@@ -1,4 +1,4 @@
-package commander
+package targs
 
 import (
 	// "fmt"
@@ -24,10 +24,10 @@ func getMethodDoc(method reflect.Method) string {
 		return ""
 	}
 	file, _ := fn.FileLine(pc)
-	
+
 	// Skip if not a user file (e.g. stdlib or generated wrapper)
 	// Simple check: if file doesn't exist or we can't read it
-	
+
 	f, err := getParsedFile(file)
 	if err != nil {
 		// fmt.Printf("Debug: failed to parse file %s: %v\n", file, err)
@@ -35,7 +35,7 @@ func getMethodDoc(method reflect.Method) string {
 	}
 
 	var doc string
-	
+
 	// Search for the function declaration matching this method
 	// We need to match Method Name and Receiver Type Name
 	methodName := method.Name
@@ -72,7 +72,7 @@ func getMethodDoc(method reflect.Method) string {
 		}
 		return true
 	})
-	
+
 	return doc
 }
 
@@ -89,7 +89,7 @@ func getParsedFile(path string) (*ast.File, error) {
 	if err != nil {
 		return nil, err
 	}
-	
+
 	fileCache[path] = f
 	return f, nil
 }

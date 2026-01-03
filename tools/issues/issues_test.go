@@ -1,4 +1,4 @@
-//go:build commander
+//go:build targs
 
 package issues
 

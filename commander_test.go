@@ -1,4 +1,4 @@
-package commander
+package targs
 
 import (
 	"context"
@@ -70,7 +70,7 @@ func TestExecuteCommand(t *testing.T) {
 }
 
 type CustomArgs struct {
-	User   string `commander:"name=user_name"`
+	User   string `targs:"name=user_name"`
 	Called bool
 }
 
@@ -97,7 +97,7 @@ func TestCustomFlagName(t *testing.T) {
 }
 
 type RequiredArgs struct {
-	ID string `commander:"required"`
+	ID string `targs:"required"`
 }
 
 func (c *RequiredArgs) Run() {}
@@ -114,7 +114,7 @@ func TestRequiredFlag(t *testing.T) {
 }
 
 type EnvArgs struct {
-	User string `commander:"env=TEST_USER"`
+	User string `targs:"env=TEST_USER"`
 }
 
 func (c *EnvArgs) Run() {}
@@ -135,9 +135,9 @@ func TestEnvVars(t *testing.T) {
 }
 
 type DefaultArgs struct {
-	Name    string `commander:"default=Alice"`
-	Count   int    `commander:"default=42"`
-	Enabled bool   `commander:"default=true"`
+	Name    string `targs:"default=Alice"`
+	Count   int    `targs:"default=42"`
+	Enabled bool   `targs:"default=true"`
 }
 
 func (c *DefaultArgs) Run() {}
@@ -164,9 +164,9 @@ func TestStructDefaults(t *testing.T) {
 }
 
 type DefaultEnvArgs struct {
-	Name  string `commander:"default=Alice,env=TEST_DEFAULT_NAME"`
-	Count int    `commander:"default=42,env=TEST_DEFAULT_COUNT"`
-	Flag  bool   `commander:"default=true,env=TEST_DEFAULT_FLAG"`
+	Name  string `targs:"default=Alice,env=TEST_DEFAULT_NAME"`
+	Count int    `targs:"default=42,env=TEST_DEFAULT_COUNT"`
+	Flag  bool   `targs:"default=true,env=TEST_DEFAULT_FLAG"`
 }
 
 func (c *DefaultEnvArgs) Run() {}
@@ -219,7 +219,7 @@ func TestStructDefaults_InvalidEnvValues(t *testing.T) {
 }
 
 type UnexportedFlag struct {
-	hidden string `commander:"flag"`
+	hidden string `targs:"flag"`
 }
 
 func (c *UnexportedFlag) Run() {}
@@ -287,9 +287,9 @@ func (s *SetterValue) Set(value string) error {
 }
 
 type CustomTypeArgs struct {
-	Name TextValue   `commander:"flag"`
-	Nick SetterValue `commander:"flag"`
-	Pos  TextValue   `commander:"positional"`
+	Name TextValue   `targs:"flag"`
+	Nick SetterValue `targs:"flag"`
+	Pos  TextValue   `targs:"positional"`
 }
 
 func (c *CustomTypeArgs) Run() {}
@@ -317,10 +317,10 @@ func TestCustomTypesFromFlagsAndPositionals(t *testing.T) {
 }
 
 type DefaultTagArgs struct {
-	Name  string `commander:"default=alice"`
-	Count int    `commander:"default=2"`
-	Flag  bool   `commander:"default=true"`
-	Pos   string `commander:"positional,default=pos"`
+	Name  string `targs:"default=alice"`
+	Count int    `targs:"default=2"`
+	Flag  bool   `targs:"default=true"`
+	Pos   string `targs:"positional,default=pos"`
 }
 
 func (d *DefaultTagArgs) Run() {}
@@ -351,7 +351,7 @@ func TestDefaultTags(t *testing.T) {
 }
 
 type DefaultTagCustom struct {
-	Name TextValue `commander:"default=alice"`
+	Name TextValue `targs:"default=alice"`
 }
 
 func (d *DefaultTagCustom) Run() {}
@@ -373,7 +373,7 @@ func TestDefaultTagCustomType(t *testing.T) {
 }
 
 type NonZeroRoot struct {
-	Name string `commander:"flag"`
+	Name string `targs:"flag"`
 }
 
 func (n *NonZeroRoot) Run() {}
@@ -386,7 +386,7 @@ func TestNonZeroRootErrors(t *testing.T) {
 }
 
 type RootWithPresetSub struct {
-	Sub *SubCmd `commander:"subcommand"`
+	Sub *SubCmd `targs:"subcommand"`
 }
 
 func (r *RootWithPresetSub) Run() {}
@@ -434,9 +434,9 @@ func (s *SubCmd) Run() {
 
 type ParentCmd struct {
 	// Name should default to "sub" from field name
-	Sub *SubCmd `commander:"subcommand"`
+	Sub *SubCmd `targs:"subcommand"`
 	// Name should be "custom" from tag
-	Custom *SubCmd `commander:"subcommand=custom"`
+	Custom *SubCmd `targs:"subcommand=custom"`
 }
 
 func TestSubcommands(t *testing.T) {
@@ -472,8 +472,8 @@ func TestSubcommands(t *testing.T) {
 }
 
 type ShortFlagCmd struct {
-	Name string `commander:"flag,short=n"`
-	Age  int    `commander:"flag,short=a"`
+	Name string `targs:"flag,short=n"`
+	Age  int    `targs:"flag,short=a"`
 }
 
 func (c *ShortFlagCmd) Run() {}
@@ -526,8 +526,8 @@ func TestLongFlagsRequireDoubleDash(t *testing.T) {
 }
 
 type PositionalArgs struct {
-	Src string `commander:"positional"`
-	Dst string `commander:"positional"`
+	Src string `targs:"positional"`
+	Dst string `targs:"positional"`
 }
 
 func (c *PositionalArgs) Run() {}
@@ -550,9 +550,9 @@ func TestPositionalArgs(t *testing.T) {
 
 func TestUsageLine_NoSubcommandWithRequiredPositional(t *testing.T) {
 	type MoveCmd struct {
-		File   string `commander:"flag,short=f"`
-		Status string `commander:"flag,required,short=s"`
-		ID     int    `commander:"positional,required"`
+		File   string `targs:"flag,short=f"`
+		Status string `targs:"flag,required,short=s"`
+		ID     int    `targs:"positional,required"`
 	}
 	cmd, err := parseCommand(&MoveCmd{})
 	if err != nil {
@@ -576,8 +576,8 @@ func TestUsageLine_NoSubcommandWithRequiredPositional(t *testing.T) {
 var hookLog []string
 
 type HookRoot struct {
-	Verbose bool     `commander:"flag,short=v"`
-	Child   *HookCmd `commander:"subcommand"`
+	Verbose bool     `targs:"flag,short=v"`
+	Child   *HookCmd `targs:"subcommand"`
 }
 
 func (h *HookRoot) PersistentBefore() {
@@ -589,7 +589,7 @@ func (h *HookRoot) PersistentAfter() {
 }
 
 type HookCmd struct {
-	Name string `commander:"flag"`
+	Name string `targs:"flag"`
 }
 
 func (h *HookCmd) PersistentBefore() {
@@ -668,12 +668,12 @@ func TestCompletionIncludesInheritedFlags(t *testing.T) {
 }
 
 type ConflictRoot struct {
-	Flag string        `commander:"flag"`
-	Sub  *ConflictChild `commander:"subcommand"`
+	Flag string         `targs:"flag"`
+	Sub  *ConflictChild `targs:"subcommand"`
 }
 
 type ConflictChild struct {
-	Flag string `commander:"flag"`
+	Flag string `targs:"flag"`
 }
 
 func (c *ConflictChild) Run() {}
@@ -690,8 +690,8 @@ func TestPersistentFlagConflicts(t *testing.T) {
 }
 
 type RequiredPositionals struct {
-	Src string `commander:"positional,required"`
-	Dst string `commander:"positional"`
+	Src string `targs:"positional,required"`
+	Dst string `targs:"positional"`
 }
 
 func (c *RequiredPositionals) Run() {}
@@ -708,7 +708,7 @@ func TestRequiredPositionals(t *testing.T) {
 }
 
 type RequiredShortFlag struct {
-	Name string `commander:"required,short=n"`
+	Name string `targs:"required,short=n"`
 }
 
 func (c *RequiredShortFlag) Run() {}
@@ -725,7 +725,7 @@ func TestRequiredShortFlagErrorIncludesShort(t *testing.T) {
 }
 
 type RequiredEnvFlag struct {
-	Name string `commander:"required,env=TEST_REQUIRED"`
+	Name string `targs:"required,env=TEST_REQUIRED"`
 }
 
 func (c *RequiredEnvFlag) Run() {}
@@ -745,7 +745,7 @@ func TestRequiredEnvFlagEmptyDoesNotSatisfy(t *testing.T) {
 // --- Discovery Tests ---
 
 type RootA struct {
-	Sub *ChildB `commander:"subcommand"`
+	Sub *ChildB `targs:"subcommand"`
 }
 type ChildB struct{}
 type RootC struct{}

@@ -1,4 +1,4 @@
-package commander
+package targs
 
 import (
 	"crypto/sha256"
@@ -141,7 +141,7 @@ func cacheFilePath(cwd string, pattern string) (string, error) {
 		return "", err
 	}
 	encoded := hashString(cwd + "::" + pattern)
-	dir := filepath.Join(cacheDir, "commander", "newer")
+	dir := filepath.Join(cacheDir, "targs", "newer")
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return "", err
 	}

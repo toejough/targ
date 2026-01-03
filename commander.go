@@ -1,4 +1,4 @@
-package commander
+package targs
 
 import (
 	"context"
@@ -34,7 +34,7 @@ func printUsage(nodes []*CommandNode) {
 		printCommandSummary(node, "  ")
 	}
 
-	printCommanderOptions()
+	printTargsOptions()
 }
 
 func printCommandSummary(node *CommandNode, indent string) {
@@ -98,7 +98,7 @@ func parseStruct(t interface{}) (*CommandNode, error) {
 	}
 	for i := 0; i < typ.NumField(); i++ {
 		field := typ.Field(i)
-		tag := field.Tag.Get("commander")
+		tag := field.Tag.Get("targs")
 		if tag == "" {
 			continue
 		}
@@ -145,10 +145,10 @@ func parseStruct(t interface{}) (*CommandNode, error) {
 		node.Description = desc
 	}
 
-	// 2. Look for fields with `commander:"subcommand"`
+	// 2. Look for fields with `targs:"subcommand"`
 	for i := 0; i < typ.NumField(); i++ {
 		field := typ.Field(i)
-		tag := field.Tag.Get("commander")
+		tag := field.Tag.Get("targs")
 		if strings.Contains(tag, "subcommand") {
 			// This field is a subcommand
 			// Recurse
@@ -344,7 +344,7 @@ func nodeInstance(node *CommandNode) reflect.Value {
 			typ := node.Type
 			for i := 0; i < typ.NumField(); i++ {
 				field := typ.Field(i)
-				tag := field.Tag.Get("commander")
+				tag := field.Tag.Get("targs")
 				if strings.Contains(tag, "subcommand") && field.Type.Kind() == reflect.Func {
 					inst.Field(i).Set(node.Value.Field(i))
 				}
@@ -432,7 +432,7 @@ func registerChainFlags(fs *flag.FlagSet, chain []commandInstance) ([]*flagSpec,
 }
 
 func flagSpecForField(field reflect.StructField, fieldVal reflect.Value) (*flagSpec, bool, error) {
-	tag := field.Tag.Get("commander")
+	tag := field.Tag.Get("targs")
 	if !field.IsExported() {
 		if strings.TrimSpace(tag) != "" {
 			return nil, false, fmt.Errorf("field %s must be exported", field.Name)
@@ -547,7 +547,7 @@ func applyPositionals(inst reflect.Value, node *CommandNode, args []string) (int
 	posIndex := 0
 	for i := 0; i < typ.NumField(); i++ {
 		field := typ.Field(i)
-		tag := field.Tag.Get("commander")
+		tag := field.Tag.Get("targs")
 		if !strings.Contains(tag, "positional") {
 			continue
 		}
@@ -606,7 +606,7 @@ func assignSubcommandField(parent *CommandNode, parentInst reflect.Value, subNam
 	typ := parent.Type
 	for i := 0; i < typ.NumField(); i++ {
 		field := typ.Field(i)
-		tag := field.Tag.Get("commander")
+		tag := field.Tag.Get("targs")
 		if !strings.Contains(tag, "subcommand") {
 			continue
 		}
@@ -799,8 +799,8 @@ func printCommandHelp(node *CommandNode) {
 	}
 }
 
-func printCommanderOptions() {
-	fmt.Println("\nCommander options:")
+func printTargsOptions() {
+	fmt.Println("\nTargs options:")
 	fmt.Println("  --help")
 	fmt.Println("  --completion [bash|zsh|fish]")
 }
@@ -862,7 +862,7 @@ func collectFlagHelp(node *CommandNode) []flagHelp {
 	var flags []flagHelp
 	for i := 0; i < typ.NumField(); i++ {
 		field := typ.Field(i)
-		tag := field.Tag.Get("commander")
+		tag := field.Tag.Get("targs")
 		if strings.Contains(tag, "subcommand") || strings.Contains(tag, "positional") {
 			continue
 		}
@@ -946,7 +946,7 @@ func collectPositionalHelp(node *CommandNode) []positionalHelp {
 	var positionals []positionalHelp
 	for i := 0; i < typ.NumField(); i++ {
 		field := typ.Field(i)
-		tag := field.Tag.Get("commander")
+		tag := field.Tag.Get("targs")
 		if !strings.Contains(tag, "positional") {
 			continue
 		}
@@ -1009,7 +1009,7 @@ func nodeChain(node *CommandNode) []*CommandNode {
 
 // DetectRootCommands filters a list of possible command objects to find those
 // that are NOT subcommands of any other command in the list.
-// It uses the `commander:"subcommand"` tag to identify relationships.
+// It uses the `targs:"subcommand"` tag to identify relationships.
 func DetectRootCommands(candidates ...interface{}) []interface{} {
 	// 1. Find all types that are referenced as subcommands
 	subcommandTypes := make(map[reflect.Type]bool)
@@ -1027,7 +1027,7 @@ func DetectRootCommands(candidates ...interface{}) []interface{} {
 
 		for i := 0; i < t.NumField(); i++ {
 			field := t.Field(i)
-			tag := field.Tag.Get("commander")
+			tag := field.Tag.Get("targs")
 			if strings.Contains(tag, "subcommand") {
 				// This field type is a subcommand
 				subType := field.Type

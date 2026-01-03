@@ -6,7 +6,7 @@ import (
 	"testing"
 	"text/template"
 
-	"commander/buildtool"
+	"targs/buildtool"
 )
 
 func TestBuildBootstrapData_SinglePackage_Local(t *testing.T) {
@@ -117,7 +117,7 @@ func TestBootstrapTemplate_SinglePackage(t *testing.T) {
 	if strings.Contains(rendered, "type App struct") {
 		t.Fatalf("did not expect package wrapper type in template, got:\n%s", rendered)
 	}
-	if !strings.Contains(rendered, "RunWithOptions(commander.RunOptions{AllowDefault: false}") {
+	if !strings.Contains(rendered, "RunWithOptions(targs.RunOptions{AllowDefault: false}") {
 		t.Fatalf("expected RunWithOptions in template, got:\n%s", rendered)
 	}
 	if !strings.Contains(rendered, "Loaded tasks from package") {
@@ -141,10 +141,10 @@ func TestBootstrapTemplate_MultiPackage(t *testing.T) {
 	if !strings.Contains(rendered, "type Alpha struct") {
 		t.Fatalf("expected package wrapper type in template, got:\n%s", rendered)
 	}
-	if !strings.Contains(rendered, "`commander:\"subcommand\"`") {
+	if !strings.Contains(rendered, "`targs:\"subcommand\"`") {
 		t.Fatalf("expected subcommand tag in template, got:\n%s", rendered)
 	}
-	if !strings.Contains(rendered, "RunWithOptions(commander.RunOptions{AllowDefault: false}") {
+	if !strings.Contains(rendered, "RunWithOptions(targs.RunOptions{AllowDefault: false}") {
 		t.Fatalf("expected RunWithOptions in template, got:\n%s", rendered)
 	}
 }

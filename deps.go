@@ -1,4 +1,4 @@
-package commander
+package targs
 
 import (
 	"context"
@@ -38,7 +38,7 @@ func Deps(targets ...interface{}) error {
 	tracker := currentDeps
 	depsMu.Unlock()
 	if tracker == nil {
-		return fmt.Errorf("Deps must be called during commander.Run")
+		return fmt.Errorf("Deps must be called during targs.Run")
 	}
 	for _, target := range targets {
 		if err := tracker.run(target); err != nil {

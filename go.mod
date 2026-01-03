@@ -1,4 +1,4 @@
-module commander
+module targs
 
 go 1.25.5
 

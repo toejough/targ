@@ -1,4 +1,4 @@
-package commander
+package targs
 
 import (
 	"fmt"
@@ -181,7 +181,7 @@ func suggestFlags(node *CommandNode, prefix string, includeCompletion bool) {
 		typ := current.Type
 		for i := 0; i < typ.NumField(); i++ {
 			field := typ.Field(i)
-			tag := field.Tag.Get("commander")
+			tag := field.Tag.Get("targs")
 			if strings.Contains(tag, "subcommand") || strings.Contains(tag, "positional") {
 				continue
 			}
@@ -235,7 +235,7 @@ func enumValuesForArg(node *CommandNode, args []string, prefix string, isNewArg 
 		}
 		for i := 0; i < current.Type.NumField(); i++ {
 			field := current.Type.Field(i)
-			tag := field.Tag.Get("commander")
+			tag := field.Tag.Get("targs")
 			if strings.Contains(tag, "subcommand") || strings.Contains(tag, "positional") {
 				continue
 			}

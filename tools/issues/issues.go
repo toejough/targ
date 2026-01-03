@@ -1,6 +1,6 @@
-//go:build commander
+//go:build targs
 
-// Package issues provides issue list tooling for commander.
+// Package issues provides issue list tooling for targs.
 package issues
 
 import (
@@ -10,13 +10,13 @@ import (
 	"sort"
 	"strings"
 
-	"commander/internal/issuefile"
+	"targs/internal/issuefile"
 )
 
 type List struct {
-	File   string `commander:"flag,default=issues.md,desc=Issue file to read"`
-	Status string `commander:"flag,desc=Filter by status,enum=backlog|selected|in-progress|review|done|cancelled|blocked"`
-	Query  string `commander:"flag,desc=Case-insensitive title filter"`
+	File   string `targs:"flag,default=issues.md,desc=Issue file to read"`
+	Status string `targs:"flag,desc=Filter by status,enum=backlog|selected|in-progress|review|done|cancelled|blocked"`
+	Query  string `targs:"flag,desc=Case-insensitive title filter"`
 }
 
 func (c *List) Run() error {
@@ -48,9 +48,9 @@ func (c *List) Run() error {
 }
 
 type Move struct {
-	File   string `commander:"flag,default=issues.md,desc=Issue file to update"`
-	ID     int    `commander:"positional,required"`
-	Status string `commander:"flag,required,desc=New status,enum=backlog|selected|in-progress|review|done|cancelled|blocked"`
+	File   string `targs:"flag,default=issues.md,desc=Issue file to update"`
+	ID     int    `targs:"positional,required"`
+	Status string `targs:"flag,required,desc=New status,enum=backlog|selected|in-progress|review|done|cancelled|blocked"`
 }
 
 func (c *Move) Run() error {
@@ -80,7 +80,7 @@ func (c *Move) Run() error {
 }
 
 type Dedupe struct {
-	File string `commander:"flag,default=issues.md,desc=Issue file to update"`
+	File string `targs:"flag,default=issues.md,desc=Issue file to update"`
 }
 
 func (c *Dedupe) Run() error {
@@ -106,7 +106,7 @@ func (c *Dedupe) Run() error {
 }
 
 type Validate struct {
-	File string `commander:"flag,default=issues.md,desc=Issue file to validate"`
+	File string `targs:"flag,default=issues.md,desc=Issue file to validate"`
 }
 
 func (c *Validate) Run() error {
@@ -133,22 +133,22 @@ func (c *Validate) Run() error {
 }
 
 type Create struct {
-	File        string `commander:"flag,default=issues.md,desc=Issue file to update"`
-	Title       string `commander:"flag,required,desc=Issue title"`
-	Status      string `commander:"flag,default=backlog,desc=Initial status,enum=backlog|selected|in-progress|review|done|cancelled|blocked"`
-	Description string `commander:"flag,default=TBD,desc=Issue description"`
-	Priority    string `commander:"flag,default=Low,desc=Priority,enum=low|medium|high"`
-	Acceptance  string `commander:"flag,default=TBD,desc=Acceptance criteria"`
+	File        string `targs:"flag,default=issues.md,desc=Issue file to update"`
+	Title       string `targs:"flag,required,desc=Issue title"`
+	Status      string `targs:"flag,default=backlog,desc=Initial status,enum=backlog|selected|in-progress|review|done|cancelled|blocked"`
+	Description string `targs:"flag,default=TBD,desc=Issue description"`
+	Priority    string `targs:"flag,default=Low,desc=Priority,enum=low|medium|high"`
+	Acceptance  string `targs:"flag,default=TBD,desc=Acceptance criteria"`
 }
 
 type Update struct {
-	File        string `commander:"flag,default=issues.md,desc=Issue file to update"`
-	ID          int    `commander:"positional,required"`
-	Status      string `commander:"flag,desc=New status,enum=backlog|selected|in-progress|review|done|cancelled|blocked"`
-	Description string `commander:"flag,desc=Description text"`
-	Priority    string `commander:"flag,desc=Priority,enum=low|medium|high"`
-	Acceptance  string `commander:"flag,desc=Acceptance criteria"`
-	Details     string `commander:"flag,desc=Implementation details"`
+	File        string `targs:"flag,default=issues.md,desc=Issue file to update"`
+	ID          int    `targs:"positional,required"`
+	Status      string `targs:"flag,desc=New status,enum=backlog|selected|in-progress|review|done|cancelled|blocked"`
+	Description string `targs:"flag,desc=Description text"`
+	Priority    string `targs:"flag,desc=Priority,enum=low|medium|high"`
+	Acceptance  string `targs:"flag,desc=Acceptance criteria"`
+	Details     string `targs:"flag,desc=Implementation details"`
 }
 
 func (c *Update) Run() error {
