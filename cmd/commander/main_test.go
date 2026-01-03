@@ -35,6 +35,9 @@ func TestBuildBootstrapData_SinglePackage_Local(t *testing.T) {
 	if len(data.Targets) != 2 {
 		t.Fatalf("expected 2 targets, got %v", data.Targets)
 	}
+	if data.BannerLit == "" {
+		t.Fatal("expected banner for single package")
+	}
 	if len(data.Packages) != 1 {
 		t.Fatalf("expected 1 package, got %d", len(data.Packages))
 	}
@@ -116,6 +119,9 @@ func TestBootstrapTemplate_SinglePackage(t *testing.T) {
 	}
 	if !strings.Contains(rendered, "RunWithOptions(commander.RunOptions{AllowDefault: false}") {
 		t.Fatalf("expected RunWithOptions in template, got:\n%s", rendered)
+	}
+	if !strings.Contains(rendered, "Loaded tasks from package") {
+		t.Fatalf("expected banner in template, got:\n%s", rendered)
 	}
 }
 

@@ -43,6 +43,7 @@ type bootstrapData struct {
 	MultiPackage      bool
 	UsePackageWrapper bool
 	AllowDefault      bool
+	BannerLit         string
 	Imports           []bootstrapImport
 	Packages          []bootstrapPackage
 	Targets           []string
@@ -353,10 +354,15 @@ func buildBootstrapData(
 	}
 
 	allowDefault := false
+	bannerLit := ""
+	if !multiPackage && len(infos) == 1 {
+		bannerLit = strconv.Quote(singlePackageBanner(infos[0]))
+	}
 	return bootstrapData{
 		MultiPackage:      multiPackage,
 		UsePackageWrapper: usePackageWrapper,
 		AllowDefault:      allowDefault,
+		BannerLit:         bannerLit,
 		Imports:           imports,
 		Packages:          packages,
 		Targets:           targets,
@@ -413,11 +419,27 @@ func packageDescription(doc string, dir string) string {
 	return doc + "\n" + pathLine
 }
 
+func singlePackageBanner(info buildtool.PackageInfo) string {
+	lines := []string{
+		fmt.Sprintf("Loaded tasks from package %q.", info.Package),
+	}
+	doc := strings.TrimSpace(info.Doc)
+	if doc != "" {
+		lines = append(lines, doc)
+	}
+	lines = append(lines, fmt.Sprintf("Path: %s", info.Dir))
+	return strings.Join(lines, "\n")
+}
+
 const bootstrapTemplate = `
 package main
 
 import (
 	"commander"
+{{- if .BannerLit }}
+	"fmt"
+	"os"
+{{- end }}
 {{- range .Imports }}
 {{- if and (ne .Path "commander") (ne .Alias "") }}
 	{{ .Alias }} "{{ .Path }}"
@@ -442,6 +464,12 @@ func (p *{{ .TypeName }}) Description() string {
 {{- end }}
 
 func main() {
+{{- if .BannerLit }}
+	if len(os.Args) == 1 || (len(os.Args) > 1 && (os.Args[1] == "-h" || os.Args[1] == "--help")) {
+		fmt.Println({{ .BannerLit }})
+		fmt.Println()
+	}
+{{- end }}
 {{- if .UsePackageWrapper }}
 {{- range .Packages }}
 	{{ .VarName }} := &{{ .TypeName }}{
