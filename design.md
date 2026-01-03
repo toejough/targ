@@ -36,11 +36,11 @@ This document describes the intended architecture and behavior for Commander, in
   - Enforce a single package name (Go rule); mixed names are an error.
   - Discover exported structs and niladic functions.
   - Filter out structs/functions whose name matches a subcommand name of another exported struct.
-- Without `--package`:
+- Without `--multipackage`:
   - Find the first directory depth that has tagged files.
   - If multiple directories exist at that same depth, error with a list of those paths.
   - Use that single directory as the command source.
-- With `--package`:
+- With `--multipackage`:
   - Always insert the package name as the first subcommand.
   - Functions and structs are grouped under that package node.
 - Build tool mode never has a default command (all commands are invoked by name).
@@ -122,7 +122,7 @@ User -> binary: "build"
 commander.Run -> execute root "build"
 ```
 
-### Build Tool Mode (no --package, single depth)
+### Build Tool Mode (no --multipackage, single depth)
 
 ```text
 User -> commander: run from repo root
@@ -133,10 +133,10 @@ commander -> generate bootstrap -> go run .
 bootstrap -> commander.Run: targets=[...]
 ```
 
-### Build Tool Mode (--package)
+### Build Tool Mode (--multipackage)
 
 ```text
-User -> commander --package
+User -> commander --multipackage
 discover -> recursive search for tagged files
 discover -> collect package dirs (any depth)
 discover -> build package nodes (pkg -> cmds)
@@ -171,16 +171,16 @@ CommandNode
 
 1) Generate function wrapper structs for exported niladic functions (one file per package):
    - File name: `generated_commander_<pkg>.go`
-   - Contains `Run`, `CommandName`, and optional `Description` based on function comments.
+   - Contains `Run`, `Name`, and optional `Description` based on function comments.
    - Uses the build tag `commander` so the wrappers are only included in build tool mode.
 2) Recursively walk from start dir.
 3) Collect directories containing files with `//go:build commander`.
 4) Enforce per-directory package name consistency.
-5) Without `--package`:
+5) Without `--multipackage`:
    - Find minimum depth with tagged dirs.
    - If multiple dirs at that depth, error with paths.
    - Use that single directory for command discovery.
-6) With `--package`:
+6) With `--multipackage`:
    - Discover commands per directory.
    - Create a package root node for each directory (name = package name).
 7) In each package:
@@ -203,15 +203,15 @@ repo/
       gen.go      //go:build commander (package gen)
 ```
 
-### Commands (Build Tool Mode, --package)
+### Commands (Build Tool Mode, --multipackage)
 
 ```text
-$ commander --package build lint
-$ commander --package deploy release
-$ commander --package gen generate
+$ commander --multipackage build lint
+$ commander --multipackage deploy release
+$ commander --multipackage gen generate
 ```
 
-### Commands (Build Tool Mode, no --package)
+### Commands (Build Tool Mode, no --multipackage)
 
 If `repo/mage` is the first depth with tagged files:
 
@@ -235,10 +235,10 @@ func Lint() {}
 
 Result:
 - Commands: `build` and `lint`
-- With `--package`: `build build` and `build lint`
+- With `--multipackage`: `build build` and `build lint`
 
 ## Error Messaging Guidelines
 
 - Duplicate package names in same directory: list files + package names.
-- Multiple tagged dirs at same depth without `--package`: list directory paths.
+- Multiple tagged dirs at same depth without `--multipackage`: list directory paths.
 - Invalid command: show available command names at that level.

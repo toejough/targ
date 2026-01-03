@@ -245,7 +245,7 @@ Generate wrapper structs for function commands so descriptions are embedded in c
 #### Implementation Notes
 
 **Details**
-- Build tool mode auto-generates `generated_commander_<pkg>.go` with `CommandName`/`Description`.
+- Build tool mode auto-generates `generated_commander_<pkg>.go` with `Name`/`Description`.
 - Direct binaries can opt in via `commander gen` and pass the generated struct to `Run`.
 
 ### 10. Custom Type Support (TextUnmarshaler)
@@ -413,7 +413,7 @@ Discover commands only in directories containing files with `//go:build commande
 done
 
 **Description**
-Without `--package`, stop at the first depth with tagged files and error on ties.
+Without `--multipackage`, stop at the first depth with tagged files and error on ties.
 
 ### 33. Build Tool Mode Package Grouping
 
@@ -423,7 +423,7 @@ Without `--package`, stop at the first depth with tagged files and error on ties
 done
 
 **Description**
-When `--package` is set, always add package name as the first subcommand.
+When `--multipackage` is set, always add package name as the first subcommand.
 
 ### 34. Build Tool Mode Subcommand Filtering For Functions
 

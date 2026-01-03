@@ -87,8 +87,8 @@ $ commander build -target prod
 
 Build tool mode rules:
 - Discovery is recursive and only includes directories with the `//go:build commander` tag.
-- Without `--package`, Commander selects the shallowest tagged directory; if multiple exist at that depth, it errors.
-- With `--package`, package names are always inserted as the first subcommand (even for a single directory).
+- Without `--multipackage`, Commander selects the shallowest tagged directory; if multiple exist at that depth, it errors.
+- With `--multipackage`, package names are always inserted as the first subcommand.
 - Build tool mode never has a default command.
 
 Example layout:
@@ -106,22 +106,22 @@ repo/
 Example usage:
 
 ```bash
-# Without --package, Commander uses the shallowest tagged dir (repo/mage)
+# Without --multipackage, Commander uses the shallowest tagged dir (repo/mage)
 $ commander build
 $ commander deploy
 
-# With --package, package name is always the first subcommand
-$ commander --package build build
-$ commander --package deploy deploy
-$ commander --package gen generate
+# With --multipackage, package name is always the first subcommand
+$ commander --multipackage build build
+$ commander --multipackage deploy deploy
+$ commander --multipackage gen generate
 ```
 
 Build tool example in this repo:
 
 ```bash
-$ commander issues list
-$ commander issues create --title "New Issue" --description "..." --priority Medium
-$ commander issues move 4 --status done
+$ commander list
+$ commander create --title "New Issue" --description "..." --priority Medium
+$ commander move 4 --status done
 ```
 
 ### Subcommands
@@ -189,18 +189,18 @@ In direct binary mode, you can generate wrappers manually (see `commander gen`) 
 If you need to override the command name or description, implement the following optional methods:
 
 ```go
-func (c *MyCmd) CommandName() string { return "CustomName" }
+func (c *MyCmd) Name() string { return "CustomName" }
 func (c *MyCmd) Description() string { return "Custom description." }
 ```
 
-`CommandName` is treated like a struct name (it will be converted to kebab-case).
+`Name` is treated like a struct name (it will be converted to kebab-case).
 `Description` replaces any comment-derived description.
 
 ### Command Wrapper Generation
 
 Use `commander gen` to generate wrappers for exported niladic functions in the current package.
 This writes `generated_commander_<pkg>.go`, which defines a struct per function with `Run`,
-`CommandName`, and (when comments exist) `Description`.
+`Name`, and (when comments exist) `Description`.
 
 ### Tags
 
