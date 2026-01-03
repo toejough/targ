@@ -6,7 +6,7 @@ import (
 )
 
 func getCommandName(v reflect.Value, typ reflect.Type) string {
-	name := callStringMethod(v, typ, "CommandName")
+	name := callStringMethod(v, typ, "Name")
 	if name == "" {
 		return ""
 	}

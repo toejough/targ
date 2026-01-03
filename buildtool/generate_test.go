@@ -53,7 +53,7 @@ func (c *BuildCommand) Run() {
 	Build()
 }
 
-func (c *BuildCommand) CommandName() string {
+func (c *BuildCommand) Name() string {
 	return "Build"
 }
 
@@ -67,7 +67,7 @@ func (c *DeployCommand) Run() error {
 	return Deploy()
 }
 
-func (c *DeployCommand) CommandName() string {
+func (c *DeployCommand) Name() string {
 	return "Deploy"
 }
 
@@ -210,7 +210,7 @@ func (c *RunCommand) Run(ctx context.Context) {
 	Run(ctx)
 }
 
-func (c *RunCommand) CommandName() string {
+func (c *RunCommand) Name() string {
 	return "Run"
 }
 

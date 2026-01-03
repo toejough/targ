@@ -608,7 +608,7 @@ type MetaOverrideCmd struct{}
 
 func (m *MetaOverrideCmd) Run() {}
 
-func (m *MetaOverrideCmd) CommandName() string {
+func (m *MetaOverrideCmd) Name() string {
 	return "CustomName"
 }
 

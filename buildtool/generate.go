@@ -214,7 +214,7 @@ func GenerateFunctionWrappers(filesystem FileSystem, opts GenerateOptions) (stri
 
 		buf.WriteString("func (c *")
 		buf.WriteString(wrapperName)
-		buf.WriteString(") CommandName() string {\n")
+		buf.WriteString(") Name() string {\n")
 		buf.WriteString("\treturn ")
 		buf.WriteString(strconv.Quote(name))
 		buf.WriteString("\n")
