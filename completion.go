@@ -274,11 +274,11 @@ func enumValuesForArg(node *CommandNode, args []string, prefix string, isNewArg 
 func PrintCompletionScript(shell string, binName string) error {
 	switch shell {
 	case "bash":
-		fmt.Printf(_bashCompletion, binName, binName)
+		fmt.Printf(_bashCompletion, binName, binName, binName, binName)
 	case "zsh":
-		fmt.Printf(_zshCompletion, binName, binName)
+		fmt.Printf(_zshCompletion, binName, binName, binName, binName, binName)
 	case "fish":
-		fmt.Printf(_fishCompletion, binName, binName)
+		fmt.Printf(_fishCompletion, binName, binName, binName, binName)
 	default:
 		return fmt.Errorf("unsupported shell: %s", shell)
 	}
