@@ -234,3 +234,40 @@ func TestPrintBuildToolUsageIncludesSummaryAndEpilog(t *testing.T) {
 		t.Fatalf("expected README link, got: %s", out)
 	}
 }
+
+func TestSummarizePackagesFormatsCommands(t *testing.T) {
+	infos := []buildtool.PackageInfo{
+		{
+			Dir:     "/repo/tools/issues",
+			Package: "issues",
+			Doc:     "Issue tools.",
+			Structs: []string{"ListItems"},
+			Funcs:   []string{"DoWork"},
+		},
+	}
+	summaries := summarizePackages(infos, "/repo")
+	if len(summaries) != 1 {
+		t.Fatalf("expected one summary, got %d", len(summaries))
+	}
+	summary := summaries[0]
+	if summary.Path != "tools/issues" {
+		t.Fatalf("unexpected path: %s", summary.Path)
+	}
+	if summary.Doc != "Issue tools." {
+		t.Fatalf("unexpected doc: %s", summary.Doc)
+	}
+	if got := strings.Join(summary.Commands, ","); got != "do-work,list-items" {
+		t.Fatalf("unexpected commands: %s", got)
+	}
+}
+
+func TestParseHelpRequestIgnoresSubcommandHelp(t *testing.T) {
+	help, target := parseHelpRequest([]string{"issues", "--help"})
+	if help && !target {
+		t.Fatal("expected help to be scoped to target")
+	}
+	help, target = parseHelpRequest([]string{"--help"})
+	if !help || target {
+		t.Fatal("expected top-level help without target")
+	}
+}

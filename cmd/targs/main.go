@@ -78,6 +78,7 @@ func main() {
 	}
 	fs.SetOutput(os.Stdout)
 	rawArgs := os.Args[1:]
+	helpRequested, helpTargets := parseHelpRequest(rawArgs)
 	parseArgs := make([]string, 0, len(rawArgs))
 	completionRequested := false
 	for i := 0; i < len(rawArgs); i++ {
@@ -105,6 +106,19 @@ func main() {
 		os.Exit(1)
 	}
 	args := fs.Args()
+
+	if helpRequested && !helpTargets {
+		startDir, err := os.Getwd()
+		if err != nil {
+			fmt.Printf("Error resolving working directory: %v\n", err)
+			os.Exit(1)
+		}
+		if err := printBuildToolHelp(os.Stdout, startDir, multiPackage); err != nil {
+			fmt.Printf("Error discovering packages: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
 
 	if completionRequested {
 		if completionShell == "" {
@@ -417,6 +431,130 @@ func printBuildToolUsage(out io.Writer) {
 	fmt.Fprintln(out, "  --completion [bash|zsh|fish]")
 	fmt.Fprintln(out, "")
 	fmt.Fprintln(out, "More info: https://github.com/toejough/targs#readme")
+}
+
+type packageSummary struct {
+	Name     string
+	Path     string
+	Doc      string
+	Commands []string
+}
+
+func printBuildToolHelp(out io.Writer, startDir string, multiPackage bool) error {
+	printBuildToolUsage(out)
+	fmt.Fprintln(out, "")
+
+	currentInfos, err := buildtool.Discover(buildtool.OSFileSystem{}, buildtool.Options{
+		StartDir:     startDir,
+		MultiPackage: multiPackage,
+		BuildTag:     "targs",
+	})
+	if err != nil && !errors.Is(err, buildtool.ErrNoTaggedFiles) {
+		return err
+	}
+
+	allInfos, err := buildtool.Discover(buildtool.OSFileSystem{}, buildtool.Options{
+		StartDir:     startDir,
+		MultiPackage: true,
+		BuildTag:     "targs",
+	})
+	if err != nil && !errors.Is(err, buildtool.ErrNoTaggedFiles) {
+		return err
+	}
+
+	currentSummaries := summarizePackages(currentInfos, startDir)
+	allSummaries := summarizePackages(allInfos, startDir)
+
+	if len(currentSummaries) == 0 {
+		fmt.Fprintln(out, "No tagged packages found in this directory.")
+		return nil
+	}
+
+	fmt.Fprintln(out, "Loaded packages:")
+	printPackageSummaries(out, currentSummaries)
+
+	if !multiPackage {
+		fmt.Fprintln(out, "")
+		fmt.Fprintln(out, "Packages found (use --multipackage):")
+		printPackageSummaries(out, allSummaries)
+		fmt.Fprintln(out, "")
+		fmt.Fprintln(out, "Run with: targs --multipackage <package> <command>")
+	}
+	return nil
+}
+
+func summarizePackages(infos []buildtool.PackageInfo, startDir string) []packageSummary {
+	summaries := make([]packageSummary, 0, len(infos))
+	for _, info := range infos {
+		commands := append([]string{}, info.Structs...)
+		commands = append(commands, info.Funcs...)
+		for i, name := range commands {
+			commands[i] = camelToKebab(name)
+		}
+		sort.Strings(commands)
+		path := info.Dir
+		if rel, err := filepath.Rel(startDir, info.Dir); err == nil {
+			path = rel
+		}
+		summaries = append(summaries, packageSummary{
+			Name:     info.Package,
+			Path:     path,
+			Doc:      info.Doc,
+			Commands: commands,
+		})
+	}
+	sort.Slice(summaries, func(i, j int) bool {
+		return summaries[i].Name < summaries[j].Name
+	})
+	return summaries
+}
+
+func printPackageSummaries(out io.Writer, summaries []packageSummary) {
+	if len(summaries) == 0 {
+		fmt.Fprintln(out, "  (none)")
+		return
+	}
+	for _, summary := range summaries {
+		line := fmt.Sprintf("  %s", summary.Name)
+		if summary.Doc != "" {
+			line = fmt.Sprintf("%s - %s", line, summary.Doc)
+		}
+		fmt.Fprintln(out, line)
+		fmt.Fprintf(out, "    Path: %s\n", summary.Path)
+		if len(summary.Commands) > 0 {
+			fmt.Fprintf(out, "    Commands: %s\n", strings.Join(summary.Commands, ", "))
+		}
+	}
+}
+
+func parseHelpRequest(args []string) (bool, bool) {
+	helpRequested := false
+	sawTarget := false
+	for _, arg := range args {
+		if arg == "--" {
+			break
+		}
+		if arg == "--help" || arg == "-h" {
+			helpRequested = true
+			continue
+		}
+		if strings.HasPrefix(arg, "-") {
+			continue
+		}
+		sawTarget = true
+	}
+	return helpRequested, sawTarget
+}
+
+func camelToKebab(name string) string {
+	var out strings.Builder
+	for i, r := range name {
+		if i > 0 && r >= 'A' && r <= 'Z' {
+			out.WriteByte('-')
+		}
+		out.WriteRune(r)
+	}
+	return strings.ToLower(out.String())
 }
 
 func buildBootstrapData(
