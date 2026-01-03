@@ -439,7 +439,7 @@ func printBuildToolUsage(out io.Writer) {
 	fmt.Fprintf(out, "    %-28s %s\n", "--multipackage, -m", "enable multipackage mode (recursive package-scoped discovery)")
 	fmt.Fprintf(out, "    %-28s %s\n", "--no-cache", "disable cached build tool binaries")
 	fmt.Fprintf(out, "    %-28s %s\n", "--keep", "keep generated bootstrap file")
-	fmt.Fprintf(out, "    %-28s %s\n", "--completion [bash|zsh|fish]", "print completion script for specified shell. Uses the current shell if none is")
+	fmt.Fprintf(out, "    %-28s %s\n", "--completion {bash|zsh|fish}", "print completion script for specified shell. Uses the current shell if none is")
 	fmt.Fprintf(out, "    %-28s %s\n", "", "specified. The output should be eval'd/sourced in the shell to enable completions.")
 	fmt.Fprintf(out, "    %-28s %s\n", "", "(e.g. 'targs --completion fish | source')")
 	fmt.Fprintf(out, "    %-28s %s\n", "--help", "Print help information")

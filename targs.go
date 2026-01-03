@@ -972,6 +972,7 @@ func collectPositionalHelp(node *CommandNode) []positionalHelp {
 		}
 		name := strings.ToUpper(field.Name)
 		placeholder := ""
+		options := ""
 		required := false
 		if tag != "" {
 			parts := strings.Split(tag, ",")
@@ -979,12 +980,17 @@ func collectPositionalHelp(node *CommandNode) []positionalHelp {
 				p = strings.TrimSpace(p)
 				if strings.HasPrefix(p, "name=") {
 					name = strings.ToUpper(strings.TrimPrefix(p, "name="))
+				} else if strings.HasPrefix(p, "enum=") {
+					options = strings.TrimPrefix(p, "enum=")
 				} else if strings.HasPrefix(p, "placeholder=") {
 					placeholder = strings.TrimPrefix(p, "placeholder=")
 				} else if p == "required" {
 					required = true
 				}
 			}
+		}
+		if options != "" {
+			placeholder = fmt.Sprintf("{%s}", options)
 		}
 		positionals = append(positionals, positionalHelp{
 			Name:        name,
