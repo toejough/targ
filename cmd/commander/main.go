@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"errors"
 	"flag"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"text/template"
+	"unicode/utf8"
 
 	"commander/buildtool"
 )
@@ -59,15 +61,18 @@ func main() {
 	}
 
 	var multiPackage bool
+	var noCache bool
 
 	fs := flag.NewFlagSet("commander", flag.ContinueOnError)
 	fs.BoolVar(&multiPackage, "multipackage", false, "enable multipackage mode (recursive package-scoped discovery)")
 	fs.BoolVar(&multiPackage, "m", false, "alias for --multipackage")
+	fs.BoolVar(&noCache, "no-cache", false, "disable cached build tool binaries")
 	fs.Usage = func() {
-		fmt.Fprintln(os.Stdout, "Usage: commander [--multipackage|-m] [args]")
+		fmt.Fprintln(os.Stdout, "Usage: commander [--multipackage|-m] [--no-cache] [args]")
 		fmt.Fprintln(os.Stdout, "")
 		fmt.Fprintln(os.Stdout, "Flags:")
 		fmt.Fprintln(os.Stdout, "  --multipackage, -m    enable multipackage mode (recursive package-scoped discovery)")
+		fmt.Fprintln(os.Stdout, "  --no-cache            disable cached build tool binaries")
 	}
 	fs.SetOutput(os.Stdout)
 	parseArgs := make([]string, 0, len(os.Args[1:]))
@@ -156,23 +161,62 @@ func main() {
 		fmt.Printf("Error creating bootstrap dir: %v\n", err)
 		os.Exit(1)
 	}
-	tempFile, err := os.CreateTemp(tempDir, "bootstrap-*.go")
+
+	taggedFiles, err := buildtool.TaggedFiles(buildtool.OSFileSystem{}, buildtool.Options{
+		StartDir:     startDir,
+		MultiPackage: multiPackage,
+		BuildTag:     "commander",
+	})
 	if err != nil {
-		fmt.Printf("Error creating bootstrap file: %v\n", err)
+		fmt.Printf("Error gathering tagged files: %v\n", err)
 		os.Exit(1)
 	}
-	filename := tempFile.Name()
-	_ = tempFile.Close()
-	if err := os.WriteFile(filename, buf.Bytes(), 0644); err != nil {
+	cacheKey, err := computeCacheKey(modulePath, moduleRoot, "commander", buf.Bytes(), taggedFiles)
+	if err != nil {
+		fmt.Printf("Error computing cache key: %v\n", err)
+		os.Exit(1)
+	}
+
+	tempFile := filepath.Join(tempDir, fmt.Sprintf("commander_bootstrap_%s.go", cacheKey))
+	if err := os.WriteFile(tempFile, buf.Bytes(), 0644); err != nil {
 		fmt.Printf("Error writing bootstrap file: %v\n", err)
 		os.Exit(1)
 	}
-	defer os.Remove(filename)
 
-	runArgs := []string{"run", "-tags", "commander", filename}
-	runArgs = append(runArgs, args...)
+	cacheDir := filepath.Join(moduleRoot, ".commander", "cache")
+	if err := os.MkdirAll(cacheDir, 0755); err != nil {
+		fmt.Printf("Error creating cache directory: %v\n", err)
+		os.Exit(1)
+	}
+	binaryPath := filepath.Join(cacheDir, fmt.Sprintf("commander_%s", cacheKey))
 
-	cmd := exec.Command("go", runArgs...)
+	if !noCache {
+		if info, err := os.Stat(binaryPath); err == nil && info.Mode().IsRegular() && info.Mode()&0111 != 0 {
+			cmd := exec.Command(binaryPath, args...)
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+			cmd.Stdin = os.Stdin
+			if err := cmd.Run(); err != nil {
+				if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() != 0 {
+					os.Exit(exitErr.ExitCode())
+				}
+				fmt.Printf("Error running command: %v\n", err)
+				os.Exit(1)
+			}
+			return
+		}
+	}
+
+	buildArgs := []string{"build", "-tags", "commander", "-o", binaryPath, tempFile}
+	buildCmd := exec.Command("go", buildArgs...)
+	buildCmd.Stdout = os.Stdout
+	buildCmd.Stderr = os.Stderr
+	if err := buildCmd.Run(); err != nil {
+		fmt.Printf("Error building command: %v\n", err)
+		os.Exit(1)
+	}
+
+	cmd := exec.Command(binaryPath, args...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin
@@ -429,6 +473,33 @@ func singlePackageBanner(info buildtool.PackageInfo) string {
 	}
 	lines = append(lines, fmt.Sprintf("Path: %s", info.Dir))
 	return strings.Join(lines, "\n")
+}
+
+func computeCacheKey(modulePath string, moduleRoot string, buildTag string, bootstrap []byte, tagged []buildtool.TaggedFile) (string, error) {
+	hasher := sha256.New()
+	write := func(value string) {
+		hasher.Write([]byte(value))
+		hasher.Write([]byte{0})
+	}
+	write("module:" + modulePath)
+	write("root:" + moduleRoot)
+	write("tag:" + buildTag)
+	write("bootstrap:")
+	hasher.Write(bootstrap)
+	hasher.Write([]byte{0})
+
+	sort.Slice(tagged, func(i, j int) bool {
+		return tagged[i].Path < tagged[j].Path
+	})
+	for _, file := range tagged {
+		if !utf8.ValidString(file.Path) {
+			return "", fmt.Errorf("invalid utf-8 path in tagged file: %q", file.Path)
+		}
+		write("file:" + file.Path)
+		hasher.Write(file.Content)
+		hasher.Write([]byte{0})
+	}
+	return fmt.Sprintf("%x", hasher.Sum(nil)), nil
 }
 
 const bootstrapTemplate = `

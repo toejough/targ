@@ -155,6 +155,49 @@ type SubCmd struct{}
 	}
 }
 
+func TestTaggedFiles_ReturnsSelectedFiles(t *testing.T) {
+	fsMock := MockFileSystem(t)
+	opts := Options{StartDir: "/root"}
+	done := make(chan struct{})
+	var (
+		files []TaggedFile
+		err   error
+	)
+
+	go func() {
+		files, err = TaggedFiles(fsMock.Interface(), opts)
+		close(done)
+	}()
+
+	fsMock.ReadDir.ExpectCalledWithExactly("/root").InjectReturnValues([]fs.DirEntry{
+		fakeDirEntry{name: "pkg1", dir: true},
+		fakeDirEntry{name: "pkg2", dir: true},
+	}, nil)
+	fsMock.ReadDir.ExpectCalledWithExactly("/root/pkg1").InjectReturnValues([]fs.DirEntry{
+		fakeDirEntry{name: "cmd.go", dir: false},
+	}, nil)
+	fsMock.ReadFile.ExpectCalledWithExactly("/root/pkg1/cmd.go").InjectReturnValues([]byte(`//go:build commander
+
+package pkg1
+`), nil)
+	fsMock.ReadDir.ExpectCalledWithExactly("/root/pkg2").InjectReturnValues([]fs.DirEntry{
+		fakeDirEntry{name: "cmd.go", dir: false},
+	}, nil)
+	fsMock.ReadFile.ExpectCalledWithExactly("/root/pkg2/cmd.go").InjectReturnValues([]byte(`//go:build commander
+
+package pkg2
+`), nil)
+
+	<-done
+
+	if err == nil {
+		t.Fatal("expected error for multiple tagged dirs at same depth")
+	}
+	if files != nil {
+		t.Fatalf("expected no files on error, got %v", files)
+	}
+}
+
 func TestDiscover_FunctionWrappersOverrideFuncs(t *testing.T) {
 	fsMock := MockFileSystem(t)
 	opts := Options{StartDir: "/root"}

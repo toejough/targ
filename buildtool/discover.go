@@ -47,6 +47,11 @@ type TaggedDir struct {
 	Depth int
 }
 
+type TaggedFile struct {
+	Path    string
+	Content []byte
+}
+
 type PackageInfo struct {
 	Dir     string
 	Package string
@@ -139,6 +144,37 @@ func SelectTaggedDirs(fs FileSystem, opts Options) ([]TaggedDir, error) {
 		paths = append(paths, TaggedDir{Path: dir.Path, Depth: dir.Depth})
 	}
 	return paths, nil
+}
+
+func TaggedFiles(fs FileSystem, opts Options) ([]TaggedFile, error) {
+	startDir := opts.StartDir
+	if startDir == "" {
+		startDir = "."
+	}
+	tag := opts.BuildTag
+	if tag == "" {
+		tag = "commander"
+	}
+
+	dirs, err := findTaggedDirs(fs, startDir, tag)
+	if err != nil {
+		return nil, err
+	}
+	selected, err := selectTaggedDirs(dirs, opts.MultiPackage)
+	if err != nil {
+		return nil, err
+	}
+
+	var files []TaggedFile
+	for _, dir := range selected {
+		for _, file := range dir.Files {
+			files = append(files, TaggedFile{
+				Path:    file.Path,
+				Content: file.Content,
+			})
+		}
+	}
+	return files, nil
 }
 
 func selectTaggedDirs(dirs []taggedDir, multiPackage bool) ([]taggedDir, error) {
