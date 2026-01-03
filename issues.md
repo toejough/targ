@@ -18,24 +18,6 @@ A simple md issue tracker.
 
 Issues to choose from for future work.
 
-### 14. Parallel Execution
-
-#### Universal
-
-**Status**
-backlog
-
-**Description**
-Run independent tasks in parallel when safe.
-
-#### Planning
-
-**Priority**
-Medium
-
-**Acceptance**
-Add a parallel execution helper integrated with dependencies.
-
 ### 15. .env File Loading
 
 #### Universal
@@ -700,3 +682,21 @@ Low
 Generate into a temp dir with a stable name and support `--keep`.
 
 ---
+
+### 14. Parallel Execution
+
+#### Universal
+
+**Status**
+done
+
+**Description**
+Run independent tasks in parallel when safe.
+
+#### Planning
+
+**Priority**
+Medium
+
+**Acceptance**
+Add a parallel execution helper integrated with dependencies.
