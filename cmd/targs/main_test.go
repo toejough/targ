@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"os"
 	"strings"
 	"testing"
 	"text/template"
@@ -186,4 +187,35 @@ func TestBuildBootstrapData_DuplicatePackageName(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected duplicate package name error")
 	}
+}
+
+func TestWriteBootstrapFileCleanup(t *testing.T) {
+	dir := t.TempDir()
+	data := []byte("package main\n")
+
+	path, cleanup, err := writeBootstrapFile(dir, data, false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("expected bootstrap file to exist: %v", err)
+	}
+	if err := cleanup(); err != nil {
+		t.Fatalf("unexpected cleanup error: %v", err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("expected bootstrap file to be removed, got: %v", err)
+	}
+
+	path, cleanup, err = writeBootstrapFile(dir, data, true)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if err := cleanup(); err != nil {
+		t.Fatalf("unexpected cleanup error: %v", err)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("expected bootstrap file to remain: %v", err)
+	}
+	_ = os.Remove(path)
 }

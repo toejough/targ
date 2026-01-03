@@ -91,6 +91,7 @@ Build tool mode rules:
 - With `--multipackage`, package names are always inserted as the first subcommand.
 - Build tool mode never has a default command.
 - `--no-cache` forces rebuilding the build tool binary.
+- `--keep` keeps the generated bootstrap file for inspection.
 
 Example layout:
 

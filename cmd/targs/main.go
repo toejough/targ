@@ -63,19 +63,22 @@ func main() {
 
 	var multiPackage bool
 	var noCache bool
+	var keepBootstrap bool
 	var completionShell string
 
 	fs := flag.NewFlagSet("targs", flag.ContinueOnError)
 	fs.BoolVar(&multiPackage, "multipackage", false, "enable multipackage mode (recursive package-scoped discovery)")
 	fs.BoolVar(&multiPackage, "m", false, "alias for --multipackage")
 	fs.BoolVar(&noCache, "no-cache", false, "disable cached build tool binaries")
+	fs.BoolVar(&keepBootstrap, "keep", false, "keep generated bootstrap file")
 	fs.StringVar(&completionShell, "completion", "", "print shell completion (bash|zsh|fish)")
 	fs.Usage = func() {
-		fmt.Fprintln(os.Stdout, "Usage: targs [--multipackage|-m] [--no-cache] [args]")
+		fmt.Fprintln(os.Stdout, "Usage: targs [--multipackage|-m] [--no-cache] [--keep] [args]")
 		fmt.Fprintln(os.Stdout, "")
 		fmt.Fprintln(os.Stdout, "Flags:")
 		fmt.Fprintln(os.Stdout, "  --multipackage, -m    enable multipackage mode (recursive package-scoped discovery)")
 		fmt.Fprintln(os.Stdout, "  --no-cache            disable cached build tool binaries")
+		fmt.Fprintln(os.Stdout, "  --keep                keep generated bootstrap file")
 		fmt.Fprintln(os.Stdout, "  --completion [bash|zsh|fish]")
 	}
 	fs.SetOutput(os.Stdout)
@@ -198,12 +201,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	tempDir := filepath.Join(moduleRoot, ".targs", "tmp")
-	if err := os.MkdirAll(tempDir, 0755); err != nil {
-		fmt.Printf("Error creating bootstrap dir: %v\n", err)
-		os.Exit(1)
-	}
-
 	taggedFiles, err := buildtool.TaggedFiles(buildtool.OSFileSystem{}, buildtool.Options{
 		StartDir:     startDir,
 		MultiPackage: multiPackage,
@@ -225,10 +222,14 @@ func main() {
 		os.Exit(1)
 	}
 
-	tempFile := filepath.Join(tempDir, fmt.Sprintf("targs_bootstrap_%s.go", cacheKey))
-	if err := os.WriteFile(tempFile, buf.Bytes(), 0644); err != nil {
+	tempDir := filepath.Join(moduleRoot, ".targs", "tmp")
+	tempFile, cleanupTemp, err := writeBootstrapFile(tempDir, buf.Bytes(), keepBootstrap)
+	if err != nil {
 		fmt.Printf("Error writing bootstrap file: %v\n", err)
 		os.Exit(1)
+	}
+	if !keepBootstrap {
+		defer cleanupTemp()
 	}
 
 	cacheDir := filepath.Join(moduleRoot, ".targs", "cache")
@@ -245,6 +246,9 @@ func main() {
 			cmd.Stderr = os.Stderr
 			cmd.Stdin = os.Stdin
 			if err := cmd.Run(); err != nil {
+				if !keepBootstrap {
+					_ = cleanupTemp()
+				}
 				if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() != 0 {
 					os.Exit(exitErr.ExitCode())
 				}
@@ -260,6 +264,9 @@ func main() {
 	buildCmd.Stdout = os.Stdout
 	buildCmd.Stderr = os.Stderr
 	if err := buildCmd.Run(); err != nil {
+		if !keepBootstrap {
+			_ = cleanupTemp()
+		}
 		fmt.Printf("Error building command: %v\n", err)
 		os.Exit(1)
 	}
@@ -269,8 +276,31 @@ func main() {
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin
 	if err := cmd.Run(); err != nil {
+		if !keepBootstrap {
+			_ = cleanupTemp()
+		}
 		os.Exit(1)
 	}
+}
+
+func writeBootstrapFile(tempDir string, data []byte, keep bool) (string, func() error, error) {
+	if err := os.MkdirAll(tempDir, 0755); err != nil {
+		return "", nil, err
+	}
+	tempFile := filepath.Join(tempDir, "targs_bootstrap.go")
+	if err := os.WriteFile(tempFile, data, 0644); err != nil {
+		return "", nil, err
+	}
+	cleanup := func() error {
+		if keep {
+			return nil
+		}
+		if err := os.Remove(tempFile); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		return nil
+	}
+	return tempFile, cleanup, nil
 }
 
 func runGenerate() error {
