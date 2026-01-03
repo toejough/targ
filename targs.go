@@ -821,6 +821,9 @@ func buildUsageLine(node *CommandNode) string {
 	positionals := collectPositionalHelp(node)
 	for _, item := range positionals {
 		name := item.Name
+		if item.Placeholder != "" {
+			name = item.Placeholder
+		}
 		if name == "" {
 			name = "ARG"
 		}
@@ -874,6 +877,7 @@ func collectFlagHelp(node *CommandNode) []flagHelp {
 		shortName := ""
 		usage := ""
 		options := ""
+		placeholder := ""
 		required := false
 
 		if tag != "" {
@@ -886,6 +890,8 @@ func collectFlagHelp(node *CommandNode) []flagHelp {
 					shortName = strings.TrimPrefix(p, "short=")
 				} else if strings.HasPrefix(p, "enum=") {
 					options = strings.TrimPrefix(p, "enum=")
+				} else if strings.HasPrefix(p, "placeholder=") {
+					placeholder = strings.TrimPrefix(p, "placeholder=")
 				} else if strings.HasPrefix(p, "desc=") || strings.HasPrefix(p, "description=") {
 					if strings.HasPrefix(p, "desc=") {
 						usage = strings.TrimPrefix(p, "desc=")
@@ -898,14 +904,15 @@ func collectFlagHelp(node *CommandNode) []flagHelp {
 			}
 		}
 
-		placeholder := ""
-		switch field.Type.Kind() {
-		case reflect.String:
-			placeholder = "<string>"
-		case reflect.Int:
-			placeholder = "<int>"
-		case reflect.Bool:
-			placeholder = "[flag]"
+		if placeholder == "" {
+			switch field.Type.Kind() {
+			case reflect.String:
+				placeholder = "<string>"
+			case reflect.Int:
+				placeholder = "<int>"
+			case reflect.Bool:
+				placeholder = "[flag]"
+			}
 		}
 
 		flags = append(flags, flagHelp{
@@ -934,8 +941,9 @@ func collectFlagHelpChain(node *CommandNode) []flagHelp {
 }
 
 type positionalHelp struct {
-	Name     string
-	Required bool
+	Name        string
+	Placeholder string
+	Required    bool
 }
 
 func collectPositionalHelp(node *CommandNode) []positionalHelp {
@@ -951,6 +959,7 @@ func collectPositionalHelp(node *CommandNode) []positionalHelp {
 			continue
 		}
 		name := strings.ToUpper(field.Name)
+		placeholder := ""
 		required := false
 		if tag != "" {
 			parts := strings.Split(tag, ",")
@@ -958,14 +967,17 @@ func collectPositionalHelp(node *CommandNode) []positionalHelp {
 				p = strings.TrimSpace(p)
 				if strings.HasPrefix(p, "name=") {
 					name = strings.ToUpper(strings.TrimPrefix(p, "name="))
+				} else if strings.HasPrefix(p, "placeholder=") {
+					placeholder = strings.TrimPrefix(p, "placeholder=")
 				} else if p == "required" {
 					required = true
 				}
 			}
 		}
 		positionals = append(positionals, positionalHelp{
-			Name:     name,
-			Required: required,
+			Name:        name,
+			Placeholder: placeholder,
+			Required:    required,
 		})
 	}
 	return positionals

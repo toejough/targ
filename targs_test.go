@@ -573,6 +573,24 @@ func TestUsageLine_NoSubcommandWithRequiredPositional(t *testing.T) {
 	}
 }
 
+func TestPlaceholderTagInUsage(t *testing.T) {
+	type PlaceholderCmd struct {
+		File string `targs:"flag,short=f,placeholder=FILE"`
+		Out  string `targs:"positional,placeholder=DEST"`
+	}
+	cmd, err := parseCommand(&PlaceholderCmd{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	usage := buildUsageLine(cmd)
+	if !strings.Contains(usage, "{-f|--file} FILE") {
+		t.Fatalf("expected flag placeholder in usage: %s", usage)
+	}
+	if !strings.HasSuffix(usage, "[DEST]") {
+		t.Fatalf("expected positional placeholder in usage: %s", usage)
+	}
+}
+
 var hookLog []string
 
 type HookRoot struct {
