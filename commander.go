@@ -604,31 +604,64 @@ func printCommandHelp(node *CommandNode) {
 		fmt.Println()
 	}
 
-	fmt.Println("Flags:")
-	// Re-inspect flags to print help
-	// We need to instantiate a flagset to use its PrintDefaults?
-	// Or we can manually iterate fields like we do for completion/parsing.
-	fs := flag.NewFlagSet(node.Name, flag.ContinueOnError)
-	// We need to bind them to dummy vars to register them
-	// This duplicates logic from execute.
-	// For now, let's just use the same logic as execute to populate the flagset, then PrintDefaults.
-	// But `inst` is not available here. We need a zero value.
+	flags := collectFlagHelp(node)
+	if len(flags) > 0 {
+		fmt.Println("Flags:")
+		for _, item := range flags {
+			name := fmt.Sprintf("--%s", item.Name)
+			if item.Short != "" {
+				name = fmt.Sprintf("--%s, -%s", item.Name, item.Short)
+			}
+			if item.Placeholder != "" {
+				name = fmt.Sprintf("%s %s", name, item.Placeholder)
+			}
+			usage := item.Usage
+			if item.Options != "" {
+				if usage == "" {
+					usage = fmt.Sprintf("options: %s", item.Options)
+				} else {
+					usage = fmt.Sprintf("%s (options: %s)", usage, item.Options)
+				}
+			}
+			fmt.Printf("  %-24s %s\n", name, usage)
+		}
+	}
+}
 
-	// inst := reflect.New(node.Type).Elem()
-	for i := 0; i < node.Type.NumField(); i++ {
-		field := node.Type.Field(i)
+func printCommanderOptions() {
+	fmt.Println("\nCommander options:")
+	fmt.Println("  --help")
+	fmt.Println("  --completion [bash|zsh|fish]")
+}
+
+type flagHelp struct {
+	Name        string
+	Short       string
+	Usage       string
+	Options     string
+	Placeholder string
+}
+
+func collectFlagHelp(node *CommandNode) []flagHelp {
+	if node.Type == nil {
+		return nil
+	}
+	typ := node.Type
+	var flags []flagHelp
+	for i := 0; i < typ.NumField(); i++ {
+		field := typ.Field(i)
 		tag := field.Tag.Get("commander")
-		if strings.Contains(tag, "subcommand") {
+		if strings.Contains(tag, "subcommand") || strings.Contains(tag, "positional") {
 			continue
 		}
 		if !field.IsExported() {
-			fmt.Printf("Error: field %s must be exported to use commander tags\n", field.Name)
 			continue
 		}
 
 		name := strings.ToLower(field.Name)
-		usage := ""
 		shortName := ""
+		usage := ""
+		options := ""
 
 		if tag != "" {
 			parts := strings.Split(tag, ",")
@@ -638,6 +671,8 @@ func printCommandHelp(node *CommandNode) {
 					name = strings.TrimPrefix(p, "name=")
 				} else if strings.HasPrefix(p, "short=") {
 					shortName = strings.TrimPrefix(p, "short=")
+				} else if strings.HasPrefix(p, "enum=") {
+					options = strings.TrimPrefix(p, "enum=")
 				} else if strings.HasPrefix(p, "desc=") || strings.HasPrefix(p, "description=") {
 					if strings.HasPrefix(p, "desc=") {
 						usage = strings.TrimPrefix(p, "desc=")
@@ -648,16 +683,25 @@ func printCommandHelp(node *CommandNode) {
 			}
 		}
 
-		registerHelpFlag(fs, field.Type, name, shortName, usage)
-	}
-	fs.SetOutput(os.Stdout)
-	fs.PrintDefaults()
-}
+		placeholder := ""
+		switch field.Type.Kind() {
+		case reflect.String:
+			placeholder = "<string>"
+		case reflect.Int:
+			placeholder = "<int>"
+		case reflect.Bool:
+			placeholder = ""
+		}
 
-func printCommanderOptions() {
-	fmt.Println("\nCommander options:")
-	fmt.Println("  --help")
-	fmt.Println("  --completion [bash|zsh|fish]")
+		flags = append(flags, flagHelp{
+			Name:        name,
+			Short:       shortName,
+			Usage:       usage,
+			Options:     options,
+			Placeholder: placeholder,
+		})
+	}
+	return flags
 }
 
 func validateLongFlagArgs(args []string, longNames map[string]bool) error {
