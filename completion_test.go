@@ -73,6 +73,20 @@ func TestPrintCompletionScriptPlaceholders(t *testing.T) {
 	}
 }
 
+func TestCompletionSuggestsEnumValuesAfterFlag(t *testing.T) {
+	cmd, err := parseCommand(&EnumCmd{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	out := captureStdout(t, func() {
+		doCompletion([]*CommandNode{cmd}, "app --mode ")
+	})
+	if !strings.Contains(out, "dev") || !strings.Contains(out, "prod") {
+		t.Fatalf("expected enum suggestions, got: %q", out)
+	}
+}
+
 func captureStdout(t *testing.T, fn func()) string {
 	t.Helper()
 	orig := os.Stdout

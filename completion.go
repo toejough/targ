@@ -65,9 +65,12 @@ func doCompletion(roots []*CommandNode, commandLine string) {
 		return
 	}
 
-	// Walk subcommands
+	// Walk subcommands (stop when we hit flags or end-of-flags)
 	for len(processedArgs) > 0 {
 		subName := processedArgs[0]
+		if subName == "--" || strings.HasPrefix(subName, "-") {
+			break
+		}
 		if sub, ok := currentNode.Subcommands[subName]; ok {
 			currentNode = sub
 			processedArgs = processedArgs[1:]
