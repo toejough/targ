@@ -271,3 +271,20 @@ func TestParseHelpRequestIgnoresSubcommandHelp(t *testing.T) {
 		t.Fatal("expected top-level help without target")
 	}
 }
+
+func TestFilterOtherPackages(t *testing.T) {
+	loaded := []packageSummary{
+		{Name: "issues", Path: "tools/issues"},
+	}
+	all := []packageSummary{
+		{Name: "issues", Path: "tools/issues"},
+		{Name: "build", Path: "mage"},
+	}
+	others := filterOtherPackages(loaded, all)
+	if len(others) != 1 {
+		t.Fatalf("expected one other package, got %d", len(others))
+	}
+	if others[0].Name != "build" {
+		t.Fatalf("unexpected other package: %s", others[0].Name)
+	}
+}

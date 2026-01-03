@@ -76,7 +76,7 @@ func main() {
 	fs.Usage = func() {
 		printBuildToolUsage(os.Stdout)
 	}
-	fs.SetOutput(os.Stdout)
+	fs.SetOutput(io.Discard)
 	rawArgs := os.Args[1:]
 	helpRequested, helpTargets := parseHelpRequest(rawArgs)
 	parseArgs := make([]string, 0, len(rawArgs))
@@ -103,7 +103,13 @@ func main() {
 		parseArgs = append(parseArgs, arg)
 	}
 	if err := fs.Parse(parseArgs); err != nil {
-		os.Exit(1)
+		if err == flag.ErrHelp {
+			helpRequested = true
+		} else {
+			fmt.Fprintln(os.Stderr, err)
+			printBuildToolUsage(os.Stderr)
+			os.Exit(1)
+		}
 	}
 	args := fs.Args()
 
@@ -470,15 +476,22 @@ func printBuildToolHelp(out io.Writer, startDir string, multiPackage bool) error
 		return nil
 	}
 
-	fmt.Fprintln(out, "Loaded packages:")
+	if multiPackage {
+		fmt.Fprintln(out, "Subcommands:")
+		printPackageSummaries(out, currentSummaries)
+		return nil
+	}
+
+	fmt.Fprintln(out, "Loaded package:")
 	printPackageSummaries(out, currentSummaries)
 
-	if !multiPackage {
+	otherSummaries := filterOtherPackages(currentSummaries, allSummaries)
+	fmt.Fprintln(out, "")
+	fmt.Fprintln(out, "Other discovered packages:")
+	printPackageSummaries(out, otherSummaries)
+	if len(otherSummaries) > 0 {
 		fmt.Fprintln(out, "")
-		fmt.Fprintln(out, "Packages found (use --multipackage):")
-		printPackageSummaries(out, allSummaries)
-		fmt.Fprintln(out, "")
-		fmt.Fprintln(out, "Run with: targs --multipackage <package> <command>")
+		fmt.Fprintln(out, "Use -m/--multipackage or run from a package directory to access these.")
 	}
 	return nil
 }
@@ -507,6 +520,23 @@ func summarizePackages(infos []buildtool.PackageInfo, startDir string) []package
 		return summaries[i].Name < summaries[j].Name
 	})
 	return summaries
+}
+
+func filterOtherPackages(loaded []packageSummary, all []packageSummary) []packageSummary {
+	seen := map[string]bool{}
+	for _, summary := range loaded {
+		key := summary.Path + "::" + summary.Name
+		seen[key] = true
+	}
+	var others []packageSummary
+	for _, summary := range all {
+		key := summary.Path + "::" + summary.Name
+		if seen[key] {
+			continue
+		}
+		others = append(others, summary)
+	}
+	return others
 }
 
 func printPackageSummaries(out io.Writer, summaries []packageSummary) {
