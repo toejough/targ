@@ -176,7 +176,7 @@ func suggestFlags(node *CommandNode, prefix string, includeCompletion bool) {
 	for i := 0; i < typ.NumField(); i++ {
 		field := typ.Field(i)
 		tag := field.Tag.Get("commander")
-		if strings.Contains(tag, "subcommand") {
+		if strings.Contains(tag, "subcommand") || strings.Contains(tag, "positional") {
 			continue
 		}
 

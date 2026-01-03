@@ -547,6 +547,31 @@ func TestPositionalArgs(t *testing.T) {
 	}
 }
 
+func TestUsageLine_NoSubcommandWithRequiredPositional(t *testing.T) {
+	type MoveCmd struct {
+		File   string `commander:"flag,short=f"`
+		Status string `commander:"flag,required,short=s"`
+		ID     int    `commander:"positional,required"`
+	}
+	cmd, err := parseCommand(&MoveCmd{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	usage := buildUsageLine(cmd)
+	if strings.Contains(usage, "[subcommand]") {
+		t.Fatalf("did not expect subcommand in usage: %s", usage)
+	}
+	if !strings.Contains(usage, "{-f|--file} <string>") {
+		t.Fatalf("expected file flag in usage: %s", usage)
+	}
+	if !strings.Contains(usage, "{-s|--status} <string>") {
+		t.Fatalf("expected status flag in usage: %s", usage)
+	}
+	if !strings.HasSuffix(usage, "ID") {
+		t.Fatalf("expected ID positional at end: %s", usage)
+	}
+}
+
 type RequiredPositionals struct {
 	Src string `commander:"positional,required"`
 	Dst string `commander:"positional"`

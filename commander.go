@@ -579,7 +579,8 @@ func printCommandHelp(node *CommandNode) {
 		return
 	}
 
-	fmt.Printf("Usage: %s [flags] [subcommand]\n\n", node.Name)
+	usageLine := buildUsageLine(node)
+	fmt.Printf("Usage: %s\n\n", usageLine)
 
 	// If description is empty, try to fetch it if we haven't already
 	if node.Description == "" && node.RunMethod.IsValid() {
@@ -612,7 +613,7 @@ func printCommandHelp(node *CommandNode) {
 			if item.Short != "" {
 				name = fmt.Sprintf("--%s, -%s", item.Name, item.Short)
 			}
-			if item.Placeholder != "" {
+			if item.Placeholder != "" && item.Placeholder != "[flag]" {
 				name = fmt.Sprintf("%s %s", name, item.Placeholder)
 			}
 			usage := item.Usage
@@ -634,12 +635,52 @@ func printCommanderOptions() {
 	fmt.Println("  --completion [bash|zsh|fish]")
 }
 
+func buildUsageLine(node *CommandNode) string {
+	parts := []string{node.Name}
+	flags := collectFlagHelp(node)
+	for _, item := range flags {
+		if item.Required {
+			parts = append(parts, formatFlagUsage(item))
+		} else {
+			parts = append(parts, fmt.Sprintf("[%s]", formatFlagUsage(item)))
+		}
+	}
+	if len(node.Subcommands) > 0 {
+		parts = append(parts, "[subcommand]")
+	}
+	positionals := collectPositionalHelp(node)
+	for _, item := range positionals {
+		name := item.Name
+		if name == "" {
+			name = "ARG"
+		}
+		if item.Required {
+			parts = append(parts, name)
+		} else {
+			parts = append(parts, fmt.Sprintf("[%s]", name))
+		}
+	}
+	return strings.Join(parts, " ")
+}
+
+func formatFlagUsage(item flagHelp) string {
+	name := fmt.Sprintf("--%s", item.Name)
+	if item.Short != "" {
+		name = fmt.Sprintf("{-%s|--%s}", item.Short, item.Name)
+	}
+	if item.Placeholder != "" && item.Placeholder != "[flag]" {
+		name = fmt.Sprintf("%s %s", name, item.Placeholder)
+	}
+	return name
+}
+
 type flagHelp struct {
 	Name        string
 	Short       string
 	Usage       string
 	Options     string
 	Placeholder string
+	Required    bool
 }
 
 func collectFlagHelp(node *CommandNode) []flagHelp {
@@ -662,6 +703,7 @@ func collectFlagHelp(node *CommandNode) []flagHelp {
 		shortName := ""
 		usage := ""
 		options := ""
+		required := false
 
 		if tag != "" {
 			parts := strings.Split(tag, ",")
@@ -679,6 +721,8 @@ func collectFlagHelp(node *CommandNode) []flagHelp {
 					} else {
 						usage = strings.TrimPrefix(p, "description=")
 					}
+				} else if p == "required" {
+					required = true
 				}
 			}
 		}
@@ -690,7 +734,7 @@ func collectFlagHelp(node *CommandNode) []flagHelp {
 		case reflect.Int:
 			placeholder = "<int>"
 		case reflect.Bool:
-			placeholder = ""
+			placeholder = "[flag]"
 		}
 
 		flags = append(flags, flagHelp{
@@ -699,9 +743,48 @@ func collectFlagHelp(node *CommandNode) []flagHelp {
 			Usage:       usage,
 			Options:     options,
 			Placeholder: placeholder,
+			Required:    required,
 		})
 	}
 	return flags
+}
+
+type positionalHelp struct {
+	Name     string
+	Required bool
+}
+
+func collectPositionalHelp(node *CommandNode) []positionalHelp {
+	if node.Type == nil {
+		return nil
+	}
+	typ := node.Type
+	var positionals []positionalHelp
+	for i := 0; i < typ.NumField(); i++ {
+		field := typ.Field(i)
+		tag := field.Tag.Get("commander")
+		if !strings.Contains(tag, "positional") {
+			continue
+		}
+		name := strings.ToUpper(field.Name)
+		required := false
+		if tag != "" {
+			parts := strings.Split(tag, ",")
+			for _, p := range parts {
+				p = strings.TrimSpace(p)
+				if strings.HasPrefix(p, "name=") {
+					name = strings.ToUpper(strings.TrimPrefix(p, "name="))
+				} else if p == "required" {
+					required = true
+				}
+			}
+		}
+		positionals = append(positionals, positionalHelp{
+			Name:     name,
+			Required: required,
+		})
+	}
+	return positionals
 }
 
 func validateLongFlagArgs(args []string, longNames map[string]bool) error {
