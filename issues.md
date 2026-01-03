@@ -200,24 +200,6 @@ Low
 **Acceptance**
 TBD
 
-### 40. help still shows single - flags
-
-#### Universal
-
-**Status**
-backlog
-
-**Description**
-Fish completion script does not match current flag syntax.
-
-#### Planning
-
-**Priority**
-Low
-
-**Acceptance**
-TBD
-
 ### 41. help formatting shouldn't have double spaces between flags
 
 #### Universal
@@ -638,3 +620,25 @@ TBD
 **Details**
 - Add flag descriptions and enum value lists to issues commands.
 - Normalize status/priorities and align filtering with documented options.
+
+### 40. help still shows single - flags
+
+#### Universal
+
+**Status**
+done
+
+**Description**
+Help output shows single-dash long flags instead of --flag.
+
+#### Planning
+
+**Priority**
+Low
+
+**Acceptance**
+TBD
+
+
+**Details**
+Render help output with --long (and -s where set) and skip positional fields in flag lists.

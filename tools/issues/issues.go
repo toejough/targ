@@ -144,6 +144,51 @@ type Create struct {
 	Acceptance  string `commander:"flag,default=TBD,desc=Acceptance criteria"`
 }
 
+type Update struct {
+	File        string `commander:"flag,default=issues.md,desc=Issue file to update"`
+	ID          int    `commander:"positional,required"`
+	Status      string `commander:"flag,desc=New status,enum=backlog|selected|in-progress|review|done|cancelled|blocked"`
+	Description string `commander:"flag,desc=Description text"`
+	Priority    string `commander:"flag,desc=Priority,enum=low|medium|high"`
+	Acceptance  string `commander:"flag,desc=Acceptance criteria"`
+	Details     string `commander:"flag,desc=Implementation details"`
+}
+
+func (c *Update) Run() error {
+	file, _, err := loadIssues(c.File)
+	if err != nil {
+		return err
+	}
+
+	updates := issuefile.IssueUpdates{}
+	if c.Status != "" {
+		status := normalizeStatus(c.Status)
+		updates.Status = &status
+	}
+	if c.Description != "" {
+		updates.Description = &c.Description
+	}
+	if c.Priority != "" {
+		priority := normalizePriority(c.Priority)
+		updates.Priority = &priority
+	}
+	if c.Acceptance != "" {
+		updates.Acceptance = &c.Acceptance
+	}
+	if c.Details != "" {
+		updates.Details = &c.Details
+	}
+
+	if updates == (issuefile.IssueUpdates{}) {
+		return fmt.Errorf("no updates provided")
+	}
+
+	if _, err := file.UpdateIssue(c.ID, updates); err != nil {
+		return err
+	}
+	return writeIssues(c.File, file.Lines)
+}
+
 func (c *Create) Run() error {
 	content, issues, err := loadIssues(c.File)
 	if err != nil {

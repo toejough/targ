@@ -119,6 +119,82 @@ func (f *File) Insert(section string, issueLines []string) error {
 	return nil
 }
 
+func (f *File) UpdateIssue(number int, updates IssueUpdates) (Issue, error) {
+	issue, _ := f.Find(number)
+	if issue == nil {
+		return Issue{}, fmt.Errorf("issue %d not found", number)
+	}
+	block := IssueBlockLines(f.Lines, *issue)
+	if updates.Status != nil {
+		block = UpdateStatus(block, *updates.Status)
+	}
+	if updates.Description != nil {
+		block = UpdateSectionField(block, "Description", *updates.Description)
+	}
+	if updates.Priority != nil {
+		block = UpdateSectionField(block, "Priority", *updates.Priority)
+	}
+	if updates.Acceptance != nil {
+		block = UpdateSectionField(block, "Acceptance", *updates.Acceptance)
+	}
+	if updates.Details != nil {
+		block = UpdateSectionField(block, "Details", *updates.Details)
+	}
+	f.Remove(*issue)
+	section := issue.Section
+	if updates.Status != nil {
+		if strings.EqualFold(*updates.Status, "done") {
+			section = "done"
+		} else {
+			section = "backlog"
+		}
+	}
+	if err := f.Insert(section, block); err != nil {
+		return Issue{}, err
+	}
+	return *issue, nil
+}
+
+type IssueUpdates struct {
+	Status      *string
+	Description *string
+	Priority    *string
+	Acceptance  *string
+	Details     *string
+}
+
+func UpdateSectionField(lines []string, field string, value string) []string {
+	header := fmt.Sprintf("**%s**", field)
+	for i := 0; i < len(lines); i++ {
+		if strings.TrimSpace(lines[i]) == header {
+			for j := i + 1; j < len(lines); j++ {
+				if strings.TrimSpace(lines[j]) == "" {
+					continue
+				}
+				lines[j] = value
+				return lines
+			}
+			insert := []string{header, value, ""}
+			return insertAfter(lines, i-1, insert)
+		}
+	}
+	return append(lines, "", header, value)
+}
+
+func insertAfter(lines []string, idx int, insert []string) []string {
+	if idx < 0 {
+		return append(insert, lines...)
+	}
+	if idx >= len(lines)-1 {
+		return append(lines, insert...)
+	}
+	out := make([]string, 0, len(lines)+len(insert))
+	out = append(out, lines[:idx+1]...)
+	out = append(out, insert...)
+	out = append(out, lines[idx+1:]...)
+	return out
+}
+
 func insertIndex(lines []string, section string) int {
 	switch section {
 	case "backlog":

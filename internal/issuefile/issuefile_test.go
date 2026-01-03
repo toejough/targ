@@ -1,6 +1,9 @@
 package issuefile
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestParseAndUpdateStatus(t *testing.T) {
 	content := `# Issue Tracker
@@ -27,4 +30,43 @@ Something
 	if parseStatus(block) != "backlog" {
 		t.Fatalf("expected status to be added, got %q", parseStatus(block))
 	}
+}
+
+func TestUpdateSectionField(t *testing.T) {
+	lines := []string{
+		"### 1. Test",
+		"",
+		"**Description**",
+		"Old",
+		"",
+		"**Priority**",
+		"Low",
+	}
+	lines = UpdateSectionField(lines, "Description", "New")
+	if got := sectionValue(lines, "Description"); got != "New" {
+		t.Fatalf("expected updated description, got %q", got)
+	}
+	lines = UpdateSectionField(lines, "Acceptance", "OK")
+	if got := sectionValue(lines, "Acceptance"); got != "OK" {
+		t.Fatalf("expected inserted acceptance, got %q", got)
+	}
+	lines = UpdateSectionField(lines, "Details", "Steps")
+	if got := sectionValue(lines, "Details"); got != "Steps" {
+		t.Fatalf("expected inserted details, got %q", got)
+	}
+}
+
+func sectionValue(lines []string, field string) string {
+	header := "**" + field + "**"
+	for i := 0; i < len(lines); i++ {
+		if strings.TrimSpace(lines[i]) == header {
+			for j := i + 1; j < len(lines); j++ {
+				if strings.TrimSpace(lines[j]) == "" {
+					continue
+				}
+				return strings.TrimSpace(lines[j])
+			}
+		}
+	}
+	return ""
 }
