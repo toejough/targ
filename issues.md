@@ -18,24 +18,6 @@ A simple md issue tracker.
 
 Issues to choose from for future work.
 
-### 16. Interactive UI Helpers
-
-#### Universal
-
-**Status**
-backlog
-
-**Description**
-Add basic CLI interaction helpers (confirm/select/prompt).
-
-#### Planning
-
-**Priority**
-Low
-
-**Acceptance**
-Provide a `ui` package for common prompts.
-
 ### 43. Investigate markdown parsers for issuefile
 
 #### Universal
@@ -108,7 +90,7 @@ Medium
 **Acceptance**
 Repository exists on GitHub and README link is valid.
 
-### 47. show the help for the current packages you've loaded, and also show what packages you've found (recursively) and how to run those (use --multipackage)
+### 48. rename to just targ
 
 #### Universal
 
@@ -125,6 +107,24 @@ Low
 
 **Acceptance**
 TBD
+
+### 16. Interactive UI Helpers
+
+#### Universal
+
+**Status**
+cancelled
+
+**Description**
+Add basic CLI interaction helpers (confirm/select/prompt).
+
+#### Planning
+
+**Priority**
+Low
+
+**Acceptance**
+Provide a `ui` package for common prompts.
 
 ## Done
 
@@ -728,6 +728,24 @@ done
 
 **Description**
 Fish completion script does not match current flag syntax.
+
+#### Planning
+
+**Priority**
+Low
+
+**Acceptance**
+TBD
+
+### 47. show the help for the current packages you've loaded, and also show what packages you've found (recursively) and how to run those (use --multipackage)
+
+#### Universal
+
+**Status**
+done
+
+**Description**
+TBD
 
 #### Planning
 
