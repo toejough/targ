@@ -36,24 +36,6 @@ Low
 **Acceptance**
 Provide a `ui` package for common prompts.
 
-### 17. Checksum-based Caching
-
-#### Universal
-
-**Status**
-backlog
-
-**Description**
-Skip tasks when inputs have not changed content (checksum-based).
-
-#### Planning
-
-**Priority**
-Low
-
-**Acceptance**
-Add `target.Checksum(srcs, dest)`.
-
 ### 36. add some help for targs itself when running in build-tool mode (add a description)
 
 #### Universal
@@ -700,3 +682,21 @@ Medium
 
 **Acceptance**
 Add a parallel execution helper integrated with dependencies.
+
+### 17. Checksum-based Caching
+
+#### Universal
+
+**Status**
+done
+
+**Description**
+Skip tasks when inputs have not changed content (checksum-based).
+
+#### Planning
+
+**Priority**
+Low
+
+**Acceptance**
+Add `target.Checksum(srcs, dest)`.
