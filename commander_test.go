@@ -54,7 +54,7 @@ func TestExecuteCommand(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	args := []string{"-name", "Alice"}
+	args := []string{"--name", "Alice"}
 	if err := cmd.execute(context.Background(), args); err != nil {
 		t.Fatalf("execution failed: %v", err)
 	}
@@ -84,8 +84,8 @@ func TestCustomFlagName(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// use -user_name instead of -user
-	args := []string{"-user_name", "Bob"}
+	// use --user_name instead of -user
+	args := []string{"--user_name", "Bob"}
 	if err := cmd.execute(context.Background(), args); err != nil {
 		t.Fatalf("execution failed: %v", err)
 	}
@@ -441,13 +441,13 @@ func TestSubcommands(t *testing.T) {
 	}
 
 	// Execute subcommand "sub"
-	args := []string{"sub", "-verbose"}
+	args := []string{"sub", "--verbose"}
 	if err := cmd.execute(context.Background(), args); err != nil {
 		t.Fatalf("execution failed: %v", err)
 	}
 
 	// Execute subcommand "custom"
-	args2 := []string{"custom", "-verbose"}
+	args2 := []string{"custom", "--verbose"}
 	if err := cmd.execute(context.Background(), args2); err != nil {
 		t.Fatalf("execution failed: %v", err)
 	}
@@ -477,6 +477,33 @@ func TestShortFlags(t *testing.T) {
 	}
 	if cmdStruct.Age != 30 {
 		t.Errorf("expected Age=30, got %d", cmdStruct.Age)
+	}
+}
+
+func TestLongFlagsRequireDoubleDash(t *testing.T) {
+	cmdStruct := &ShortFlagCmd{}
+	cmd, err := parseCommand(cmdStruct)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if err := cmd.execute(context.Background(), []string{"-name", "Alice"}); err == nil {
+		t.Fatal("expected error for single-dash long flag")
+	} else if !strings.Contains(err.Error(), "long flags must use --name") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if err := cmd.execute(context.Background(), []string{"-name=Alice"}); err == nil {
+		t.Fatal("expected error for single-dash long flag with equals")
+	} else if !strings.Contains(err.Error(), "long flags must use --name") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if err := cmd.execute(context.Background(), []string{"--name", "Alice", "--age", "30"}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cmdStruct.Name != "Alice" || cmdStruct.Age != 30 {
+		t.Fatalf("expected parsed flags, got name=%q age=%d", cmdStruct.Name, cmdStruct.Age)
 	}
 }
 

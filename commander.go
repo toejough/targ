@@ -249,6 +249,7 @@ func (n *CommandNode) execute(ctx context.Context, args []string) error {
 	fs.Usage = func() { printCommandHelp(n) }
 
 	requiredFlags := []requiredFlagGroup{}
+	longNames := map[string]bool{"help": true}
 
 	// Map fields to flags
 	for i := 0; i < n.Type.NumField(); i++ {
@@ -290,6 +291,8 @@ func (n *CommandNode) execute(ctx context.Context, args []string) error {
 				// desc handling...
 			}
 		}
+
+		longNames[name] = true
 
 		if envVar != "" {
 			if val, ok := os.LookupEnv(envVar); ok && val != "" {
@@ -361,6 +364,10 @@ func (n *CommandNode) execute(ctx context.Context, args []string) error {
 				display:    strings.Join(displayParts, "/"),
 			})
 		}
+	}
+
+	if err := validateLongFlagArgs(args, longNames); err != nil {
+		return err
 	}
 
 	if err := fs.Parse(args); err != nil {
@@ -628,6 +635,28 @@ func printCommandHelp(node *CommandNode) {
 	}
 	fs.SetOutput(os.Stdout)
 	fs.PrintDefaults()
+}
+
+func validateLongFlagArgs(args []string, longNames map[string]bool) error {
+	for _, arg := range args {
+		if arg == "--" {
+			return nil
+		}
+		if !strings.HasPrefix(arg, "-") || strings.HasPrefix(arg, "--") || len(arg) <= 2 {
+			continue
+		}
+		name := strings.TrimPrefix(arg, "-")
+		if idx := strings.Index(name, "="); idx >= 0 {
+			name = name[:idx]
+		}
+		if len(name) <= 1 {
+			continue
+		}
+		if longNames[name] {
+			return fmt.Errorf("long flags must use --%s (got -%s)", name, name)
+		}
+	}
+	return nil
 }
 
 // DetectRootCommands filters a list of possible command objects to find those

@@ -236,24 +236,6 @@ Low
 **Acceptance**
 TBD
 
-### 37. require long flags to be --flag instead of -flag
-
-#### Universal
-
-**Status**
-backlog
-
-**Description**
-TBD
-
-#### Planning
-
-**Priority**
-Low
-
-**Acceptance**
-TBD
-
 ### 38. enable combo flags like -abc for -a -b -c
 
 #### Universal
@@ -578,3 +560,18 @@ done
 
 **Description**
 Completion uses `strings.Fields` and breaks for quoted/escaped args.
+
+### 37. require long flags to be --flag instead of -flag
+
+#### Universal
+
+**Status**
+done
+
+**Description**
+Reject single-dash long flags in favor of `--flag`.
+
+#### Implementation Notes
+
+**Details**
+- Validate args before flag parsing and return a clear error when `-flag` is used.
