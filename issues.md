@@ -88,7 +88,7 @@ Load `.env` files to populate env-backed flags.
 Medium
 
 **Acceptance**
-Add `commander.LoadEnv()` or auto-load in `Run()`.
+Add `targs.LoadEnv()` or auto-load in `Run()`.
 
 ### 16. Interactive UI Helpers
 
@@ -146,7 +146,7 @@ Generate into a temp dir with a stable name and support `--keep`.
 
 ---
 
-### 36. add some help for commander itself when running in build-tool mode (add a description)
+### 36. add some help for targs itself when running in build-tool mode (add a description)
 
 #### Universal
 
@@ -263,8 +263,8 @@ Generate wrapper structs for function commands so descriptions are embedded in c
 #### Implementation Notes
 
 **Details**
-- Build tool mode auto-generates `generated_commander_<pkg>.go` with `Name`/`Description`.
-- Direct binaries can opt in via `commander gen` and pass the generated struct to `Run`.
+- Build tool mode auto-generates `generated_targs_<pkg>.go` with `Name`/`Description`.
+- Direct binaries can opt in via `targs gen` and pass the generated struct to `Run`.
 
 ### 10. Custom Type Support (TextUnmarshaler)
 
@@ -299,7 +299,7 @@ Support cancellation/timeouts for long-running tasks.
 - Function commands support `func(context.Context)` and `func(context.Context) error`.
 - Root context is cancelled on SIGINT/SIGTERM in CLI runs.
 
-### 2. Shell Execution Helpers (commander/sh)
+### 2. Shell Execution Helpers (targs/sh)
 
 #### Universal
 
@@ -344,7 +344,7 @@ Allow targets to declare dependencies that run exactly once per execution graph.
 #### Implementation Notes
 
 **Details**
-- Added `commander.Deps` to run dependencies once per CLI execution.
+- Added `targs.Deps` to run dependencies once per CLI execution.
 - Dependencies can be functions or struct command instances.
 
 ### 4. File Modification Checks (target)
@@ -360,7 +360,7 @@ Provide helpers for skipping work when outputs are newer than inputs.
 #### Implementation Notes
 
 **Details**
-- Added `commander.Newer` with tag/glob matching and XDG-backed cache when outputs are omitted.
+- Added `targs.Newer` with tag/glob matching and XDG-backed cache when outputs are omitted.
 
 ### 13. Watch Mode
 
@@ -375,7 +375,7 @@ Watch files and re-run commands on changes.
 #### Implementation Notes
 
 **Details**
-- Added `commander.Watch` with polling, glob matching, and add/remove/modify detection.
+- Added `targs.Watch` with polling, glob matching, and add/remove/modify detection.
 
 ### 5. Error Return Support
 
@@ -421,7 +421,7 @@ Support niladic functions as commands alongside struct-based commands.
 done
 
 **Description**
-Discover commands only in directories containing files with `//go:build commander`.
+Discover commands only in directories containing files with `//go:build targs`.
 
 ### 32. Build Tool Mode Depth Gating
 
@@ -476,7 +476,7 @@ Build tool mode includes exported structs without `Run` or subcommands.
 done
 
 **Description**
-Fields tagged `commander:"positional"` are also registered as flags.
+Fields tagged `targs:"positional"` are also registered as flags.
 
 ### 20. Required Tags Are Not Enforced
 
@@ -486,7 +486,7 @@ Fields tagged `commander:"positional"` are also registered as flags.
 done
 
 **Description**
-`commander:"required"` is parsed but never validated.
+`targs:"required"` is parsed but never validated.
 
 ### 19. Struct Default Values Are Overwritten By Flag Defaults
 
@@ -571,7 +571,7 @@ Cache compiled build tool binaries to avoid `go run` on every invocation.
 #### Implementation Notes
 
 **Details**
-- Build cached executables under `.commander/cache` with a content-based key.
+- Build cached executables under `.targs/cache` with a content-based key.
 - Add `--no-cache` to force rebuild.
 
 ### 26. Invalid Env Defaults Are Silently Ignored

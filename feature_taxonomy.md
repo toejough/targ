@@ -1,4 +1,4 @@
-# Commander Feature Taxonomy
+# Targs Feature Taxonomy
 
 Purpose: a concise, defensible checklist of intended features and scope, organized so we can implement and test with confidence.
 
@@ -39,8 +39,8 @@ Status Notes:
 
 ## Category: Execution Modes (Core)
 
-- Direct binary usage: main calls commander.Run(...) (Core) | Status: Implemented
-- Build Tool Mode: external `commander` binary discovers commands and runs (Core) | Status: Implemented
+- Direct binary usage: main calls targs.Run(...) (Core) | Status: Implemented
+- Build Tool Mode: external `targs` binary discovers commands and runs (Core) | Status: Implemented
 - "Single root" shorthand (no command name) (Essential) | Status: Implemented
 - Multiple root selection by name (Essential) | Status: Implemented
 - Build tool mode discovery by build tag (Core) | Status: Implemented

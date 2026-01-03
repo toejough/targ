@@ -1,8 +1,7 @@
-
 package main
 
 import (
-	"commander"
+	"targs"
 )
 
 func main() {
@@ -14,10 +13,10 @@ func main() {
 		&StagingCmd{},
 		&ProdCmd{},
 	}
-	
+
 	// Filter roots
-	roots := commander.DetectRootCommands(cmds...)
-	
+	roots := targs.DetectRootCommands(cmds...)
+
 	// Run
-	commander.Run(roots...)
+	targs.Run(roots...)
 }

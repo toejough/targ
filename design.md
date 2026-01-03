@@ -1,6 +1,6 @@
-# Commander Technical Design
+# Targs Technical Design
 
-This document describes the intended architecture and behavior for Commander, including direct binary mode and build tool mode, with support for struct- and function-based commands.
+This document describes the intended architecture and behavior for Targs, including direct binary mode and build tool mode, with support for struct- and function-based commands.
 
 ## Goals
 
@@ -18,7 +18,7 @@ This document describes the intended architecture and behavior for Commander, in
 ## Core Concepts
 
 - **Command**: a struct with a `Run()` method, or a niladic function.
-- **Subcommand**: a struct field tagged with `commander:"subcommand"` (or `subcommand=name`).
+- **Subcommand**: a struct field tagged with `targs:"subcommand"` (or `subcommand=name`).
 - **Root**: the top-level command node(s) passed to `Run` or discovered in build tool mode.
 
 ## Behavioral Rules
@@ -31,7 +31,7 @@ This document describes the intended architecture and behavior for Commander, in
 
 ### Build Tool Mode
 
-- Recursively search for directories containing files with `//go:build commander`.
+- Recursively search for directories containing files with `//go:build targs`.
 - Per directory:
   - Enforce a single package name (Go rule); mixed names are an error.
   - Discover exported structs and niladic functions.
@@ -53,7 +53,7 @@ This document describes the intended architecture and behavior for Commander, in
 User
   |
   v
-Commander (library + build tool)
+Targs (library + build tool)
   |
   v
 Go Toolchain (go run/build)
@@ -65,12 +65,12 @@ User Project (tagged files + code)
 ### C4: Container Diagram
 
 ```text
-Container: Build Tool Binary (cmd/commander)
+Container: Build Tool Binary (cmd/targs)
   - discovers tagged files
   - generates bootstrap
   - invokes go toolchain
 
-Container: Commander Library (commander)
+Container: Targs Library (targs)
   - command graph
   - argument parsing
   - execution + help + completion
@@ -82,10 +82,10 @@ Container: Go Toolchain
   - builds/runs the generated program
 ```
 
-### C4: Component Diagram (Commander Library)
+### C4: Component Diagram (Targs Library)
 
 ```text
-Commander Library
+Targs Library
   |-- Discovery
   |     - parseStruct
   |     - parseFunction
@@ -108,39 +108,39 @@ Commander Library
 
 ```text
 User -> main.go: Run(MyCmd)
-main.go -> commander.Run: targets=[MyCmd]
-commander.Run -> parseStruct/parseFunction: build graph
-commander.Run -> execute: parse args + call Run()
+main.go -> targs.Run: targets=[MyCmd]
+targs.Run -> parseStruct/parseFunction: build graph
+targs.Run -> execute: parse args + call Run()
 ```
 
 ### Direct Binary Mode (multiple targets)
 
 ```text
 User -> main.go: Run(Clean, Build)
-commander.Run -> parseStruct/parseFunction: build graph (2 roots)
+targs.Run -> parseStruct/parseFunction: build graph (2 roots)
 User -> binary: "build"
-commander.Run -> execute root "build"
+targs.Run -> execute root "build"
 ```
 
 ### Build Tool Mode (no --multipackage, single depth)
 
 ```text
-User -> commander: run from repo root
-commander -> discover: recursive search for tagged files
+User -> targs: run from repo root
+targs -> discover: recursive search for tagged files
 discover -> depth gate: pick first depth with tagged files
 discover -> parse package dir: exported structs/functions
-commander -> generate bootstrap -> go run .
-bootstrap -> commander.Run: targets=[...]
+targs -> generate bootstrap -> go run .
+bootstrap -> targs.Run: targets=[...]
 ```
 
 ### Build Tool Mode (--multipackage)
 
 ```text
-User -> commander --multipackage
+User -> targs --multipackage
 discover -> recursive search for tagged files
 discover -> collect package dirs (any depth)
 discover -> build package nodes (pkg -> cmds)
-bootstrap -> commander.Run: targets=[pkg1, pkg2...]
+bootstrap -> targs.Run: targets=[pkg1, pkg2...]
 User -> binary: "pkg1 build"
 ```
 
@@ -170,11 +170,11 @@ CommandNode
 ### Build Tool Mode
 
 1) Generate function wrapper structs for exported niladic functions (one file per package):
-   - File name: `generated_commander_<pkg>.go`
+   - File name: `generated_targs_<pkg>.go`
    - Contains `Run`, `Name`, and optional `Description` based on function comments.
-   - Uses the build tag `commander` so the wrappers are only included in build tool mode.
+   - Uses the build tag `targs` so the wrappers are only included in build tool mode.
 2) Recursively walk from start dir.
-3) Collect directories containing files with `//go:build commander`.
+3) Collect directories containing files with `//go:build targs`.
 4) Enforce per-directory package name consistency.
 5) Without `--multipackage`:
    - Find minimum depth with tagged dirs.
@@ -196,19 +196,19 @@ CommandNode
 ```text
 repo/
   mage/
-    build.go      //go:build commander (package build)
-    deploy.go     //go:build commander (package deploy)
+    build.go      //go:build targs (package build)
+    deploy.go     //go:build targs (package deploy)
   tools/
     gen/
-      gen.go      //go:build commander (package gen)
+      gen.go      //go:build targs (package gen)
 ```
 
 ### Commands (Build Tool Mode, --multipackage)
 
 ```text
-$ commander --multipackage build lint
-$ commander --multipackage deploy release
-$ commander --multipackage gen generate
+$ targs --multipackage build lint
+$ targs --multipackage deploy release
+$ targs --multipackage gen generate
 ```
 
 ### Commands (Build Tool Mode, no --multipackage)
@@ -216,14 +216,14 @@ $ commander --multipackage gen generate
 If `repo/mage` is the first depth with tagged files:
 
 ```text
-$ commander build
-$ commander deploy
+$ targs build
+$ targs deploy
 ```
 
 ### Struct + Function Commands
 
 ```go
-//go:build commander
+//go:build targs
 
 package build
 

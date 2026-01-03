@@ -3,26 +3,28 @@ package main
 import "fmt"
 
 type Build struct {
-	Target string `commander:"flag"`
+	Target string `targs:"flag"`
 }
 
 func (b *Build) Run() {
 	fmt.Printf("Building target: %s\n", b.Target)
 }
 
-type Clean struct {}
+type Clean struct{}
 
 func (c *Clean) Run() {
 	fmt.Println("Cleaning...")
 }
 
 type Deploy struct {
-	Staging *StagingCmd `commander:"subcommand"`
-	Prod    *ProdCmd    `commander:"subcommand"`
+	Staging *StagingCmd `targs:"subcommand"`
+	Prod    *ProdCmd    `targs:"subcommand"`
 }
 
-type StagingCmd struct {}
+type StagingCmd struct{}
+
 func (s *StagingCmd) Run() { fmt.Println("Deploying to Staging") }
 
-type ProdCmd struct {}
+type ProdCmd struct{}
+
 func (p *ProdCmd) Run() { fmt.Println("Deploying to Prod") }

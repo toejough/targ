@@ -1,9 +1,9 @@
-# Implementation Plan for Commander
+# Implementation Plan for Targs
 
 ## Phase 1: Core Logic & Discovery (Done)
 - [x] **Define Core Interfaces**: `Command` and `Argument` abstractions (internal).
 - [x] **Reflection Engine**: Logic to inspect `func(struct)` signatures.
-- [x] **Tag Parsing**: `commander:"required, desc=..."`.
+- [x] **Tag Parsing**: `targs:"required, desc=..."`.
 
 ## Phase 2: Argument Parsing & Execution (Done)
 - [x] **Flag Parsing**: `flag` package integration.
