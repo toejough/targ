@@ -200,6 +200,23 @@ func TestStructDefaults_EnvOverrides(t *testing.T) {
 	}
 }
 
+func TestStructDefaults_InvalidEnvValues(t *testing.T) {
+	cmdStruct := &DefaultEnvArgs{}
+	cmd, err := parseCommand(cmdStruct)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	os.Setenv("TEST_DEFAULT_COUNT", "nope")
+	defer os.Unsetenv("TEST_DEFAULT_COUNT")
+
+	if err := cmd.execute(context.Background(), []string{}); err == nil {
+		t.Fatal("expected error for invalid env value")
+	} else if !strings.Contains(err.Error(), "TEST_DEFAULT_COUNT") {
+		t.Fatalf("expected error to mention env var, got: %v", err)
+	}
+}
+
 type UnexportedFlag struct {
 	hidden string `commander:"flag"`
 }

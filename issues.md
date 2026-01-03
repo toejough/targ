@@ -144,24 +144,6 @@ Low
 **Acceptance**
 Add `target.Checksum(srcs, dest)`.
 
-### 26. Invalid Env Defaults Are Silently Ignored
-
-#### Universal
-
-**Status**
-backlog
-
-**Description**
-Invalid env values for int/bool silently fall back to zero/false.
-
-#### Planning
-
-**Priority**
-Low
-
-**Acceptance**
-Validate env parsing and surface errors or warnings.
-
 ### 29. Temporary Generated Main File Handling
 
 #### Universal
@@ -219,6 +201,78 @@ Low
 TBD
 
 ### 38. enable combo flags like -abc for -a -b -c
+
+#### Universal
+
+**Status**
+backlog
+
+**Description**
+TBD
+
+#### Planning
+
+**Priority**
+Low
+
+**Acceptance**
+TBD
+
+### 39. issues tasks need descriptions, and better usage strings, and some kind of list of what valid options are for the inputs where those are known & limited (like for status filtering)
+
+#### Universal
+
+**Status**
+backlog
+
+**Description**
+TBD
+
+#### Planning
+
+**Priority**
+Low
+
+**Acceptance**
+TBD
+
+### 40. help still shows single - flags
+
+#### Universal
+
+**Status**
+backlog
+
+**Description**
+TBD
+
+#### Planning
+
+**Priority**
+Low
+
+**Acceptance**
+TBD
+
+### 41. help formatting shouldn't have double spaces between flags
+
+#### Universal
+
+**Status**
+backlog
+
+**Description**
+TBD
+
+#### Planning
+
+**Priority**
+Low
+
+**Acceptance**
+TBD
+
+### 42. the issues list command doesn't have column headers, and seems to have a duplicate second and third column
 
 #### Universal
 
@@ -573,3 +627,18 @@ Cache compiled build tool binaries to avoid `go run` on every invocation.
 **Details**
 - Build cached executables under `.commander/cache` with a content-based key.
 - Add `--no-cache` to force rebuild.
+
+### 26. Invalid Env Defaults Are Silently Ignored
+
+#### Universal
+
+**Status**
+done
+
+**Description**
+Invalid env values for int/bool silently fall back to zero/false.
+
+#### Implementation Notes
+
+**Details**
+- Validate env-backed defaults and return a clear error on invalid values.

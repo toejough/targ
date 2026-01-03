@@ -7,6 +7,7 @@ import (
 	"os"
 	"reflect"
 	"sort"
+	"strconv"
 	"strings"
 	"unicode"
 )
@@ -306,11 +307,17 @@ func (n *CommandNode) execute(ctx context.Context, args []string) error {
 		}
 
 		fieldVal := inst.Field(i)
+		defaultSource := ""
+		if envSet {
+			defaultSource = "env " + envVar
+		} else if defaultSet {
+			defaultSource = "default tag"
+		}
 
 		if setter, ok := customSetter(fieldVal); ok {
 			if defaultSet {
 				if err := setter(defaultValue); err != nil {
-					return err
+					return fmt.Errorf("invalid value for --%s from %s: %q", name, defaultSource, defaultValue)
 				}
 			}
 			value := &stringFlagValue{
@@ -330,8 +337,12 @@ func (n *CommandNode) execute(ctx context.Context, args []string) error {
 				}
 			case reflect.Int:
 				intVal := 0
-				if defaultValue != "" {
-					fmt.Sscanf(defaultValue, "%d", &intVal)
+				if defaultSet {
+					parsed, err := strconv.Atoi(defaultValue)
+					if err != nil {
+						return fmt.Errorf("invalid value for --%s from %s: %q", name, defaultSource, defaultValue)
+					}
+					intVal = parsed
 				}
 				fs.IntVar(fieldVal.Addr().Interface().(*int), name, intVal, usage)
 				if shortName != "" {
@@ -340,8 +351,12 @@ func (n *CommandNode) execute(ctx context.Context, args []string) error {
 			case reflect.Bool:
 				// Bool env var handling
 				boolVal := false
-				if defaultValue == "true" || defaultValue == "1" {
-					boolVal = true
+				if defaultSet {
+					parsed, err := strconv.ParseBool(defaultValue)
+					if err != nil {
+						return fmt.Errorf("invalid value for --%s from %s: %q", name, defaultSource, defaultValue)
+					}
+					boolVal = parsed
 				}
 				fs.BoolVar(fieldVal.Addr().Interface().(*bool), name, boolVal, usage)
 				if shortName != "" {
