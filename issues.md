@@ -200,7 +200,7 @@ Low
 **Acceptance**
 TBD
 
-### 41. help formatting shouldn't have double spaces between flags
+### 43. Investigate markdown parsers for issuefile
 
 #### Universal
 
@@ -208,7 +208,7 @@ TBD
 backlog
 
 **Description**
-TBD
+Evaluate third-party markdown parsers (e.g., goldmark) to replace or augment the manual issuefile parser.
 
 #### Planning
 
@@ -216,25 +216,7 @@ TBD
 Low
 
 **Acceptance**
-TBD
-
-### 42. the issues list command doesn't have column headers, and seems to have a duplicate second and third column
-
-#### Universal
-
-**Status**
-backlog
-
-**Description**
-TBD
-
-#### Planning
-
-**Priority**
-Low
-
-**Acceptance**
-TBD
+Shortlist parsers and document tradeoffs; decide whether to keep manual parser.
 
 ## Done
 
@@ -642,3 +624,43 @@ TBD
 
 **Details**
 Render help output with --long (and -s where set) and skip positional fields in flag lists.
+
+### 42. the issues list command doesn't have column headers, and seems to have a duplicate second and third column
+
+#### Universal
+
+**Status**
+done
+
+**Description**
+Issues list output should include headers and avoid duplicate columns.
+
+#### Planning
+
+**Priority**
+Low
+
+**Acceptance**
+TBD
+
+
+**Details**
+List now emits ID, Status, Title and removes the section filter/column.
+
+### 41. help formatting shouldn't have double spaces between flags
+
+#### Universal
+
+**Status**
+done
+
+**Description**
+TBD
+
+#### Planning
+
+**Priority**
+Low
+
+**Acceptance**
+TBD
