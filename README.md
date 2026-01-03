@@ -253,6 +253,20 @@ if !needs {
 
 When outputs are empty, `Newer` compares the current matches and modtimes to a cached snapshot stored in the XDG cache directory.
 
+Use `target.Checksum` to skip work when file contents are unchanged:
+
+```go
+import "targs/target"
+
+changed, err := target.Checksum([]string{"**/*.go"}, ".targs/cache/build.sum")
+if err != nil {
+    return err
+}
+if !changed {
+    return nil
+}
+```
+
 ## Watch Mode
 
 Use `targs.Watch` to react to file additions, removals, and modifications:
