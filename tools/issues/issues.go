@@ -14,10 +14,10 @@ import (
 )
 
 type List struct {
-	File    string `commander:"flag,default=issues.md"`
-	Status  string `commander:"flag"`
-	Section string `commander:"flag"`
-	Query   string `commander:"flag"`
+	File    string `commander:"flag,default=issues.md,desc=Issue file to read"`
+	Status  string `commander:"flag,desc=Filter by status,enum=backlog|selected|in-progress|review|done|cancelled|blocked"`
+	Section string `commander:"flag,desc=Filter by section,enum=backlog|done"`
+	Query   string `commander:"flag,desc=Case-insensitive title filter"`
 }
 
 func (c *List) Run() error {
@@ -27,11 +27,13 @@ func (c *List) Run() error {
 	}
 	_ = file
 	var filtered []issuefile.Issue
+	wantStatus := normalizeStatus(c.Status)
 	for _, issue := range issues {
+		issueStatus := normalizeStatus(issue.Status)
 		if c.Section != "" && !strings.EqualFold(issue.Section, c.Section) {
 			continue
 		}
-		if c.Status != "" && !strings.EqualFold(issue.Status, c.Status) {
+		if wantStatus != "" && !strings.EqualFold(issueStatus, wantStatus) {
 			continue
 		}
 		if c.Query != "" && !strings.Contains(strings.ToLower(issue.Title), strings.ToLower(c.Query)) {
@@ -49,9 +51,9 @@ func (c *List) Run() error {
 }
 
 type Move struct {
-	File   string `commander:"flag,default=issues.md"`
+	File   string `commander:"flag,default=issues.md,desc=Issue file to update"`
 	ID     int    `commander:"positional,required"`
-	Status string `commander:"flag,required"`
+	Status string `commander:"flag,required,desc=New status,enum=backlog|selected|in-progress|review|done|cancelled|blocked"`
 }
 
 func (c *Move) Run() error {
@@ -64,12 +66,13 @@ func (c *Move) Run() error {
 	if issue == nil {
 		return fmt.Errorf("issue %d not found", c.ID)
 	}
+	status := normalizeStatus(c.Status)
 	block := issuefile.IssueBlockLines(file.Lines, *issue)
-	block = issuefile.UpdateStatus(block, c.Status)
+	block = issuefile.UpdateStatus(block, status)
 	file.Remove(*issue)
 
 	section := "backlog"
-	if strings.EqualFold(c.Status, "done") {
+	if strings.EqualFold(status, "done") {
 		section = "done"
 	}
 	if err := file.Insert(section, block); err != nil {
@@ -80,7 +83,7 @@ func (c *Move) Run() error {
 }
 
 type Dedupe struct {
-	File string `commander:"flag,default=issues.md"`
+	File string `commander:"flag,default=issues.md,desc=Issue file to update"`
 }
 
 func (c *Dedupe) Run() error {
@@ -106,7 +109,7 @@ func (c *Dedupe) Run() error {
 }
 
 type Validate struct {
-	File string `commander:"flag,default=issues.md"`
+	File string `commander:"flag,default=issues.md,desc=Issue file to validate"`
 }
 
 func (c *Validate) Run() error {
@@ -133,12 +136,12 @@ func (c *Validate) Run() error {
 }
 
 type Create struct {
-	File        string `commander:"flag,default=issues.md"`
-	Title       string `commander:"flag,required"`
-	Status      string `commander:"flag,default=backlog"`
-	Description string `commander:"flag,default=TBD"`
-	Priority    string `commander:"flag,default=Low"`
-	Acceptance  string `commander:"flag,default=TBD"`
+	File        string `commander:"flag,default=issues.md,desc=Issue file to update"`
+	Title       string `commander:"flag,required,desc=Issue title"`
+	Status      string `commander:"flag,default=backlog,desc=Initial status,enum=backlog|selected|in-progress|review|done|cancelled|blocked"`
+	Description string `commander:"flag,default=TBD,desc=Issue description"`
+	Priority    string `commander:"flag,default=Low,desc=Priority,enum=low|medium|high"`
+	Acceptance  string `commander:"flag,default=TBD,desc=Acceptance criteria"`
 }
 
 func (c *Create) Run() error {
@@ -154,13 +157,15 @@ func (c *Create) Run() error {
 	}
 	newID := maxID + 1
 
+	status := normalizeStatus(c.Status)
+	priority := normalizePriority(c.Priority)
 	block := []string{
 		fmt.Sprintf("### %d. %s", newID, c.Title),
 		"",
 		"#### Universal",
 		"",
 		"**Status**",
-		strings.ToLower(c.Status),
+		status,
 		"",
 		"**Description**",
 		c.Description,
@@ -168,14 +173,14 @@ func (c *Create) Run() error {
 		"#### Planning",
 		"",
 		"**Priority**",
-		c.Priority,
+		priority,
 		"",
 		"**Acceptance**",
 		c.Acceptance,
 	}
 
 	section := "backlog"
-	if strings.EqualFold(c.Status, "done") {
+	if strings.EqualFold(status, "done") {
 		section = "done"
 	}
 	if err := content.Insert(section, block); err != nil {
@@ -201,4 +206,28 @@ func writeIssues(path string, lines []string) error {
 		return err
 	}
 	return os.WriteFile(path, []byte(strings.Join(lines, "\n")), 0644)
+}
+
+func normalizeStatus(status string) string {
+	normalized := strings.ToLower(strings.TrimSpace(status))
+	switch normalized {
+	case "in-progress", "in_progress", "inprogress":
+		return "in progress"
+	default:
+		return normalized
+	}
+}
+
+func normalizePriority(priority string) string {
+	normalized := strings.ToLower(strings.TrimSpace(priority))
+	switch normalized {
+	case "high":
+		return "High"
+	case "medium":
+		return "Medium"
+	case "low":
+		return "Low"
+	default:
+		return priority
+	}
 }
