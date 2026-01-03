@@ -213,7 +213,13 @@ func main() {
 		fmt.Printf("Error gathering tagged files: %v\n", err)
 		os.Exit(1)
 	}
-	cacheKey, err := computeCacheKey(modulePath, moduleRoot, "commander", buf.Bytes(), taggedFiles)
+	moduleFiles, err := collectModuleFiles(moduleRoot)
+	if err != nil {
+		fmt.Printf("Error gathering module files: %v\n", err)
+		os.Exit(1)
+	}
+	cacheInputs := append(taggedFiles, moduleFiles...)
+	cacheKey, err := computeCacheKey(modulePath, moduleRoot, "commander", buf.Bytes(), cacheInputs)
 	if err != nil {
 		fmt.Printf("Error computing cache key: %v\n", err)
 		os.Exit(1)
@@ -562,6 +568,38 @@ func computeCacheKey(modulePath string, moduleRoot string, buildTag string, boot
 		hasher.Write([]byte{0})
 	}
 	return fmt.Sprintf("%x", hasher.Sum(nil)), nil
+}
+
+func collectModuleFiles(moduleRoot string) ([]buildtool.TaggedFile, error) {
+	var files []buildtool.TaggedFile
+	err := filepath.WalkDir(moduleRoot, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			name := entry.Name()
+			if name == ".git" || name == ".commander" || name == "vendor" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(entry.Name(), ".go") || strings.HasSuffix(entry.Name(), "_test.go") {
+			return nil
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		files = append(files, buildtool.TaggedFile{
+			Path:    path,
+			Content: data,
+		})
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return files, nil
 }
 
 const bootstrapTemplate = `
