@@ -36,24 +36,6 @@ Low
 **Acceptance**
 Provide a `ui` package for common prompts.
 
-### 36. add some help for targs itself when running in build-tool mode (add a description)
-
-#### Universal
-
-**Status**
-backlog
-
-**Description**
-Fish completion script does not match current flag syntax.
-
-#### Planning
-
-**Priority**
-Low
-
-**Acceptance**
-TBD
-
 ### 38. enable combo flags like -abc for -a -b -c
 
 #### Universal
@@ -700,3 +682,21 @@ Low
 
 **Acceptance**
 Add `target.Checksum(srcs, dest)`.
+
+### 36. add some help for targs itself when running in build-tool mode (add a description)
+
+#### Universal
+
+**Status**
+done
+
+**Description**
+Fish completion script does not match current flag syntax.
+
+#### Planning
+
+**Priority**
+Low
+
+**Acceptance**
+TBD
