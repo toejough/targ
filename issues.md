@@ -190,25 +190,7 @@ TBD
 backlog
 
 **Description**
-TBD
-
-#### Planning
-
-**Priority**
-Low
-
-**Acceptance**
-TBD
-
-### 39. issues tasks need descriptions, and better usage strings, and some kind of list of what valid options are for the inputs where those are known & limited (like for status filtering)
-
-#### Universal
-
-**Status**
-backlog
-
-**Description**
-TBD
+Fish completion script does not match current flag syntax.
 
 #### Planning
 
@@ -226,7 +208,7 @@ TBD
 backlog
 
 **Description**
-TBD
+Fish completion script does not match current flag syntax.
 
 #### Planning
 
@@ -640,3 +622,19 @@ TBD
 **Details**
 - Use `--completion` flag and fix long/short flag suggestions in completion.
 - Support enum value completion with `enum=` tags.
+
+### 39. issues tasks need descriptions, and better usage strings, and some kind of list of what valid options are for the inputs where those are known & limited (like for status filtering)
+
+#### Universal
+
+**Status**
+done
+
+**Description**
+TBD
+
+#### Implementation Notes
+
+**Details**
+- Add flag descriptions and enum value lists to issues commands.
+- Normalize status/priorities and align filtering with documented options.
