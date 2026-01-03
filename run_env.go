@@ -104,7 +104,9 @@ func runWithEnv(env runEnv, opts RunOptions, targets ...interface{}) {
 			if idx := strings.LastIndex(binName, "\\"); idx != -1 {
 				binName = binName[idx+1:]
 			}
-			generateCompletionScript(shell, binName)
+			if err := PrintCompletionScript(shell, binName); err != nil {
+				env.Printf("Unsupported shell: %s. Supported: bash, zsh, fish\n", shell)
+			}
 			return nil
 		}
 

@@ -15,6 +15,7 @@ import (
 	"text/template"
 	"unicode/utf8"
 
+	"commander"
 	"commander/buildtool"
 )
 
@@ -62,11 +63,13 @@ func main() {
 
 	var multiPackage bool
 	var noCache bool
+	var completionShell string
 
 	fs := flag.NewFlagSet("commander", flag.ContinueOnError)
 	fs.BoolVar(&multiPackage, "multipackage", false, "enable multipackage mode (recursive package-scoped discovery)")
 	fs.BoolVar(&multiPackage, "m", false, "alias for --multipackage")
 	fs.BoolVar(&noCache, "no-cache", false, "disable cached build tool binaries")
+	fs.StringVar(&completionShell, "completion", "", "print shell completion (bash|zsh|fish)")
 	fs.Usage = func() {
 		fmt.Fprintln(os.Stdout, "Usage: commander [--multipackage|-m] [--no-cache] [args]")
 		fmt.Fprintln(os.Stdout, "")
@@ -76,11 +79,27 @@ func main() {
 		fmt.Fprintln(os.Stdout, "  --completion [bash|zsh|fish]")
 	}
 	fs.SetOutput(os.Stdout)
-	parseArgs := make([]string, 0, len(os.Args[1:]))
-	for _, arg := range os.Args[1:] {
+	rawArgs := os.Args[1:]
+	parseArgs := make([]string, 0, len(rawArgs))
+	completionRequested := false
+	for i := 0; i < len(rawArgs); i++ {
+		arg := rawArgs[i]
 		if arg == "--multipackage" {
 			parseArgs = append(parseArgs, "-multipackage")
 			continue
+		}
+		if arg == "--completion" {
+			completionRequested = true
+			shell := ""
+			if i+1 < len(rawArgs) && !strings.HasPrefix(rawArgs[i+1], "-") {
+				shell = rawArgs[i+1]
+				i++
+			}
+			parseArgs = append(parseArgs, "-completion="+shell)
+			continue
+		}
+		if strings.HasPrefix(arg, "--completion=") {
+			completionRequested = true
 		}
 		parseArgs = append(parseArgs, arg)
 	}
@@ -88,6 +107,28 @@ func main() {
 		os.Exit(1)
 	}
 	args := fs.Args()
+
+	if completionRequested {
+		if completionShell == "" {
+			completionShell = detectShell()
+		}
+		if completionShell == "" {
+			fmt.Fprintln(os.Stderr, "Usage: --completion [bash|zsh|fish]")
+			os.Exit(1)
+		}
+		binName := os.Args[0]
+		if idx := strings.LastIndex(binName, "/"); idx != -1 {
+			binName = binName[idx+1:]
+		}
+		if idx := strings.LastIndex(binName, "\\"); idx != -1 {
+			binName = binName[idx+1:]
+		}
+		if err := commander.PrintCompletionScript(completionShell, binName); err != nil {
+			fmt.Fprintf(os.Stderr, "Unsupported shell: %s. Supported: bash, zsh, fish\n", completionShell)
+			os.Exit(1)
+		}
+		return
+	}
 
 	startDir, err := os.Getwd()
 	if err != nil {
@@ -279,6 +320,26 @@ func parseModulePath(content string) string {
 		}
 	}
 	return ""
+}
+
+func detectShell() string {
+	shell := strings.TrimSpace(os.Getenv("SHELL"))
+	if shell == "" {
+		return ""
+	}
+	base := shell
+	if idx := strings.LastIndex(base, "/"); idx != -1 {
+		base = base[idx+1:]
+	}
+	if idx := strings.LastIndex(base, "\\"); idx != -1 {
+		base = base[idx+1:]
+	}
+	switch base {
+	case "bash", "zsh", "fish":
+		return base
+	default:
+		return ""
+	}
 }
 
 func printMultiPackageError(startDir string, multiErr *buildtool.MultipleTaggedDirsError) error {

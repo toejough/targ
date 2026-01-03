@@ -270,8 +270,8 @@ func enumValuesForArg(node *CommandNode, args []string, prefix string, isNewArg 
 	return nil, false
 }
 
-// generateCompletionScript prints the shell script.
-func generateCompletionScript(shell string, binName string) {
+// PrintCompletionScript prints a shell completion script for the given shell.
+func PrintCompletionScript(shell string, binName string) error {
 	switch shell {
 	case "bash":
 		fmt.Printf(_bashCompletion, binName, binName)
@@ -280,8 +280,9 @@ func generateCompletionScript(shell string, binName string) {
 	case "fish":
 		fmt.Printf(_fishCompletion, binName, binName)
 	default:
-		fmt.Printf("Unsupported shell: %s. Supported: bash, zsh, fish\n", shell)
+		return fmt.Errorf("unsupported shell: %s", shell)
 	}
+	return nil
 }
 
 // Simplified templates
