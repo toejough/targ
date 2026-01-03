@@ -162,24 +162,6 @@ Low
 **Acceptance**
 Validate env parsing and surface errors or warnings.
 
-### 28. Build Tool Mode Compiled Binary Cache
-
-#### Universal
-
-**Status**
-backlog
-
-**Description**
-Cache compiled build tool binaries to avoid `go run` on every invocation.
-
-#### Planning
-
-**Priority**
-Medium
-
-**Acceptance**
-Generate a cache key and reuse the compiled executable when valid.
-
 ### 29. Temporary Generated Main File Handling
 
 #### Universal
@@ -575,3 +557,19 @@ Reject single-dash long flags in favor of `--flag`.
 
 **Details**
 - Validate args before flag parsing and return a clear error when `-flag` is used.
+
+### 28. Build Tool Mode Compiled Binary Cache
+
+#### Universal
+
+**Status**
+done
+
+**Description**
+Cache compiled build tool binaries to avoid `go run` on every invocation.
+
+#### Implementation Notes
+
+**Details**
+- Build cached executables under `.commander/cache` with a content-based key.
+- Add `--no-cache` to force rebuild.

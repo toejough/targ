@@ -90,6 +90,7 @@ Build tool mode rules:
 - Without `--multipackage`, Commander selects the shallowest tagged directory; if multiple exist at that depth, it errors.
 - With `--multipackage`, package names are always inserted as the first subcommand.
 - Build tool mode never has a default command.
+- `--no-cache` forces rebuilding the build tool binary.
 
 Example layout:
 
