@@ -9,7 +9,7 @@ import (
 	"commander/buildtool"
 )
 
-func TestBuildBootstrapData_NoPackageGrouping_Local(t *testing.T) {
+func TestBuildBootstrapData_SinglePackage_Local(t *testing.T) {
 	infos := []buildtool.PackageInfo{
 		{
 			Dir:     "/repo/app",
@@ -23,17 +23,17 @@ func TestBuildBootstrapData_NoPackageGrouping_Local(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if data.PackageGrouping {
-		t.Fatal("expected package grouping to be false")
+	if data.MultiPackage {
+		t.Fatal("expected multipackage to be false")
 	}
-	if !data.UsePackageWrapper {
-		t.Fatal("expected package wrapper for single package")
+	if data.UsePackageWrapper {
+		t.Fatal("expected no package wrapper for single package")
 	}
-	if !data.AllowDefault {
-		t.Fatal("expected AllowDefault for single package")
+	if data.AllowDefault {
+		t.Fatal("expected AllowDefault to be false for build-tool mode")
 	}
-	if len(data.Targets) != 0 {
-		t.Fatalf("expected no targets when package wrapper is used, got %v", data.Targets)
+	if len(data.Targets) != 2 {
+		t.Fatalf("expected 2 targets, got %v", data.Targets)
 	}
 	if len(data.Packages) != 1 {
 		t.Fatalf("expected 1 package, got %d", len(data.Packages))
@@ -47,7 +47,7 @@ func TestBuildBootstrapData_NoPackageGrouping_Local(t *testing.T) {
 	}
 }
 
-func TestBuildBootstrapData_PackageGrouping_Remote(t *testing.T) {
+func TestBuildBootstrapData_MultiPackage_Remote(t *testing.T) {
 	infos := []buildtool.PackageInfo{
 		{
 			Dir:     "/repo/pkg1",
@@ -66,8 +66,8 @@ func TestBuildBootstrapData_PackageGrouping_Remote(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !data.PackageGrouping {
-		t.Fatal("expected package grouping to be true")
+	if !data.MultiPackage {
+		t.Fatal("expected multipackage to be true")
 	}
 	if !data.UsePackageWrapper {
 		t.Fatal("expected package wrapper for package grouping")
@@ -97,7 +97,7 @@ func TestBuildBootstrapData_PackageGrouping_Remote(t *testing.T) {
 	}
 }
 
-func TestBootstrapTemplate_NoPackageGrouping(t *testing.T) {
+func TestBootstrapTemplate_SinglePackage(t *testing.T) {
 	infos := []buildtool.PackageInfo{
 		{
 			Dir:     "/repo/app",
@@ -111,15 +111,15 @@ func TestBootstrapTemplate_NoPackageGrouping(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	rendered := renderBootstrap(t, data)
-	if !strings.Contains(rendered, "type App struct") {
-		t.Fatalf("expected package wrapper type in template, got:\n%s", rendered)
+	if strings.Contains(rendered, "type App struct") {
+		t.Fatalf("did not expect package wrapper type in template, got:\n%s", rendered)
 	}
-	if !strings.Contains(rendered, "RunWithOptions(commander.RunOptions{AllowDefault: true}") {
+	if !strings.Contains(rendered, "RunWithOptions(commander.RunOptions{AllowDefault: false}") {
 		t.Fatalf("expected RunWithOptions in template, got:\n%s", rendered)
 	}
 }
 
-func TestBootstrapTemplate_PackageGrouping(t *testing.T) {
+func TestBootstrapTemplate_MultiPackage(t *testing.T) {
 	infos := []buildtool.PackageInfo{
 		{
 			Dir:     "/repo/pkg1",

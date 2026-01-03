@@ -50,9 +50,9 @@ func Hi() {}
 	}
 }
 
-func TestSelectTaggedDirs_PackageGroupingReturnsAllDirs(t *testing.T) {
+func TestSelectTaggedDirs_MultiPackageReturnsAllDirs(t *testing.T) {
 	fsMock := MockFileSystem(t)
-	opts := Options{StartDir: "/root", PackageGrouping: true}
+	opts := Options{StartDir: "/root", MultiPackage: true}
 	done := make(chan struct{})
 	var (
 		dirs []TaggedDir

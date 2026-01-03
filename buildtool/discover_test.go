@@ -305,9 +305,9 @@ func Bad() int { return 1 }
 	}
 }
 
-func TestDiscover_PackageGroupingAllowsMultipleDirs(t *testing.T) {
+func TestDiscover_MultiPackageAllowsMultipleDirs(t *testing.T) {
 	fsMock := MockFileSystem(t)
-	opts := Options{StartDir: "/root", PackageGrouping: true}
+	opts := Options{StartDir: "/root", MultiPackage: true}
 	done := make(chan struct{})
 	var (
 		infos []PackageInfo

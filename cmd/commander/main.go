@@ -2,11 +2,13 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"text/template"
@@ -38,7 +40,7 @@ type bootstrapImport struct {
 }
 
 type bootstrapData struct {
-	PackageGrouping   bool
+	MultiPackage      bool
 	UsePackageWrapper bool
 	AllowDefault      bool
 	Imports           []bootstrapImport
@@ -55,22 +57,22 @@ func main() {
 		return
 	}
 
-	var packageGrouping bool
+	var multiPackage bool
 
 	fs := flag.NewFlagSet("commander", flag.ContinueOnError)
-	fs.BoolVar(&packageGrouping, "package", false, "group commands under package name (recursive package-scoped discovery)")
-	fs.BoolVar(&packageGrouping, "p", false, "alias for --package")
+	fs.BoolVar(&multiPackage, "multipackage", false, "enable multipackage mode (recursive package-scoped discovery)")
+	fs.BoolVar(&multiPackage, "m", false, "alias for --multipackage")
 	fs.Usage = func() {
-		fmt.Fprintln(os.Stdout, "Usage: commander [--package|-p] [args]")
+		fmt.Fprintln(os.Stdout, "Usage: commander [--multipackage|-m] [args]")
 		fmt.Fprintln(os.Stdout, "")
 		fmt.Fprintln(os.Stdout, "Flags:")
-		fmt.Fprintln(os.Stdout, "  --package, -p    group commands under package name (recursive package-scoped discovery)")
+		fmt.Fprintln(os.Stdout, "  --multipackage, -m    enable multipackage mode (recursive package-scoped discovery)")
 	}
 	fs.SetOutput(os.Stdout)
 	parseArgs := make([]string, 0, len(os.Args[1:]))
 	for _, arg := range os.Args[1:] {
-		if arg == "--package" {
-			parseArgs = append(parseArgs, "-package")
+		if arg == "--multipackage" {
+			parseArgs = append(parseArgs, "-multipackage")
 			continue
 		}
 		parseArgs = append(parseArgs, arg)
@@ -87,11 +89,17 @@ func main() {
 	}
 
 	taggedDirs, err := buildtool.SelectTaggedDirs(buildtool.OSFileSystem{}, buildtool.Options{
-		StartDir:        startDir,
-		PackageGrouping: packageGrouping,
-		BuildTag:        "commander",
+		StartDir:     startDir,
+		MultiPackage: multiPackage,
+		BuildTag:     "commander",
 	})
 	if err != nil {
+		var multiErr *buildtool.MultipleTaggedDirsError
+		if errors.As(err, &multiErr) {
+			if err := printMultiPackageError(startDir, multiErr); err == nil {
+				os.Exit(1)
+			}
+		}
 		fmt.Printf("Error discovering commands: %v\n", err)
 		os.Exit(1)
 	}
@@ -108,11 +116,17 @@ func main() {
 	}
 
 	infos, err := buildtool.Discover(buildtool.OSFileSystem{}, buildtool.Options{
-		StartDir:        startDir,
-		PackageGrouping: packageGrouping,
-		BuildTag:        "commander",
+		StartDir:     startDir,
+		MultiPackage: multiPackage,
+		BuildTag:     "commander",
 	})
 	if err != nil {
+		var multiErr *buildtool.MultipleTaggedDirsError
+		if errors.As(err, &multiErr) {
+			if err := printMultiPackageError(startDir, multiErr); err == nil {
+				os.Exit(1)
+			}
+		}
 		fmt.Printf("Error discovering commands: %v\n", err)
 		os.Exit(1)
 	}
@@ -123,7 +137,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	data, err := buildBootstrapData(infos, startDir, moduleRoot, modulePath, packageGrouping)
+	data, err := buildBootstrapData(infos, startDir, moduleRoot, modulePath, multiPackage)
 	if err != nil {
 		fmt.Printf("Error preparing bootstrap: %v\n", err)
 		os.Exit(1)
@@ -221,12 +235,44 @@ func parseModulePath(content string) string {
 	return ""
 }
 
+func printMultiPackageError(startDir string, multiErr *buildtool.MultipleTaggedDirsError) error {
+	infos, err := buildtool.Discover(buildtool.OSFileSystem{}, buildtool.Options{
+		StartDir:     startDir,
+		MultiPackage: true,
+		BuildTag:     "commander",
+	})
+	if err != nil {
+		return err
+	}
+	byPath := make(map[string]buildtool.PackageInfo, len(infos))
+	for _, info := range infos {
+		byPath[info.Dir] = info
+	}
+
+	paths := append([]string(nil), multiErr.Paths...)
+	sort.Strings(paths)
+
+	fmt.Println("Error: multiple packages found. Please run again from a directory tree that only includes one,")
+	fmt.Println("  or run again with `--multipackage`")
+	fmt.Println("")
+	for _, path := range paths {
+		pkg := "<unknown>"
+		if info, ok := byPath[path]; ok {
+			pkg = info.Package
+		}
+		fmt.Printf("  tasks found in package %q at %q\n", pkg, path)
+	}
+	fmt.Println("")
+	fmt.Println("For more information, run `commander --help`.")
+	return nil
+}
+
 func buildBootstrapData(
 	infos []buildtool.PackageInfo,
 	startDir string,
 	moduleRoot string,
 	modulePath string,
-	packageGrouping bool,
+	multiPackage bool,
 ) (bootstrapData, error) {
 	absStart, err := filepath.Abs(startDir)
 	if err != nil {
@@ -237,7 +283,7 @@ func buildBootstrapData(
 	var packages []bootstrapPackage
 	var targets []string
 	seenPackages := make(map[string]string)
-	usePackageWrapper := packageGrouping || (!packageGrouping && len(infos) == 1)
+	usePackageWrapper := multiPackage
 
 	for _, info := range infos {
 		if len(info.Structs) == 0 && len(info.Funcs) == 0 {
@@ -306,9 +352,9 @@ func buildBootstrapData(
 		}
 	}
 
-	allowDefault := usePackageWrapper && len(infos) == 1 && !packageGrouping
+	allowDefault := false
 	return bootstrapData{
-		PackageGrouping:   packageGrouping,
+		MultiPackage:      multiPackage,
 		UsePackageWrapper: usePackageWrapper,
 		AllowDefault:      allowDefault,
 		Imports:           imports,

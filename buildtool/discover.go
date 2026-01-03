@@ -37,9 +37,9 @@ func (OSFileSystem) WriteFile(name string, data []byte, perm fs.FileMode) error 
 }
 
 type Options struct {
-	StartDir        string
-	PackageGrouping bool
-	BuildTag        string
+	StartDir     string
+	MultiPackage bool
+	BuildTag     string
 }
 
 type TaggedDir struct {
@@ -70,6 +70,15 @@ var (
 	ErrNoTaggedFiles = errors.New("no tagged files found")
 )
 
+type MultipleTaggedDirsError struct {
+	Depth int
+	Paths []string
+}
+
+func (e *MultipleTaggedDirsError) Error() string {
+	return fmt.Sprintf("multiple tagged directories at depth %d: %s", e.Depth, strings.Join(e.Paths, ", "))
+}
+
 func Discover(fs FileSystem, opts Options) ([]PackageInfo, error) {
 	startDir := opts.StartDir
 	if startDir == "" {
@@ -84,7 +93,7 @@ func Discover(fs FileSystem, opts Options) ([]PackageInfo, error) {
 	if err != nil {
 		return nil, err
 	}
-	selected, err := selectTaggedDirs(dirs, opts.PackageGrouping)
+	selected, err := selectTaggedDirs(dirs, opts.MultiPackage)
 	if err != nil {
 		return nil, err
 	}
@@ -120,7 +129,7 @@ func SelectTaggedDirs(fs FileSystem, opts Options) ([]TaggedDir, error) {
 	if err != nil {
 		return nil, err
 	}
-	selected, err := selectTaggedDirs(dirs, opts.PackageGrouping)
+	selected, err := selectTaggedDirs(dirs, opts.MultiPackage)
 	if err != nil {
 		return nil, err
 	}
@@ -132,11 +141,11 @@ func SelectTaggedDirs(fs FileSystem, opts Options) ([]TaggedDir, error) {
 	return paths, nil
 }
 
-func selectTaggedDirs(dirs []taggedDir, packageGrouping bool) ([]taggedDir, error) {
+func selectTaggedDirs(dirs []taggedDir, multiPackage bool) ([]taggedDir, error) {
 	if len(dirs) == 0 {
 		return nil, ErrNoTaggedFiles
 	}
-	if packageGrouping {
+	if multiPackage {
 		return dirs, nil
 	}
 
@@ -160,7 +169,7 @@ func selectTaggedDirs(dirs []taggedDir, packageGrouping bool) ([]taggedDir, erro
 			paths = append(paths, dir.Path)
 		}
 		sort.Strings(paths)
-		return nil, fmt.Errorf("multiple tagged directories at depth %d: %s", minDepth, strings.Join(paths, ", "))
+		return nil, &MultipleTaggedDirsError{Depth: minDepth, Paths: paths}
 	}
 
 	return selected, nil
