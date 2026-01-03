@@ -39,12 +39,15 @@ func (s *SubCmd) Run() { ... }
 ### Testing
 - Use standard Go testing: `go test ./...`.
 - Focus on end-to-end tests that verify command discovery and argument parsing.
+- For user-visible CLI behavior (help, completion, discovery output, caching), write the failing test first and validate it fails before implementing the fix.
+- Add integration-style tests for build-tool mode to cover cache invalidation, completion generation, and help output formatting.
 
 ## Workflow
 
 1. **Read `thoughts2.md`**: This contains the most up-to-date API design.
 2. **Implement Iteratively**: Start with basic command discovery and argument parsing.
 3. **Verify**: Ensure the reflection logic correctly maps struct tags to flags.
+4. **TDD For CLI UX**: For changes that affect CLI output or runtime behavior, create a test that reproduces the expected output or error before making the code change.
 
 ## Useful Commands
 
