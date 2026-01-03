@@ -18,24 +18,6 @@ A simple md issue tracker.
 
 Issues to choose from for future work.
 
-### 8. Persistent Flags & Lifecycle Hooks
-
-#### Universal
-
-**Status**
-backlog
-
-**Description**
-Add persistent flags and setup/teardown hooks on parent commands.
-
-#### Planning
-
-**Priority**
-Low
-
-**Acceptance**
-Support `PersistentBefore()`/`PersistentAfter()` and propagate flags down the tree.
-
 ### 9. Namespace/Category Organization
 
 #### Universal
@@ -218,9 +200,45 @@ Low
 **Acceptance**
 Shortlist parsers and document tradeoffs; decide whether to keep manual parser.
 
+### 44. rename to something more concise, like subcmd
+
+#### Universal
+
+**Status**
+backlog
+
+**Description**
+TBD
+
+#### Planning
+
+**Priority**
+Low
+
+**Acceptance**
+TBD
+
 ## Done
 
 Completed issues.
+
+### 8. Persistent Flags & Lifecycle Hooks
+
+#### Universal
+
+**Status**
+done
+
+**Description**
+Add persistent flags and setup/teardown hooks on parent commands.
+
+#### Planning
+
+**Priority**
+Low
+
+**Acceptance**
+Support `PersistentBefore()`/`PersistentAfter()` and propagate flags down the tree.
 
 ### 1. Explore CLI Tool Design
 
