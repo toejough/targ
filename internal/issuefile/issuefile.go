@@ -28,6 +28,12 @@ func Parse(content string) (*File, error) {
 	var current *Issue
 	for i, line := range lines {
 		if strings.HasPrefix(line, "## ") {
+			if current != nil {
+				current.End = i
+				current.Status = parseStatus(lines[current.Start:current.End])
+				file.Issues = append(file.Issues, *current)
+				current = nil
+			}
 			header := strings.TrimSpace(strings.TrimPrefix(line, "## "))
 			switch strings.ToLower(header) {
 			case "backlog":

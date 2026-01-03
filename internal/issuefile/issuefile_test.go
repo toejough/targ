@@ -32,6 +32,39 @@ Something
 	}
 }
 
+func TestParse_StopsAtSectionHeader(t *testing.T) {
+	content := strings.Join([]string{
+		"## Backlog",
+		"",
+		"### 1. First",
+		"",
+		"**Status**",
+		"backlog",
+		"",
+		"## Done",
+		"",
+		"Completed issues.",
+		"",
+		"### 2. Done",
+		"",
+		"**Status**",
+		"done",
+	}, "\n")
+	file, err := Parse(content)
+	if err != nil {
+		t.Fatalf("unexpected parse error: %v", err)
+	}
+	if len(file.Issues) != 2 {
+		t.Fatalf("expected 2 issues, got %d", len(file.Issues))
+	}
+	if file.Issues[0].Number != 1 {
+		t.Fatalf("expected first issue number 1, got %d", file.Issues[0].Number)
+	}
+	if file.Issues[1].Number != 2 {
+		t.Fatalf("expected second issue number 2, got %d", file.Issues[1].Number)
+	}
+}
+
 func TestUpdateSectionField(t *testing.T) {
 	lines := []string{
 		"### 1. Test",

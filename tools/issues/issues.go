@@ -14,10 +14,9 @@ import (
 )
 
 type List struct {
-	File    string `commander:"flag,default=issues.md,desc=Issue file to read"`
-	Status  string `commander:"flag,desc=Filter by status,enum=backlog|selected|in-progress|review|done|cancelled|blocked"`
-	Section string `commander:"flag,desc=Filter by section,enum=backlog|done"`
-	Query   string `commander:"flag,desc=Case-insensitive title filter"`
+	File   string `commander:"flag,default=issues.md,desc=Issue file to read"`
+	Status string `commander:"flag,desc=Filter by status,enum=backlog|selected|in-progress|review|done|cancelled|blocked"`
+	Query  string `commander:"flag,desc=Case-insensitive title filter"`
 }
 
 func (c *List) Run() error {
@@ -30,9 +29,6 @@ func (c *List) Run() error {
 	wantStatus := normalizeStatus(c.Status)
 	for _, issue := range issues {
 		issueStatus := normalizeStatus(issue.Status)
-		if c.Section != "" && !strings.EqualFold(issue.Section, c.Section) {
-			continue
-		}
 		if wantStatus != "" && !strings.EqualFold(issueStatus, wantStatus) {
 			continue
 		}
@@ -44,8 +40,9 @@ func (c *List) Run() error {
 	sort.Slice(filtered, func(i, j int) bool {
 		return filtered[i].Number < filtered[j].Number
 	})
+	fmt.Println("ID\tStatus\tTitle")
 	for _, issue := range filtered {
-		fmt.Printf("%d\t%s\t%s\t%s\n", issue.Number, issue.Status, issue.Section, issue.Title)
+		fmt.Printf("%d\t%s\t%s\n", issue.Number, normalizeStatus(issue.Status), issue.Title)
 	}
 	return nil
 }

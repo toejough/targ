@@ -2,7 +2,14 @@
 
 package issues
 
-import "testing"
+import (
+	"bytes"
+	"io"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
 
 func TestNormalizeStatus(t *testing.T) {
 	cases := map[string]string{
@@ -34,4 +41,73 @@ func TestNormalizePriority(t *testing.T) {
 			t.Fatalf("normalizePriority(%q) = %q, want %q", input, got, want)
 		}
 	}
+}
+
+func TestListOutputsHeaderAndColumns(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "issues.md")
+	content := strings.Join([]string{
+		"# Issue Tracker",
+		"",
+		"## Backlog",
+		"",
+		"### 1. First",
+		"",
+		"**Status**",
+		"backlog",
+		"",
+		"**Description**",
+		"One",
+		"",
+		"### 2. Second",
+		"",
+		"**Status**",
+		"done",
+		"",
+		"**Description**",
+		"Two",
+	}, "\n")
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatalf("unexpected write error: %v", err)
+	}
+
+	cmd := &List{File: path}
+	output := captureStdout(t, func() {
+		if err := cmd.Run(); err != nil {
+			t.Fatalf("unexpected run error: %v", err)
+		}
+	})
+
+	lines := strings.Split(strings.TrimSpace(output), "\n")
+	if len(lines) < 3 {
+		t.Fatalf("expected header + rows, got: %q", output)
+	}
+	if lines[0] != "ID\tStatus\tTitle" {
+		t.Fatalf("unexpected header: %q", lines[0])
+	}
+	if !strings.Contains(lines[1], "1\tbacklog\tFirst") {
+		t.Fatalf("unexpected row: %q", lines[1])
+	}
+	if !strings.Contains(lines[2], "2\tdone\tSecond") {
+		t.Fatalf("unexpected row: %q", lines[2])
+	}
+}
+
+func captureStdout(t *testing.T, fn func()) string {
+	t.Helper()
+	orig := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("unexpected pipe error: %v", err)
+	}
+	os.Stdout = w
+	fn()
+	_ = w.Close()
+	os.Stdout = orig
+	var buf bytes.Buffer
+	if _, err := io.Copy(&buf, r); err != nil {
+		t.Fatalf("unexpected stdout copy error: %v", err)
+	}
+	_ = r.Close()
+	return buf.String()
 }
