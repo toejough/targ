@@ -229,6 +229,14 @@ func Build() error {
 }
 ```
 
+Use `targs.ParallelDeps` to run independent tasks concurrently while still sharing dependencies:
+
+```go
+func CI() error {
+    return targs.ParallelDeps(Test, Lint)
+}
+```
+
 ## File Checks
 
 Use `targs.Newer` to check inputs against outputs (or an implicit cache when outputs are empty):

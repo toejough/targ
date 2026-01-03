@@ -48,6 +48,38 @@ func Deps(targets ...interface{}) error {
 	return nil
 }
 
+// ParallelDeps executes dependencies in parallel, ensuring each target runs once.
+func ParallelDeps(targets ...interface{}) error {
+	depsMu.Lock()
+	tracker := currentDeps
+	depsMu.Unlock()
+	if tracker == nil {
+		return fmt.Errorf("ParallelDeps must be called during targs.Run")
+	}
+	if len(targets) == 0 {
+		return nil
+	}
+	var wg sync.WaitGroup
+	errCh := make(chan error, len(targets))
+	for _, target := range targets {
+		target := target
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			errCh <- tracker.run(target)
+		}()
+	}
+	wg.Wait()
+	close(errCh)
+	var firstErr error
+	for err := range errCh {
+		if err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	return firstErr
+}
+
 func (d *depTracker) run(target interface{}) error {
 	key, err := depKeyFor(target)
 	if err != nil {
