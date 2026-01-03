@@ -144,24 +144,6 @@ Low
 **Acceptance**
 Add `target.Checksum(srcs, dest)`.
 
-### 24. Build Tool Mode Includes Non-Commands
-
-#### Universal
-
-**Status**
-backlog
-
-**Description**
-Build tool mode includes exported structs without `Run` or subcommands.
-
-#### Planning
-
-**Priority**
-Low
-
-**Acceptance**
-Filter to runnable structs or those with subcommands.
-
 ### 26. Invalid Env Defaults Are Silently Ignored
 
 #### Universal
@@ -217,6 +199,78 @@ Low
 Generate into a temp dir with a stable name and support `--keep`.
 
 ---
+
+### 35. shell completion is broken for fish
+
+#### Universal
+
+**Status**
+backlog
+
+**Description**
+TBD
+
+#### Planning
+
+**Priority**
+Low
+
+**Acceptance**
+TBD
+
+### 36. add some help for commander itself when running in build-tool mode (add a description)
+
+#### Universal
+
+**Status**
+backlog
+
+**Description**
+TBD
+
+#### Planning
+
+**Priority**
+Low
+
+**Acceptance**
+TBD
+
+### 37. require long flags to be --flag instead of -flag
+
+#### Universal
+
+**Status**
+backlog
+
+**Description**
+TBD
+
+#### Planning
+
+**Priority**
+Low
+
+**Acceptance**
+TBD
+
+### 38. enable combo flags like -abc for -a -b -c
+
+#### Universal
+
+**Status**
+backlog
+
+**Description**
+TBD
+
+#### Planning
+
+**Priority**
+Low
+
+**Acceptance**
+TBD
 
 ## Done
 
@@ -434,6 +488,21 @@ done
 
 **Description**
 Filter out exported functions named as subcommands of exported structs.
+
+### 24. Build Tool Mode Includes Non-Commands
+
+#### Universal
+
+**Status**
+done
+
+**Description**
+Build tool mode includes exported structs without `Run` or subcommands.
+
+#### Implementation Notes
+
+**Details**
+- Only include exported structs that define `Run` or declare subcommands.
 
 ### 18. Positional Args Are Also Registered As Flags
 

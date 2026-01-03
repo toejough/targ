@@ -112,6 +112,49 @@ func Sub() {}
 	}
 }
 
+func TestDiscover_FiltersNonRunnableStructs(t *testing.T) {
+	fsMock := MockFileSystem(t)
+	opts := Options{StartDir: "/root"}
+	done := make(chan struct{})
+	var (
+		infos []PackageInfo
+		err   error
+	)
+
+	go func() {
+		infos, err = Discover(fsMock.Interface(), opts)
+		close(done)
+	}()
+
+	fsMock.ReadDir.ExpectCalledWithExactly("/root").InjectReturnValues([]fs.DirEntry{
+		fakeDirEntry{name: "cmd.go", dir: false},
+	}, nil)
+	fsMock.ReadFile.ExpectCalledWithExactly("/root/cmd.go").InjectReturnValues([]byte(`//go:build commander
+
+package build
+
+type Root struct {
+	Sub *SubCmd `+"`commander:\"subcommand\"`"+`
+}
+
+type Helper struct{}
+type SubCmd struct{}
+`), nil)
+
+	<-done
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(infos) != 1 {
+		t.Fatalf("expected 1 package info, got %d", len(infos))
+	}
+	info := infos[0]
+	if len(info.Structs) != 1 || info.Structs[0] != "Root" {
+		t.Fatalf("expected structs [Root], got %v", info.Structs)
+	}
+}
+
 func TestDiscover_FunctionWrappersOverrideFuncs(t *testing.T) {
 	fsMock := MockFileSystem(t)
 	opts := Options{StartDir: "/root"}
@@ -141,6 +184,8 @@ func Build() {}
 package build
 
 type BuildCommand struct{}
+
+func (c *BuildCommand) Run() {}
 `), nil)
 
 	<-done
@@ -371,6 +416,7 @@ func TestDiscover_DuplicateCommandNames(t *testing.T) {
 package build
 
 type FooBar struct{}
+func (f *FooBar) Run() {}
 func FooBar() {}
 `), nil)
 

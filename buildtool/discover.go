@@ -261,6 +261,8 @@ func parsePackageInfo(dir taggedDir) (PackageInfo, error) {
 	packageName := ""
 	packageDoc := ""
 	structs := make(map[string]bool)
+	structHasSubcommands := make(map[string]bool)
+	structHasRun := make(map[string]bool)
 	funcs := make(map[string]bool)
 	subcommandNames := make(map[string]bool)
 	subcommandTypes := make(map[string]bool)
@@ -293,10 +295,20 @@ func parsePackageInfo(dir taggedDir) (PackageInfo, error) {
 						continue
 					}
 					structs[typeSpec.Name.Name] = true
-					recordSubcommandRefs(structType, subcommandNames, subcommandTypes)
+					if recordSubcommandRefs(structType, subcommandNames, subcommandTypes) {
+						structHasSubcommands[typeSpec.Name.Name] = true
+					}
 				}
 			case *ast.FuncDecl:
-				if node.Recv != nil || !node.Name.IsExported() {
+				if node.Recv != nil {
+					if node.Name.Name == "Run" {
+						if recvName := receiverTypeName(node.Recv); recvName != "" {
+							structHasRun[recvName] = true
+						}
+					}
+					continue
+				}
+				if !node.Name.IsExported() {
 					continue
 				}
 				if err := validateFunctionSignature(node.Type, ctxAliases, ctxDotImport); err != nil {
@@ -307,7 +319,7 @@ func parsePackageInfo(dir taggedDir) (PackageInfo, error) {
 		}
 	}
 
-	structList := filterStructs(structs, subcommandTypes)
+	structList := filterStructs(structs, subcommandTypes, structHasRun, structHasSubcommands)
 	funcList := filterCommands(funcs, subcommandNames)
 
 	if len(structList) > 0 && len(funcList) > 0 {
@@ -427,11 +439,13 @@ func filterCommands(candidates map[string]bool, subcommandNames map[string]bool)
 	return result
 }
 
-func filterStructs(candidates map[string]bool, subcommandTypes map[string]bool) []string {
+func filterStructs(candidates map[string]bool, subcommandTypes map[string]bool, structHasRun map[string]bool, structHasSubcommands map[string]bool) []string {
 	var result []string
 	for name := range candidates {
 		if !subcommandTypes[name] {
-			result = append(result, name)
+			if structHasRun[name] || structHasSubcommands[name] {
+				result = append(result, name)
+			}
 		}
 	}
 	sort.Strings(result)
@@ -442,7 +456,8 @@ func recordSubcommandRefs(
 	structType *ast.StructType,
 	subcommandNames map[string]bool,
 	subcommandTypes map[string]bool,
-) {
+) bool {
+	hasSubcommand := false
 	for _, field := range structType.Fields.List {
 		if field.Tag == nil {
 			continue
@@ -453,6 +468,7 @@ func recordSubcommandRefs(
 		if !strings.Contains(commanderTag, "subcommand") {
 			continue
 		}
+		hasSubcommand = true
 		nameOverride := ""
 		parts := strings.Split(commanderTag, ",")
 		for _, p := range parts {
@@ -473,6 +489,7 @@ func recordSubcommandRefs(
 			subcommandTypes[typeName] = true
 		}
 	}
+	return hasSubcommand
 }
 
 func fieldTypeName(expr ast.Expr) string {
@@ -485,6 +502,13 @@ func fieldTypeName(expr ast.Expr) string {
 		}
 	}
 	return ""
+}
+
+func receiverTypeName(recv *ast.FieldList) string {
+	if recv == nil || len(recv.List) == 0 {
+		return ""
+	}
+	return fieldTypeName(recv.List[0].Type)
 }
 
 func camelToKebab(s string) string {
