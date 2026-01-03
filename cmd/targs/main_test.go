@@ -230,7 +230,7 @@ func TestPrintBuildToolUsageIncludesSummaryAndEpilog(t *testing.T) {
 	if !strings.Contains(out, "More info:") {
 		t.Fatalf("expected epilog in usage output, got: %s", out)
 	}
-	if !strings.Contains(out, "README.md") {
-		t.Fatalf("expected README reference, got: %s", out)
+	if !strings.Contains(out, "github.com/toejough/targs") {
+		t.Fatalf("expected README link, got: %s", out)
 	}
 }

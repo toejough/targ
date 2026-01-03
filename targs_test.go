@@ -498,6 +498,47 @@ func TestShortFlags(t *testing.T) {
 	}
 }
 
+type ShortBoolCmd struct {
+	Verbose bool `targs:"flag,short=v"`
+	Force   bool `targs:"flag,short=f"`
+}
+
+func (c *ShortBoolCmd) Run() {}
+
+func TestShortFlagGroups(t *testing.T) {
+	cmdStruct := &ShortBoolCmd{}
+	cmd, err := parseCommand(cmdStruct)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if err := cmd.execute(context.Background(), []string{"-vf"}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !cmdStruct.Verbose || !cmdStruct.Force {
+		t.Fatalf("expected both flags to be set, got verbose=%v force=%v", cmdStruct.Verbose, cmdStruct.Force)
+	}
+}
+
+type ShortMixedCmd struct {
+	Verbose bool   `targs:"flag,short=v"`
+	Name    string `targs:"flag,short=n"`
+}
+
+func (c *ShortMixedCmd) Run() {}
+
+func TestShortFlagGroupsRejectValueFlags(t *testing.T) {
+	cmdStruct := &ShortMixedCmd{}
+	cmd, err := parseCommand(cmdStruct)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if err := cmd.execute(context.Background(), []string{"-vn"}); err == nil {
+		t.Fatal("expected error for grouped short flag with value")
+	}
+}
+
 func TestLongFlagsRequireDoubleDash(t *testing.T) {
 	cmdStruct := &ShortFlagCmd{}
 	cmd, err := parseCommand(cmdStruct)

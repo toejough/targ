@@ -238,10 +238,14 @@ func (n *CommandNode) executeWithParents(
 	if err != nil {
 		return err
 	}
-	if err := validateLongFlagArgs(args, longNames); err != nil {
+	expandedArgs, err := expandShortFlagGroups(args, specs)
+	if err != nil {
 		return err
 	}
-	if err := fs.Parse(args); err != nil {
+	if err := validateLongFlagArgs(expandedArgs, longNames); err != nil {
+		return err
+	}
+	if err := fs.Parse(expandedArgs); err != nil {
 		if err == flag.ErrHelp {
 			return nil
 		}
@@ -299,10 +303,14 @@ func executeFunctionWithParents(
 	if err != nil {
 		return err
 	}
-	if err := validateLongFlagArgs(args, longNames); err != nil {
+	expandedArgs, err := expandShortFlagGroups(args, specs)
+	if err != nil {
 		return err
 	}
-	if err := fs.Parse(args); err != nil {
+	if err := validateLongFlagArgs(expandedArgs, longNames); err != nil {
+		return err
+	}
+	if err := fs.Parse(expandedArgs); err != nil {
 		if err == flag.ErrHelp {
 			return nil
 		}
@@ -1003,6 +1011,71 @@ func validateLongFlagArgs(args []string, longNames map[string]bool) error {
 		}
 	}
 	return nil
+}
+
+func expandShortFlagGroups(args []string, specs []*flagSpec) ([]string, error) {
+	if len(args) == 0 {
+		return args, nil
+	}
+	shortInfo := map[string]bool{}
+	longInfo := map[string]bool{}
+	for _, spec := range specs {
+		longInfo[spec.name] = true
+		if spec.short == "" {
+			continue
+		}
+		shortInfo[spec.short] = spec.value.Kind() == reflect.Bool
+	}
+	var expanded []string
+	for _, arg := range args {
+		if arg == "--" {
+			expanded = append(expanded, arg)
+			continue
+		}
+		if strings.HasPrefix(arg, "--") || len(arg) <= 2 || !strings.HasPrefix(arg, "-") {
+			expanded = append(expanded, arg)
+			continue
+		}
+		if strings.Contains(arg, "=") {
+			expanded = append(expanded, arg)
+			continue
+		}
+		group := strings.TrimPrefix(arg, "-")
+		if len(group) <= 1 {
+			expanded = append(expanded, arg)
+			continue
+		}
+		if longInfo[group] {
+			expanded = append(expanded, arg)
+			continue
+		}
+		allBool := true
+		unknown := false
+		for _, ch := range group {
+			name := string(ch)
+			isBool, ok := shortInfo[name]
+			if !ok {
+				unknown = true
+				allBool = false
+				break
+			}
+			if !isBool {
+				allBool = false
+				break
+			}
+		}
+		if unknown {
+			expanded = append(expanded, arg)
+			continue
+		}
+		if !allBool {
+			return nil, fmt.Errorf("short flag group %q must contain only boolean flags", arg)
+		}
+		for _, ch := range group {
+			expanded = append(expanded, "-"+string(ch))
+		}
+	}
+	return expanded, nil
 }
 
 func nodeChain(node *CommandNode) []*CommandNode {
