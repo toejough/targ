@@ -41,6 +41,7 @@ func (s *SubCmd) Run() { ... }
 - Focus on end-to-end tests that verify command discovery and argument parsing.
 - For user-visible CLI behavior (help, completion, discovery output, caching), write the failing test first and validate it fails before implementing the fix.
 - Add integration-style tests for build-tool mode to cover cache invalidation, completion generation, and help output formatting.
+- For workflow changes or potentially surprising edits, explain the plan first and wait for user confirmation before committing.
 
 ## Workflow
 
