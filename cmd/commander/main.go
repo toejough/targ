@@ -73,6 +73,7 @@ func main() {
 		fmt.Fprintln(os.Stdout, "Flags:")
 		fmt.Fprintln(os.Stdout, "  --multipackage, -m    enable multipackage mode (recursive package-scoped discovery)")
 		fmt.Fprintln(os.Stdout, "  --no-cache            disable cached build tool binaries")
+		fmt.Fprintln(os.Stdout, "  --completion [bash|zsh|fish]")
 	}
 	fs.SetOutput(os.Stdout)
 	parseArgs := make([]string, 0, len(os.Args[1:]))
