@@ -209,6 +209,7 @@ This writes `generated_commander_<pkg>.go`, which defines a struct per function 
 - `commander:"desc=..."`: Description for help text (for flags).
 - `commander:"name=..."`: Custom flag name.
 - `commander:"short=..."`: Short flag alias (e.g., `short=n` for `-n`).
+- `commander:"enum=a|b|c"`: Allowed values for completion.
 - `commander:"subcommand=..."`: Rename subcommand.
 - `commander:"env=VAR_NAME"`: Default value from environment variable.
 - `commander:"positional"`: Map positional arguments to this field.
@@ -271,18 +272,19 @@ To enable shell completion, generate the script and source it.
 
 ```bash
 # Bash
-source <(your-binary completion bash)
+source <(your-binary --completion bash)
 
 # Zsh
-source <(your-binary completion zsh)
+source <(your-binary --completion zsh)
 
 # Fish
-your-binary completion fish | source
+your-binary --completion fish | source
 ```
 
 The completion supports:
 - Commands and subcommands
-- Flags (including short flags)
+- Long/short flags
+- Enum values declared via `enum=` tags
 
 ```bash
 go get github.com/yourusername/commander

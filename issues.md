@@ -164,24 +164,6 @@ Generate into a temp dir with a stable name and support `--keep`.
 
 ---
 
-### 35. shell completion is broken for fish
-
-#### Universal
-
-**Status**
-backlog
-
-**Description**
-TBD
-
-#### Planning
-
-**Priority**
-Low
-
-**Acceptance**
-TBD
-
 ### 36. add some help for commander itself when running in build-tool mode (add a description)
 
 #### Universal
@@ -190,7 +172,7 @@ TBD
 backlog
 
 **Description**
-TBD
+Fish completion script does not match current flag syntax.
 
 #### Planning
 
@@ -642,3 +624,19 @@ Invalid env values for int/bool silently fall back to zero/false.
 
 **Details**
 - Validate env-backed defaults and return a clear error on invalid values.
+
+### 35. shell completion is broken for fish
+
+#### Universal
+
+**Status**
+done
+
+**Description**
+TBD
+
+#### Implementation Notes
+
+**Details**
+- Use `--completion` flag and fix long/short flag suggestions in completion.
+- Support enum value completion with `enum=` tags.
