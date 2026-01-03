@@ -36,24 +36,6 @@ Low
 **Acceptance**
 Provide a `ui` package for common prompts.
 
-### 38. enable combo flags like -abc for -a -b -c
-
-#### Universal
-
-**Status**
-backlog
-
-**Description**
-Fish completion script does not match current flag syntax.
-
-#### Planning
-
-**Priority**
-Low
-
-**Acceptance**
-TBD
-
 ### 43. Investigate markdown parsers for issuefile
 
 #### Universal
@@ -125,6 +107,24 @@ Medium
 
 **Acceptance**
 Repository exists on GitHub and README link is valid.
+
+### 47. show the help for the current packages you've loaded, and also show what packages you've found (recursively) and how to run those (use --multipackage)
+
+#### Universal
+
+**Status**
+backlog
+
+**Description**
+TBD
+
+#### Planning
+
+**Priority**
+Low
+
+**Acceptance**
+TBD
 
 ## Done
 
@@ -702,6 +702,24 @@ Low
 Add `target.Checksum(srcs, dest)`.
 
 ### 36. add some help for targs itself when running in build-tool mode (add a description)
+
+#### Universal
+
+**Status**
+done
+
+**Description**
+Fish completion script does not match current flag syntax.
+
+#### Planning
+
+**Priority**
+Low
+
+**Acceptance**
+TBD
+
+### 38. enable combo flags like -abc for -a -b -c
 
 #### Universal
 
