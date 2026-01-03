@@ -912,6 +912,10 @@ func collectFlagHelp(node *CommandNode) []flagHelp {
 			}
 		}
 
+		if options != "" {
+			placeholder = fmt.Sprintf("{%s}", options)
+			options = ""
+		}
 		if placeholder == "" {
 			switch field.Type.Kind() {
 			case reflect.String:
