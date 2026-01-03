@@ -57,10 +57,6 @@ func doCompletion(roots []*CommandNode, commandLine string) {
 					fmt.Println(r.Name)
 				}
 			}
-			// Also suggest "completion"
-			if strings.HasPrefix("completion", prefix) {
-				fmt.Println("completion")
-			}
 			return
 		}
 	}
@@ -91,10 +87,6 @@ func doCompletion(roots []*CommandNode, commandLine string) {
 		}
 	}
 
-	if atRoot && strings.HasPrefix("completion", prefix) {
-		fmt.Println("completion")
-	}
-
 	// 2. Suggest Flags
 	// We need to look at fields again.
 	// Note: We need to recreate the flag set logic or reuse parsing?
@@ -102,8 +94,18 @@ func doCompletion(roots []*CommandNode, commandLine string) {
 	// We just want to inspect the struct fields.
 
 	// Check if prefix starts with "-"
+	values, valuesOK := enumValuesForArg(currentNode, processedArgs, prefix, isNewArg)
+	if valuesOK {
+		for _, value := range values {
+			if strings.HasPrefix(value, prefix) {
+				fmt.Println(value)
+			}
+		}
+		return
+	}
+
 	if strings.HasPrefix(prefix, "-") || prefix == "" {
-		suggestFlags(currentNode, prefix)
+		suggestFlags(currentNode, prefix, atRoot)
 	}
 }
 
@@ -162,7 +164,7 @@ func tokenizeCommandLine(commandLine string) ([]string, bool) {
 	return parts, isNewArg
 }
 
-func suggestFlags(node *CommandNode, prefix string) {
+func suggestFlags(node *CommandNode, prefix string, includeCompletion bool) {
 	if node.Type == nil {
 		return
 	}
@@ -176,20 +178,96 @@ func suggestFlags(node *CommandNode, prefix string) {
 		}
 
 		name := strings.ToLower(field.Name)
+		shortName := ""
 		// Check override
 		parts := strings.Split(tag, ",")
 		for _, p := range parts {
 			p = strings.TrimSpace(p)
 			if strings.HasPrefix(p, "name=") {
 				name = strings.TrimPrefix(p, "name=")
+			} else if strings.HasPrefix(p, "short=") {
+				shortName = strings.TrimPrefix(p, "short=")
 			}
 		}
 
-		flagName := "-" + name
-		if strings.HasPrefix(flagName, prefix) {
-			fmt.Println(flagName)
+		longFlag := "--" + name
+		if strings.HasPrefix(longFlag, prefix) {
+			fmt.Println(longFlag)
+		}
+		if shortName != "" {
+			shortFlag := "-" + shortName
+			if strings.HasPrefix(shortFlag, prefix) {
+				fmt.Println(shortFlag)
+			}
 		}
 	}
+
+	if includeCompletion {
+		comp := "--completion"
+		if strings.HasPrefix(comp, prefix) {
+			fmt.Println(comp)
+		}
+	}
+}
+
+func enumValuesForArg(node *CommandNode, args []string, prefix string, isNewArg bool) ([]string, bool) {
+	if node.Type == nil {
+		return nil, false
+	}
+
+	enumByFlag := map[string][]string{}
+	for i := 0; i < node.Type.NumField(); i++ {
+		field := node.Type.Field(i)
+		tag := field.Tag.Get("commander")
+		if strings.Contains(tag, "subcommand") {
+			continue
+		}
+		name := strings.ToLower(field.Name)
+		shortName := ""
+		enumValues := []string{}
+		parts := strings.Split(tag, ",")
+		for _, p := range parts {
+			p = strings.TrimSpace(p)
+			if strings.HasPrefix(p, "name=") {
+				name = strings.TrimPrefix(p, "name=")
+			} else if strings.HasPrefix(p, "short=") {
+				shortName = strings.TrimPrefix(p, "short=")
+			} else if strings.HasPrefix(p, "enum=") {
+				enumValues = strings.Split(strings.TrimPrefix(p, "enum="), "|")
+			}
+		}
+		if len(enumValues) == 0 {
+			continue
+		}
+		enumByFlag["--"+name] = enumValues
+		if shortName != "" {
+			enumByFlag["-"+shortName] = enumValues
+		}
+	}
+	if len(enumByFlag) == 0 {
+		return nil, false
+	}
+
+	previous := ""
+	if isNewArg {
+		if len(args) == 0 {
+			return nil, false
+		}
+		previous = args[len(args)-1]
+	} else {
+		if len(args) == 0 {
+			return nil, false
+		}
+		previous = args[len(args)-1]
+		if strings.HasPrefix(prefix, "-") {
+			return nil, false
+		}
+	}
+
+	if values, ok := enumByFlag[previous]; ok {
+		return values, true
+	}
+	return nil, false
 }
 
 // generateCompletionScript prints the shell script.

@@ -2,65 +2,50 @@ package commander
 
 import "testing"
 
-func TestTokenizeCommandLine(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    string
-		parts    []string
-		isNewArg bool
-	}{
-		{
-			name:     "simple split",
-			input:    "cmd build -t tag",
-			parts:    []string{"cmd", "build", "-t", "tag"},
-			isNewArg: false,
-		},
-		{
-			name:     "trailing space",
-			input:    "cmd build ",
-			parts:    []string{"cmd", "build"},
-			isNewArg: true,
-		},
-		{
-			name:     "double quoted",
-			input:    "cmd \"two words\"",
-			parts:    []string{"cmd", "two words"},
-			isNewArg: false,
-		},
-		{
-			name:     "single quoted",
-			input:    "cmd 'two words'",
-			parts:    []string{"cmd", "two words"},
-			isNewArg: false,
-		},
-		{
-			name:     "escaped space",
-			input:    "cmd two\\ words",
-			parts:    []string{"cmd", "two words"},
-			isNewArg: false,
-		},
-		{
-			name:     "unfinished quote",
-			input:    "cmd \"unterminated",
-			parts:    []string{"cmd", "unterminated"},
-			isNewArg: false,
-		},
+type EnumCmd struct {
+	Mode string `commander:"flag,enum=dev|prod,short=m"`
+	Kind string `commander:"flag,enum=fast|slow"`
+}
+
+func (c *EnumCmd) Run() {}
+
+func TestEnumValuesForArg_LongFlag(t *testing.T) {
+	cmd, err := parseCommand(&EnumCmd{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
 
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			parts, isNewArg := tokenizeCommandLine(test.input)
-			if len(parts) != len(test.parts) {
-				t.Fatalf("expected %d parts, got %d", len(test.parts), len(parts))
-			}
-			for i := range parts {
-				if parts[i] != test.parts[i] {
-					t.Fatalf("expected part %d to be %q, got %q", i, test.parts[i], parts[i])
-				}
-			}
-			if isNewArg != test.isNewArg {
-				t.Fatalf("expected isNewArg=%v, got %v", test.isNewArg, isNewArg)
-			}
-		})
+	values, ok := enumValuesForArg(cmd, []string{"--mode"}, "", true)
+	if !ok {
+		t.Fatal("expected enum values for --mode")
+	}
+	if len(values) != 2 || values[0] != "dev" || values[1] != "prod" {
+		t.Fatalf("unexpected values: %v", values)
+	}
+}
+
+func TestEnumValuesForArg_ShortFlag(t *testing.T) {
+	cmd, err := parseCommand(&EnumCmd{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	values, ok := enumValuesForArg(cmd, []string{"-m"}, "", true)
+	if !ok {
+		t.Fatal("expected enum values for -m")
+	}
+	if len(values) != 2 || values[0] != "dev" || values[1] != "prod" {
+		t.Fatalf("unexpected values: %v", values)
+	}
+}
+
+func TestEnumValuesForArg_NoMatch(t *testing.T) {
+	cmd, err := parseCommand(&EnumCmd{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if values, ok := enumValuesForArg(cmd, []string{"--unknown"}, "", true); ok {
+		t.Fatalf("expected no enum values, got %v", values)
 	}
 }

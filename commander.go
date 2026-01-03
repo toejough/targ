@@ -34,6 +34,10 @@ func printUsage(nodes []*CommandNode) {
 	for _, node := range nodes {
 		printCommandSummary(node, "  ")
 	}
+
+	fmt.Println("\nCommander options:")
+	fmt.Println("  --help")
+	fmt.Println("  --completion [bash|zsh|fish]")
 }
 
 func printCommandSummary(node *CommandNode, indent string) {

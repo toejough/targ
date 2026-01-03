@@ -74,10 +74,26 @@ func runWithEnv(env runEnv, opts RunOptions, targets ...interface{}) {
 
 		rest := args[1:]
 
-		// 1. Check for completion script generation
-		if rest[0] == "completion" {
-			if len(rest) < 2 {
-				env.Println("Usage: completion [bash|zsh|fish]")
+		// 1. Check for runtime completion request (Hidden command)
+		if rest[0] == "__complete" {
+			// usage: __complete "entire command line"
+			if len(rest) > 1 {
+				doCompletion(roots, rest[1])
+			}
+			return nil
+		}
+
+		// 2. Check for completion script generation
+		if rest[0] == "--completion" {
+			shell := ""
+			if len(rest) > 1 {
+				shell = rest[1]
+			}
+			if shell == "" {
+				shell = detectShell()
+			}
+			if shell == "" {
+				env.Println("Usage: --completion [bash|zsh|fish]")
 				return nil
 			}
 			binName := args[0]
@@ -88,16 +104,7 @@ func runWithEnv(env runEnv, opts RunOptions, targets ...interface{}) {
 			if idx := strings.LastIndex(binName, "\\"); idx != -1 {
 				binName = binName[idx+1:]
 			}
-			generateCompletionScript(rest[1], binName)
-			return nil
-		}
-
-		// 2. Check for runtime completion request (Hidden command)
-		if rest[0] == "__complete" {
-			// usage: __complete "entire command line"
-			if len(rest) > 1 {
-				doCompletion(roots, rest[1])
-			}
+			generateCompletionScript(shell, binName)
 			return nil
 		}
 
@@ -142,4 +149,24 @@ func runWithEnv(env runEnv, opts RunOptions, targets ...interface{}) {
 		}
 		return nil
 	})
+}
+
+func detectShell() string {
+	shell := strings.TrimSpace(os.Getenv("SHELL"))
+	if shell == "" {
+		return ""
+	}
+	base := shell
+	if idx := strings.LastIndex(base, "/"); idx != -1 {
+		base = base[idx+1:]
+	}
+	if idx := strings.LastIndex(base, "\\"); idx != -1 {
+		base = base[idx+1:]
+	}
+	switch base {
+	case "bash", "zsh", "fish":
+		return base
+	default:
+		return ""
+	}
 }
