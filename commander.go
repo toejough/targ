@@ -35,9 +35,7 @@ func printUsage(nodes []*CommandNode) {
 		printCommandSummary(node, "  ")
 	}
 
-	fmt.Println("\nCommander options:")
-	fmt.Println("  --help")
-	fmt.Println("  --completion [bash|zsh|fish]")
+	printCommanderOptions()
 }
 
 func printCommandSummary(node *CommandNode, indent string) {
@@ -654,6 +652,12 @@ func printCommandHelp(node *CommandNode) {
 	}
 	fs.SetOutput(os.Stdout)
 	fs.PrintDefaults()
+}
+
+func printCommanderOptions() {
+	fmt.Println("\nCommander options:")
+	fmt.Println("  --help")
+	fmt.Println("  --completion [bash|zsh|fish]")
 }
 
 func validateLongFlagArgs(args []string, longNames map[string]bool) error {

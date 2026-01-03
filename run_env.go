@@ -112,6 +112,7 @@ func runWithEnv(env runEnv, opts RunOptions, targets ...interface{}) {
 		if rest[0] == "-h" || rest[0] == "--help" {
 			if hasDefault {
 				printCommandHelp(roots[0])
+				printCommanderOptions()
 			} else {
 				printUsage(roots)
 			}
