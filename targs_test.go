@@ -632,6 +632,20 @@ func TestPlaceholderTagInUsage(t *testing.T) {
 	}
 }
 
+func TestPositionalEnumUsage(t *testing.T) {
+	type EnumPositional struct {
+		Mode string `targs:"positional,enum=dev|prod"`
+	}
+	cmd, err := parseCommand(&EnumPositional{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	usage := buildUsageLine(cmd)
+	if !strings.Contains(usage, "{dev|prod}") {
+		t.Fatalf("expected enum positional placeholder, got: %s", usage)
+	}
+}
+
 var hookLog []string
 
 type HookRoot struct {
