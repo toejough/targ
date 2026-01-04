@@ -84,7 +84,7 @@ go install github.com/yourusername/targ/cmd/targ@latest
 Run commands in that directory:
 
 ```bash
-$ targ build -target prod
+$ targ build --target prod
 ```
 
 Build tool mode rules:
