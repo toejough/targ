@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"text/template"
@@ -147,6 +149,46 @@ func TestBootstrapTemplate_MultiPackage(t *testing.T) {
 	}
 	if !strings.Contains(rendered, "RunWithOptions(targ.RunOptions{AllowDefault: false}") {
 		t.Fatalf("expected RunWithOptions in template, got:\n%s", rendered)
+	}
+}
+
+func TestFindModuleRootAndPath_NoModule(t *testing.T) {
+	dir := t.TempDir()
+	root, modulePath, found, err := findModuleRootAndPath(dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if found {
+		t.Fatal("expected no module to be found")
+	}
+	if root != "" || modulePath != "" {
+		t.Fatalf("expected empty results, got root=%q module=%q", root, modulePath)
+	}
+}
+
+func TestEnsureFallbackModuleRoot(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink behavior is restricted on windows")
+	}
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "file.txt"), []byte("ok"), 0644); err != nil {
+		t.Fatalf("unexpected write error: %v", err)
+	}
+
+	root, err := ensureFallbackModuleRoot(dir, "targ.local")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "go.mod")); err != nil {
+		t.Fatalf("expected go.mod, got error: %v", err)
+	}
+	link := filepath.Join(root, "file.txt")
+	info, err := os.Lstat(link)
+	if err != nil {
+		t.Fatalf("expected link, got error: %v", err)
+	}
+	if info.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("expected symlink at %s", link)
 	}
 }
 

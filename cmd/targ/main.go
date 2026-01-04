@@ -202,13 +202,23 @@ func main() {
 		os.Exit(1)
 	}
 
-	moduleRoot, modulePath, err := findModuleRootAndPath(startDir)
+	importRoot, modulePath, moduleFound, err := findModuleRootAndPath(startDir)
 	if err != nil {
 		fmt.Printf("Error finding module root: %v\n", err)
 		os.Exit(1)
 	}
+	buildRoot := importRoot
+	if !moduleFound {
+		importRoot = startDir
+		modulePath = "targ.local"
+		buildRoot, err = ensureFallbackModuleRoot(startDir, modulePath)
+		if err != nil {
+			fmt.Printf("Error preparing fallback module: %v\n", err)
+			os.Exit(1)
+		}
+	}
 
-	data, err := buildBootstrapData(infos, startDir, moduleRoot, modulePath, multiPackage)
+	data, err := buildBootstrapData(infos, startDir, importRoot, modulePath, multiPackage)
 	if err != nil {
 		fmt.Printf("Error preparing bootstrap: %v\n", err)
 		os.Exit(1)
@@ -230,19 +240,19 @@ func main() {
 		fmt.Printf("Error gathering tagged files: %v\n", err)
 		os.Exit(1)
 	}
-	moduleFiles, err := collectModuleFiles(moduleRoot)
+	moduleFiles, err := collectModuleFiles(importRoot)
 	if err != nil {
 		fmt.Printf("Error gathering module files: %v\n", err)
 		os.Exit(1)
 	}
 	cacheInputs := append(taggedFiles, moduleFiles...)
-	cacheKey, err := computeCacheKey(modulePath, moduleRoot, "targ", buf.Bytes(), cacheInputs)
+	cacheKey, err := computeCacheKey(modulePath, importRoot, "targ", buf.Bytes(), cacheInputs)
 	if err != nil {
 		fmt.Printf("Error computing cache key: %v\n", err)
 		os.Exit(1)
 	}
 
-	tempDir := filepath.Join(moduleRoot, ".targ", "tmp")
+	tempDir := filepath.Join(buildRoot, ".targ", "tmp")
 	tempFile, cleanupTemp, err := writeBootstrapFile(tempDir, buf.Bytes(), keepBootstrap)
 	if err != nil {
 		fmt.Printf("Error writing bootstrap file: %v\n", err)
@@ -252,7 +262,7 @@ func main() {
 		defer cleanupTemp()
 	}
 
-	cacheDir := filepath.Join(moduleRoot, ".targ", "cache")
+	cacheDir := filepath.Join(buildRoot, ".targ", "cache")
 	if err := os.MkdirAll(cacheDir, 0755); err != nil {
 		fmt.Printf("Error creating cache directory: %v\n", err)
 		os.Exit(1)
@@ -283,6 +293,7 @@ func main() {
 	buildCmd := exec.Command("go", buildArgs...)
 	buildCmd.Stdout = os.Stdout
 	buildCmd.Stderr = os.Stderr
+	buildCmd.Dir = buildRoot
 	if err := buildCmd.Run(); err != nil {
 		if !keepBootstrap {
 			_ = cleanupTemp()
@@ -345,7 +356,7 @@ func runGenerate() error {
 	return err
 }
 
-func findModuleRootAndPath(startDir string) (string, string, error) {
+func findModuleRootAndPath(startDir string) (string, string, bool, error) {
 	dir := startDir
 	for {
 		modPath := filepath.Join(dir, "go.mod")
@@ -353,9 +364,9 @@ func findModuleRootAndPath(startDir string) (string, string, error) {
 		if err == nil {
 			modulePath := parseModulePath(string(data))
 			if modulePath == "" {
-				return "", "", fmt.Errorf("module path not found in %s", modPath)
+				return "", "", true, fmt.Errorf("module path not found in %s", modPath)
 			}
-			return dir, modulePath, nil
+			return dir, modulePath, true, nil
 		}
 
 		parent := filepath.Dir(dir)
@@ -365,7 +376,7 @@ func findModuleRootAndPath(startDir string) (string, string, error) {
 		dir = parent
 	}
 
-	return "", "", fmt.Errorf("go.mod not found from %s", startDir)
+	return "", "", false, nil
 }
 
 func parseModulePath(content string) string {
@@ -376,6 +387,65 @@ func parseModulePath(content string) string {
 		}
 	}
 	return ""
+}
+
+func ensureFallbackModuleRoot(startDir string, modulePath string) (string, error) {
+	hash := sha256.Sum256([]byte(startDir))
+	root := filepath.Join(startDir, ".targ", "cache", "mod", fmt.Sprintf("%x", hash[:8]))
+	if err := os.MkdirAll(root, 0755); err != nil {
+		return "", err
+	}
+	if err := linkModuleRoot(startDir, root); err != nil {
+		return "", err
+	}
+	if err := writeFallbackGoMod(root, modulePath); err != nil {
+		return "", err
+	}
+	if err := touchFile(filepath.Join(root, "go.sum")); err != nil {
+		return "", err
+	}
+	return root, nil
+}
+
+func linkModuleRoot(startDir string, root string) error {
+	entries, err := os.ReadDir(startDir)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		if name == ".targ" || name == ".git" {
+			continue
+		}
+		src := filepath.Join(startDir, name)
+		dst := filepath.Join(root, name)
+		info, err := os.Lstat(dst)
+		if err == nil {
+			if info.Mode()&os.ModeSymlink != 0 {
+				continue
+			}
+			_ = os.RemoveAll(dst)
+		} else if !os.IsNotExist(err) {
+			return err
+		}
+		if err := os.Symlink(src, dst); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func writeFallbackGoMod(root string, modulePath string) error {
+	modPath := filepath.Join(root, "go.mod")
+	content := fmt.Sprintf("module %s\n\ngo 1.21\n", modulePath)
+	return os.WriteFile(modPath, []byte(content), 0644)
+}
+
+func touchFile(path string) error {
+	if err := os.WriteFile(path, []byte{}, 0644); err != nil {
+		return err
+	}
+	return nil
 }
 
 func detectShell() string {

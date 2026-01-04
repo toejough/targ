@@ -72,28 +72,6 @@ Low
 **Acceptance**
 Shortlist parsers and document tradeoffs; decide whether to keep manual parser.
 
-### 46. Publish repository
-
-#### Universal
-
-**Status**
-blocked
-
-**Description**
-Push targ to GitHub and set up the canonical repo at github.com/toejough/targ.
-
-#### Planning
-
-**Priority**
-Medium
-
-**Acceptance**
-Repository exists on GitHub and README link is valid.
-
-
-**Details**
-Needs GitHub repo creation and push permissions (github.com/toejough/targ). Awaiting user credentials or repo setup.
-
 ## Done
 
 Completed issues.
@@ -758,3 +736,25 @@ Low
 
 **Acceptance**
 TBD
+
+### 46. Publish repository
+
+#### Universal
+
+**Status**
+done
+
+**Description**
+Push targ to GitHub and set up the canonical repo at github.com/toejough/targ.
+
+#### Planning
+
+**Priority**
+Medium
+
+**Acceptance**
+Repository exists on GitHub and README link is valid.
+
+
+**Details**
+Needs GitHub repo creation and push permissions (github.com/toejough/targ). Awaiting user credentials or repo setup.
