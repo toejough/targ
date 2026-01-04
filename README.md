@@ -78,7 +78,7 @@ func (b *Build) Run() {
 Install the `targ` tool:
 
 ```bash
-go install github.com/yourusername/targ/cmd/targ@latest
+go install github.com/toejough/targ/cmd/targ@latest
 ```
 
 Run commands in that directory:
@@ -315,5 +315,5 @@ The completion supports:
 - Enum values declared via `enum=` tags
 
 ```bash
-go get github.com/yourusername/targ
+go get github.com/toejough/targ
 ```

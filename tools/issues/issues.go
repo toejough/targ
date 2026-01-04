@@ -11,8 +11,8 @@ import (
 	"strconv"
 	"strings"
 
-	"targ"
-	"targ/internal/issuefile"
+	"github.com/toejough/targ"
+	"github.com/toejough/targ/internal/issuefile"
 )
 
 type List struct {

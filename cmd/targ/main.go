@@ -17,8 +17,8 @@ import (
 	"text/template"
 	"unicode/utf8"
 
-	"targ"
-	"targ/buildtool"
+	"github.com/toejough/targ"
+	"github.com/toejough/targ/buildtool"
 )
 
 type bootstrapCommand struct {
@@ -256,11 +256,14 @@ func main() {
 		os.Exit(1)
 	}
 
-	bootstrapDir := startDir
+	var tempFile string
+	var cleanupTemp func() error
 	if usingFallback {
-		bootstrapDir = buildRoot
+		tempFile, cleanupTemp, err = writeBootstrapFile(buildRoot, buf.Bytes(), keepBootstrap)
+	} else {
+		tempDir := filepath.Join(importRoot, ".targ", "tmp")
+		tempFile, cleanupTemp, err = writeBootstrapFile(tempDir, buf.Bytes(), keepBootstrap)
 	}
-	_, cleanupTemp, err := writeBootstrapFile(bootstrapDir, buf.Bytes(), keepBootstrap)
 	if err != nil {
 		fmt.Printf("Error writing bootstrap file: %v\n", err)
 		os.Exit(1)
@@ -298,16 +301,17 @@ func main() {
 
 	buildArgs := []string{"build", "-tags", "targ", "-o", binaryPath}
 	if usingFallback {
-		buildArgs = append(buildArgs, "-mod=mod")
+		buildArgs = append(buildArgs, "-mod=mod", ".")
+	} else {
+		buildArgs = append(buildArgs, tempFile)
 	}
-	buildArgs = append(buildArgs, ".")
 	buildCmd := exec.Command("go", buildArgs...)
 	buildCmd.Stdout = os.Stdout
 	buildCmd.Stderr = os.Stderr
 	if usingFallback {
 		buildCmd.Dir = buildRoot
 	} else {
-		buildCmd.Dir = startDir
+		buildCmd.Dir = importRoot
 	}
 	if err := buildCmd.Run(); err != nil {
 		if !keepBootstrap {
@@ -330,6 +334,9 @@ func main() {
 }
 
 func writeBootstrapFile(dir string, data []byte, keep bool) (string, func() error, error) {
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return "", nil, err
+	}
 	temp, err := os.CreateTemp(dir, "targ_bootstrap_*.go")
 	if err != nil {
 		return "", nil, err
@@ -417,20 +424,32 @@ type targDependency struct {
 
 func resolveTargDependency() targDependency {
 	dep := targDependency{
-		ModulePath: "targ",
-		Version:    "v0.0.0",
+		ModulePath: "github.com/toejough/targ",
 	}
 	info, ok := debug.ReadBuildInfo()
-	if ok && info.Main.Version != "" && info.Main.Version != "(devel)" {
-		dep.Version = info.Main.Version
-		if modCache, err := goEnv("GOMODCACHE"); err == nil && modCache != "" {
-			candidate := filepath.Join(modCache, dep.ModulePath+"@"+dep.Version)
-			if info, err := os.Stat(candidate); err == nil && info.IsDir() {
-				dep.ReplaceDir = candidate
+	if ok {
+		if looksLikeModulePath(info.Main.Path) {
+			dep.ModulePath = info.Main.Path
+		}
+		if info.Main.Version != "" && info.Main.Version != "(devel)" && !strings.Contains(info.Main.Version, "+dirty") {
+			dep.Version = info.Main.Version
+			if modCache, err := goEnv("GOMODCACHE"); err == nil && modCache != "" {
+				candidate := filepath.Join(modCache, dep.ModulePath+"@"+dep.Version)
+				if info, err := os.Stat(candidate); err == nil && info.IsDir() {
+					dep.ReplaceDir = candidate
+				}
 			}
 		}
 	}
 	return dep
+}
+
+func looksLikeModulePath(path string) bool {
+	if path == "" {
+		return false
+	}
+	first := strings.Split(path, "/")[0]
+	return strings.Contains(first, ".")
 }
 
 func goEnv(key string) (string, error) {
@@ -491,17 +510,15 @@ func linkModuleRoot(startDir string, root string) error {
 func writeFallbackGoMod(root string, modulePath string, dep targDependency) error {
 	modPath := filepath.Join(root, "go.mod")
 	if dep.ModulePath == "" {
-		dep.ModulePath = "targ"
-	}
-	if dep.Version == "" {
-		dep.Version = "v0.0.0"
+		dep.ModulePath = "github.com/toejough/targ"
 	}
 	lines := []string{
 		"module " + modulePath,
 		"",
 		"go 1.21",
-		"",
-		fmt.Sprintf("require %s %s", dep.ModulePath, dep.Version),
+	}
+	if dep.Version != "" {
+		lines = append(lines, "", fmt.Sprintf("require %s %s", dep.ModulePath, dep.Version))
 	}
 	if dep.ReplaceDir != "" {
 		lines = append(lines, "", fmt.Sprintf("replace %s => %s", dep.ModulePath, dep.ReplaceDir))
@@ -792,8 +809,8 @@ func buildBootstrapData(
 	if err != nil {
 		return bootstrapData{}, err
 	}
-	imports := []bootstrapImport{{Path: "targ"}}
-	usedImports := map[string]bool{"targ": true}
+	imports := []bootstrapImport{{Path: "github.com/toejough/targ"}}
+	usedImports := map[string]bool{"github.com/toejough/targ": true}
 	var packages []bootstrapPackage
 	var targets []string
 	seenPackages := make(map[string]string)
@@ -899,7 +916,7 @@ func uniqueImportName(name string, used map[string]bool) string {
 	if candidate == "" {
 		candidate = "pkg"
 	}
-	if candidate == "targ" {
+	if candidate == "github.com/toejough/targ" {
 		candidate = "cmdpkg"
 	}
 	for used[candidate] {
@@ -1007,15 +1024,15 @@ const bootstrapTemplate = `
 package main
 
 import (
-	"targ"
+	"github.com/toejough/targ"
 {{- if .BannerLit }}
 	"fmt"
 	"os"
 {{- end }}
 {{- range .Imports }}
-{{- if and (ne .Path "targ") (ne .Alias "") }}
+{{- if and (ne .Path "github.com/toejough/targ") (ne .Alias "") }}
 	{{ .Alias }} "{{ .Path }}"
-{{- else if ne .Path "targ" }}
+{{- else if ne .Path "github.com/toejough/targ" }}
 	"{{ .Path }}"
 {{- end }}
 {{- end }}

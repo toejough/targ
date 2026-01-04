@@ -1,7 +1,7 @@
 package main
 
 import (
-	"targ"
+	"github.com/toejough/targ"
 )
 
 func main() {

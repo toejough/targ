@@ -1,4 +1,4 @@
-module targ
+module github.com/toejough/targ
 
 go 1.25.5
 

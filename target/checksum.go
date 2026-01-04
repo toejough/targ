@@ -8,7 +8,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"targ"
+	"github.com/toejough/targ"
 )
 
 // Checksum reports whether the content hash of inputs differs from the stored hash at dest.

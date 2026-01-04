@@ -9,7 +9,7 @@ import (
 	"testing"
 	"text/template"
 
-	"targ/buildtool"
+	"github.com/toejough/targ/buildtool"
 )
 
 func TestBuildBootstrapData_SinglePackage_Local(t *testing.T) {
@@ -175,7 +175,7 @@ func TestEnsureFallbackModuleRoot(t *testing.T) {
 		t.Fatalf("unexpected write error: %v", err)
 	}
 
-	root, err := ensureFallbackModuleRoot(dir, "targ.local", targDependency{ModulePath: "targ", Version: "v0.0.0"})
+	root, err := ensureFallbackModuleRoot(dir, "targ.local", targDependency{ModulePath: "github.com/toejough/targ", Version: "v0.0.0"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

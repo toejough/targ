@@ -2,7 +2,7 @@ package main
 
 import (
 	"fmt"
-	"targ"
+	"github.com/toejough/targ"
 )
 
 // --- The Manifest ---
