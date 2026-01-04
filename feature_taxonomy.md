@@ -33,7 +33,7 @@ Legend:
 | Multiple root selection by name | Essential | Implemented | Multiple roots choose by name |
 | Build tool mode discovery by build tag (`targ`) | Core | Implemented | Tagged file discovery |
 | Recursive search + depth gating | Core | Implemented | Multiple dirs at same depth error |
-| Package grouping (multipackage) | Core | Implemented | Package names as top-level cmds |
+| Auto namespacing by file path | Core | Implemented | Compress path segments, file-based namespaces |
 | Function discovery in build tool mode | Core | Implemented | Exported niladic funcs appear |
 | Filters out subcommand structs/functions | Core | Implemented | Subcommands not treated as roots |
 | Build tool mode: no default command | Core | Implemented | Explicit command required |

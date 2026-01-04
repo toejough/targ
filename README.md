@@ -89,9 +89,9 @@ $ targ build --target prod
 
 Build tool mode rules:
 
-- Discovery is recursive and only includes directories with the `//go:build targ` tag.
-- Without `--multipackage`, Targ selects the shallowest tagged directory; if multiple exist at that depth, it errors.
-- With `--multipackage`, package names are always inserted as the first subcommand.
+- Discovery is recursive and only includes files with the `//go:build targ` tag.
+- Commands are grouped by file and namespaced by the minimal path segments needed for disambiguation.
+- Targ drops common leading path segments and collapses directory chains with a single child.
 - Build tool mode never has a default command.
 - `--no-cache` forces rebuilding the build tool binary.
 - `--keep` keeps the generated bootstrap file for inspection.
@@ -100,26 +100,23 @@ Example layout:
 
 ```text
 repo/
-  mage/
-    build.go   //go:build targ (package build)
-    deploy.go  //go:build targ (package deploy)
   tools/
-    gen/
-      gen.go   //go:build targ (package gen)
+    issues/
+      issues.go  //go:build targ (package issues)
+    other/
+      foo.go     //go:build targ (package other)
+      bar.go     //go:build targ (package other)
 ```
 
 Example usage:
 
 ```bash
-# Without --multipackage, Targ uses the shallowest tagged dir (repo/mage)
-$ targ build
-$ targ deploy
-
-# With --multipackage, package name is always the first subcommand
-$ targ --multipackage build build
-$ targ --multipackage deploy deploy
-$ targ --multipackage gen generate
+$ targ issues list
+$ targ other foo thing
+$ targ other bar ship
 ```
+
+If only one tagged file is found, its commands are exposed at the root (no prefix).
 
 Build tool example in this repo:
 

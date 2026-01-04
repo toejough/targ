@@ -31,18 +31,16 @@ This document describes the intended architecture and behavior for Targ, includi
 
 ### Build Tool Mode
 
-- Recursively search for directories containing files with `//go:build targ`.
+- Recursively search for files with `//go:build targ`.
 - Per directory:
   - Enforce a single package name (Go rule); mixed names are an error.
   - Discover exported structs and niladic functions.
   - Filter out structs/functions whose name matches a subcommand name of another exported struct.
-- Without `--multipackage`:
-  - Find the first directory depth that has tagged files.
-  - If multiple directories exist at that same depth, error with a list of those paths.
-  - Use that single directory as the command source.
-- With `--multipackage`:
-  - Always insert the package name as the first subcommand.
-  - Functions and structs are grouped under that package node.
+- Commands are grouped by file.
+- Build a namespace tree from tagged file paths:
+  - Drop the common leading path segments (relative to the current directory).
+  - Collapse directory chains where a node has only one child.
+  - Use the remaining path segments (directories and file base) as subcommand prefixes.
 - Build tool mode never has a default command (all commands are invoked by name).
 
 ## C4 Diagrams
@@ -122,26 +120,15 @@ User -> binary: "build"
 targ.Run -> execute root "build"
 ```
 
-### Build Tool Mode (no --multipackage, single depth)
+### Build Tool Mode (auto-namespaced)
 
 ```text
 User -> targ: run from repo root
 targ -> discover: recursive search for tagged files
-discover -> depth gate: pick first depth with tagged files
-discover -> parse package dir: exported structs/functions
-targ -> generate bootstrap -> go run .
-bootstrap -> targ.Run: targets=[...]
-```
-
-### Build Tool Mode (--multipackage)
-
-```text
-User -> targ --multipackage
-discover -> recursive search for tagged files
-discover -> collect package dirs (any depth)
-discover -> build package nodes (pkg -> cmds)
-bootstrap -> targ.Run: targets=[pkg1, pkg2...]
-User -> binary: "pkg1 build"
+discover -> parse package dirs: exported structs/functions
+targ -> namespace: drop common path prefix, collapse single-child dirs
+bootstrap -> targ.Run: roots=[namespace nodes + commands]
+User -> binary: "issues list", "other foo thing"
 ```
 
 ## Data Model
@@ -176,13 +163,11 @@ CommandNode
 2) Recursively walk from start dir.
 3) Collect directories containing files with `//go:build targ`.
 4) Enforce per-directory package name consistency.
-5) Without `--multipackage`:
-   - Find minimum depth with tagged dirs.
-   - If multiple dirs at that depth, error with paths.
-   - Use that single directory for command discovery.
-6) With `--multipackage`:
-   - Discover commands per directory.
-   - Create a package root node for each directory (name = package name).
+5) Discover commands per directory.
+6) Build a namespace tree from tagged file paths:
+   - Drop the common leading path segments.
+   - Collapse directory chains with a single child.
+   - Use remaining path segments (directories + file base) as subcommand prefixes.
 7) In each package:
    - Parse exported structs and niladic functions.
    - Collect subcommand names from exported structs.
@@ -195,29 +180,20 @@ CommandNode
 
 ```text
 repo/
-  mage/
-    build.go      //go:build targ (package build)
-    deploy.go     //go:build targ (package deploy)
   tools/
-    gen/
-      gen.go      //go:build targ (package gen)
+    issues/
+      issues.go   //go:build targ (package issues)
+    other/
+      foo.go      //go:build targ (package other)
+      bar.go      //go:build targ (package other)
 ```
 
-### Commands (Build Tool Mode, --multipackage)
+### Commands (Build Tool Mode)
 
 ```text
-$ targ --multipackage build lint
-$ targ --multipackage deploy release
-$ targ --multipackage gen generate
-```
-
-### Commands (Build Tool Mode, no --multipackage)
-
-If `repo/mage` is the first depth with tagged files:
-
-```text
-$ targ build
-$ targ deploy
+$ targ issues list
+$ targ other foo thing
+$ targ other bar ship
 ```
 
 ### Struct + Function Commands
@@ -235,10 +211,9 @@ func Lint() {}
 
 Result:
 - Commands: `build` and `lint`
-- With `--multipackage`: `build build` and `build lint`
 
 ## Error Messaging Guidelines
 
 - Duplicate package names in same directory: list files + package names.
-- Multiple tagged dirs at same depth without `--multipackage`: list directory paths.
+- Duplicate commands under the same namespace: list the conflicting commands and file paths.
 - Invalid command: show available command names at that level.

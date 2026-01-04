@@ -1,30 +1,106 @@
-# Implementation Plan for Targ
+# Repo Reorg Plan (Draft)
 
-## Phase 1: Core Logic & Discovery (Done)
-- [x] **Define Core Interfaces**: `Command` and `Argument` abstractions (internal).
-- [x] **Reflection Engine**: Logic to inspect `func(struct)` signatures.
-- [x] **Tag Parsing**: `targ:"required, desc=..."`.
+Goal: align code layout with the feature taxonomy while keeping a clear split between user-facing API and internal implementation.
 
-## Phase 2: Argument Parsing & Execution (Done)
-- [x] **Flag Parsing**: `flag` package integration.
-- [x] **Execution**: Handler to invoke functions.
-- [x] **Help Generation**: Basic usage listing.
-- [x] **Environment Variables**: `env=...` tag.
-- [x] **Positional Arguments**: `positional` tag.
-- [x] **Variadic Arguments**: Slice support.
+## Principles
+- Keep user-facing API under `targ/` (public and documented).
+- Move non-user-facing code under `internal/` (implementation details).
+- Keep tooling under `dev/` and docs under `docs/`.
+- Preserve current behavior; no functional changes during reorg unless required.
 
-## Phase 3: CLI Structure & Subcommands (Done)
-- [x] **Root Command**: `Run(structs...)`.
-- [x] **Subcommands**: Struct fields as subcommands (Architecture Pivot).
-- [x] **Name Normalization**: CamelCase to kebab-case.
-- [x] **Build Tool Mode**: Mage-style execution without main function.
+## Proposed Top-Level Layout
+| Directory | Purpose |
+| --- | --- |
+| `cmd/` | Installable CLI(s), including `targ` |
+| `targ/` | Public library API expected for direct-binary use |
+| `internal/` | Implementation details for discovery, build-tool mode, parsing, caching |
+| `docs/` | Design notes, taxonomy, architecture docs |
+| `dev/` | Project tooling (issue tracker, scripts, build helpers) |
 
-## Phase 4: Polish & Advanced Features (Done)
-- [x] **Shell Completion**: Bash/Zsh/Fish completion integration.
-- [x] **Short Flags**: `short=a` alias support.
-- [x] **Custom Help**: Description support via `desc` tag.
+## Proposed File Structure (Draft)
+```
+cmd/
+  targ/
+    main.go
+    main_test.go
+docs/
+  design.md
+  feature_taxonomy.md
+  plan.md
+  thoughts.md
+  thoughts2.md
+  thoughts4.md
+dev/
+  issuefile/
+    issuefile.go
+    issuefile_test.go
+  issues/
+    issues.go
+    issues_test.go
+internal/
+  args/
+    parse_value.go
+  buildtool/
+    discover.go
+    discover_test.go
+    generate.go
+    generate_test.go
+    select_test.go
+  completion/
+    format.go
+  exec/
+    run_env.go
+    run_env_mock_test.go
+  fs/
+    match.go
+    match_test.go
+  help/
+    command_meta.go
+  target/
+    checksum.go
+    checksum_test.go
+    newer.go
+    newer_test.go
+    watch.go
+    watch_test.go
+targ/
+  completion.go
+  deps.go
+  deps_test.go
+  doc.go
+  target.go
+  targs.go
+  targs_test.go
+```
 
-## Phase 5: Testing & Documentation (Done)
-- [x] **Unit Tests**: Coverage for parsing, execution, subcommands, and flags.
-- [x] **Examples**: `examples/simple` and `examples/cli_mode`.
-- [x] **Documentation**: Readme updated with new API.
+## Taxonomy Alignment (Public vs Internal)
+| Taxonomy Area | Public API (`targ/`) | Internal (`internal/`) |
+| --- | --- | --- |
+| Command Model | Run helpers, command structs, naming | reflection discovery, command graph |
+| Arguments & Parsing | tag types, defaults, env, enums | parsing engine, validation |
+| Help & Completion | help generation entrypoints, completion API | formatters, template rendering |
+| Build-Tool Mode | CLI flags and config structs | module bootstrap, caching, discover/generate |
+| Build Helpers | public helpers (newer/watch/checksum) | filesystem/glob internals |
+
+## Likely Moves (Initial Pass)
+| Current Path | Proposed Path | Rationale |
+| --- | --- | --- |
+| `completion.go` | `targ/completion.go` | Public helper for direct-binary completion |
+| `buildtool/*` | `internal/buildtool/*` | Implementation detail of build-tool mode |
+| `internal/issuefile/*` | `dev/issuefile/*` | Dev tooling |
+| `tools/issues/*` | `dev/issues/*` | Dev tooling |
+| `feature_taxonomy.md` | `docs/feature_taxonomy.md` | Documentation |
+| `thoughts*.md` | `docs/` | Design docs |
+| `design.md` | `docs/` | Design docs |
+| `plan.md` | `docs/plan.md` | Planning doc |
+
+## Open Questions
+- Which items in `targ/` are truly public vs internal? (e.g., help formatting helpers)
+- Should build helpers (newer/watch/checksum) live in `targ/build/` or `targ/targets/`?
+- Does `cmd/targ` import anything currently considered internal?
+
+## Next Steps
+1. Confirm public API surface intended for direct-binary users.
+2. Decide final taxonomy buckets under `targ/` (e.g., `targ/build`, `targ/args`, `targ/help`).
+3. Execute the moves in small, testable slices; update imports and docs.
+4. Run tests and update taxonomy doc to match final layout.
