@@ -36,24 +36,6 @@ Medium
 **Acceptance**
 Add `targ.LoadEnv()` or auto-load in `Run()`.
 
-### 46. Publish repository
-
-#### Universal
-
-**Status**
-backlog
-
-**Description**
-Push targ to GitHub and set up the canonical repo at github.com/toejough/targ.
-
-#### Planning
-
-**Priority**
-Medium
-
-**Acceptance**
-Repository exists on GitHub and README link is valid.
-
 ### 16. Interactive UI Helpers
 
 #### Universal
@@ -89,6 +71,28 @@ Low
 
 **Acceptance**
 Shortlist parsers and document tradeoffs; decide whether to keep manual parser.
+
+### 46. Publish repository
+
+#### Universal
+
+**Status**
+blocked
+
+**Description**
+Push targ to GitHub and set up the canonical repo at github.com/toejough/targ.
+
+#### Planning
+
+**Priority**
+Medium
+
+**Acceptance**
+Repository exists on GitHub and README link is valid.
+
+
+**Details**
+Needs GitHub repo creation and push permissions (github.com/toejough/targ). Awaiting user credentials or repo setup.
 
 ## Done
 
