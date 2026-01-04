@@ -8,7 +8,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"targs"
+	"targ"
 )
 
 // Checksum reports whether the content hash of inputs differs from the stored hash at dest.
@@ -21,7 +21,7 @@ func Checksum(inputs []string, dest string) (bool, error) {
 		return false, fmt.Errorf("dest cannot be empty")
 	}
 
-	matches, err := targs.Match(inputs...)
+	matches, err := targ.Match(inputs...)
 	if err != nil {
 		return false, err
 	}

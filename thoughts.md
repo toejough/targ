@@ -15,7 +15,7 @@ I'd like to be able to just add target functions to a file, and have the tool fi
 A secondary use case is to have a way to transform these commands into a standalone CLI, such as perhaps by:
 
 - deleting all non-target functions and types
-- adding a main function that calls a library function that accepts the remaining target `targs.Use(target)`
+- adding a main function that calls a library function that accepts the remaining target `targ.Use(target)`
 
 It doesn't have to be that way, that's just an example I'm thinking of.
 

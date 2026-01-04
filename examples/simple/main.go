@@ -2,12 +2,12 @@ package main
 
 import (
 	"fmt"
-	"targs"
+	"targ"
 )
 
 type Greet struct {
-	Name string `targs:"required,desc=Name of the person to greet"`
-	Age  int    `targs:"flag,name=age,desc=Age of the person"`
+	Name string `targ:"required,desc=Name of the person to greet"`
+	Age  int    `targ:"flag,name=age,desc=Age of the person"`
 }
 
 // Greet the user.
@@ -17,8 +17,8 @@ func (g *Greet) Run() {
 }
 
 type Math struct {
-	Add    *AddCmd `targs:"subcommand"`
-	RunCmd *RunCmd `targs:"subcommand=run"`
+	Add    *AddCmd `targ:"subcommand"`
+	RunCmd *RunCmd `targ:"subcommand=run"`
 }
 
 // Math operations.
@@ -28,8 +28,8 @@ func (m *Math) Run() {
 }
 
 type AddCmd struct {
-	A int `targs:"positional"`
-	B int `targs:"positional"`
+	A int `targ:"positional"`
+	B int `targ:"positional"`
 }
 
 // Add two numbers.
@@ -47,5 +47,5 @@ func (r *RunCmd) Run() {
 }
 
 func main() {
-	targs.Run(Greet{}, Math{})
+	targ.Run(Greet{}, Math{})
 }

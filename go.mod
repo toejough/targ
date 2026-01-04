@@ -1,4 +1,4 @@
-module targs
+module targ
 
 go 1.25.5
 

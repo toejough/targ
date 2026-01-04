@@ -1,4 +1,4 @@
-package targs
+package targ
 
 import (
 	"context"
@@ -38,7 +38,7 @@ func Deps(targets ...interface{}) error {
 	tracker := currentDeps
 	depsMu.Unlock()
 	if tracker == nil {
-		return fmt.Errorf("Deps must be called during targs.Run")
+		return fmt.Errorf("Deps must be called during targ.Run")
 	}
 	for _, target := range targets {
 		if err := tracker.run(target); err != nil {
@@ -54,7 +54,7 @@ func ParallelDeps(targets ...interface{}) error {
 	tracker := currentDeps
 	depsMu.Unlock()
 	if tracker == nil {
-		return fmt.Errorf("ParallelDeps must be called during targs.Run")
+		return fmt.Errorf("ParallelDeps must be called during targ.Run")
 	}
 	if len(targets) == 0 {
 		return nil

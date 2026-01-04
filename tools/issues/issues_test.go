@@ -1,4 +1,4 @@
-//go:build targs
+//go:build targ
 
 package issues
 

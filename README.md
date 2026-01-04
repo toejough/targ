@@ -1,6 +1,6 @@
-# Targs
+# Targ
 
-Targs is a Go library for building CLIs with minimal configuration, combining the best of Mage (function-based discovery), go-arg (struct tags), and Cobra (subcommands).
+Targ is a Go library for building CLIs with minimal configuration, with inspiration from Mage (function-based discovery), go-arg (struct tags), and Cobra (subcommands & completion). Named for build targets—you can "targ it" and move on.
 
 ## Features
 
@@ -13,18 +13,18 @@ Targs is a Go library for building CLIs with minimal configuration, combining th
 
 ### 1. Library Mode
 
-Embed `targs` in your own main function.
+Embed `targ` in your own main function.
 
 ```go
 package main
 
 import (
     "fmt"
-    "targs"
+    "targ"
 )
 
 type Greet struct {
-    Name string `targs:"required"`
+    Name string `targ:"required"`
 }
 
 func (g *Greet) Run() {
@@ -32,7 +32,7 @@ func (g *Greet) Run() {
 }
 
 func main() {
-    targs.Run(&Greet{})
+    targ.Run(&Greet{})
 }
 ```
 
@@ -50,24 +50,24 @@ Niladic functions can also be commands:
 func Clean() { fmt.Println("cleaning") }
 
 func main() {
-    targs.Run(Clean)
+    targ.Run(Clean)
 }
 ```
 
 ### 2. Build Tool Mode (Mage-style)
 
 Create a `command.go` file (name doesn't matter) in a directory. DO NOT define a `main` function.
-Add the build tag `//go:build targs` to any file you want scanned.
+Add the build tag `//go:build targ` to any file you want scanned.
 
 ```go
-//go:build targs
+//go:build targ
 
 package main
 
 import "fmt"
 
 type Build struct {
-    Target string `targs:"flag"`
+    Target string `targ:"flag"`
 }
 
 func (b *Build) Run() {
@@ -75,19 +75,22 @@ func (b *Build) Run() {
 }
 ```
 
-Install the `targs` tool:
+Install the `targ` tool:
+
 ```bash
-go install github.com/yourusername/targs/cmd/targs@latest
+go install github.com/yourusername/targ/cmd/targ@latest
 ```
 
 Run commands in that directory:
+
 ```bash
-$ targs build -target prod
+$ targ build -target prod
 ```
 
 Build tool mode rules:
-- Discovery is recursive and only includes directories with the `//go:build targs` tag.
-- Without `--multipackage`, Targs selects the shallowest tagged directory; if multiple exist at that depth, it errors.
+
+- Discovery is recursive and only includes directories with the `//go:build targ` tag.
+- Without `--multipackage`, Targ selects the shallowest tagged directory; if multiple exist at that depth, it errors.
 - With `--multipackage`, package names are always inserted as the first subcommand.
 - Build tool mode never has a default command.
 - `--no-cache` forces rebuilding the build tool binary.
@@ -98,45 +101,45 @@ Example layout:
 ```text
 repo/
   mage/
-    build.go   //go:build targs (package build)
-    deploy.go  //go:build targs (package deploy)
+    build.go   //go:build targ (package build)
+    deploy.go  //go:build targ (package deploy)
   tools/
     gen/
-      gen.go   //go:build targs (package gen)
+      gen.go   //go:build targ (package gen)
 ```
 
 Example usage:
 
 ```bash
-# Without --multipackage, Targs uses the shallowest tagged dir (repo/mage)
-$ targs build
-$ targs deploy
+# Without --multipackage, Targ uses the shallowest tagged dir (repo/mage)
+$ targ build
+$ targ deploy
 
 # With --multipackage, package name is always the first subcommand
-$ targs --multipackage build build
-$ targs --multipackage deploy deploy
-$ targs --multipackage gen generate
+$ targ --multipackage build build
+$ targ --multipackage deploy deploy
+$ targ --multipackage gen generate
 ```
 
 Build tool example in this repo:
 
 ```bash
-$ targs list
-$ targs create --title "New Issue" --description "..." --priority Medium
-$ targs move 4 --status done
-$ targs update 40 --status done --description "..." --details "..."
+$ targ list
+$ targ create --title "New Issue" --description "..." --priority Medium
+$ targ move 4 --status done
+$ targ update 40 --status done --description "..." --details "..."
 ```
 
 ### Subcommands
 
-Define subcommands using fields with the `targs:"subcommand"` tag.
+Define subcommands using fields with the `targ:"subcommand"` tag.
 
 ```go
 type Math struct {
     // Command: "add"
-    Add *AddCmd `targs:"subcommand"`
+    Add *AddCmd `targ:"subcommand"`
     // Command: "run" (aliased)
-    RunCmd *RunCmd `targs:"subcommand=run"`
+    RunCmd *RunCmd `targ:"subcommand=run"`
 }
 
 func (m *Math) Run() {
@@ -145,8 +148,8 @@ func (m *Math) Run() {
 }
 
 type AddCmd struct {
-    A int `targs:"positional"`
-    B int `targs:"positional"`
+    A int `targ:"positional"`
+    B int `targ:"positional"`
 }
 
 func (a *AddCmd) Run() {
@@ -173,7 +176,7 @@ func (g *Greet) Run() {
 This will appear in the help output:
 
 ```
-$ targs greet --help
+$ targ greet --help
 Usage: greet [flags] [subcommand]
 
 Greet the user.
@@ -184,8 +187,8 @@ Flags:
 ```
 
 For function commands, descriptions are only available via generated wrappers.
-In build tool mode, `targs` generates wrappers automatically from function comments.
-In direct binary mode, you can generate wrappers manually (see `targs gen`) and pass the generated struct to `Run`.
+In build tool mode, `targ` generates wrappers automatically from function comments.
+In direct binary mode, you can generate wrappers manually (see `targ gen`) and pass the generated struct to `Run`.
 
 ### Command Metadata Overrides
 
@@ -201,48 +204,48 @@ func (c *MyCmd) Description() string { return "Custom description." }
 
 ### Command Wrapper Generation
 
-Use `targs gen` to generate wrappers for exported niladic functions in the current package.
-This writes `generated_targs_<pkg>.go`, which defines a struct per function with `Run`,
+Use `targ gen` to generate wrappers for exported niladic functions in the current package.
+This writes `generated_targ_<pkg>.go`, which defines a struct per function with `Run`,
 `Name`, and (when comments exist) `Description`.
 
 ### Tags
 
-- `targs:"required"`: Flag is required.
-- `targs:"desc=..."`: Description for help text (for flags).
-- `targs:"name=..."`: Custom flag name.
-- `targs:"short=..."`: Short flag alias (e.g., `short=n` for `-n`).
-- `targs:"enum=a|b|c"`: Allowed values for completion.
-- `targs:"subcommand=..."`: Rename subcommand.
-- `targs:"env=VAR_NAME"`: Default value from environment variable.
-- `targs:"positional"`: Map positional arguments to this field.
-- `targs:"default=VALUE"`: Default value (only supported default mechanism).
+- `targ:"required"`: Flag is required.
+- `targ:"desc=..."`: Description for help text (for flags).
+- `targ:"name=..."`: Custom flag name.
+- `targ:"short=..."`: Short flag alias (e.g., `short=n` for `-n`).
+- `targ:"enum=a|b|c"`: Allowed values for completion.
+- `targ:"subcommand=..."`: Rename subcommand.
+- `targ:"env=VAR_NAME"`: Default value from environment variable.
+- `targ:"positional"`: Map positional arguments to this field.
+- `targ:"default=VALUE"`: Default value (only supported default mechanism).
 
-Defaults only come from `default=...` tags. Passing non-zero values in the struct you give to `targs.Run` will return an error.
+Defaults only come from `default=...` tags. Passing non-zero values in the struct you give to `targ.Run` will return an error.
 
 ## Dependencies
 
-Use `targs.Deps` to run command dependencies exactly once per invocation:
+Use `targ.Deps` to run command dependencies exactly once per invocation:
 
 ```go
 func Build() error {
-    return targs.Deps(Test, Lint)
+    return targ.Deps(Test, Lint)
 }
 ```
 
-Use `targs.ParallelDeps` to run independent tasks concurrently while still sharing dependencies:
+Use `targ.ParallelDeps` to run independent tasks concurrently while still sharing dependencies:
 
 ```go
 func CI() error {
-    return targs.ParallelDeps(Test, Lint)
+    return targ.ParallelDeps(Test, Lint)
 }
 ```
 
 ## File Checks
 
-Use `targs.Newer` to check inputs against outputs (or an implicit cache when outputs are empty):
+Use `targ.Newer` to check inputs against outputs (or an implicit cache when outputs are empty):
 
 ```go
-needs, err := targs.Newer([]string{"**/*.go"}, []string{"bin/app"})
+needs, err := targ.Newer([]string{"**/*.go"}, []string{"bin/app"})
 if err != nil {
     return err
 }
@@ -256,9 +259,9 @@ When outputs are empty, `Newer` compares the current matches and modtimes to a c
 Use `target.Checksum` to skip work when file contents are unchanged:
 
 ```go
-import "targs/target"
+import "targ/target"
 
-changed, err := target.Checksum([]string{"**/*.go"}, ".targs/cache/build.sum")
+changed, err := target.Checksum([]string{"**/*.go"}, ".targ/cache/build.sum")
 if err != nil {
     return err
 }
@@ -269,20 +272,20 @@ if !changed {
 
 ## Watch Mode
 
-Use `targs.Watch` to react to file additions, removals, and modifications:
+Use `targ.Watch` to react to file additions, removals, and modifications:
 
 ```go
-err := targs.Watch(ctx, []string{"**/*.go"}, targs.WatchOptions{}, func(changes targs.ChangeSet) error {
+err := targ.Watch(ctx, []string{"**/*.go"}, targ.WatchOptions{}, func(changes targ.ChangeSet) error {
     return sh.Run("go", "test", "./...")
 })
 ```
 
 ## Shell Helpers
 
-Use `targs/sh` for simple shell execution helpers:
+Use `targ/sh` for simple shell execution helpers:
 
 ```go
-import "targs/sh"
+import "targ/sh"
 
 if err := sh.Run("go", "test", "./..."); err != nil {
     panic(err)
@@ -306,10 +309,11 @@ your-binary --completion fish | source
 ```
 
 The completion supports:
+
 - Commands and subcommands
 - Long/short flags
 - Enum values declared via `enum=` tags
 
 ```bash
-go get github.com/yourusername/targs
+go get github.com/yourusername/targ
 ```

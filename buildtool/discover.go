@@ -93,7 +93,7 @@ func Discover(fs FileSystem, opts Options) ([]PackageInfo, error) {
 	}
 	tag := opts.BuildTag
 	if tag == "" {
-		tag = "targs"
+		tag = "targ"
 	}
 
 	dirs, err := findTaggedDirs(fs, startDir, tag)
@@ -129,7 +129,7 @@ func SelectTaggedDirs(fs FileSystem, opts Options) ([]TaggedDir, error) {
 	}
 	tag := opts.BuildTag
 	if tag == "" {
-		tag = "targs"
+		tag = "targ"
 	}
 
 	dirs, err := findTaggedDirs(fs, startDir, tag)
@@ -155,7 +155,7 @@ func TaggedFiles(fs FileSystem, opts Options) ([]TaggedFile, error) {
 	}
 	tag := opts.BuildTag
 	if tag == "" {
-		tag = "targs"
+		tag = "targ"
 	}
 
 	dirs, err := findTaggedDirs(fs, startDir, tag)
@@ -568,13 +568,13 @@ func recordSubcommandRefs(
 		}
 		tagValue := strings.Trim(field.Tag.Value, "`")
 		tag := reflectStructTag(tagValue)
-		targsTag := tag.Get("targs")
-		if !strings.Contains(targsTag, "subcommand") {
+		targTag := tag.Get("targ")
+		if !strings.Contains(targTag, "subcommand") {
 			continue
 		}
 		hasSubcommand = true
 		nameOverride := ""
-		parts := strings.Split(targsTag, ",")
+		parts := strings.Split(targTag, ",")
 		for _, p := range parts {
 			p = strings.TrimSpace(p)
 			if strings.HasPrefix(p, "name=") {

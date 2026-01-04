@@ -8,7 +8,7 @@ import (
 
 // Build is a top-level command
 type Build struct {
-	Docker *DockerCmd `targs:"subcommand"`
+	Docker *DockerCmd `targ:"subcommand"`
 }
 
 // Run is the method executed when Build command is called
@@ -20,7 +20,7 @@ func (b *Build) Run() {
 
 // DockerCmd is a subcommand of Build, so it should NOT be a top-level command
 type DockerCmd struct {
-	Tag string `targs:"flag"`
+	Tag string `targ:"flag"`
 }
 
 // Build something
@@ -30,7 +30,7 @@ func (d *DockerCmd) Run() {
 
 // Deploy is a standalone top-level command
 type Deploy struct {
-	Env string `targs:"flag"`
+	Env string `targ:"flag"`
 }
 
 func (d *Deploy) Run() {

@@ -18,42 +18,6 @@ A simple md issue tracker.
 
 Issues to choose from for future work.
 
-### 43. Investigate markdown parsers for issuefile
-
-#### Universal
-
-**Status**
-backlog
-
-**Description**
-Evaluate third-party markdown parsers (e.g., goldmark) to replace or augment the manual issuefile parser.
-
-#### Planning
-
-**Priority**
-Low
-
-**Acceptance**
-Shortlist parsers and document tradeoffs; decide whether to keep manual parser.
-
-### 45. add methods for dynamically setting tags
-
-#### Universal
-
-**Status**
-backlog
-
-**Description**
-TBD
-
-#### Planning
-
-**Priority**
-Low
-
-**Acceptance**
-TBD
-
 ### 15. .env File Loading
 
 #### Universal
@@ -70,7 +34,7 @@ Load `.env` files to populate env-backed flags.
 Medium
 
 **Acceptance**
-Add `targs.LoadEnv()` or auto-load in `Run()`.
+Add `targ.LoadEnv()` or auto-load in `Run()`.
 
 ### 46. Publish repository
 
@@ -80,7 +44,7 @@ Add `targs.LoadEnv()` or auto-load in `Run()`.
 backlog
 
 **Description**
-Push targs to GitHub and set up the canonical repo at github.com/toejough/targs.
+Push targ to GitHub and set up the canonical repo at github.com/toejough/targ.
 
 #### Planning
 
@@ -89,24 +53,6 @@ Medium
 
 **Acceptance**
 Repository exists on GitHub and README link is valid.
-
-### 48. rename to just targ
-
-#### Universal
-
-**Status**
-backlog
-
-**Description**
-TBD
-
-#### Planning
-
-**Priority**
-Low
-
-**Acceptance**
-TBD
 
 ### 16. Interactive UI Helpers
 
@@ -125,6 +71,24 @@ Low
 
 **Acceptance**
 Provide a `ui` package for common prompts.
+
+### 43. Investigate markdown parsers for issuefile
+
+#### Universal
+
+**Status**
+cancelled
+
+**Description**
+Evaluate third-party markdown parsers (e.g., goldmark) to replace or augment the manual issuefile parser.
+
+#### Planning
+
+**Priority**
+Low
+
+**Acceptance**
+Shortlist parsers and document tradeoffs; decide whether to keep manual parser.
 
 ## Done
 
@@ -189,8 +153,8 @@ Generate wrapper structs for function commands so descriptions are embedded in c
 #### Implementation Notes
 
 **Details**
-- Build tool mode auto-generates `generated_targs_<pkg>.go` with `Name`/`Description`.
-- Direct binaries can opt in via `targs gen` and pass the generated struct to `Run`.
+- Build tool mode auto-generates `generated_targ_<pkg>.go` with `Name`/`Description`.
+- Direct binaries can opt in via `targ gen` and pass the generated struct to `Run`.
 
 ### 10. Custom Type Support (TextUnmarshaler)
 
@@ -225,7 +189,7 @@ Support cancellation/timeouts for long-running tasks.
 - Function commands support `func(context.Context)` and `func(context.Context) error`.
 - Root context is cancelled on SIGINT/SIGTERM in CLI runs.
 
-### 2. Shell Execution Helpers (targs/sh)
+### 2. Shell Execution Helpers (targ/sh)
 
 #### Universal
 
@@ -270,7 +234,7 @@ Allow targets to declare dependencies that run exactly once per execution graph.
 #### Implementation Notes
 
 **Details**
-- Added `targs.Deps` to run dependencies once per CLI execution.
+- Added `targ.Deps` to run dependencies once per CLI execution.
 - Dependencies can be functions or struct command instances.
 
 ### 4. File Modification Checks (target)
@@ -286,7 +250,7 @@ Provide helpers for skipping work when outputs are newer than inputs.
 #### Implementation Notes
 
 **Details**
-- Added `targs.Newer` with tag/glob matching and XDG-backed cache when outputs are omitted.
+- Added `targ.Newer` with tag/glob matching and XDG-backed cache when outputs are omitted.
 
 ### 13. Watch Mode
 
@@ -301,7 +265,7 @@ Watch files and re-run commands on changes.
 #### Implementation Notes
 
 **Details**
-- Added `targs.Watch` with polling, glob matching, and add/remove/modify detection.
+- Added `targ.Watch` with polling, glob matching, and add/remove/modify detection.
 
 ### 5. Error Return Support
 
@@ -347,7 +311,7 @@ Support niladic functions as commands alongside struct-based commands.
 done
 
 **Description**
-Discover commands only in directories containing files with `//go:build targs`.
+Discover commands only in directories containing files with `//go:build targ`.
 
 ### 32. Build Tool Mode Depth Gating
 
@@ -402,7 +366,7 @@ Build tool mode includes exported structs without `Run` or subcommands.
 done
 
 **Description**
-Fields tagged `targs:"positional"` are also registered as flags.
+Fields tagged `targ:"positional"` are also registered as flags.
 
 ### 20. Required Tags Are Not Enforced
 
@@ -412,7 +376,7 @@ Fields tagged `targs:"positional"` are also registered as flags.
 done
 
 **Description**
-`targs:"required"` is parsed but never validated.
+`targ:"required"` is parsed but never validated.
 
 ### 19. Struct Default Values Are Overwritten By Flag Defaults
 
@@ -497,7 +461,7 @@ Cache compiled build tool binaries to avoid `go run` on every invocation.
 #### Implementation Notes
 
 **Details**
-- Build cached executables under `.targs/cache` with a content-based key.
+- Build cached executables under `.targ/cache` with a content-based key.
 - Add `--no-cache` to force rebuild.
 
 ### 26. Invalid Env Defaults Are Silently Ignored
@@ -701,7 +665,7 @@ Low
 **Acceptance**
 Add `target.Checksum(srcs, dest)`.
 
-### 36. add some help for targs itself when running in build-tool mode (add a description)
+### 36. add some help for targ itself when running in build-tool mode (add a description)
 
 #### Universal
 
@@ -738,6 +702,42 @@ Low
 TBD
 
 ### 47. show the help for the current packages you've loaded, and also show what packages you've found (recursively) and how to run those (use --multipackage)
+
+#### Universal
+
+**Status**
+done
+
+**Description**
+TBD
+
+#### Planning
+
+**Priority**
+Low
+
+**Acceptance**
+TBD
+
+### 45. add methods for dynamically setting tags
+
+#### Universal
+
+**Status**
+done
+
+**Description**
+TBD
+
+#### Planning
+
+**Priority**
+Low
+
+**Acceptance**
+TBD
+
+### 48. rename to just targ
 
 #### Universal
 

@@ -3,7 +3,7 @@ package main
 import "fmt"
 
 type Build struct {
-	Target string `targs:"flag"`
+	Target string `targ:"flag"`
 }
 
 func (b *Build) Run() {
@@ -17,8 +17,8 @@ func (c *Clean) Run() {
 }
 
 type Deploy struct {
-	Staging *StagingCmd `targs:"subcommand"`
-	Prod    *ProdCmd    `targs:"subcommand"`
+	Staging *StagingCmd `targ:"subcommand"`
+	Prod    *ProdCmd    `targ:"subcommand"`
 }
 
 type StagingCmd struct{}

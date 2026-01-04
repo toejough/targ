@@ -1,4 +1,4 @@
-package targs
+package targ
 
 import (
 	// "fmt"

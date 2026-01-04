@@ -1,6 +1,6 @@
-# Targs Agent Guide
+# Targ Agent Guide
 
-This repository contains the `targs` library, a Go toolkit for building CLIs with the simplicity of Mage, the configuration of `go-arg`, and the power of Cobra.
+This repository contains the `targ` library, a Go toolkit for building CLIs with the simplicity of Mage, the configuration of `go-arg`, and the power of Cobra.
 
 ## Project Context
 
@@ -18,20 +18,20 @@ This repository contains the `targs` library, a Go toolkit for building CLIs wit
 
 ### Command Definition
 - **Root Commands**: Struct with a `Run()` method.
-- **Subcommands**: Field on a struct with `targs:"subcommand"` tag.
-- **Arguments**: Fields on the struct with tags (`targs:"flag"`, `targs:"positional"`).
+- **Subcommands**: Field on a struct with `targ:"subcommand"` tag.
+- **Arguments**: Fields on the struct with tags (`targ:"flag"`, `targ:"positional"`).
 
 ### Build Tool Mode
-- Users can run `targs` in a directory to auto-discover exported structs in `package main`.
+- Users can run `targ` in a directory to auto-discover exported structs in `package main`.
 - The build tool generates a bootstrap `main.go` that calls `DetectRootCommands`.
 
 ### Example
 ```go
 type Root struct {
-    Sub *SubCmd `targs:"subcommand"`
+    Sub *SubCmd `targ:"subcommand"`
 }
 type SubCmd struct {
-    Flag string `targs:"name=flag"`
+    Flag string `targ:"name=flag"`
 }
 func (s *SubCmd) Run() { ... }
 ```

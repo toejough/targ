@@ -1,7 +1,7 @@
 package main
 
 import (
-	"targs"
+	"targ"
 )
 
 func main() {
@@ -15,8 +15,8 @@ func main() {
 	}
 
 	// Filter roots
-	roots := targs.DetectRootCommands(cmds...)
+	roots := targ.DetectRootCommands(cmds...)
 
 	// Run
-	targs.Run(roots...)
+	targ.Run(roots...)
 }

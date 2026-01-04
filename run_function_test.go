@@ -1,4 +1,4 @@
-package targs
+package targ
 
 import (
 	"context"
@@ -101,7 +101,7 @@ func TestRunWithEnv_SingleFunction_NoDefault(t *testing.T) {
 }
 
 type FuncSubcommandRoot struct {
-	Hello func() `targs:"subcommand"`
+	Hello func() `targ:"subcommand"`
 }
 
 func TestRunWithEnv_FunctionSubcommand(t *testing.T) {
