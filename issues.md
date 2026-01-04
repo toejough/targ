@@ -216,6 +216,24 @@ Low
 **Acceptance**
 Shortlist parsers and document tradeoffs; decide whether to keep manual parser.
 
+### 57. Default completion flag in direct-binary mode
+
+#### Universal
+
+**Status**
+backlog
+
+**Description**
+Expose a built-in --completion flag in direct-binary mode (like build-tool mode) so users don’t need to wire it manually.
+
+#### Planning
+
+**Priority**
+Medium
+
+**Acceptance**
+TBD
+
 ## Done
 
 Completed issues.
@@ -439,7 +457,7 @@ done
 **Description**
 Discover commands only in directories containing files with `//go:build targ`.
 
-### 32. Build Tool Mode Depth Gating
+### 32. Build Tool Mode Path-Based Namespacing
 
 #### Universal
 
@@ -447,17 +465,17 @@ Discover commands only in directories containing files with `//go:build targ`.
 done
 
 **Description**
-Without `--multipackage`, stop at the first depth with tagged files and error on ties.
+Namespace commands by file path: drop common leading segments and collapse single-child directories to produce the minimal prefix.
 
 ### 33. Build Tool Mode Package Grouping
 
 #### Universal
 
 **Status**
-done
+cancelled
 
 **Description**
-When `--multipackage` is set, always add package name as the first subcommand.
+Superseded by file-based auto-namespacing (package names are no longer used as subcommand prefixes).
 
 ### 34. Build Tool Mode Subcommand Filtering For Functions
 
@@ -827,7 +845,7 @@ Low
 **Acceptance**
 TBD
 
-### 47. show the help for the current packages you've loaded, and also show what packages you've found (recursively) and how to run those (use --multipackage)
+### 47. show build tool help for discovered commands and namespaces
 
 #### Universal
 
@@ -835,7 +853,7 @@ TBD
 done
 
 **Description**
-TBD
+Help should list root commands and top-level namespaces derived from file paths.
 
 #### Planning
 
