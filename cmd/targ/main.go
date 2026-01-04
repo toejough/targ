@@ -222,7 +222,12 @@ func main() {
 		usingFallback = true
 	}
 
-	data, err := buildBootstrapData(infos, startDir, importRoot, modulePath, multiPackage)
+	packageDir := startDir
+	if !multiPackage && len(infos) == 1 && infos[0].Package == "main" {
+		packageDir = infos[0].Dir
+	}
+
+	data, err := buildBootstrapData(infos, packageDir, importRoot, modulePath, multiPackage)
 	if err != nil {
 		fmt.Printf("Error preparing bootstrap: %v\n", err)
 		os.Exit(1)
@@ -256,14 +261,27 @@ func main() {
 		os.Exit(1)
 	}
 
+	localMain := !multiPackage && len(infos) == 1 && infos[0].Package == "main"
+	relPackageDir, err := filepath.Rel(startDir, packageDir)
+	if err != nil {
+		fmt.Printf("Error resolving package path: %v\n", err)
+		os.Exit(1)
+	}
+	buildPackageDir := packageDir
+	if usingFallback {
+		buildPackageDir = filepath.Join(buildRoot, relPackageDir)
+	}
+	bootstrapDir := filepath.Join(importRoot, ".targ", "tmp")
+	if usingFallback {
+		bootstrapDir = filepath.Join(buildRoot, ".targ", "tmp")
+	}
+	if localMain {
+		bootstrapDir = buildPackageDir
+	}
+
 	var tempFile string
 	var cleanupTemp func() error
-	if usingFallback {
-		tempFile, cleanupTemp, err = writeBootstrapFile(buildRoot, buf.Bytes(), keepBootstrap)
-	} else {
-		tempDir := filepath.Join(importRoot, ".targ", "tmp")
-		tempFile, cleanupTemp, err = writeBootstrapFile(tempDir, buf.Bytes(), keepBootstrap)
-	}
+	tempFile, cleanupTemp, err = writeBootstrapFile(bootstrapDir, buf.Bytes(), keepBootstrap)
 	if err != nil {
 		fmt.Printf("Error writing bootstrap file: %v\n", err)
 		os.Exit(1)
@@ -301,14 +319,19 @@ func main() {
 
 	buildArgs := []string{"build", "-tags", "targ", "-o", binaryPath}
 	if usingFallback {
-		buildArgs = append(buildArgs, "-mod=mod", ".")
+		buildArgs = append(buildArgs, "-mod=mod")
+	}
+	if localMain {
+		buildArgs = append(buildArgs, ".")
 	} else {
 		buildArgs = append(buildArgs, tempFile)
 	}
 	buildCmd := exec.Command("go", buildArgs...)
 	buildCmd.Stdout = os.Stdout
 	buildCmd.Stderr = os.Stderr
-	if usingFallback {
+	if localMain {
+		buildCmd.Dir = buildPackageDir
+	} else if usingFallback {
 		buildCmd.Dir = buildRoot
 	} else {
 		buildCmd.Dir = importRoot
