@@ -420,12 +420,6 @@ func resolveTargDependency() targDependency {
 		ModulePath: "targ",
 		Version:    "v0.0.0",
 	}
-	if override := strings.TrimSpace(os.Getenv("TARG_MODULE_DIR")); override != "" {
-		if info, err := os.Stat(override); err == nil && info.IsDir() {
-			dep.ReplaceDir = override
-			return dep
-		}
-	}
 	info, ok := debug.ReadBuildInfo()
 	if ok && info.Main.Version != "" && info.Main.Version != "(devel)" {
 		dep.Version = info.Main.Version
