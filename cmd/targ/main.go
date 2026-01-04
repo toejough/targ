@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime/debug"
 	"sort"
 	"strconv"
 	"strings"
@@ -208,14 +209,17 @@ func main() {
 		os.Exit(1)
 	}
 	buildRoot := importRoot
+	usingFallback := false
 	if !moduleFound {
 		importRoot = startDir
 		modulePath = "targ.local"
-		buildRoot, err = ensureFallbackModuleRoot(startDir, modulePath)
+		dep := resolveTargDependency()
+		buildRoot, err = ensureFallbackModuleRoot(startDir, modulePath, dep)
 		if err != nil {
 			fmt.Printf("Error preparing fallback module: %v\n", err)
 			os.Exit(1)
 		}
+		usingFallback = true
 	}
 
 	data, err := buildBootstrapData(infos, startDir, importRoot, modulePath, multiPackage)
@@ -252,8 +256,11 @@ func main() {
 		os.Exit(1)
 	}
 
-	tempDir := filepath.Join(buildRoot, ".targ", "tmp")
-	tempFile, cleanupTemp, err := writeBootstrapFile(tempDir, buf.Bytes(), keepBootstrap)
+	bootstrapDir := startDir
+	if usingFallback {
+		bootstrapDir = buildRoot
+	}
+	_, cleanupTemp, err := writeBootstrapFile(bootstrapDir, buf.Bytes(), keepBootstrap)
 	if err != nil {
 		fmt.Printf("Error writing bootstrap file: %v\n", err)
 		os.Exit(1)
@@ -289,11 +296,19 @@ func main() {
 		}
 	}
 
-	buildArgs := []string{"build", "-tags", "targ", "-o", binaryPath, tempFile}
+	buildArgs := []string{"build", "-tags", "targ", "-o", binaryPath}
+	if usingFallback {
+		buildArgs = append(buildArgs, "-mod=mod")
+	}
+	buildArgs = append(buildArgs, ".")
 	buildCmd := exec.Command("go", buildArgs...)
 	buildCmd.Stdout = os.Stdout
 	buildCmd.Stderr = os.Stderr
-	buildCmd.Dir = buildRoot
+	if usingFallback {
+		buildCmd.Dir = buildRoot
+	} else {
+		buildCmd.Dir = startDir
+	}
 	if err := buildCmd.Run(); err != nil {
 		if !keepBootstrap {
 			_ = cleanupTemp()
@@ -314,12 +329,17 @@ func main() {
 	}
 }
 
-func writeBootstrapFile(tempDir string, data []byte, keep bool) (string, func() error, error) {
-	if err := os.MkdirAll(tempDir, 0755); err != nil {
+func writeBootstrapFile(dir string, data []byte, keep bool) (string, func() error, error) {
+	temp, err := os.CreateTemp(dir, "targ_bootstrap_*.go")
+	if err != nil {
 		return "", nil, err
 	}
-	tempFile := filepath.Join(tempDir, "targ_bootstrap.go")
-	if err := os.WriteFile(tempFile, data, 0644); err != nil {
+	tempFile := temp.Name()
+	if _, err := temp.Write(data); err != nil {
+		_ = temp.Close()
+		return "", nil, err
+	}
+	if err := temp.Close(); err != nil {
 		return "", nil, err
 	}
 	cleanup := func() error {
@@ -389,7 +409,46 @@ func parseModulePath(content string) string {
 	return ""
 }
 
-func ensureFallbackModuleRoot(startDir string, modulePath string) (string, error) {
+type targDependency struct {
+	ModulePath string
+	Version    string
+	ReplaceDir string
+}
+
+func resolveTargDependency() targDependency {
+	dep := targDependency{
+		ModulePath: "targ",
+		Version:    "v0.0.0",
+	}
+	if override := strings.TrimSpace(os.Getenv("TARG_MODULE_DIR")); override != "" {
+		if info, err := os.Stat(override); err == nil && info.IsDir() {
+			dep.ReplaceDir = override
+			return dep
+		}
+	}
+	info, ok := debug.ReadBuildInfo()
+	if ok && info.Main.Version != "" && info.Main.Version != "(devel)" {
+		dep.Version = info.Main.Version
+		if modCache, err := goEnv("GOMODCACHE"); err == nil && modCache != "" {
+			candidate := filepath.Join(modCache, dep.ModulePath+"@"+dep.Version)
+			if info, err := os.Stat(candidate); err == nil && info.IsDir() {
+				dep.ReplaceDir = candidate
+			}
+		}
+	}
+	return dep
+}
+
+func goEnv(key string) (string, error) {
+	cmd := exec.Command("go", "env", key)
+	output, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(output)), nil
+}
+
+func ensureFallbackModuleRoot(startDir string, modulePath string, dep targDependency) (string, error) {
 	hash := sha256.Sum256([]byte(startDir))
 	root := filepath.Join(startDir, ".targ", "cache", "mod", fmt.Sprintf("%x", hash[:8]))
 	if err := os.MkdirAll(root, 0755); err != nil {
@@ -398,7 +457,7 @@ func ensureFallbackModuleRoot(startDir string, modulePath string) (string, error
 	if err := linkModuleRoot(startDir, root); err != nil {
 		return "", err
 	}
-	if err := writeFallbackGoMod(root, modulePath); err != nil {
+	if err := writeFallbackGoMod(root, modulePath, dep); err != nil {
 		return "", err
 	}
 	if err := touchFile(filepath.Join(root, "go.sum")); err != nil {
@@ -435,9 +494,25 @@ func linkModuleRoot(startDir string, root string) error {
 	return nil
 }
 
-func writeFallbackGoMod(root string, modulePath string) error {
+func writeFallbackGoMod(root string, modulePath string, dep targDependency) error {
 	modPath := filepath.Join(root, "go.mod")
-	content := fmt.Sprintf("module %s\n\ngo 1.21\n", modulePath)
+	if dep.ModulePath == "" {
+		dep.ModulePath = "targ"
+	}
+	if dep.Version == "" {
+		dep.Version = "v0.0.0"
+	}
+	lines := []string{
+		"module " + modulePath,
+		"",
+		"go 1.21",
+		"",
+		fmt.Sprintf("require %s %s", dep.ModulePath, dep.Version),
+	}
+	if dep.ReplaceDir != "" {
+		lines = append(lines, "", fmt.Sprintf("replace %s => %s", dep.ModulePath, dep.ReplaceDir))
+	}
+	content := strings.Join(lines, "\n") + "\n"
 	return os.WriteFile(modPath, []byte(content), 0644)
 }
 

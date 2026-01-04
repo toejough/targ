@@ -175,7 +175,7 @@ func TestEnsureFallbackModuleRoot(t *testing.T) {
 		t.Fatalf("unexpected write error: %v", err)
 	}
 
-	root, err := ensureFallbackModuleRoot(dir, "targ.local")
+	root, err := ensureFallbackModuleRoot(dir, "targ.local", targDependency{ModulePath: "targ", Version: "v0.0.0"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
