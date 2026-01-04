@@ -1,4 +1,4 @@
-package targs
+package targ
 
 import (
 	"context"
@@ -70,7 +70,7 @@ func TestExecuteCommand(t *testing.T) {
 }
 
 type CustomArgs struct {
-	User   string `targs:"name=user_name"`
+	User   string `targ:"name=user_name"`
 	Called bool
 }
 
@@ -97,7 +97,7 @@ func TestCustomFlagName(t *testing.T) {
 }
 
 type RequiredArgs struct {
-	ID string `targs:"required"`
+	ID string `targ:"required"`
 }
 
 func (c *RequiredArgs) Run() {}
@@ -114,7 +114,7 @@ func TestRequiredFlag(t *testing.T) {
 }
 
 type EnvArgs struct {
-	User string `targs:"env=TEST_USER"`
+	User string `targ:"env=TEST_USER"`
 }
 
 func (c *EnvArgs) Run() {}
@@ -135,9 +135,9 @@ func TestEnvVars(t *testing.T) {
 }
 
 type DefaultArgs struct {
-	Name    string `targs:"default=Alice"`
-	Count   int    `targs:"default=42"`
-	Enabled bool   `targs:"default=true"`
+	Name    string `targ:"default=Alice"`
+	Count   int    `targ:"default=42"`
+	Enabled bool   `targ:"default=true"`
 }
 
 func (c *DefaultArgs) Run() {}
@@ -164,9 +164,9 @@ func TestStructDefaults(t *testing.T) {
 }
 
 type DefaultEnvArgs struct {
-	Name  string `targs:"default=Alice,env=TEST_DEFAULT_NAME"`
-	Count int    `targs:"default=42,env=TEST_DEFAULT_COUNT"`
-	Flag  bool   `targs:"default=true,env=TEST_DEFAULT_FLAG"`
+	Name  string `targ:"default=Alice,env=TEST_DEFAULT_NAME"`
+	Count int    `targ:"default=42,env=TEST_DEFAULT_COUNT"`
+	Flag  bool   `targ:"default=true,env=TEST_DEFAULT_FLAG"`
 }
 
 func (c *DefaultEnvArgs) Run() {}
@@ -219,7 +219,7 @@ func TestStructDefaults_InvalidEnvValues(t *testing.T) {
 }
 
 type UnexportedFlag struct {
-	hidden string `targs:"flag"`
+	hidden string `targ:"flag"`
 }
 
 func (c *UnexportedFlag) Run() {}
@@ -287,9 +287,9 @@ func (s *SetterValue) Set(value string) error {
 }
 
 type CustomTypeArgs struct {
-	Name TextValue   `targs:"flag"`
-	Nick SetterValue `targs:"flag"`
-	Pos  TextValue   `targs:"positional"`
+	Name TextValue   `targ:"flag"`
+	Nick SetterValue `targ:"flag"`
+	Pos  TextValue   `targ:"positional"`
 }
 
 func (c *CustomTypeArgs) Run() {}
@@ -317,10 +317,10 @@ func TestCustomTypesFromFlagsAndPositionals(t *testing.T) {
 }
 
 type DefaultTagArgs struct {
-	Name  string `targs:"default=alice"`
-	Count int    `targs:"default=2"`
-	Flag  bool   `targs:"default=true"`
-	Pos   string `targs:"positional,default=pos"`
+	Name  string `targ:"default=alice"`
+	Count int    `targ:"default=2"`
+	Flag  bool   `targ:"default=true"`
+	Pos   string `targ:"positional,default=pos"`
 }
 
 func (d *DefaultTagArgs) Run() {}
@@ -351,7 +351,7 @@ func TestDefaultTags(t *testing.T) {
 }
 
 type DefaultTagCustom struct {
-	Name TextValue `targs:"default=alice"`
+	Name TextValue `targ:"default=alice"`
 }
 
 func (d *DefaultTagCustom) Run() {}
@@ -373,7 +373,7 @@ func TestDefaultTagCustomType(t *testing.T) {
 }
 
 type NonZeroRoot struct {
-	Name string `targs:"flag"`
+	Name string `targ:"flag"`
 }
 
 func (n *NonZeroRoot) Run() {}
@@ -386,7 +386,7 @@ func TestNonZeroRootErrors(t *testing.T) {
 }
 
 type RootWithPresetSub struct {
-	Sub *SubCmd `targs:"subcommand"`
+	Sub *SubCmd `targ:"subcommand"`
 }
 
 func (r *RootWithPresetSub) Run() {}
@@ -434,9 +434,9 @@ func (s *SubCmd) Run() {
 
 type ParentCmd struct {
 	// Name should default to "sub" from field name
-	Sub *SubCmd `targs:"subcommand"`
+	Sub *SubCmd `targ:"subcommand"`
 	// Name should be "custom" from tag
-	Custom *SubCmd `targs:"subcommand=custom"`
+	Custom *SubCmd `targ:"subcommand=custom"`
 }
 
 func TestSubcommands(t *testing.T) {
@@ -472,8 +472,8 @@ func TestSubcommands(t *testing.T) {
 }
 
 type ShortFlagCmd struct {
-	Name string `targs:"flag,short=n"`
-	Age  int    `targs:"flag,short=a"`
+	Name string `targ:"flag,short=n"`
+	Age  int    `targ:"flag,short=a"`
 }
 
 func (c *ShortFlagCmd) Run() {}
@@ -499,8 +499,8 @@ func TestShortFlags(t *testing.T) {
 }
 
 type ShortBoolCmd struct {
-	Verbose bool `targs:"flag,short=v"`
-	Force   bool `targs:"flag,short=f"`
+	Verbose bool `targ:"flag,short=v"`
+	Force   bool `targ:"flag,short=f"`
 }
 
 func (c *ShortBoolCmd) Run() {}
@@ -521,8 +521,8 @@ func TestShortFlagGroups(t *testing.T) {
 }
 
 type ShortMixedCmd struct {
-	Verbose bool   `targs:"flag,short=v"`
-	Name    string `targs:"flag,short=n"`
+	Verbose bool   `targ:"flag,short=v"`
+	Name    string `targ:"flag,short=n"`
 }
 
 func (c *ShortMixedCmd) Run() {}
@@ -567,8 +567,8 @@ func TestLongFlagsRequireDoubleDash(t *testing.T) {
 }
 
 type PositionalArgs struct {
-	Src string `targs:"positional"`
-	Dst string `targs:"positional"`
+	Src string `targ:"positional"`
+	Dst string `targ:"positional"`
 }
 
 func (c *PositionalArgs) Run() {}
@@ -591,15 +591,18 @@ func TestPositionalArgs(t *testing.T) {
 
 func TestUsageLine_NoSubcommandWithRequiredPositional(t *testing.T) {
 	type MoveCmd struct {
-		File   string `targs:"flag,short=f"`
-		Status string `targs:"flag,required,short=s"`
-		ID     int    `targs:"positional,required"`
+		File   string `targ:"flag,short=f"`
+		Status string `targ:"flag,required,short=s"`
+		ID     int    `targ:"positional,required"`
 	}
 	cmd, err := parseCommand(&MoveCmd{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	usage := buildUsageLine(cmd)
+	usage, err := buildUsageLine(cmd)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	if strings.Contains(usage, "[subcommand]") {
 		t.Fatalf("did not expect subcommand in usage: %s", usage)
 	}
@@ -616,14 +619,17 @@ func TestUsageLine_NoSubcommandWithRequiredPositional(t *testing.T) {
 
 func TestPlaceholderTagInUsage(t *testing.T) {
 	type PlaceholderCmd struct {
-		File string `targs:"flag,short=f,placeholder=FILE"`
-		Out  string `targs:"positional,placeholder=DEST"`
+		File string `targ:"flag,short=f,placeholder=FILE"`
+		Out  string `targ:"positional,placeholder=DEST"`
 	}
 	cmd, err := parseCommand(&PlaceholderCmd{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	usage := buildUsageLine(cmd)
+	usage, err := buildUsageLine(cmd)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	if !strings.Contains(usage, "{-f|--file} FILE") {
 		t.Fatalf("expected flag placeholder in usage: %s", usage)
 	}
@@ -634,23 +640,140 @@ func TestPlaceholderTagInUsage(t *testing.T) {
 
 func TestPositionalEnumUsage(t *testing.T) {
 	type EnumPositional struct {
-		Mode string `targs:"positional,enum=dev|prod"`
+		Mode string `targ:"positional,enum=dev|prod"`
 	}
 	cmd, err := parseCommand(&EnumPositional{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	usage := buildUsageLine(cmd)
+	usage, err := buildUsageLine(cmd)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	if !strings.Contains(usage, "{dev|prod}") {
 		t.Fatalf("expected enum positional placeholder, got: %s", usage)
+	}
+}
+
+type TagOptionsFlagOverride struct {
+	Mode string `targ:"flag,enum=dev|prod"`
+}
+
+func (c *TagOptionsFlagOverride) Run() {}
+
+func (c *TagOptionsFlagOverride) TagOptions(field string, opts TagOptions) (TagOptions, error) {
+	if field == "Mode" {
+		opts.Name = "stage"
+		opts.Short = "s"
+		opts.Enum = "alpha|beta"
+	}
+	return opts, nil
+}
+
+func TestTagOptionsOverrideFlag(t *testing.T) {
+	cmdStruct := &TagOptionsFlagOverride{}
+	cmd, err := parseCommand(cmdStruct)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if err := cmd.execute(context.Background(), []string{"--stage", "alpha"}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cmdStruct.Mode != "alpha" {
+		t.Fatalf("expected mode to be overridden, got %q", cmdStruct.Mode)
+	}
+	usage, err := buildUsageLine(cmd)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(usage, "{-s|--stage} {alpha|beta}") {
+		t.Fatalf("expected overridden enum placeholder, got: %s", usage)
+	}
+}
+
+type TagOptionsPositionalOverride struct {
+	Target string `targ:"positional"`
+}
+
+func (c *TagOptionsPositionalOverride) Run() {}
+
+func (c *TagOptionsPositionalOverride) TagOptions(field string, opts TagOptions) (TagOptions, error) {
+	if field == "Target" {
+		opts.Required = true
+		opts.Name = "TARGET"
+	}
+	return opts, nil
+}
+
+func TestTagOptionsOverridePositional(t *testing.T) {
+	cmdStruct := &TagOptionsPositionalOverride{}
+	cmd, err := parseCommand(cmdStruct)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if err := cmd.execute(context.Background(), []string{}); err == nil {
+		t.Fatal("expected error for missing required positional")
+	} else if !strings.Contains(err.Error(), "missing required positional TARGET") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+type TagOptionsSubcommand struct {
+	Called bool
+}
+
+func (c *TagOptionsSubcommand) Run() {
+	c.Called = true
+}
+
+type TagOptionsSubcommandRoot struct {
+	Child *TagOptionsSubcommand `targ:"subcommand"`
+}
+
+func (c *TagOptionsSubcommandRoot) TagOptions(field string, opts TagOptions) (TagOptions, error) {
+	if field == "Child" {
+		opts.Name = "nested"
+	}
+	return opts, nil
+}
+
+func TestTagOptionsOverrideSubcommand(t *testing.T) {
+	root := &TagOptionsSubcommandRoot{}
+	cmd, err := parseCommand(root)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if err := cmd.execute(context.Background(), []string{"nested"}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if root.Child == nil || !root.Child.Called {
+		t.Fatal("expected overridden subcommand to run")
+	}
+}
+
+type TagOptionsErrorCmd struct {
+	Name string `targ:"flag"`
+}
+
+func (c *TagOptionsErrorCmd) Run() {}
+
+func (c *TagOptionsErrorCmd) TagOptions(field string, opts TagOptions) (TagOptions, error) {
+	return opts, fmt.Errorf("tag options failed")
+}
+
+func TestTagOptionsError(t *testing.T) {
+	if _, err := parseCommand(&TagOptionsErrorCmd{}); err == nil {
+		t.Fatal("expected error from TagOptions")
+	} else if !strings.Contains(err.Error(), "tag options failed") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
 var hookLog []string
 
 type HookRoot struct {
-	Verbose bool     `targs:"flag,short=v"`
-	Child   *HookCmd `targs:"subcommand"`
+	Verbose bool     `targ:"flag,short=v"`
+	Child   *HookCmd `targ:"subcommand"`
 }
 
 func (h *HookRoot) PersistentBefore() {
@@ -662,7 +785,7 @@ func (h *HookRoot) PersistentAfter() {
 }
 
 type HookCmd struct {
-	Name string `targs:"flag"`
+	Name string `targ:"flag"`
 }
 
 func (h *HookCmd) PersistentBefore() {
@@ -733,7 +856,9 @@ func TestCompletionIncludesInheritedFlags(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	out := captureStdout(t, func() {
-		doCompletion([]*CommandNode{cmd}, "app child --")
+		if err := doCompletion([]*CommandNode{cmd}, "app child --"); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
 	})
 	if !strings.Contains(out, "--verbose") {
 		t.Fatalf("expected inherited flag in completion, got: %q", out)
@@ -741,12 +866,12 @@ func TestCompletionIncludesInheritedFlags(t *testing.T) {
 }
 
 type ConflictRoot struct {
-	Flag string         `targs:"flag"`
-	Sub  *ConflictChild `targs:"subcommand"`
+	Flag string         `targ:"flag"`
+	Sub  *ConflictChild `targ:"subcommand"`
 }
 
 type ConflictChild struct {
-	Flag string `targs:"flag"`
+	Flag string `targ:"flag"`
 }
 
 func (c *ConflictChild) Run() {}
@@ -763,8 +888,8 @@ func TestPersistentFlagConflicts(t *testing.T) {
 }
 
 type RequiredPositionals struct {
-	Src string `targs:"positional,required"`
-	Dst string `targs:"positional"`
+	Src string `targ:"positional,required"`
+	Dst string `targ:"positional"`
 }
 
 func (c *RequiredPositionals) Run() {}
@@ -781,7 +906,7 @@ func TestRequiredPositionals(t *testing.T) {
 }
 
 type RequiredShortFlag struct {
-	Name string `targs:"required,short=n"`
+	Name string `targ:"required,short=n"`
 }
 
 func (c *RequiredShortFlag) Run() {}
@@ -798,7 +923,7 @@ func TestRequiredShortFlagErrorIncludesShort(t *testing.T) {
 }
 
 type RequiredEnvFlag struct {
-	Name string `targs:"required,env=TEST_REQUIRED"`
+	Name string `targ:"required,env=TEST_REQUIRED"`
 }
 
 func (c *RequiredEnvFlag) Run() {}
@@ -818,7 +943,7 @@ func TestRequiredEnvFlagEmptyDoesNotSatisfy(t *testing.T) {
 // --- Discovery Tests ---
 
 type RootA struct {
-	Sub *ChildB `targs:"subcommand"`
+	Sub *ChildB `targ:"subcommand"`
 }
 type ChildB struct{}
 type RootC struct{}

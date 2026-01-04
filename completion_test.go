@@ -1,4 +1,4 @@
-package targs
+package targ
 
 import (
 	"bytes"
@@ -9,11 +9,41 @@ import (
 )
 
 type EnumCmd struct {
-	Mode string `targs:"flag,enum=dev|prod,short=m"`
-	Kind string `targs:"flag,enum=fast|slow"`
+	Mode string `targ:"flag,enum=dev|prod,short=m"`
+	Kind string `targ:"flag,enum=fast|slow"`
 }
 
 func (c *EnumCmd) Run() {}
+
+type EnumOverrideCmd struct {
+	Mode string `targ:"flag,enum=dev|prod"`
+}
+
+func (c *EnumOverrideCmd) Run() {}
+
+func (c *EnumOverrideCmd) TagOptions(field string, opts TagOptions) (TagOptions, error) {
+	if field == "Mode" {
+		opts.Enum = "alpha|beta"
+	}
+	return opts, nil
+}
+
+type PositionalCompletionCmd struct {
+	Status string `targ:"flag"`
+	ID     int    `targ:"positional"`
+}
+
+func (c *PositionalCompletionCmd) Run() {}
+
+func (c *PositionalCompletionCmd) TagOptions(field string, opts TagOptions) (TagOptions, error) {
+	if field != "ID" {
+		return opts, nil
+	}
+	if c.Status == "cancelled" {
+		opts.Enum = "40|41"
+	}
+	return opts, nil
+}
 
 func TestEnumValuesForArg_LongFlag(t *testing.T) {
 	cmd, err := parseCommand(&EnumCmd{})
@@ -21,7 +51,14 @@ func TestEnumValuesForArg_LongFlag(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	values, ok := enumValuesForArg(cmd, []string{"--mode"}, "", true)
+	chain, err := completionChain(cmd, []string{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	values, ok, err := enumValuesForArg(chain, []string{"--mode"}, "", true)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	if !ok {
 		t.Fatal("expected enum values for --mode")
 	}
@@ -36,7 +73,14 @@ func TestEnumValuesForArg_ShortFlag(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	values, ok := enumValuesForArg(cmd, []string{"-m"}, "", true)
+	chain, err := completionChain(cmd, []string{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	values, ok, err := enumValuesForArg(chain, []string{"-m"}, "", true)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	if !ok {
 		t.Fatal("expected enum values for -m")
 	}
@@ -51,8 +95,36 @@ func TestEnumValuesForArg_NoMatch(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if values, ok := enumValuesForArg(cmd, []string{"--unknown"}, "", true); ok {
+	chain, err := completionChain(cmd, []string{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if values, ok, err := enumValuesForArg(chain, []string{"--unknown"}, "", true); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	} else if ok {
 		t.Fatalf("expected no enum values, got %v", values)
+	}
+}
+
+func TestEnumValuesForArg_TagOptionsOverride(t *testing.T) {
+	cmd, err := parseCommand(&EnumOverrideCmd{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	chain, err := completionChain(cmd, []string{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	values, ok, err := enumValuesForArg(chain, []string{"--mode"}, "", true)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !ok {
+		t.Fatal("expected enum values for --mode")
+	}
+	if len(values) != 2 || values[0] != "alpha" || values[1] != "beta" {
+		t.Fatalf("unexpected values: %v", values)
 	}
 }
 
@@ -80,10 +152,28 @@ func TestCompletionSuggestsEnumValuesAfterFlag(t *testing.T) {
 	}
 
 	out := captureStdout(t, func() {
-		doCompletion([]*CommandNode{cmd}, "app --mode ")
+		if err := doCompletion([]*CommandNode{cmd}, "app --mode "); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
 	})
 	if !strings.Contains(out, "dev") || !strings.Contains(out, "prod") {
 		t.Fatalf("expected enum suggestions, got: %q", out)
+	}
+}
+
+func TestCompletionSuggestsPositionalValues(t *testing.T) {
+	cmd, err := parseCommand(&PositionalCompletionCmd{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	out := captureStdout(t, func() {
+		if err := doCompletion([]*CommandNode{cmd}, "app --status cancelled "); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	if !strings.Contains(out, "40") || !strings.Contains(out, "41") {
+		t.Fatalf("expected positional suggestions, got: %q", out)
 	}
 }
 

@@ -1,4 +1,4 @@
-package targs
+package targ
 
 import (
 	"context"
@@ -59,7 +59,7 @@ func TestDepsRunsOnce(t *testing.T) {
 func TestDepsErrorCached(t *testing.T) {
 	depCount = 0
 	err := withDepTracker(context.Background(), func() error {
-		node, parseErr := parseTarget(&DepRoot{Err: true})
+		node, parseErr := parseTarget(&DepRoot{})
 		if parseErr != nil {
 			return parseErr
 		}

@@ -1,4 +1,4 @@
-package targs
+package targ
 
 import (
 	"context"
@@ -34,7 +34,7 @@ func printUsage(nodes []*CommandNode) {
 		printCommandSummary(node, "  ")
 	}
 
-	printTargsOptions()
+	printTargOptions()
 }
 
 func printCommandSummary(node *CommandNode, indent string) {
@@ -63,6 +63,27 @@ type CommandNode struct {
 	Subcommands map[string]*CommandNode
 	RunMethod   reflect.Value
 	Description string
+}
+
+type TagKind string
+
+const (
+	TagKindUnknown    TagKind = "unknown"
+	TagKindFlag       TagKind = "flag"
+	TagKindPositional TagKind = "positional"
+	TagKindSubcommand TagKind = "subcommand"
+)
+
+type TagOptions struct {
+	Kind        TagKind
+	Name        string
+	Short       string
+	Desc        string
+	Env         string
+	Default     *string
+	Enum        string
+	Placeholder string
+	Required    bool
 }
 
 type flagSpec struct {
@@ -98,12 +119,15 @@ func parseStruct(t interface{}) (*CommandNode, error) {
 	}
 	for i := 0; i < typ.NumField(); i++ {
 		field := typ.Field(i)
-		tag := field.Tag.Get("targs")
-		if tag == "" {
+		opts, ok, err := tagOptionsForField(v, field)
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
 			continue
 		}
 		fieldVal := v.Field(i)
-		if strings.Contains(tag, "subcommand") {
+		if opts.Kind == TagKindSubcommand {
 			if fieldVal.Kind() == reflect.Func {
 				continue
 			}
@@ -145,11 +169,17 @@ func parseStruct(t interface{}) (*CommandNode, error) {
 		node.Description = desc
 	}
 
-	// 2. Look for fields with `targs:"subcommand"`
+	// 2. Look for fields with `targ:"subcommand"`
 	for i := 0; i < typ.NumField(); i++ {
 		field := typ.Field(i)
-		tag := field.Tag.Get("targs")
-		if strings.Contains(tag, "subcommand") {
+		opts, ok, err := tagOptionsForField(v, field)
+		if err != nil {
+			return nil, err
+		}
+		if !ok || opts.Kind != TagKindSubcommand {
+			continue
+		}
+		{
 			// This field is a subcommand
 			// Recurse
 
@@ -181,23 +211,7 @@ func parseStruct(t interface{}) (*CommandNode, error) {
 			// Override name based on field or tag
 			// The node comes with a default name based on its Type, but the Field name usually takes precedence
 			// unless the tag explicitly sets a name.
-
-			nameOverride := ""
-			parts := strings.Split(tag, ",")
-			for _, p := range parts {
-				p = strings.TrimSpace(p)
-				if strings.HasPrefix(p, "name=") {
-					nameOverride = strings.TrimPrefix(p, "name=")
-				} else if strings.HasPrefix(p, "subcommand=") {
-					nameOverride = strings.TrimPrefix(p, "subcommand=")
-				}
-			}
-
-			if nameOverride != "" {
-				subNode.Name = nameOverride
-			} else {
-				subNode.Name = camelToKebab(field.Name)
-			}
+			subNode.Name = opts.Name
 
 			node.Subcommands[subNode.Name] = subNode
 		}
@@ -228,7 +242,10 @@ func (n *CommandNode) executeWithParents(
 		return executeFunctionWithParents(ctx, args, n, parents, visited)
 	}
 
-	inst := nodeInstance(n)
+	inst, err := nodeInstance(n)
+	if err != nil {
+		return err
+	}
 	chain := append(parents, commandInstance{node: n, value: inst})
 
 	fs := flag.NewFlagSet(n.Name, flag.ContinueOnError)
@@ -342,9 +359,9 @@ func executeFunctionWithParents(
 	return nil
 }
 
-func nodeInstance(node *CommandNode) reflect.Value {
+func nodeInstance(node *CommandNode) (reflect.Value, error) {
 	if node != nil && node.Value.IsValid() && node.Value.Kind() == reflect.Struct && node.Value.CanAddr() {
-		return node.Value
+		return node.Value, nil
 	}
 	if node != nil && node.Type != nil {
 		inst := reflect.New(node.Type).Elem()
@@ -352,15 +369,18 @@ func nodeInstance(node *CommandNode) reflect.Value {
 			typ := node.Type
 			for i := 0; i < typ.NumField(); i++ {
 				field := typ.Field(i)
-				tag := field.Tag.Get("targs")
-				if strings.Contains(tag, "subcommand") && field.Type.Kind() == reflect.Func {
+				opts, ok, err := tagOptionsForField(node.Value, field)
+				if err != nil {
+					return reflect.Value{}, err
+				}
+				if ok && opts.Kind == TagKindSubcommand && field.Type.Kind() == reflect.Func {
 					inst.Field(i).Set(node.Value.Field(i))
 				}
 			}
 		}
-		return inst
+		return inst, nil
 	}
-	return reflect.Value{}
+	return reflect.Value{}, nil
 }
 
 type dynamicFlagValue struct {
@@ -400,7 +420,7 @@ func registerChainFlags(fs *flag.FlagSet, chain []commandInstance) ([]*flagSpec,
 		for i := 0; i < typ.NumField(); i++ {
 			field := typ.Field(i)
 			fieldVal := inst.value.Field(i)
-			spec, ok, err := flagSpecForField(field, fieldVal)
+			spec, ok, err := flagSpecForField(inst.value, field, fieldVal)
 			if err != nil {
 				return nil, nil, err
 			}
@@ -439,57 +459,29 @@ func registerChainFlags(fs *flag.FlagSet, chain []commandInstance) ([]*flagSpec,
 	return specs, longNames, nil
 }
 
-func flagSpecForField(field reflect.StructField, fieldVal reflect.Value) (*flagSpec, bool, error) {
-	tag := field.Tag.Get("targs")
+func flagSpecForField(inst reflect.Value, field reflect.StructField, fieldVal reflect.Value) (*flagSpec, bool, error) {
+	opts, ok, err := tagOptionsForField(inst, field)
+	if err != nil {
+		return nil, false, err
+	}
+	if !ok {
+		return nil, false, nil
+	}
 	if !field.IsExported() {
-		if strings.TrimSpace(tag) != "" {
-			return nil, false, fmt.Errorf("field %s must be exported", field.Name)
-		}
-		return nil, false, nil
+		return nil, false, fmt.Errorf("field %s must be exported", field.Name)
 	}
-	if strings.Contains(tag, "subcommand") || strings.Contains(tag, "positional") {
+	if opts.Kind != TagKindFlag {
 		return nil, false, nil
-	}
-
-	name := strings.ToLower(field.Name)
-	shortName := ""
-	usage := ""
-	env := ""
-	required := false
-	var defaultValue *string
-
-	if tag != "" {
-		parts := strings.Split(tag, ",")
-		for _, p := range parts {
-			p = strings.TrimSpace(p)
-			switch {
-			case strings.HasPrefix(p, "name="):
-				name = strings.TrimPrefix(p, "name=")
-			case strings.HasPrefix(p, "short="):
-				shortName = strings.TrimPrefix(p, "short=")
-			case strings.HasPrefix(p, "env="):
-				env = strings.TrimPrefix(p, "env=")
-			case strings.HasPrefix(p, "default="):
-				val := strings.TrimPrefix(p, "default=")
-				defaultValue = &val
-			case strings.HasPrefix(p, "desc="):
-				usage = strings.TrimPrefix(p, "desc=")
-			case strings.HasPrefix(p, "description="):
-				usage = strings.TrimPrefix(p, "description=")
-			case p == "required":
-				required = true
-			}
-		}
 	}
 
 	return &flagSpec{
 		value:        fieldVal,
-		name:         name,
-		short:        shortName,
-		usage:        usage,
-		env:          env,
-		defaultValue: defaultValue,
-		required:     required,
+		name:         opts.Name,
+		short:        opts.Short,
+		usage:        opts.Desc,
+		env:          opts.Env,
+		defaultValue: opts.Default,
+		required:     opts.Required,
 	}, true, nil
 }
 
@@ -553,35 +545,23 @@ func applyPositionals(inst reflect.Value, node *CommandNode, args []string) (int
 	}
 	typ := node.Type
 	posIndex := 0
+	optsInst := inst
 	for i := 0; i < typ.NumField(); i++ {
 		field := typ.Field(i)
-		tag := field.Tag.Get("targs")
-		if !strings.Contains(tag, "positional") {
+		opts, ok, err := tagOptionsForField(optsInst, field)
+		if err != nil {
+			return posIndex, err
+		}
+		if !ok || opts.Kind != TagKindPositional {
 			continue
 		}
 		if !field.IsExported() {
-			if strings.TrimSpace(tag) != "" {
-				return posIndex, fmt.Errorf("field %s must be exported", field.Name)
-			}
-			continue
+			return posIndex, fmt.Errorf("field %s must be exported", field.Name)
 		}
 		fieldVal := inst.Field(i)
-		required := false
-		displayName := field.Name
-		var defaultValue *string
-
-		parts := strings.Split(tag, ",")
-		for _, p := range parts {
-			p = strings.TrimSpace(p)
-			switch {
-			case strings.HasPrefix(p, "name="):
-				displayName = strings.TrimPrefix(p, "name=")
-			case strings.HasPrefix(p, "default="):
-				val := strings.TrimPrefix(p, "default=")
-				defaultValue = &val
-			case p == "required":
-				required = true
-			}
+		displayName := opts.Name
+		if displayName == "" {
+			displayName = field.Name
 		}
 
 		if posIndex < len(args) {
@@ -591,13 +571,13 @@ func applyPositionals(inst reflect.Value, node *CommandNode, args []string) (int
 			posIndex++
 			continue
 		}
-		if defaultValue != nil {
-			if err := setFieldFromString(fieldVal, *defaultValue); err != nil {
+		if opts.Default != nil {
+			if err := setFieldFromString(fieldVal, *opts.Default); err != nil {
 				return posIndex, err
 			}
 			continue
 		}
-		if required {
+		if opts.Required {
 			return posIndex, fmt.Errorf("missing required positional %s", displayName)
 		}
 	}
@@ -614,23 +594,14 @@ func assignSubcommandField(parent *CommandNode, parentInst reflect.Value, subNam
 	typ := parent.Type
 	for i := 0; i < typ.NumField(); i++ {
 		field := typ.Field(i)
-		tag := field.Tag.Get("targs")
-		if !strings.Contains(tag, "subcommand") {
+		opts, ok, err := tagOptionsForField(parentInst, field)
+		if err != nil {
+			return err
+		}
+		if !ok || opts.Kind != TagKindSubcommand {
 			continue
 		}
-		name := camelToKebab(field.Name)
-		if tag != "" {
-			parts := strings.Split(tag, ",")
-			for _, p := range parts {
-				p = strings.TrimSpace(p)
-				if strings.HasPrefix(p, "name=") {
-					name = strings.TrimPrefix(p, "name=")
-				} else if strings.HasPrefix(p, "subcommand=") {
-					name = strings.TrimPrefix(p, "subcommand=")
-				}
-			}
-		}
-		if name != subName {
+		if opts.Name != subName {
 			continue
 		}
 
@@ -757,7 +728,11 @@ func printCommandHelp(node *CommandNode) {
 		return
 	}
 
-	usageLine := buildUsageLine(node)
+	usageLine, err := buildUsageLine(node)
+	if err != nil {
+		fmt.Printf("Error: %v\n", err)
+		return
+	}
 	fmt.Printf("Usage: %s\n\n", usageLine)
 
 	// If description is empty, try to fetch it if we haven't already
@@ -783,7 +758,11 @@ func printCommandHelp(node *CommandNode) {
 		fmt.Println()
 	}
 
-	flags := collectFlagHelpChain(node)
+	flags, err := collectFlagHelpChain(node)
+	if err != nil {
+		fmt.Printf("Error: %v\n", err)
+		return
+	}
 	if len(flags) > 0 {
 		fmt.Println("Flags:")
 		for _, item := range flags {
@@ -807,15 +786,18 @@ func printCommandHelp(node *CommandNode) {
 	}
 }
 
-func printTargsOptions() {
-	fmt.Println("\nTargs options:")
+func printTargOptions() {
+	fmt.Println("\nTarg options:")
 	fmt.Println("  --help")
 	fmt.Println("  --completion [bash|zsh|fish]")
 }
 
-func buildUsageLine(node *CommandNode) string {
+func buildUsageLine(node *CommandNode) (string, error) {
 	parts := []string{node.Name}
-	flags := collectFlagHelpChain(node)
+	flags, err := collectFlagHelpChain(node)
+	if err != nil {
+		return "", err
+	}
 	for _, item := range flags {
 		if item.Required {
 			parts = append(parts, formatFlagUsage(item))
@@ -826,7 +808,10 @@ func buildUsageLine(node *CommandNode) string {
 	if len(node.Subcommands) > 0 {
 		parts = append(parts, "[subcommand]")
 	}
-	positionals := collectPositionalHelp(node)
+	positionals, err := collectPositionalHelp(node)
+	if err != nil {
+		return "", err
+	}
 	for _, item := range positionals {
 		name := item.Name
 		if item.Placeholder != "" {
@@ -841,7 +826,7 @@ func buildUsageLine(node *CommandNode) string {
 			parts = append(parts, fmt.Sprintf("[%s]", name))
 		}
 	}
-	return strings.Join(parts, " ")
+	return strings.Join(parts, " "), nil
 }
 
 func formatFlagUsage(item flagHelp) string {
@@ -855,6 +840,114 @@ func formatFlagUsage(item flagHelp) string {
 	return name
 }
 
+func tagOptionsForField(inst reflect.Value, field reflect.StructField) (TagOptions, bool, error) {
+	tag := field.Tag.Get("targ")
+	opts := TagOptions{
+		Kind: TagKindFlag,
+		Name: strings.ToLower(field.Name),
+	}
+	if strings.TrimSpace(tag) == "" {
+		overridden, err := applyTagOptionsOverride(inst, field, opts)
+		if err != nil {
+			return TagOptions{}, true, err
+		}
+		return overridden, true, nil
+	}
+	if strings.Contains(tag, "subcommand") {
+		opts.Kind = TagKindSubcommand
+		opts.Name = camelToKebab(field.Name)
+	}
+	if strings.Contains(tag, "positional") {
+		opts.Kind = TagKindPositional
+		opts.Name = field.Name
+	}
+
+	parts := strings.Split(tag, ",")
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		switch {
+		case strings.HasPrefix(p, "name="):
+			opts.Name = strings.TrimPrefix(p, "name=")
+		case strings.HasPrefix(p, "subcommand="):
+			opts.Name = strings.TrimPrefix(p, "subcommand=")
+		case strings.HasPrefix(p, "short="):
+			opts.Short = strings.TrimPrefix(p, "short=")
+		case strings.HasPrefix(p, "env="):
+			opts.Env = strings.TrimPrefix(p, "env=")
+		case strings.HasPrefix(p, "default="):
+			val := strings.TrimPrefix(p, "default=")
+			opts.Default = &val
+		case strings.HasPrefix(p, "enum="):
+			opts.Enum = strings.TrimPrefix(p, "enum=")
+		case strings.HasPrefix(p, "placeholder="):
+			opts.Placeholder = strings.TrimPrefix(p, "placeholder=")
+		case strings.HasPrefix(p, "desc="):
+			opts.Desc = strings.TrimPrefix(p, "desc=")
+		case strings.HasPrefix(p, "description="):
+			opts.Desc = strings.TrimPrefix(p, "description=")
+		case p == "required":
+			opts.Required = true
+		}
+	}
+
+	overridden, err := applyTagOptionsOverride(inst, field, opts)
+	if err != nil {
+		return TagOptions{}, true, err
+	}
+	return overridden, true, nil
+}
+
+func applyTagOptionsOverride(inst reflect.Value, field reflect.StructField, opts TagOptions) (TagOptions, error) {
+	method := tagOptionsMethod(inst)
+	if !method.IsValid() {
+		return opts, nil
+	}
+	mtype := method.Type()
+	if mtype.NumIn() != 2 || mtype.NumOut() != 2 {
+		return opts, fmt.Errorf("TagOptions must accept (string, TagOptions) and return (TagOptions, error)")
+	}
+	if mtype.In(0).Kind() != reflect.String || mtype.In(1) != reflect.TypeOf(TagOptions{}) {
+		return opts, fmt.Errorf("TagOptions must accept (string, TagOptions)")
+	}
+	if mtype.Out(0) != reflect.TypeOf(TagOptions{}) || !isErrorType(mtype.Out(1)) {
+		return opts, fmt.Errorf("TagOptions must return (TagOptions, error)")
+	}
+	results := method.Call([]reflect.Value{
+		reflect.ValueOf(field.Name),
+		reflect.ValueOf(opts),
+	})
+	if !results[1].IsNil() {
+		return opts, results[1].Interface().(error)
+	}
+	return results[0].Interface().(TagOptions), nil
+}
+
+func tagOptionsInstance(node *CommandNode) reflect.Value {
+	if node == nil {
+		return reflect.Value{}
+	}
+	if node.Value.IsValid() {
+		return node.Value
+	}
+	if node.Type != nil {
+		return reflect.New(node.Type).Elem()
+	}
+	return reflect.Value{}
+}
+
+func tagOptionsMethod(inst reflect.Value) reflect.Value {
+	if !inst.IsValid() {
+		return reflect.Value{}
+	}
+	target := inst
+	if inst.Kind() != reflect.Ptr {
+		if inst.CanAddr() {
+			target = inst.Addr()
+		}
+	}
+	return target.MethodByName("TagOptions")
+}
+
 type flagHelp struct {
 	Name        string
 	Short       string
@@ -865,56 +958,29 @@ type flagHelp struct {
 	Inherited   bool
 }
 
-func collectFlagHelp(node *CommandNode) []flagHelp {
+func collectFlagHelp(node *CommandNode) ([]flagHelp, error) {
 	if node.Type == nil {
-		return nil
+		return nil, nil
 	}
 	typ := node.Type
+	inst := tagOptionsInstance(node)
 	var flags []flagHelp
 	for i := 0; i < typ.NumField(); i++ {
 		field := typ.Field(i)
-		tag := field.Tag.Get("targs")
-		if strings.Contains(tag, "subcommand") || strings.Contains(tag, "positional") {
+		opts, ok, err := tagOptionsForField(inst, field)
+		if err != nil {
+			return nil, err
+		}
+		if !ok || opts.Kind != TagKindFlag {
 			continue
 		}
 		if !field.IsExported() {
-			continue
+			return nil, fmt.Errorf("field %s must be exported", field.Name)
 		}
 
-		name := strings.ToLower(field.Name)
-		shortName := ""
-		usage := ""
-		options := ""
-		placeholder := ""
-		required := false
-
-		if tag != "" {
-			parts := strings.Split(tag, ",")
-			for _, p := range parts {
-				p = strings.TrimSpace(p)
-				if strings.HasPrefix(p, "name=") {
-					name = strings.TrimPrefix(p, "name=")
-				} else if strings.HasPrefix(p, "short=") {
-					shortName = strings.TrimPrefix(p, "short=")
-				} else if strings.HasPrefix(p, "enum=") {
-					options = strings.TrimPrefix(p, "enum=")
-				} else if strings.HasPrefix(p, "placeholder=") {
-					placeholder = strings.TrimPrefix(p, "placeholder=")
-				} else if strings.HasPrefix(p, "desc=") || strings.HasPrefix(p, "description=") {
-					if strings.HasPrefix(p, "desc=") {
-						usage = strings.TrimPrefix(p, "desc=")
-					} else {
-						usage = strings.TrimPrefix(p, "description=")
-					}
-				} else if p == "required" {
-					required = true
-				}
-			}
-		}
-
-		if options != "" {
-			placeholder = fmt.Sprintf("{%s}", options)
-			options = ""
+		placeholder := opts.Placeholder
+		if opts.Enum != "" {
+			placeholder = fmt.Sprintf("{%s}", opts.Enum)
 		}
 		if placeholder == "" {
 			switch field.Type.Kind() {
@@ -928,28 +994,32 @@ func collectFlagHelp(node *CommandNode) []flagHelp {
 		}
 
 		flags = append(flags, flagHelp{
-			Name:        name,
-			Short:       shortName,
-			Usage:       usage,
-			Options:     options,
+			Name:        opts.Name,
+			Short:       opts.Short,
+			Usage:       opts.Desc,
+			Options:     "",
 			Placeholder: placeholder,
-			Required:    required,
+			Required:    opts.Required,
 		})
 	}
-	return flags
+	return flags, nil
 }
 
-func collectFlagHelpChain(node *CommandNode) []flagHelp {
+func collectFlagHelpChain(node *CommandNode) ([]flagHelp, error) {
 	chain := nodeChain(node)
 	var flags []flagHelp
 	for i, current := range chain {
 		inherited := i < len(chain)-1
-		for _, item := range collectFlagHelp(current) {
+		items, err := collectFlagHelp(current)
+		if err != nil {
+			return nil, err
+		}
+		for _, item := range items {
 			item.Inherited = inherited
 			flags = append(flags, item)
 		}
 	}
-	return flags
+	return flags, nil
 }
 
 type positionalHelp struct {
@@ -958,47 +1028,36 @@ type positionalHelp struct {
 	Required    bool
 }
 
-func collectPositionalHelp(node *CommandNode) []positionalHelp {
+func collectPositionalHelp(node *CommandNode) ([]positionalHelp, error) {
 	if node.Type == nil {
-		return nil
+		return nil, nil
 	}
 	typ := node.Type
+	inst := tagOptionsInstance(node)
 	var positionals []positionalHelp
 	for i := 0; i < typ.NumField(); i++ {
 		field := typ.Field(i)
-		tag := field.Tag.Get("targs")
-		if !strings.Contains(tag, "positional") {
+		opts, ok, err := tagOptionsForField(inst, field)
+		if err != nil {
+			return nil, err
+		}
+		if !ok || opts.Kind != TagKindPositional {
 			continue
 		}
-		name := strings.ToUpper(field.Name)
-		placeholder := ""
-		options := ""
-		required := false
-		if tag != "" {
-			parts := strings.Split(tag, ",")
-			for _, p := range parts {
-				p = strings.TrimSpace(p)
-				if strings.HasPrefix(p, "name=") {
-					name = strings.ToUpper(strings.TrimPrefix(p, "name="))
-				} else if strings.HasPrefix(p, "enum=") {
-					options = strings.TrimPrefix(p, "enum=")
-				} else if strings.HasPrefix(p, "placeholder=") {
-					placeholder = strings.TrimPrefix(p, "placeholder=")
-				} else if p == "required" {
-					required = true
-				}
-			}
+		if !field.IsExported() {
+			return nil, fmt.Errorf("field %s must be exported", field.Name)
 		}
-		if options != "" {
-			placeholder = fmt.Sprintf("{%s}", options)
+		placeholder := opts.Placeholder
+		if opts.Enum != "" {
+			placeholder = fmt.Sprintf("{%s}", opts.Enum)
 		}
 		positionals = append(positionals, positionalHelp{
-			Name:        name,
+			Name:        opts.Name,
 			Placeholder: placeholder,
-			Required:    required,
+			Required:    opts.Required,
 		})
 	}
-	return positionals
+	return positionals, nil
 }
 
 func validateLongFlagArgs(args []string, longNames map[string]bool) error {
@@ -1104,7 +1163,7 @@ func nodeChain(node *CommandNode) []*CommandNode {
 
 // DetectRootCommands filters a list of possible command objects to find those
 // that are NOT subcommands of any other command in the list.
-// It uses the `targs:"subcommand"` tag to identify relationships.
+// It uses the `targ:"subcommand"` tag to identify relationships.
 func DetectRootCommands(candidates ...interface{}) []interface{} {
 	// 1. Find all types that are referenced as subcommands
 	subcommandTypes := make(map[reflect.Type]bool)
@@ -1122,7 +1181,7 @@ func DetectRootCommands(candidates ...interface{}) []interface{} {
 
 		for i := 0; i < t.NumField(); i++ {
 			field := t.Field(i)
-			tag := field.Tag.Get("targs")
+			tag := field.Tag.Get("targ")
 			if strings.Contains(tag, "subcommand") {
 				// This field type is a subcommand
 				subType := field.Type

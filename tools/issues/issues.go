@@ -1,6 +1,6 @@
-//go:build targs
+//go:build targ
 
-// Package issues provides issue list tooling for targs.
+// Package issues provides issue list tooling for targ.
 package issues
 
 import (
@@ -8,15 +8,17 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
-	"targs/internal/issuefile"
+	"targ"
+	"targ/internal/issuefile"
 )
 
 type List struct {
-	File   string `targs:"flag,default=issues.md,desc=Issue file to read"`
-	Status string `targs:"flag,desc=Filter by status,enum=backlog|selected|in-progress|review|done|cancelled|blocked"`
-	Query  string `targs:"flag,desc=Case-insensitive title filter"`
+	File   string `targ:"flag,default=issues.md,desc=Issue file to read"`
+	Status string `targ:"flag,desc=Filter by status,enum=backlog|selected|in-progress|review|done|cancelled|blocked"`
+	Query  string `targ:"flag,desc=Case-insensitive title filter"`
 }
 
 func (c *List) Description() string {
@@ -52,9 +54,9 @@ func (c *List) Run() error {
 }
 
 type Move struct {
-	File   string `targs:"flag,default=issues.md,desc=Issue file to update"`
-	ID     int    `targs:"positional,required"`
-	Status string `targs:"flag,required,desc=New status,enum=backlog|selected|in-progress|review|done|cancelled|blocked"`
+	File   string `targ:"flag,default=issues.md,desc=Issue file to update"`
+	ID     int    `targ:"positional,required"`
+	Status string `targ:"flag,required,desc=New status,enum=backlog|selected|in-progress|review|done|cancelled|blocked"`
 }
 
 func (c *Move) Description() string {
@@ -88,7 +90,7 @@ func (c *Move) Run() error {
 }
 
 type Dedupe struct {
-	File string `targs:"flag,default=issues.md,desc=Issue file to update"`
+	File string `targ:"flag,default=issues.md,desc=Issue file to update"`
 }
 
 func (c *Dedupe) Description() string {
@@ -118,7 +120,7 @@ func (c *Dedupe) Run() error {
 }
 
 type Validate struct {
-	File string `targs:"flag,default=issues.md,desc=Issue file to validate"`
+	File string `targ:"flag,default=issues.md,desc=Issue file to validate"`
 }
 
 func (c *Validate) Description() string {
@@ -149,12 +151,12 @@ func (c *Validate) Run() error {
 }
 
 type Create struct {
-	File       string `targs:"flag,default=issues.md,desc=Issue file to update"`
-	Title      string `targs:"flag,required,desc=Issue title"`
-	Status     string `targs:"flag,default=backlog,desc=Initial status,enum=backlog|selected|in-progress|review|done|cancelled|blocked"`
-	Desc       string `targs:"flag,name=description,default=TBD,desc=Issue description"`
-	Priority   string `targs:"flag,default=Low,desc=Priority,enum=low|medium|high"`
-	Acceptance string `targs:"flag,default=TBD,desc=Acceptance criteria"`
+	File       string `targ:"flag,default=issues.md,desc=Issue file to update"`
+	Title      string `targ:"flag,required,desc=Issue title"`
+	Status     string `targ:"flag,default=backlog,desc=Initial status,enum=backlog|selected|in-progress|review|done|cancelled|blocked"`
+	Desc       string `targ:"flag,name=description,default=TBD,desc=Issue description"`
+	Priority   string `targ:"flag,default=Low,desc=Priority,enum=low|medium|high"`
+	Acceptance string `targ:"flag,default=TBD,desc=Acceptance criteria"`
 }
 
 func (c *Create) Description() string {
@@ -162,17 +164,47 @@ func (c *Create) Description() string {
 }
 
 type Update struct {
-	File       string `targs:"flag,default=issues.md,desc=Issue file to update"`
-	ID         int    `targs:"positional,required"`
-	Status     string `targs:"flag,desc=New status,enum=backlog|selected|in-progress|review|done|cancelled|blocked"`
-	Desc       string `targs:"flag,name=description,desc=Description text"`
-	Priority   string `targs:"flag,desc=Priority,enum=low|medium|high"`
-	Acceptance string `targs:"flag,desc=Acceptance criteria"`
-	Details    string `targs:"flag,desc=Implementation details"`
+	File       string `targ:"flag,default=issues.md,desc=Issue file to update"`
+	ID         int    `targ:"positional,required"`
+	Status     string `targ:"flag,desc=New status,enum=backlog|selected|in-progress|review|done|cancelled|blocked"`
+	Desc       string `targ:"flag,name=description,desc=Description text"`
+	Priority   string `targ:"flag,desc=Priority,enum=low|medium|high"`
+	Acceptance string `targ:"flag,desc=Acceptance criteria"`
+	Details    string `targ:"flag,desc=Implementation details"`
 }
 
 func (c *Update) Description() string {
 	return "Update an existing issue entry"
+}
+
+func (c *Update) TagOptions(field string, opts targ.TagOptions) (targ.TagOptions, error) {
+	if field != "ID" {
+		return opts, nil
+	}
+	if normalizeStatus(c.Status) != "cancelled" {
+		return opts, nil
+	}
+	file := c.File
+	if file == "" {
+		file = "issues.md"
+	}
+	_, issues, err := loadIssues(file)
+	if err != nil {
+		return opts, err
+	}
+	ids := make([]int, 0, len(issues))
+	for _, issue := range issues {
+		if normalizeStatus(issue.Status) == "backlog" {
+			ids = append(ids, issue.Number)
+		}
+	}
+	sort.Ints(ids)
+	values := make([]string, 0, len(ids))
+	for _, id := range ids {
+		values = append(values, strconv.Itoa(id))
+	}
+	opts.Enum = strings.Join(values, "|")
+	return opts, nil
 }
 
 func (c *Update) Run() error {
