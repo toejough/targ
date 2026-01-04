@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"text/template"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/toejough/targ"
@@ -25,18 +26,6 @@ type bootstrapCommand struct {
 	Name      string
 	TypeExpr  string
 	ValueExpr string
-	IsFunc    bool
-}
-
-type bootstrapPackage struct {
-	Name       string
-	ImportPath string
-	ImportName string
-	Local      bool
-	TypeName   string
-	VarName    string
-	Commands   []bootstrapCommand
-	DescLit    string
 }
 
 type bootstrapImport struct {
@@ -44,34 +33,53 @@ type bootstrapImport struct {
 	Alias string
 }
 
+type bootstrapFuncWrapper struct {
+	TypeName     string
+	FuncExpr     string
+	UsesContext  bool
+	ReturnsError bool
+}
+
+type bootstrapNode struct {
+	Name     string
+	TypeName string
+	VarName  string
+	Fields   []bootstrapField
+}
+
+type bootstrapField struct {
+	Name      string
+	TypeExpr  string
+	TagLit    string
+	ValueExpr string
+	SetValue  bool
+}
+
 type bootstrapData struct {
-	MultiPackage      bool
-	UsePackageWrapper bool
-	AllowDefault      bool
-	BannerLit         string
-	Imports           []bootstrapImport
-	Packages          []bootstrapPackage
-	Targets           []string
+	AllowDefault bool
+	BannerLit    string
+	Imports      []bootstrapImport
+	RootExprs    []string
+	Nodes        []bootstrapNode
+	FuncWrappers []bootstrapFuncWrapper
+	UsesContext  bool
 }
 
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "gen" {
 		if err := runGenerate(); err != nil {
-			fmt.Printf("Error generating wrappers: %v\n", err)
+			fmt.Fprintf(os.Stderr, "Error generating wrappers: %v\n", err)
 			os.Exit(1)
 		}
 		return
 	}
 
-	var multiPackage bool
 	var noCache bool
 	var keepBootstrap bool
 	var completionShell string
 	var helpFlag bool
 
 	fs := flag.NewFlagSet("targ", flag.ContinueOnError)
-	fs.BoolVar(&multiPackage, "multipackage", false, "enable multipackage mode (recursive package-scoped discovery)")
-	fs.BoolVar(&multiPackage, "m", false, "alias for --multipackage")
 	fs.BoolVar(&noCache, "no-cache", false, "disable cached build tool binaries")
 	fs.BoolVar(&keepBootstrap, "keep", false, "keep generated bootstrap file")
 	fs.StringVar(&completionShell, "completion", "", "print shell completion (bash|zsh|fish)")
@@ -82,15 +90,16 @@ func main() {
 	}
 	fs.SetOutput(io.Discard)
 	rawArgs := os.Args[1:]
+	quietBuild := len(rawArgs) > 0 && rawArgs[0] == "__complete"
+	errOut := io.Writer(os.Stderr)
+	if quietBuild {
+		errOut = io.Discard
+	}
 	helpRequested, helpTargets := parseHelpRequest(rawArgs)
 	parseArgs := make([]string, 0, len(rawArgs))
 	completionRequested := false
 	for i := 0; i < len(rawArgs); i++ {
 		arg := rawArgs[i]
-		if arg == "--multipackage" {
-			parseArgs = append(parseArgs, "-multipackage")
-			continue
-		}
 		if arg == "--completion" {
 			completionRequested = true
 			shell := ""
@@ -107,8 +116,8 @@ func main() {
 		parseArgs = append(parseArgs, arg)
 	}
 	if err := fs.Parse(parseArgs); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		printBuildToolUsage(os.Stderr)
+		fmt.Fprintln(errOut, err)
+		printBuildToolUsage(errOut)
 		os.Exit(1)
 	}
 	args := fs.Args()
@@ -119,11 +128,11 @@ func main() {
 	if helpRequested && !helpTargets {
 		startDir, err := os.Getwd()
 		if err != nil {
-			fmt.Printf("Error resolving working directory: %v\n", err)
+			fmt.Fprintf(errOut, "Error resolving working directory: %v\n", err)
 			os.Exit(1)
 		}
-		if err := printBuildToolHelp(os.Stdout, startDir, multiPackage); err != nil {
-			fmt.Printf("Error discovering packages: %v\n", err)
+		if err := printBuildToolHelp(os.Stdout, startDir); err != nil {
+			fmt.Fprintf(errOut, "Error discovering packages: %v\n", err)
 			os.Exit(1)
 		}
 		return
@@ -137,7 +146,7 @@ func main() {
 			completionShell = detectShell()
 		}
 		if completionShell == "" {
-			fmt.Fprintln(os.Stderr, "Usage: --completion [bash|zsh|fish]")
+			fmt.Fprintln(errOut, "Usage: --completion [bash|zsh|fish]")
 			os.Exit(1)
 		}
 		binName := os.Args[0]
@@ -148,7 +157,7 @@ func main() {
 			binName = binName[idx+1:]
 		}
 		if err := targ.PrintCompletionScript(completionShell, binName); err != nil {
-			fmt.Fprintf(os.Stderr, "Unsupported shell: %s. Supported: bash, zsh, fish\n", completionShell)
+			fmt.Fprintf(errOut, "Unsupported shell: %s. Supported: bash, zsh, fish\n", completionShell)
 			os.Exit(1)
 		}
 		return
@@ -156,23 +165,16 @@ func main() {
 
 	startDir, err := os.Getwd()
 	if err != nil {
-		fmt.Printf("Error resolving working directory: %v\n", err)
+		fmt.Fprintf(errOut, "Error resolving working directory: %v\n", err)
 		os.Exit(1)
 	}
 
 	taggedDirs, err := buildtool.SelectTaggedDirs(buildtool.OSFileSystem{}, buildtool.Options{
-		StartDir:     startDir,
-		MultiPackage: multiPackage,
-		BuildTag:     "targ",
+		StartDir: startDir,
+		BuildTag: "targ",
 	})
 	if err != nil {
-		var multiErr *buildtool.MultipleTaggedDirsError
-		if errors.As(err, &multiErr) {
-			if err := printMultiPackageError(startDir, multiErr); err == nil {
-				os.Exit(1)
-			}
-		}
-		fmt.Printf("Error discovering commands: %v\n", err)
+		fmt.Fprintf(errOut, "Error discovering commands: %v\n", err)
 		os.Exit(1)
 	}
 
@@ -182,30 +184,23 @@ func main() {
 			BuildTag:   "targ",
 			OnlyTagged: true,
 		}); err != nil {
-			fmt.Printf("Error generating command wrappers: %v\n", err)
+			fmt.Fprintf(errOut, "Error generating command wrappers: %v\n", err)
 			os.Exit(1)
 		}
 	}
 
 	infos, err := buildtool.Discover(buildtool.OSFileSystem{}, buildtool.Options{
-		StartDir:     startDir,
-		MultiPackage: multiPackage,
-		BuildTag:     "targ",
+		StartDir: startDir,
+		BuildTag: "targ",
 	})
 	if err != nil {
-		var multiErr *buildtool.MultipleTaggedDirsError
-		if errors.As(err, &multiErr) {
-			if err := printMultiPackageError(startDir, multiErr); err == nil {
-				os.Exit(1)
-			}
-		}
-		fmt.Printf("Error discovering commands: %v\n", err)
+		fmt.Fprintf(errOut, "Error discovering commands: %v\n", err)
 		os.Exit(1)
 	}
 
 	importRoot, modulePath, moduleFound, err := findModuleRootAndPath(startDir)
 	if err != nil {
-		fmt.Printf("Error finding module root: %v\n", err)
+		fmt.Fprintf(errOut, "Error finding module root: %v\n", err)
 		os.Exit(1)
 	}
 	buildRoot := importRoot
@@ -216,55 +211,54 @@ func main() {
 		dep := resolveTargDependency()
 		buildRoot, err = ensureFallbackModuleRoot(startDir, modulePath, dep)
 		if err != nil {
-			fmt.Printf("Error preparing fallback module: %v\n", err)
+			fmt.Fprintf(errOut, "Error preparing fallback module: %v\n", err)
 			os.Exit(1)
 		}
 		usingFallback = true
 	}
 
 	packageDir := startDir
-	if !multiPackage && len(infos) == 1 && infos[0].Package == "main" {
+	if len(infos) == 1 && infos[0].Package == "main" {
 		packageDir = infos[0].Dir
 	}
 
-	data, err := buildBootstrapData(infos, packageDir, importRoot, modulePath, multiPackage)
+	data, err := buildBootstrapData(infos, packageDir, importRoot, modulePath)
 	if err != nil {
-		fmt.Printf("Error preparing bootstrap: %v\n", err)
+		fmt.Fprintf(errOut, "Error preparing bootstrap: %v\n", err)
 		os.Exit(1)
 	}
 
 	tmpl := template.Must(template.New("main").Parse(bootstrapTemplate))
 	var buf bytes.Buffer
 	if err := tmpl.Execute(&buf, data); err != nil {
-		fmt.Printf("Error generating code: %v\n", err)
+		fmt.Fprintf(errOut, "Error generating code: %v\n", err)
 		os.Exit(1)
 	}
 
 	taggedFiles, err := buildtool.TaggedFiles(buildtool.OSFileSystem{}, buildtool.Options{
-		StartDir:     startDir,
-		MultiPackage: multiPackage,
-		BuildTag:     "targ",
+		StartDir: startDir,
+		BuildTag: "targ",
 	})
 	if err != nil {
-		fmt.Printf("Error gathering tagged files: %v\n", err)
+		fmt.Fprintf(errOut, "Error gathering tagged files: %v\n", err)
 		os.Exit(1)
 	}
 	moduleFiles, err := collectModuleFiles(importRoot)
 	if err != nil {
-		fmt.Printf("Error gathering module files: %v\n", err)
+		fmt.Fprintf(errOut, "Error gathering module files: %v\n", err)
 		os.Exit(1)
 	}
 	cacheInputs := append(taggedFiles, moduleFiles...)
 	cacheKey, err := computeCacheKey(modulePath, importRoot, "targ", buf.Bytes(), cacheInputs)
 	if err != nil {
-		fmt.Printf("Error computing cache key: %v\n", err)
+		fmt.Fprintf(errOut, "Error computing cache key: %v\n", err)
 		os.Exit(1)
 	}
 
-	localMain := !multiPackage && len(infos) == 1 && infos[0].Package == "main"
+	localMain := len(infos) == 1 && infos[0].Package == "main"
 	relPackageDir, err := filepath.Rel(startDir, packageDir)
 	if err != nil {
-		fmt.Printf("Error resolving package path: %v\n", err)
+		fmt.Fprintf(errOut, "Error resolving package path: %v\n", err)
 		os.Exit(1)
 	}
 	buildPackageDir := packageDir
@@ -283,7 +277,7 @@ func main() {
 	var cleanupTemp func() error
 	tempFile, cleanupTemp, err = writeBootstrapFile(bootstrapDir, buf.Bytes(), keepBootstrap)
 	if err != nil {
-		fmt.Printf("Error writing bootstrap file: %v\n", err)
+		fmt.Fprintf(errOut, "Error writing bootstrap file: %v\n", err)
 		os.Exit(1)
 	}
 	if !keepBootstrap {
@@ -292,7 +286,7 @@ func main() {
 
 	cacheDir := filepath.Join(buildRoot, ".targ", "cache")
 	if err := os.MkdirAll(cacheDir, 0755); err != nil {
-		fmt.Printf("Error creating cache directory: %v\n", err)
+		fmt.Fprintf(errOut, "Error creating cache directory: %v\n", err)
 		os.Exit(1)
 	}
 	binaryPath := filepath.Join(cacheDir, fmt.Sprintf("targ_%s", cacheKey))
@@ -301,7 +295,7 @@ func main() {
 		if info, err := os.Stat(binaryPath); err == nil && info.Mode().IsRegular() && info.Mode()&0111 != 0 {
 			cmd := exec.Command(binaryPath, args...)
 			cmd.Stdout = os.Stdout
-			cmd.Stderr = os.Stderr
+			cmd.Stderr = errOut
 			cmd.Stdin = os.Stdin
 			if err := cmd.Run(); err != nil {
 				if !keepBootstrap {
@@ -310,7 +304,7 @@ func main() {
 				if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() != 0 {
 					os.Exit(exitErr.ExitCode())
 				}
-				fmt.Printf("Error running command: %v\n", err)
+				fmt.Fprintf(errOut, "Error running command: %v\n", err)
 				os.Exit(1)
 			}
 			return
@@ -327,8 +321,31 @@ func main() {
 		buildArgs = append(buildArgs, tempFile)
 	}
 	buildCmd := exec.Command("go", buildArgs...)
+	if quietBuild {
+		var buildOutput bytes.Buffer
+		buildCmd.Stdout = io.Discard
+		buildCmd.Stderr = &buildOutput
+		if localMain {
+			buildCmd.Dir = buildPackageDir
+		} else if usingFallback {
+			buildCmd.Dir = buildRoot
+		} else {
+			buildCmd.Dir = importRoot
+		}
+		if err := buildCmd.Run(); err != nil {
+			if !keepBootstrap {
+				_ = cleanupTemp()
+			}
+			if buildOutput.Len() > 0 {
+				fmt.Fprint(errOut, buildOutput.String())
+			}
+			fmt.Fprintf(errOut, "Error building command: %v\n", err)
+			os.Exit(1)
+		}
+		goto runBuiltBinary
+	}
 	buildCmd.Stdout = os.Stdout
-	buildCmd.Stderr = os.Stderr
+	buildCmd.Stderr = errOut
 	if localMain {
 		buildCmd.Dir = buildPackageDir
 	} else if usingFallback {
@@ -340,13 +357,14 @@ func main() {
 		if !keepBootstrap {
 			_ = cleanupTemp()
 		}
-		fmt.Printf("Error building command: %v\n", err)
+		fmt.Fprintf(errOut, "Error building command: %v\n", err)
 		os.Exit(1)
 	}
 
+runBuiltBinary:
 	cmd := exec.Command(binaryPath, args...)
 	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	cmd.Stderr = errOut
 	cmd.Stdin = os.Stdin
 	if err := cmd.Run(); err != nil {
 		if !keepBootstrap {
@@ -577,45 +595,12 @@ func detectShell() string {
 	}
 }
 
-func printMultiPackageError(startDir string, multiErr *buildtool.MultipleTaggedDirsError) error {
-	infos, err := buildtool.Discover(buildtool.OSFileSystem{}, buildtool.Options{
-		StartDir:     startDir,
-		MultiPackage: true,
-		BuildTag:     "targ",
-	})
-	if err != nil {
-		return err
-	}
-	byPath := make(map[string]buildtool.PackageInfo, len(infos))
-	for _, info := range infos {
-		byPath[info.Dir] = info
-	}
-
-	paths := append([]string(nil), multiErr.Paths...)
-	sort.Strings(paths)
-
-	fmt.Println("Error: multiple packages found. Please run again from a directory tree that only includes one,")
-	fmt.Println("  or run again with `--multipackage`")
-	fmt.Println("")
-	for _, path := range paths {
-		pkg := "<unknown>"
-		if info, ok := byPath[path]; ok {
-			pkg = info.Package
-		}
-		fmt.Printf("  tasks found in package %q at %q\n", pkg, path)
-	}
-	fmt.Println("")
-	fmt.Println("For more information, run `targ --help`.")
-	return nil
-}
-
 func printBuildToolUsage(out io.Writer) {
 	fmt.Fprintln(out, "targ is a build-tool runner that discovers tagged commands and executes them.")
 	fmt.Fprintln(out, "")
 	fmt.Fprintln(out, "Usage: targ [FLAGS...] COMMAND [COMMAND_ARGS...]")
 	fmt.Fprintln(out, "")
 	fmt.Fprintln(out, "Flags:")
-	fmt.Fprintf(out, "    %-28s %s\n", "--multipackage, -m", "enable multipackage mode (recursive package-scoped discovery)")
 	fmt.Fprintf(out, "    %-28s %s\n", "--no-cache", "disable cached build tool binaries")
 	fmt.Fprintf(out, "    %-28s %s\n", "--keep", "keep generated bootstrap file")
 	fmt.Fprintf(out, "    %-28s %s\n", "--completion {bash|zsh|fish}", "print completion script for specified shell. Uses the current shell if none is")
@@ -624,124 +609,73 @@ func printBuildToolUsage(out io.Writer) {
 	fmt.Fprintf(out, "    %-28s %s\n", "--help", "Print help information")
 }
 
-type packageSummary struct {
-	Name string
-	Path string
-	Doc  string
-}
-
-func printBuildToolHelp(out io.Writer, startDir string, multiPackage bool) error {
+func printBuildToolHelp(out io.Writer, startDir string) error {
 	printBuildToolUsage(out)
 	fmt.Fprintln(out, "")
 
-	currentInfos, err := buildtool.Discover(buildtool.OSFileSystem{}, buildtool.Options{
-		StartDir:     startDir,
-		MultiPackage: multiPackage,
-		BuildTag:     "targ",
+	infos, err := buildtool.Discover(buildtool.OSFileSystem{}, buildtool.Options{
+		StartDir: startDir,
+		BuildTag: "targ",
 	})
 	if err != nil && !errors.Is(err, buildtool.ErrNoTaggedFiles) {
 		return err
 	}
 
-	allInfos, err := buildtool.Discover(buildtool.OSFileSystem{}, buildtool.Options{
-		StartDir:     startDir,
-		MultiPackage: true,
-		BuildTag:     "targ",
-	})
-	if err != nil && !errors.Is(err, buildtool.ErrNoTaggedFiles) {
+	if len(infos) == 0 {
+		fmt.Fprintln(out, "No tagged commands found in this directory.")
+		fmt.Fprintln(out, "")
+		fmt.Fprintln(out, "More info: https://github.com/toejough/targ#readme")
+		return nil
+	}
+
+	fileCommands := make(map[string][]commandSummary)
+	var filePaths []string
+	for _, info := range infos {
+		for _, file := range info.Files {
+			summaries := commandSummariesFromCommands(file.Commands)
+			fileCommands[file.Path] = summaries
+			filePaths = append(filePaths, file.Path)
+		}
+	}
+	sort.Strings(filePaths)
+	paths, err := namespacePaths(filePaths, startDir)
+	if err != nil {
 		return err
 	}
 
-	currentSummaries := summarizePackages(currentInfos, startDir)
-	allSummaries := summarizePackages(allInfos, startDir)
-
-	if len(currentSummaries) == 0 {
-		fmt.Fprintln(out, "No tagged packages found in this directory.")
-		fmt.Fprintln(out, "")
-		fmt.Fprintln(out, "More info: https://github.com/toejough/targ#readme")
-		return nil
+	var rootCommands []commandSummary
+	for _, path := range filePaths {
+		if len(paths[path]) != 0 {
+			continue
+		}
+		rootCommands = append(rootCommands, fileCommands[path]...)
 	}
-
-	if multiPackage {
-		fmt.Fprintln(out, "Subcommands:")
-		printPackageSummaries(out, currentSummaries)
-		fmt.Fprintln(out, "")
-		fmt.Fprintln(out, "More info: https://github.com/toejough/targ#readme")
-		return nil
-	}
-
-	fmt.Fprintln(out, "Loaded package:")
-	printPackageSummaries(out, currentSummaries)
-
-	if len(currentInfos) > 0 {
-		fmt.Fprintln(out, "")
+	if len(rootCommands) > 0 {
+		sort.Slice(rootCommands, func(i, j int) bool {
+			return rootCommands[i].Name < rootCommands[j].Name
+		})
 		fmt.Fprintln(out, "Commands:")
-		printCommandSummaries(out, commandSummaries(currentInfos[0]))
+		printCommandSummaries(out, rootCommands)
+		fmt.Fprintln(out, "")
 	}
 
-	otherSummaries := filterOtherPackages(currentSummaries, allSummaries)
-	fmt.Fprintln(out, "")
-	fmt.Fprintln(out, "Other discovered packages:")
-	printPackageSummaries(out, otherSummaries)
-	if len(otherSummaries) > 0 {
+	tree := buildNamespaceTree(paths)
+	if len(tree.Children) > 0 {
+		names := make([]string, 0, len(tree.Children))
+		for name := range tree.Children {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		fmt.Fprintln(out, "Subcommands:")
+		for _, name := range names {
+			fmt.Fprintf(out, "    %s\n", name)
+		}
 		fmt.Fprintln(out, "")
-		fmt.Fprintln(out, "Use -m/--multipackage or run from a package directory to access these.")
 	}
+
 	fmt.Fprintln(out, "")
 	fmt.Fprintln(out, "More info: https://github.com/toejough/targ#readme")
 	return nil
-}
-
-func summarizePackages(infos []buildtool.PackageInfo, startDir string) []packageSummary {
-	summaries := make([]packageSummary, 0, len(infos))
-	for _, info := range infos {
-		path := info.Dir
-		if rel, err := filepath.Rel(startDir, info.Dir); err == nil {
-			path = rel
-		}
-		summaries = append(summaries, packageSummary{
-			Name: info.Package,
-			Path: path,
-			Doc:  info.Doc,
-		})
-	}
-	sort.Slice(summaries, func(i, j int) bool {
-		return summaries[i].Name < summaries[j].Name
-	})
-	return summaries
-}
-
-func filterOtherPackages(loaded []packageSummary, all []packageSummary) []packageSummary {
-	seen := map[string]bool{}
-	for _, summary := range loaded {
-		key := summary.Path + "::" + summary.Name
-		seen[key] = true
-	}
-	var others []packageSummary
-	for _, summary := range all {
-		key := summary.Path + "::" + summary.Name
-		if seen[key] {
-			continue
-		}
-		others = append(others, summary)
-	}
-	return others
-}
-
-func printPackageSummaries(out io.Writer, summaries []packageSummary) {
-	if len(summaries) == 0 {
-		fmt.Fprintln(out, "    (none)")
-		return
-	}
-	for _, summary := range summaries {
-		name := summary.Name
-		if summary.Doc != "" {
-			fmt.Fprintf(out, "    %-10s %s\n", name, summary.Doc)
-		} else {
-			fmt.Fprintf(out, "    %s\n", name)
-		}
-		fmt.Fprintf(out, "                Path: %s\n", summary.Path)
-	}
 }
 
 type commandSummary struct {
@@ -749,32 +683,18 @@ type commandSummary struct {
 	Description string
 }
 
-func commandSummaries(info buildtool.PackageInfo) []commandSummary {
-	commands := make([]commandSummary, 0, len(info.Structs)+len(info.Funcs))
-	for _, name := range info.Structs {
-		desc := ""
-		if info.StructDescriptions != nil {
-			desc = info.StructDescriptions[name]
-		}
-		commands = append(commands, commandSummary{
-			Name:        camelToKebab(name),
-			Description: desc,
+func commandSummariesFromCommands(commands []buildtool.CommandInfo) []commandSummary {
+	summaries := make([]commandSummary, 0, len(commands))
+	for _, cmd := range commands {
+		summaries = append(summaries, commandSummary{
+			Name:        camelToKebab(cmd.Name),
+			Description: cmd.Description,
 		})
 	}
-	for _, name := range info.Funcs {
-		desc := ""
-		if info.FuncDescriptions != nil {
-			desc = info.FuncDescriptions[name]
-		}
-		commands = append(commands, commandSummary{
-			Name:        camelToKebab(name),
-			Description: desc,
-		})
-	}
-	sort.Slice(commands, func(i, j int) bool {
-		return commands[i].Name < commands[j].Name
+	sort.Slice(summaries, func(i, j int) bool {
+		return summaries[i].Name < summaries[j].Name
 	})
-	return commands
+	return summaries
 }
 
 func printCommandSummaries(out io.Writer, summaries []commandSummary) {
@@ -821,12 +741,273 @@ func camelToKebab(name string) string {
 	return strings.ToLower(out.String())
 }
 
+type namespaceNode struct {
+	Name     string
+	File     string
+	Children map[string]*namespaceNode
+	TypeName string
+	VarName  string
+}
+
+func namespacePaths(files []string, root string) (map[string][]string, error) {
+	if len(files) == 0 {
+		return map[string][]string{}, nil
+	}
+	raw := make(map[string][]string, len(files))
+	paths := make([][]string, 0, len(files))
+	for _, file := range files {
+		rel, err := filepath.Rel(root, file)
+		if err != nil {
+			return nil, err
+		}
+		rel = filepath.ToSlash(rel)
+		parts := strings.Split(rel, "/")
+		if len(parts) == 0 {
+			parts = []string{filepath.Base(file)}
+		}
+		last := parts[len(parts)-1]
+		parts[len(parts)-1] = strings.TrimSuffix(last, filepath.Ext(last))
+		raw[file] = parts
+		paths = append(paths, parts)
+	}
+
+	common := append([]string(nil), paths[0]...)
+	for _, p := range paths[1:] {
+		common = commonPrefix(common, p)
+		if len(common) == 0 {
+			break
+		}
+	}
+
+	trimmed := make(map[string][]string, len(files))
+	for file, parts := range raw {
+		if len(common) >= len(parts) {
+			trimmed[file] = nil
+			continue
+		}
+		trimmed[file] = append([]string(nil), parts[len(common):]...)
+	}
+	return compressNamespacePaths(trimmed), nil
+}
+
+func commonPrefix(a []string, b []string) []string {
+	max := len(a)
+	if len(b) < max {
+		max = len(b)
+	}
+	var i int
+	for i = 0; i < max; i++ {
+		if a[i] != b[i] {
+			break
+		}
+	}
+	return a[:i]
+}
+
+func compressNamespacePaths(paths map[string][]string) map[string][]string {
+	root := &namespaceNode{Children: make(map[string]*namespaceNode)}
+	out := make(map[string][]string, len(paths))
+
+	for file, parts := range paths {
+		if len(parts) == 0 {
+			out[file] = nil
+			continue
+		}
+		node := root
+		for _, part := range parts {
+			child := node.Children[part]
+			if child == nil {
+				child = &namespaceNode{Name: part, Children: make(map[string]*namespaceNode)}
+				node.Children[part] = child
+			}
+			node = child
+		}
+		node.File = file
+	}
+
+	var walk func(node *namespaceNode, prefix []string)
+	walk = func(node *namespaceNode, prefix []string) {
+		if node != root && len(node.Children) == 1 && node.File == "" {
+			for _, child := range node.Children {
+				walk(child, prefix)
+			}
+			return
+		}
+		if node != root {
+			prefix = append(prefix, node.Name)
+		}
+		if node.File != "" {
+			out[node.File] = append([]string(nil), prefix...)
+		}
+		names := make([]string, 0, len(node.Children))
+		for name := range node.Children {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		for _, name := range names {
+			walk(node.Children[name], prefix)
+		}
+	}
+	walk(root, nil)
+	return out
+}
+
+func buildNamespaceTree(paths map[string][]string) *namespaceNode {
+	root := &namespaceNode{Children: make(map[string]*namespaceNode)}
+	for file, parts := range paths {
+		if len(parts) == 0 {
+			continue
+		}
+		node := root
+		for _, part := range parts {
+			child := node.Children[part]
+			if child == nil {
+				child = &namespaceNode{Name: part, Children: make(map[string]*namespaceNode)}
+				node.Children[part] = child
+			}
+			node = child
+		}
+		node.File = file
+	}
+	return root
+}
+
+type nameGenerator struct {
+	used map[string]int
+}
+
+func (g *nameGenerator) uniqueTypeName(base string) string {
+	if g.used == nil {
+		g.used = make(map[string]int)
+	}
+	if base == "" {
+		base = "Node"
+	}
+	count := g.used[base]
+	g.used[base] = count + 1
+	if count == 0 {
+		return base
+	}
+	return fmt.Sprintf("%s%d", base, count+1)
+}
+
+func segmentToIdent(segment string) string {
+	var out strings.Builder
+	capNext := true
+	for _, r := range segment {
+		if !unicode.IsLetter(r) && !unicode.IsDigit(r) {
+			capNext = true
+			continue
+		}
+		if capNext {
+			out.WriteRune(unicode.ToUpper(r))
+			capNext = false
+			continue
+		}
+		out.WriteRune(r)
+	}
+	ident := out.String()
+	if ident == "" {
+		return "Node"
+	}
+	if !unicode.IsLetter(rune(ident[0])) {
+		return "Node" + ident
+	}
+	return ident
+}
+
+func subcommandTag(fieldName string, segment string) string {
+	if camelToKebab(fieldName) == segment {
+		return `targ:"subcommand"`
+	}
+	return fmt.Sprintf(`targ:"subcommand,name=%s"`, segment)
+}
+
+func assignNamespaceNames(root *namespaceNode, gen *nameGenerator) {
+	var walk func(node *namespaceNode)
+	walk = func(node *namespaceNode) {
+		names := make([]string, 0, len(node.Children))
+		for name := range node.Children {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		for _, name := range names {
+			child := node.Children[name]
+			base := segmentToIdent(child.Name)
+			child.TypeName = gen.uniqueTypeName(base)
+			child.VarName = lowerFirst(child.TypeName)
+			walk(child)
+		}
+	}
+	walk(root)
+}
+
+func collectNamespaceNodes(root *namespaceNode, fileCommands map[string][]bootstrapCommand, out *[]bootstrapNode) error {
+	var walk func(node *namespaceNode) error
+	walk = func(node *namespaceNode) error {
+		names := make([]string, 0, len(node.Children))
+		for name := range node.Children {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		for _, name := range names {
+			if err := walk(node.Children[name]); err != nil {
+				return err
+			}
+		}
+
+		if node == root {
+			return nil
+		}
+
+		fields := make([]bootstrapField, 0, len(node.Children))
+		usedNames := map[string]bool{}
+
+		for _, name := range names {
+			child := node.Children[name]
+			fieldName := segmentToIdent(child.Name)
+			if usedNames[fieldName] {
+				return fmt.Errorf("duplicate namespace field %q under %q", fieldName, node.Name)
+			}
+			usedNames[fieldName] = true
+			fields = append(fields, bootstrapField{
+				Name:     fieldName,
+				TypeExpr: "*" + child.TypeName,
+				TagLit:   subcommandTag(fieldName, child.Name),
+			})
+		}
+
+		if node.File != "" {
+			commands := fileCommands[node.File]
+			for _, cmd := range commands {
+				if usedNames[cmd.Name] {
+					return fmt.Errorf("duplicate command name %q under %q", cmd.Name, node.Name)
+				}
+				usedNames[cmd.Name] = true
+				fields = append(fields, bootstrapField{
+					Name:     cmd.Name,
+					TypeExpr: cmd.TypeExpr,
+					TagLit:   `targ:"subcommand"`,
+				})
+			}
+		}
+
+		*out = append(*out, bootstrapNode{
+			Name:     node.Name,
+			TypeName: node.TypeName,
+			VarName:  node.VarName,
+			Fields:   fields,
+		})
+		return nil
+	}
+	return walk(root)
+}
+
 func buildBootstrapData(
 	infos []buildtool.PackageInfo,
 	startDir string,
 	moduleRoot string,
 	modulePath string,
-	multiPackage bool,
 ) (bootstrapData, error) {
 	absStart, err := filepath.Abs(startDir)
 	if err != nil {
@@ -834,19 +1015,15 @@ func buildBootstrapData(
 	}
 	imports := []bootstrapImport{{Path: "github.com/toejough/targ"}}
 	usedImports := map[string]bool{"github.com/toejough/targ": true}
-	var packages []bootstrapPackage
-	var targets []string
-	seenPackages := make(map[string]string)
-	usePackageWrapper := multiPackage
+	fileCommands := make(map[string][]bootstrapCommand)
+	var funcWrappers []bootstrapFuncWrapper
+	usesContext := false
+	wrapperNames := &nameGenerator{}
 
 	for _, info := range infos {
-		if len(info.Structs) == 0 && len(info.Funcs) == 0 {
+		if len(info.Commands) == 0 {
 			return bootstrapData{}, fmt.Errorf("no commands found in package %s", info.Package)
 		}
-		if existing, ok := seenPackages[info.Package]; ok {
-			return bootstrapData{}, fmt.Errorf("duplicate package name %q in %s and %s", info.Package, existing, info.Dir)
-		}
-		seenPackages[info.Package] = info.Dir
 
 		local := sameDir(absStart, info.Dir)
 		importPath := ""
@@ -869,56 +1046,90 @@ func buildBootstrapData(
 			})
 		}
 
-		var commands []bootstrapCommand
-		for _, name := range info.Structs {
-			commands = append(commands, bootstrapCommand{
-				Name:      name,
-				TypeExpr:  "*" + prefix + name,
-				ValueExpr: "&" + prefix + name + "{}",
-				IsFunc:    false,
-			})
-		}
-		for _, name := range info.Funcs {
-			commands = append(commands, bootstrapCommand{
-				Name:      name,
-				TypeExpr:  "func()",
-				ValueExpr: prefix + name,
-				IsFunc:    true,
-			})
-		}
-
-		pkg := bootstrapPackage{
-			Name:       info.Package,
-			ImportPath: importPath,
-			ImportName: importName,
-			Local:      local,
-			TypeName:   exportTypeName(info.Package),
-			VarName:    lowerFirst(exportTypeName(info.Package)),
-			Commands:   commands,
-			DescLit:    strconv.Quote(packageDescription(info.Doc, info.Dir)),
-		}
-		packages = append(packages, pkg)
-
-		if !usePackageWrapper {
-			for _, cmd := range commands {
-				targets = append(targets, cmd.ValueExpr)
+		for _, cmd := range info.Commands {
+			switch cmd.Kind {
+			case buildtool.CommandStruct:
+				fileCommands[cmd.File] = append(fileCommands[cmd.File], bootstrapCommand{
+					Name:      cmd.Name,
+					TypeExpr:  "*" + prefix + cmd.Name,
+					ValueExpr: "&" + prefix + cmd.Name + "{}",
+				})
+			case buildtool.CommandFunc:
+				base := segmentToIdent(info.Package) + segmentToIdent(cmd.Name) + "Func"
+				typeName := wrapperNames.uniqueTypeName(base)
+				funcWrappers = append(funcWrappers, bootstrapFuncWrapper{
+					TypeName:     typeName,
+					FuncExpr:     prefix + cmd.Name,
+					UsesContext:  cmd.UsesContext,
+					ReturnsError: cmd.ReturnsError,
+				})
+				if cmd.UsesContext {
+					usesContext = true
+				}
+				fileCommands[cmd.File] = append(fileCommands[cmd.File], bootstrapCommand{
+					Name:      cmd.Name,
+					TypeExpr:  "*" + typeName,
+					ValueExpr: "&" + typeName + "{}",
+				})
+			default:
+				return bootstrapData{}, fmt.Errorf("unknown command kind for %s", cmd.Name)
 			}
 		}
 	}
 
+	filePaths := make([]string, 0, len(fileCommands))
+	for path := range fileCommands {
+		sort.Slice(fileCommands[path], func(i, j int) bool {
+			return fileCommands[path][i].Name < fileCommands[path][j].Name
+		})
+		filePaths = append(filePaths, path)
+	}
+	sort.Strings(filePaths)
+
+	paths, err := namespacePaths(filePaths, startDir)
+	if err != nil {
+		return bootstrapData{}, err
+	}
+
+	tree := buildNamespaceTree(paths)
+	assignNamespaceNames(tree, &nameGenerator{})
+
+	var nodes []bootstrapNode
+	rootExprs := make([]string, 0)
+	for _, path := range filePaths {
+		if len(paths[path]) != 0 {
+			continue
+		}
+		for _, cmd := range fileCommands[path] {
+			rootExprs = append(rootExprs, cmd.ValueExpr)
+		}
+	}
+	rootNames := make([]string, 0, len(tree.Children))
+	for name := range tree.Children {
+		rootNames = append(rootNames, name)
+	}
+	sort.Strings(rootNames)
+	for _, name := range rootNames {
+		rootExprs = append(rootExprs, tree.Children[name].VarName)
+	}
+
+	if err := collectNamespaceNodes(tree, fileCommands, &nodes); err != nil {
+		return bootstrapData{}, err
+	}
+
 	allowDefault := false
 	bannerLit := ""
-	if !multiPackage && len(infos) == 1 {
+	if len(infos) == 1 {
 		bannerLit = strconv.Quote(singlePackageBanner(infos[0]))
 	}
 	return bootstrapData{
-		MultiPackage:      multiPackage,
-		UsePackageWrapper: usePackageWrapper,
-		AllowDefault:      allowDefault,
-		BannerLit:         bannerLit,
-		Imports:           imports,
-		Packages:          packages,
-		Targets:           targets,
+		AllowDefault: allowDefault,
+		BannerLit:    bannerLit,
+		Imports:      imports,
+		RootExprs:    rootExprs,
+		Nodes:        nodes,
+		FuncWrappers: funcWrappers,
+		UsesContext:  usesContext,
 	}, nil
 }
 
@@ -1048,6 +1259,9 @@ package main
 
 import (
 	"github.com/toejough/targ"
+{{- if .UsesContext }}
+	"context"
+{{- end }}
 {{- if .BannerLit }}
 	"fmt"
 	"os"
@@ -1061,18 +1275,34 @@ import (
 {{- end }}
 )
 
-{{- if .UsePackageWrapper }}
-{{- range .Packages }}
-type {{ .TypeName }} struct {
-{{- range .Commands }}
-	{{ .Name }} {{ .TypeExpr }} ` + "`targ:\"subcommand\"`" + `
-{{- end }}
-}
+{{- range .FuncWrappers }}
+type {{ .TypeName }} struct{}
 
-func (p *{{ .TypeName }}) Description() string {
-	return {{ .DescLit }}
+func (c *{{ .TypeName }}) Run({{ if .UsesContext }}ctx context.Context{{ end }}) error {
+{{- if .UsesContext }}
+{{- if .ReturnsError }}
+	return {{ .FuncExpr }}(ctx)
+{{- else }}
+	{{ .FuncExpr }}(ctx)
+	return nil
+{{- end }}
+{{- else }}
+{{- if .ReturnsError }}
+	return {{ .FuncExpr }}()
+{{- else }}
+	{{ .FuncExpr }}()
+	return nil
+{{- end }}
+{{- end }}
 }
 {{- end }}
+
+{{- range .Nodes }}
+type {{ .TypeName }} struct {
+{{- range .Fields }}
+	{{ .Name }} {{ .TypeExpr }} ` + "`{{ .TagLit }}`" + `
+{{- end }}
+}
 {{- end }}
 
 func main() {
@@ -1082,31 +1312,16 @@ func main() {
 		fmt.Println()
 	}
 {{- end }}
-{{- if .UsePackageWrapper }}
-{{- range .Packages }}
-	{{ .VarName }} := &{{ .TypeName }}{
-{{- range .Commands }}
-{{- if .IsFunc }}
-		{{ .Name }}: {{ .ValueExpr }},
-{{- end }}
-{{- end }}
-	}
+{{- range .Nodes }}
+	{{ .VarName }} := &{{ .TypeName }}{}
 {{- end }}
 
 	roots := []interface{}{
-{{- range .Packages }}
-		{{ .VarName }},
+{{- range .RootExprs }}
+		{{ . }},
 {{- end }}
 	}
 
 	targ.RunWithOptions(targ.RunOptions{AllowDefault: {{ .AllowDefault }}}, roots...)
-{{- else }}
-	cmds := []interface{}{
-{{- range .Targets }}
-		{{ . }},
-{{- end }}
-	}
-	targ.RunWithOptions(targ.RunOptions{AllowDefault: {{ .AllowDefault }}}, cmds...)
-{{- end }}
 }
 `

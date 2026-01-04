@@ -37,9 +37,8 @@ func (OSFileSystem) WriteFile(name string, data []byte, perm fs.FileMode) error 
 }
 
 type Options struct {
-	StartDir     string
-	MultiPackage bool
-	BuildTag     string
+	StartDir string
+	BuildTag string
 }
 
 type TaggedDir struct {
@@ -53,13 +52,33 @@ type TaggedFile struct {
 }
 
 type PackageInfo struct {
-	Dir                string
-	Package            string
-	Doc                string
-	Structs            []string
-	Funcs              []string
-	StructDescriptions map[string]string
-	FuncDescriptions   map[string]string
+	Dir      string
+	Package  string
+	Doc      string
+	Commands []CommandInfo
+	Files    []FileInfo
+}
+
+type CommandKind string
+
+const (
+	CommandStruct CommandKind = "struct"
+	CommandFunc   CommandKind = "func"
+)
+
+type CommandInfo struct {
+	Name         string
+	Kind         CommandKind
+	File         string
+	Description  string
+	UsesContext  bool
+	ReturnsError bool
+}
+
+type FileInfo struct {
+	Path     string
+	Base     string
+	Commands []CommandInfo
 }
 
 type taggedFile struct {
@@ -77,15 +96,6 @@ var (
 	ErrNoTaggedFiles = errors.New("no tagged files found")
 )
 
-type MultipleTaggedDirsError struct {
-	Depth int
-	Paths []string
-}
-
-func (e *MultipleTaggedDirsError) Error() string {
-	return fmt.Sprintf("multiple tagged directories at depth %d: %s", e.Depth, strings.Join(e.Paths, ", "))
-}
-
 func Discover(fs FileSystem, opts Options) ([]PackageInfo, error) {
 	startDir := opts.StartDir
 	if startDir == "" {
@@ -100,22 +110,12 @@ func Discover(fs FileSystem, opts Options) ([]PackageInfo, error) {
 	if err != nil {
 		return nil, err
 	}
-	selected, err := selectTaggedDirs(dirs, opts.MultiPackage)
-	if err != nil {
-		return nil, err
-	}
-
 	var infos []PackageInfo
-	seenPackages := make(map[string]string)
-	for _, dir := range selected {
+	for _, dir := range dirs {
 		info, err := parsePackageInfo(dir)
 		if err != nil {
 			return nil, err
 		}
-		if otherDir, ok := seenPackages[info.Package]; ok {
-			return nil, fmt.Errorf("duplicate package name %q in %s and %s", info.Package, otherDir, info.Dir)
-		}
-		seenPackages[info.Package] = info.Dir
 		infos = append(infos, info)
 	}
 
@@ -136,13 +136,8 @@ func SelectTaggedDirs(fs FileSystem, opts Options) ([]TaggedDir, error) {
 	if err != nil {
 		return nil, err
 	}
-	selected, err := selectTaggedDirs(dirs, opts.MultiPackage)
-	if err != nil {
-		return nil, err
-	}
-
-	paths := make([]TaggedDir, 0, len(selected))
-	for _, dir := range selected {
+	paths := make([]TaggedDir, 0, len(dirs))
+	for _, dir := range dirs {
 		paths = append(paths, TaggedDir{Path: dir.Path, Depth: dir.Depth})
 	}
 	return paths, nil
@@ -162,13 +157,8 @@ func TaggedFiles(fs FileSystem, opts Options) ([]TaggedFile, error) {
 	if err != nil {
 		return nil, err
 	}
-	selected, err := selectTaggedDirs(dirs, opts.MultiPackage)
-	if err != nil {
-		return nil, err
-	}
-
 	var files []TaggedFile
-	for _, dir := range selected {
+	for _, dir := range dirs {
 		for _, file := range dir.Files {
 			files = append(files, TaggedFile{
 				Path:    file.Path,
@@ -177,40 +167,6 @@ func TaggedFiles(fs FileSystem, opts Options) ([]TaggedFile, error) {
 		}
 	}
 	return files, nil
-}
-
-func selectTaggedDirs(dirs []taggedDir, multiPackage bool) ([]taggedDir, error) {
-	if len(dirs) == 0 {
-		return nil, ErrNoTaggedFiles
-	}
-	if multiPackage {
-		return dirs, nil
-	}
-
-	minDepth := dirs[0].Depth
-	for _, dir := range dirs[1:] {
-		if dir.Depth < minDepth {
-			minDepth = dir.Depth
-		}
-	}
-
-	selected := []taggedDir{}
-	for _, dir := range dirs {
-		if dir.Depth == minDepth {
-			selected = append(selected, dir)
-		}
-	}
-
-	if len(selected) > 1 {
-		paths := make([]string, 0, len(selected))
-		for _, dir := range selected {
-			paths = append(paths, dir.Path)
-		}
-		sort.Strings(paths)
-		return nil, &MultipleTaggedDirsError{Depth: minDepth, Paths: paths}
-	}
-
-	return selected, nil
 }
 
 func findTaggedDirs(fs FileSystem, startDir string, tag string) ([]taggedDir, error) {
@@ -302,13 +258,18 @@ func parsePackageInfo(dir taggedDir) (PackageInfo, error) {
 	packageName := ""
 	packageDoc := ""
 	structs := make(map[string]bool)
+	structFiles := make(map[string]string)
 	structHasSubcommands := make(map[string]bool)
 	structHasRun := make(map[string]bool)
 	funcs := make(map[string]bool)
+	funcFiles := make(map[string]string)
 	structDescriptions := make(map[string]string)
 	funcDescriptions := make(map[string]string)
+	funcUsesContext := make(map[string]bool)
+	funcReturnsError := make(map[string]bool)
 	subcommandNames := make(map[string]bool)
 	subcommandTypes := make(map[string]bool)
+	var mainFiles []string
 
 	for _, file := range dir.Files {
 		parsed, err := parser.ParseFile(fset, file.Path, file.Content, parser.ParseComments)
@@ -338,6 +299,7 @@ func parsePackageInfo(dir taggedDir) (PackageInfo, error) {
 						continue
 					}
 					structs[typeSpec.Name.Name] = true
+					structFiles[typeSpec.Name.Name] = file.Path
 					if recordSubcommandRefs(structType, subcommandNames, subcommandTypes) {
 						structHasSubcommands[typeSpec.Name.Name] = true
 					}
@@ -356,6 +318,10 @@ func parsePackageInfo(dir taggedDir) (PackageInfo, error) {
 					}
 					continue
 				}
+				if node.Name.Name == "main" {
+					mainFiles = append(mainFiles, file.Path)
+					continue
+				}
 				if !node.Name.IsExported() {
 					continue
 				}
@@ -363,11 +329,18 @@ func parsePackageInfo(dir taggedDir) (PackageInfo, error) {
 					return PackageInfo{}, fmt.Errorf("function %s %v", node.Name.Name, err)
 				}
 				funcs[node.Name.Name] = true
+				funcFiles[node.Name.Name] = file.Path
+				funcUsesContext[node.Name.Name] = functionUsesContext(node.Type, ctxAliases, ctxDotImport)
+				funcReturnsError[node.Name.Name] = functionReturnsError(node.Type)
 				if desc, ok := functionDocValue(node); ok {
 					funcDescriptions[node.Name.Name] = desc
 				}
 			}
 		}
+	}
+	if len(mainFiles) > 0 {
+		sort.Strings(mainFiles)
+		return PackageInfo{}, fmt.Errorf("tagged files must not declare main(): %s", strings.Join(mainFiles, ", "))
 	}
 
 	structList := filterStructs(structs, subcommandTypes, structHasRun, structHasSubcommands)
@@ -406,14 +379,55 @@ func parsePackageInfo(dir taggedDir) (PackageInfo, error) {
 		}
 	}
 
+	commands := make([]CommandInfo, 0, len(structList)+len(funcList))
+	fileCommands := make(map[string][]CommandInfo)
+	for _, name := range structList {
+		cmd := CommandInfo{
+			Name:        name,
+			Kind:        CommandStruct,
+			File:        structFiles[name],
+			Description: structDescriptions[name],
+		}
+		commands = append(commands, cmd)
+		fileCommands[cmd.File] = append(fileCommands[cmd.File], cmd)
+	}
+	for _, name := range funcList {
+		cmd := CommandInfo{
+			Name:         name,
+			Kind:         CommandFunc,
+			File:         funcFiles[name],
+			Description:  funcDescriptions[name],
+			UsesContext:  funcUsesContext[name],
+			ReturnsError: funcReturnsError[name],
+		}
+		commands = append(commands, cmd)
+		fileCommands[cmd.File] = append(fileCommands[cmd.File], cmd)
+	}
+	sort.Slice(commands, func(i, j int) bool {
+		return commands[i].Name < commands[j].Name
+	})
+
+	files := make([]FileInfo, 0, len(fileCommands))
+	for path, cmds := range fileCommands {
+		sort.Slice(cmds, func(i, j int) bool {
+			return cmds[i].Name < cmds[j].Name
+		})
+		files = append(files, FileInfo{
+			Path:     path,
+			Base:     strings.TrimSuffix(filepath.Base(path), filepath.Ext(path)),
+			Commands: cmds,
+		})
+	}
+	sort.Slice(files, func(i, j int) bool {
+		return files[i].Path < files[j].Path
+	})
+
 	return PackageInfo{
-		Dir:                dir.Path,
-		Package:            packageName,
-		Doc:                packageDoc,
-		Structs:            structList,
-		Funcs:              funcList,
-		StructDescriptions: structDescriptions,
-		FuncDescriptions:   funcDescriptions,
+		Dir:      dir.Path,
+		Package:  packageName,
+		Doc:      packageDoc,
+		Commands: commands,
+		Files:    files,
 	}, nil
 }
 
@@ -486,6 +500,13 @@ func validateFunctionSignature(fnType *ast.FuncType, ctxAliases map[string]bool,
 		return nil
 	}
 	return fmt.Errorf("must return only error")
+}
+
+func functionUsesContext(fnType *ast.FuncType, ctxAliases map[string]bool, ctxDotImport bool) bool {
+	if fnType.Params == nil || len(fnType.Params.List) != 1 {
+		return false
+	}
+	return funcParamIsContext(fnType.Params.List[0].Type, ctxAliases, ctxDotImport)
 }
 
 func contextImportInfo(imports []*ast.ImportSpec) (map[string]bool, bool) {

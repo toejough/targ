@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"testing"
@@ -12,143 +13,103 @@ import (
 	"github.com/toejough/targ/buildtool"
 )
 
-func TestBuildBootstrapData_SinglePackage_Local(t *testing.T) {
+func TestNamespacePaths_CompressesSegments(t *testing.T) {
+	files := []string{
+		"/root/tools/issues/issues.go",
+		"/root/tools/other/foo.go",
+		"/root/tools/other/bar.go",
+	}
+
+	paths, err := namespacePaths(files, "/root")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	expect := map[string][]string{
+		"/root/tools/issues/issues.go": {"issues"},
+		"/root/tools/other/foo.go":     {"other", "foo"},
+		"/root/tools/other/bar.go":     {"other", "bar"},
+	}
+	for file, want := range expect {
+		if got := paths[file]; !reflect.DeepEqual(got, want) {
+			t.Fatalf("paths[%q] = %v, want %v", file, got, want)
+		}
+	}
+}
+
+func TestBuildBootstrapData_RootCommands(t *testing.T) {
 	infos := []buildtool.PackageInfo{
 		{
 			Dir:     "/repo/app",
 			Package: "app",
-			Structs: []string{"Build"},
-			Funcs:   []string{"Lint"},
+			Commands: []buildtool.CommandInfo{
+				{Name: "Build", Kind: buildtool.CommandStruct, File: "/repo/app/tasks.go"},
+				{Name: "Lint", Kind: buildtool.CommandFunc, File: "/repo/app/tasks.go"},
+			},
 		},
 	}
 
-	data, err := buildBootstrapData(infos, "/repo/app", "/repo", "example.com/proj", false)
+	data, err := buildBootstrapData(infos, "/repo/app", "/repo", "example.com/proj")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
-	}
-	if data.MultiPackage {
-		t.Fatal("expected multipackage to be false")
-	}
-	if data.UsePackageWrapper {
-		t.Fatal("expected no package wrapper for single package")
 	}
 	if data.AllowDefault {
 		t.Fatal("expected AllowDefault to be false for build-tool mode")
 	}
-	if len(data.Targets) != 2 {
-		t.Fatalf("expected 2 targets, got %v", data.Targets)
+	if len(data.Nodes) != 0 {
+		t.Fatalf("expected no namespace nodes, got %d", len(data.Nodes))
 	}
-	if data.BannerLit == "" {
-		t.Fatal("expected banner for single package")
-	}
-	if len(data.Packages) != 1 {
-		t.Fatalf("expected 1 package, got %d", len(data.Packages))
-	}
-	pkg := data.Packages[0]
-	if !pkg.Local || pkg.ImportPath != "" || pkg.ImportName != "" {
-		t.Fatalf("expected local package with no import, got %+v", pkg)
-	}
-	if pkg.TypeName != "App" || pkg.VarName != "app" {
-		t.Fatalf("unexpected type or var name: %+v", pkg)
-	}
-}
-
-func TestBuildBootstrapData_MultiPackage_Remote(t *testing.T) {
-	infos := []buildtool.PackageInfo{
-		{
-			Dir:     "/repo/pkg1",
-			Package: "alpha",
-			Structs: []string{"Build"},
-			Funcs:   []string{"Lint"},
-		},
-		{
-			Dir:     "/repo/pkg2",
-			Package: "beta",
-			Structs: []string{"Ship"},
-		},
-	}
-
-	data, err := buildBootstrapData(infos, "/repo/app", "/repo", "example.com/proj", true)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !data.MultiPackage {
-		t.Fatal("expected multipackage to be true")
-	}
-	if !data.UsePackageWrapper {
-		t.Fatal("expected package wrapper for package grouping")
-	}
-	if len(data.Targets) != 0 {
-		t.Fatalf("expected no targets when package grouping is enabled, got %v", data.Targets)
-	}
-	if !hasImport(data.Imports, "example.com/proj/pkg1", "alpha") {
-		t.Fatalf("expected import for pkg1, got %v", data.Imports)
-	}
-	if !hasImport(data.Imports, "example.com/proj/pkg2", "beta") {
-		t.Fatalf("expected import for pkg2, got %v", data.Imports)
-	}
-
-	first := data.Packages[0]
-	if first.ImportName != "alpha" {
-		t.Fatalf("expected import alias alpha, got %q", first.ImportName)
-	}
-	if len(first.Commands) != 2 {
-		t.Fatalf("expected 2 commands, got %d", len(first.Commands))
-	}
-	if first.Commands[0].ValueExpr != "&alpha.Build{}" {
-		t.Fatalf("unexpected struct value expr: %s", first.Commands[0].ValueExpr)
-	}
-	if first.Commands[1].ValueExpr != "alpha.Lint" {
-		t.Fatalf("unexpected func value expr: %s", first.Commands[1].ValueExpr)
-	}
-}
-
-func TestBootstrapTemplate_SinglePackage(t *testing.T) {
-	infos := []buildtool.PackageInfo{
-		{
-			Dir:     "/repo/app",
-			Package: "app",
-			Structs: []string{"Build"},
-			Funcs:   []string{"Lint"},
-		},
-	}
-	data, err := buildBootstrapData(infos, "/repo/app", "/repo", "example.com/proj", false)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	if len(data.RootExprs) != 2 {
+		t.Fatalf("expected 2 root exprs, got %v", data.RootExprs)
 	}
 	rendered := renderBootstrap(t, data)
-	if strings.Contains(rendered, "type App struct") {
-		t.Fatalf("did not expect package wrapper type in template, got:\n%s", rendered)
+	if !strings.Contains(rendered, "type AppLintFunc struct") {
+		t.Fatalf("expected func wrapper in template, got:\n%s", rendered)
 	}
-	if !strings.Contains(rendered, "RunWithOptions(targ.RunOptions{AllowDefault: false}") {
-		t.Fatalf("expected RunWithOptions in template, got:\n%s", rendered)
-	}
-	if !strings.Contains(rendered, "Loaded tasks from package") {
-		t.Fatalf("expected banner in template, got:\n%s", rendered)
+	if !strings.Contains(rendered, "&AppLintFunc{}") {
+		t.Fatalf("expected func wrapper in roots, got:\n%s", rendered)
 	}
 }
 
-func TestBootstrapTemplate_MultiPackage(t *testing.T) {
+func TestBuildBootstrapData_Namespaces(t *testing.T) {
 	infos := []buildtool.PackageInfo{
 		{
-			Dir:     "/repo/pkg1",
-			Package: "alpha",
-			Structs: []string{"Build"},
+			Dir:     "/repo/tools/issues",
+			Package: "issues",
+			Commands: []buildtool.CommandInfo{
+				{Name: "List", Kind: buildtool.CommandStruct, File: "/repo/tools/issues/issues.go"},
+			},
+		},
+		{
+			Dir:     "/repo/tools/other",
+			Package: "other",
+			Commands: []buildtool.CommandInfo{
+				{Name: "Thing", Kind: buildtool.CommandStruct, File: "/repo/tools/other/foo.go"},
+				{Name: "Ship", Kind: buildtool.CommandStruct, File: "/repo/tools/other/bar.go"},
+			},
 		},
 	}
-	data, err := buildBootstrapData(infos, "/repo/app", "/repo", "example.com/proj", true)
+
+	data, err := buildBootstrapData(infos, "/repo", "/repo", "example.com/proj")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	rendered := renderBootstrap(t, data)
-	if !strings.Contains(rendered, "type Alpha struct") {
-		t.Fatalf("expected package wrapper type in template, got:\n%s", rendered)
+	if len(data.RootExprs) != 2 {
+		t.Fatalf("expected 2 root exprs, got %v", data.RootExprs)
 	}
-	if !strings.Contains(rendered, "`targ:\"subcommand\"`") {
-		t.Fatalf("expected subcommand tag in template, got:\n%s", rendered)
+	otherNode, ok := findNode(data.Nodes, "other")
+	if !ok {
+		t.Fatalf("expected other node, got %v", nodeNames(data.Nodes))
 	}
-	if !strings.Contains(rendered, "RunWithOptions(targ.RunOptions{AllowDefault: false}") {
-		t.Fatalf("expected RunWithOptions in template, got:\n%s", rendered)
+	issuesNode, ok := findNode(data.Nodes, "issues")
+	if !ok {
+		t.Fatalf("expected issues node, got %v", nodeNames(data.Nodes))
+	}
+	if !hasField(otherNode.Fields, "Foo") || !hasField(otherNode.Fields, "Bar") {
+		t.Fatalf("expected other node to have Foo and Bar fields, got %v", fieldNames(otherNode.Fields))
+	}
+	if !hasField(issuesNode.Fields, "List") {
+		t.Fatalf("expected issues node to have List field, got %v", fieldNames(issuesNode.Fields))
 	}
 }
 
@@ -202,33 +163,38 @@ func renderBootstrap(t *testing.T, data bootstrapData) string {
 	return buf.String()
 }
 
-func hasImport(imports []bootstrapImport, path string, alias string) bool {
-	for _, imp := range imports {
-		if imp.Path == path && imp.Alias == alias {
+func findNode(nodes []bootstrapNode, name string) (bootstrapNode, bool) {
+	for _, node := range nodes {
+		if node.Name == name {
+			return node, true
+		}
+	}
+	return bootstrapNode{}, false
+}
+
+func nodeNames(nodes []bootstrapNode) []string {
+	names := make([]string, 0, len(nodes))
+	for _, node := range nodes {
+		names = append(names, node.Name)
+	}
+	return names
+}
+
+func hasField(fields []bootstrapField, name string) bool {
+	for _, field := range fields {
+		if field.Name == name {
 			return true
 		}
 	}
 	return false
 }
 
-func TestBuildBootstrapData_DuplicatePackageName(t *testing.T) {
-	infos := []buildtool.PackageInfo{
-		{
-			Dir:     "/repo/pkg1",
-			Package: "alpha",
-			Structs: []string{"Build"},
-		},
-		{
-			Dir:     "/repo/pkg2",
-			Package: "alpha",
-			Structs: []string{"Ship"},
-		},
+func fieldNames(fields []bootstrapField) []string {
+	names := make([]string, 0, len(fields))
+	for _, field := range fields {
+		names = append(names, field.Name)
 	}
-
-	_, err := buildBootstrapData(infos, "/repo/app", "/repo", "example.com/proj", true)
-	if err == nil {
-		t.Fatal("expected duplicate package name error")
-	}
+	return names
 }
 
 func TestWriteBootstrapFileCleanup(t *testing.T) {
@@ -274,30 +240,14 @@ func TestPrintBuildToolUsageIncludesSummary(t *testing.T) {
 	}
 }
 
-func TestSummarizePackagesFormatsCommands(t *testing.T) {
-	infos := []buildtool.PackageInfo{
-		{
-			Dir:     "/repo/tools/issues",
-			Package: "issues",
-			Doc:     "Issue tools.",
-			Structs: []string{"ListItems"},
-			Funcs:   []string{"DoWork"},
-		},
+func TestCommandSummariesFromCommands(t *testing.T) {
+	cmds := []buildtool.CommandInfo{
+		{Name: "ListItems"},
+		{Name: "DoWork"},
 	}
-	summaries := summarizePackages(infos, "/repo")
-	if len(summaries) != 1 {
-		t.Fatalf("expected one summary, got %d", len(summaries))
-	}
-	summary := summaries[0]
-	if summary.Path != "tools/issues" {
-		t.Fatalf("unexpected path: %s", summary.Path)
-	}
-	if summary.Doc != "Issue tools." {
-		t.Fatalf("unexpected doc: %s", summary.Doc)
-	}
-	cmds := commandSummaries(infos[0])
+	summaries := commandSummariesFromCommands(cmds)
 	var names []string
-	for _, cmd := range cmds {
+	for _, cmd := range summaries {
 		names = append(names, cmd.Name)
 	}
 	if got := strings.Join(names, ","); got != "do-work,list-items" {
@@ -313,22 +263,5 @@ func TestParseHelpRequestIgnoresSubcommandHelp(t *testing.T) {
 	help, target = parseHelpRequest([]string{"--help"})
 	if !help || target {
 		t.Fatal("expected top-level help without target")
-	}
-}
-
-func TestFilterOtherPackages(t *testing.T) {
-	loaded := []packageSummary{
-		{Name: "issues", Path: "tools/issues"},
-	}
-	all := []packageSummary{
-		{Name: "issues", Path: "tools/issues"},
-		{Name: "build", Path: "mage"},
-	}
-	others := filterOtherPackages(loaded, all)
-	if len(others) != 1 {
-		t.Fatalf("expected one other package, got %d", len(others))
-	}
-	if others[0].Name != "build" {
-		t.Fatalf("unexpected other package: %s", others[0].Name)
 	}
 }
