@@ -270,7 +270,17 @@ func main() {
 		bootstrapDir = filepath.Join(buildRoot, ".targ", "tmp")
 	}
 	if localMain {
-		bootstrapDir = buildPackageDir
+		tempRoot := importRoot
+		if usingFallback {
+			tempRoot = buildRoot
+		}
+		localMainDir, err := ensureLocalMainBuildDir(packageDir, tempRoot)
+		if err != nil {
+			fmt.Fprintf(errOut, "Error preparing local main build directory: %v\n", err)
+			os.Exit(1)
+		}
+		buildPackageDir = localMainDir
+		bootstrapDir = localMainDir
 	}
 
 	var tempFile string
@@ -321,31 +331,9 @@ func main() {
 		buildArgs = append(buildArgs, tempFile)
 	}
 	buildCmd := exec.Command("go", buildArgs...)
-	if quietBuild {
-		var buildOutput bytes.Buffer
-		buildCmd.Stdout = io.Discard
-		buildCmd.Stderr = &buildOutput
-		if localMain {
-			buildCmd.Dir = buildPackageDir
-		} else if usingFallback {
-			buildCmd.Dir = buildRoot
-		} else {
-			buildCmd.Dir = importRoot
-		}
-		if err := buildCmd.Run(); err != nil {
-			if !keepBootstrap {
-				_ = cleanupTemp()
-			}
-			if buildOutput.Len() > 0 {
-				fmt.Fprint(errOut, buildOutput.String())
-			}
-			fmt.Fprintf(errOut, "Error building command: %v\n", err)
-			os.Exit(1)
-		}
-		goto runBuiltBinary
-	}
-	buildCmd.Stdout = os.Stdout
-	buildCmd.Stderr = errOut
+	var buildOutput bytes.Buffer
+	buildCmd.Stdout = io.Discard
+	buildCmd.Stderr = &buildOutput
 	if localMain {
 		buildCmd.Dir = buildPackageDir
 	} else if usingFallback {
@@ -357,11 +345,13 @@ func main() {
 		if !keepBootstrap {
 			_ = cleanupTemp()
 		}
+		if buildOutput.Len() > 0 {
+			fmt.Fprint(errOut, buildOutput.String())
+		}
 		fmt.Fprintf(errOut, "Error building command: %v\n", err)
 		os.Exit(1)
 	}
 
-runBuiltBinary:
 	cmd := exec.Command(binaryPath, args...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = errOut
@@ -546,6 +536,39 @@ func linkModuleRoot(startDir string, root string) error {
 		}
 	}
 	return nil
+}
+
+func ensureLocalMainBuildDir(packageDir string, root string) (string, error) {
+	hash := sha256.Sum256([]byte(packageDir))
+	dir := filepath.Join(root, ".targ", "tmp", "localmain", fmt.Sprintf("%x", hash[:8]))
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return "", err
+	}
+	entries, err := os.ReadDir(packageDir)
+	if err != nil {
+		return "", err
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		if name == ".targ" || name == ".git" {
+			continue
+		}
+		src := filepath.Join(packageDir, name)
+		dst := filepath.Join(dir, name)
+		info, err := os.Lstat(dst)
+		if err == nil {
+			if info.Mode()&os.ModeSymlink != 0 {
+				continue
+			}
+			_ = os.RemoveAll(dst)
+		} else if !os.IsNotExist(err) {
+			return "", err
+		}
+		if err := os.Symlink(src, dst); err != nil {
+			return "", err
+		}
+	}
+	return dir, nil
 }
 
 func writeFallbackGoMod(root string, modulePath string, dep targDependency) error {
