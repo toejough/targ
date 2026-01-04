@@ -18,6 +18,150 @@ A simple md issue tracker.
 
 Issues to choose from for future work.
 
+### 49. Repeated flags
+
+#### Universal
+
+**Status**
+backlog
+
+**Description**
+Allow flags to be specified multiple times and accumulate values (e.g. `--tag a --tag b`).
+
+#### Planning
+
+**Priority**
+Medium
+
+**Acceptance**
+Repeated flag values accumulate into slice fields with predictable ordering.
+
+### 50. Variadic positionals
+
+#### Universal
+
+**Status**
+backlog
+
+**Description**
+Support variadic positional args (e.g. a `[]string` positional capturing remaining args).
+
+#### Planning
+
+**Priority**
+Medium
+
+**Acceptance**
+Trailing slice positional captures remaining args and appears clearly in usage/help.
+
+### 51. Map-type args
+
+#### Universal
+
+**Status**
+backlog
+
+**Description**
+Support map-type flags or positionals with `key=value` parsing.
+
+#### Planning
+
+**Priority**
+Low
+
+**Acceptance**
+Map fields can be populated via repeated `key=value` inputs with validation.
+
+### 52. Multi-command invocation
+
+#### Universal
+
+**Status**
+backlog
+
+**Description**
+Allow invoking multiple commands in a single targ run (e.g. `targ build test deploy`).
+
+#### Planning
+
+**Priority**
+Medium
+
+**Acceptance**
+Multiple commands execute in order with shared dependency semantics.
+
+### 53. Timeouts for build tool runs
+
+#### Universal
+
+**Status**
+backlog
+
+**Description**
+Provide timeout controls for build-tool executions (CLI flag or API option).
+
+#### Planning
+
+**Priority**
+Low
+
+**Acceptance**
+Timeout cancels the run and surfaces a clear error/exit code.
+
+### 54. Syscall helpers
+
+#### Universal
+
+**Status**
+backlog
+
+**Description**
+Provide syscall helpers for common process control patterns beyond `targ/sh`.
+
+#### Planning
+
+**Priority**
+Low
+
+**Acceptance**
+Helpers cover common use cases without requiring direct syscall usage.
+
+### 55. README examples in sync
+
+#### Universal
+
+**Status**
+backlog
+
+**Description**
+Add checks or tooling to keep README examples in sync with real behavior.
+
+#### Planning
+
+**Priority**
+Low
+
+**Acceptance**
+CI or tooling verifies README examples compile/run or match output.
+
+### 56. Deterministic behavior across platforms
+
+#### Universal
+
+**Status**
+backlog
+
+**Description**
+Ensure consistent behavior across supported platforms (paths, env, ordering).
+
+#### Planning
+
+**Priority**
+Medium
+
+**Acceptance**
+Cross-platform test coverage proves deterministic behavior where expected.
+
 ### 15. .env File Loading
 
 #### Universal

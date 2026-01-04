@@ -2,169 +2,130 @@
 
 Purpose: a concise, defensible checklist of intended features and scope, organized so we can implement and test with confidence.
 
-How to use:
-
-- Treat each row as a "feature contract" with explicit scope.
-- When a row moves to "Implemented", add a minimal test entry.
-- When a row is "Deferred", document the reason and any constraints.
-
 Legend:
 
-- Scope: Core (must-have), Essential (baseline CLI), Extended (nice-to-have), Build (build-tool focus)
-- Status: Planned | In Progress | Implemented | Deferred
+- **Scope**: Core (must-have), Essential (baseline CLI), Extended (nice-to-have), Build (build-tool focus)
+- **Status**: Planned | In Progress | Implemented | Deferred
 
 ---
 
-## Category: Command Model (Core)
+## Command Model
 
-- Root + subcommand discovery by struct graph (Core) | Status: Implemented
-- Function targets (niladic) as commands (Core) | Status: Implemented
-- Root behavior when no subcommand selected (Core) | Status: Implemented
-- Subcommand naming overrides (Core) | Status: Implemented
-- Help text from doc comments or tags (Essential) | Status: Implemented (struct Run comments + generated function wrappers)
-- Errors for invalid/missing commands (Essential) | Status: Implemented
-
-Tests:
-
-- Single-root run with no args executes root Run()
-- Nested subcommand invocation resolves correctly
-- Name overrides match tag and field name precedence
-- Niladic function command executes and appears in help
-
-Status Notes:
-
-- Implemented (struct Run comments + generated function wrappers) means `desc` tags are not currently used for command help.
+| Feature | Tier | Status | Test Coverage |
+| --- | --- | --- | --- |
+| Root + subcommand discovery by struct graph | Core | Implemented | Single-root run; nested subcommands resolve |
+| Function targets (niladic) as commands | Core | Implemented | Niladic function runs and appears in help |
+| Root behavior when no subcommand selected | Core | Implemented | Root Run invoked on no subcommand |
+| Subcommand naming overrides (`subcommand=` / `name=`) | Core | Implemented | Tag overrides field/type names |
+| Command descriptions from docs / generated wrappers | Essential | Implemented | Struct Run doc + generated wrappers |
+| Errors for invalid or missing commands | Essential | Implemented | Unknown command error surface |
+| TagOptions dynamic overrides (flags/positional/subcommand) | Essential | Implemented | Override names, enums, required |
 
 ---
 
-## Category: Execution Modes (Core)
+## Execution Modes
 
-- Direct binary usage: main calls targ.Run(...) (Core) | Status: Implemented
-- Build Tool Mode: external `targ` binary discovers commands and runs (Core) | Status: Implemented
-- "Single root" shorthand (no command name) (Essential) | Status: Implemented
-- Multiple root selection by name (Essential) | Status: Implemented
-- Build tool mode discovery by build tag (Core) | Status: Implemented
-- Build tool mode recursive search with depth gating (Core) | Status: Implemented
-- Build tool mode package grouping (Core) | Status: Implemented
-- Build tool mode function discovery (Core) | Status: Implemented
-- Build tool mode filters subcommand structs/functions (Core) | Status: Implemented
-- Build tool mode: no default command (Core) | Status: Implemented
-
-Tests:
-
-- Binary mode: root vs subcommand resolution
-- Build tool mode: discovery filters non-commands; run works
-- Build tool mode: multiple dirs at same depth errors with paths
+| Feature | Tier | Status | Test Coverage |
+| --- | --- | --- | --- |
+| Direct binary usage: `targ.Run(...)` | Core | Implemented | Root vs subcommand resolution |
+| Build tool mode: `targ` binary discovery | Core | Implemented | Discovery + bootstrap execution |
+| Single-root shorthand (no command name) | Essential | Implemented | Root handles args without name |
+| Multiple root selection by name | Essential | Implemented | Multiple roots choose by name |
+| Build tool mode discovery by build tag (`targ`) | Core | Implemented | Tagged file discovery |
+| Recursive search + depth gating | Core | Implemented | Multiple dirs at same depth error |
+| Package grouping (multipackage) | Core | Implemented | Package names as top-level cmds |
+| Function discovery in build tool mode | Core | Implemented | Exported niladic funcs appear |
+| Filters out subcommand structs/functions | Core | Implemented | Subcommands not treated as roots |
+| Build tool mode: no default command | Core | Implemented | Explicit command required |
+| Build tool fallback module (no go.mod/go.sum) | Core | Implemented | Completion/build works without module |
+| Local main package build (subdir) | Core | Implemented | Main packages built in-place |
 
 ---
 
-## Category: Argument Parsing (Essential)
+## Argument Parsing
 
-- Long flags (--flag) for basic types (Essential) | Status: Implemented
-- Short flags (-f) (Essential) | Status: Implemented
-- Positional args (Essential) | Status: Implemented (but see Issues)
-- Required vs optional (Essential) | Status: Planned
-- Default values from tags (Essential) | Status: Implemented
-- Env var defaults (Essential) | Status: Implemented
-- Boolean flags (Essential) | Status: Implemented
-- Repeated flags (Extended) | Status: Planned
-- Variadic positionals (Extended) | Status: Planned
-- Map-type args (Extended) | Status: Planned
-- Custom types via TextUnmarshaler (Extended) | Status: Implemented
-
-Tests:
-
-- Flag + positional parsing in same command
-- Required validation and error surface
-- Env overrides and default precedence
-- Repeated/variadic behavior (if supported)
-
-Status Notes:
-
-- Implemented (but see Issues) for positional args refers to positional fields also being registered as flags.
+| Feature | Tier | Status | Test Coverage |
+| --- | --- | --- | --- |
+| Long flags (`--flag`) | Essential | Implemented | Flag parsing sets fields |
+| Short flags (`-f`) | Essential | Implemented | Short alias works |
+| Positional args | Essential | Implemented | Positionals map to fields |
+| Required vs optional | Essential | Implemented | Missing required errors |
+| Tag defaults (`default=`) | Essential | Implemented | Defaults applied when unset |
+| Env var defaults (`env=`) | Essential | Implemented | Env applied when non-empty |
+| Boolean flags | Essential | Implemented | Bool flags parse without value |
+| Repeated flags | Extended | Planned | Accumulate repeated inputs |
+| Variadic positionals | Extended | Planned | Slice-like positionals |
+| Map-type args | Extended | Planned | `key=value` style mapping |
+| Custom types via TextUnmarshaler | Extended | Implemented | TextUnmarshaler fields parse |
 
 ---
 
-## Category: Help, Usage, Completion (Essential)
+## Help, Usage, Completion
 
-- `--help` at root and subcommand levels (Essential) | Status: Implemented
-- Usage shows subcommands and flags (Essential) | Status: Implemented
-- Shell completion (bash/zsh/fish) (Essential) | Status: Implemented
-- Completion with quoted/escaped args (Extended) | Status: Planned
-
-Tests:
-
-- Help output stable and includes descriptions
-- Completion suggests subcommands + flags correctly
-
----
-
-## Category: Execution Semantics (Essential)
-
-- Run method signatures (niladic or context) (Essential) | Status: Implemented
-- Error return support (Extended) | Status: Implemented
-- Context/cancellation support (Extended) | Status: Implemented
-- Lifecycle hooks (Before/After) (Extended) | Status: Planned
-
-Tests:
-
-- Run called once per command execution
-- Error propagation to exit code
-- Context cancellation cancels command
+| Feature | Tier | Status | Test Coverage |
+| --- | --- | --- | --- |
+| `--help` root/subcommand | Essential | Implemented | Help output includes commands |
+| Usage shows flags/positionals/subcommands | Essential | Implemented | Usage format stable |
+| Shell completion (bash/zsh/fish) | Essential | Implemented | Script outputs completions |
+| Completion for enums | Essential | Implemented | Tag enums show in completion |
+| Completion respects TagOptions overrides | Essential | Implemented | Overrides propagate to completion |
+| Completion with quoted/escaped args | Extended | Implemented | Quoted args parsed correctly |
 
 ---
 
-## Category: Multi-Command & Build-Tool Features (Build)
+## Execution Semantics
 
-- Multiple commands in one invocation (Build) | Status: Planned
-- Dependencies (run-once) (Build) | Status: Implemented
-- Parallel execution (Build) | Status: Planned
-- File modification checks (Build) | Status: Implemented
-- Checksum-based caching (Build) | Status: Planned
-- Watch mode (Build) | Status: Implemented
-- Timeouts (Build) | Status: Planned
-- Syscall helpers (Build) | Status: Planned
-- Shell execution helpers (Build) | Status: Implemented
-
-Tests:
-
-- Dependency graph executes each target once
-- Parallel order guarantees (when needed)
-- Watcher cancels and restarts
+| Feature | Tier | Status | Test Coverage |
+| --- | --- | --- | --- |
+| Run signatures (niladic or context) | Essential | Implemented | Context + niladic variants |
+| Error return support | Extended | Implemented | Run error propagates to exit |
+| Context/cancellation support | Extended | Implemented | SIGINT cancels via context |
+| Lifecycle hooks (Persistent Before/After) | Extended | Implemented | Hooks run in order |
 
 ---
 
-## Category: Developer Experience (Essential)
+## Build Tool Features
 
-- Clear errors on invalid tags or types (Essential) | Status: Planned
-- Clear errors on unexported fields (Essential) | Status: Planned
-- Stable command ordering in help (Essential) | Status: Implemented (subcommands only)
-- Doc generation / README examples stay in sync (Extended) | Status: Planned
-
-Tests:
-
-- Invalid configs produce actionable error messages
-
-Status Notes:
-
-- Implemented (subcommands only) refers to stable sorting of subcommands; top-level command ordering is currently the input order.
+| Feature | Tier | Status | Test Coverage |
+| --- | --- | --- | --- |
+| Multiple commands in one invocation | Build | Planned | `targ build test` style |
+| Dependencies (run-once) | Build | Implemented | Deps executed once |
+| Parallel execution | Build | Implemented | ParallelDeps concurrency |
+| File modification checks | Build | Implemented | `Newer` checks by cache |
+| Checksum-based caching | Build | Implemented | `target.Checksum` |
+| Watch mode | Build | Implemented | Add/remove/modify detection |
+| Timeouts | Build | Planned | Cancel on timeout |
+| Syscall helpers | Build | Planned | Convenience wrappers |
+| Shell execution helpers | Build | Implemented | `targ/sh` helpers |
 
 ---
 
-## Category: Compatibility / Constraints (Core)
+## Developer Experience
 
-- No source-code dependency at runtime (binary safe) (Core) | Status: Planned
-- Deterministic behavior across platforms (Essential) | Status: Planned
+| Feature | Tier | Status | Test Coverage |
+| --- | --- | --- | --- |
+| Clear errors on invalid tags/types | Essential | Implemented | Invalid tags surface errors |
+| Clear errors on unexported fields | Essential | Implemented | Unexported tagged field errors |
+| Stable subcommand ordering in help | Essential | Implemented | Sorted subcommands in help |
+| TagOptions error propagation | Essential | Implemented | TagOptions errors surface |
+| README examples in sync | Extended | Planned | Doc/test sync checks |
 
-Tests:
+---
 
-- Build binary in temp dir; help still shows descriptions
+## Compatibility / Constraints
+
+| Feature | Tier | Status | Test Coverage |
+| --- | --- | --- | --- |
+| No source-code dependency at runtime | Core | Implemented | Binary safe (direct mode) |
+| Deterministic behavior across platforms | Essential | Planned | Platform consistency checks |
 
 ---
 
 ## Prioritization Guide
 
-1. Core + Essential across Command Model, Execution Modes, Argument Parsing, Help
-2. Execution Semantics (error return, context)
-3. Build-Tool features (deps, watch, parallel, caching)
-4. Extended parser features (map, repeat, variadic, custom types)
+| Priority | Focus |
+| --- | --- |
+| 1 | Core + Essential across Command Model, Execution Modes, Argument Parsing, Help |
+| 2 | Execution semantics (errors, context, hooks) |
+| 3 | Build-tool features (deps, watch, caching, multi-command) |
+| 4 | Extended parser features (repeat/variadic/map/custom types) |
