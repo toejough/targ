@@ -1,30 +1,84 @@
 # Targ
 
-Targ is a Go library for building CLIs with minimal configuration, with inspiration from Mage (function-based discovery), go-arg (struct tags), and Cobra (subcommands & completion). Named for build targets—you can "targ it" and move on.
+<p align="center">
+  <img src="targ.png" alt="Targ logo" width="300">
+</p>
 
-## Features
+Build CLIs with minimal configuration. Inspired by Mage, go-arg, and Cobra.
 
-- **Automatic Discovery**: Define commands as structs with a `Run` method or niladic functions.
-- **Struct-based Arguments**: Define flags and arguments using struct tags.
-- **Subcommands**: Use struct fields to create subcommands.
-- **Build Tool Mode**: Run a folder of commands without writing a `main` function (Mage-style).
+## Quick Start
 
-## Usage
+**Build tool** (no main function needed):
 
-### 1. Library Mode
+```go
+//go:build targ
 
-Embed `targ` in your own main function.
+package main
+
+import "github.com/toejough/targ/sh"
+
+func Build() error { return sh.Run("go", "build", "./...") }
+func Test() error  { return sh.Run("go", "test", "./...") }
+func Lint() error  { return sh.Run("golangci-lint", "run") }
+```
+
+```bash
+go install github.com/toejough/targ/cmd/targ@latest
+targ build
+targ test
+```
+
+**CLI with flags**:
+
+```go
+type Deploy struct {
+    Env   string `targ:"positional,required,enum=dev|staging|prod"`
+    Force bool   `targ:"flag,short=f,desc=Skip confirmation"`
+}
+
+func (d *Deploy) Run() { fmt.Printf("Deploying to %s\n", d.Env) }
+
+func main() { targ.Run(&Deploy{}) }
+```
+
+```bash
+./deploy prod --force
+```
+
+## Tags
+
+Configure fields with `targ:"..."` struct tags:
+
+| Tag            | Description                                 |
+| -------------- | ------------------------------------------- |
+| `required`     | Field must be provided                      |
+| `positional`   | Map positional args to this field           |
+| `flag`         | Explicit flag (default for non-positional)  |
+| `name=X`       | Custom flag/positional name                 |
+| `short=X`      | Short flag alias (e.g., `short=f` for `-f`) |
+| `desc=...`     | Description for help text                   |
+| `enum=a\|b\|c` | Allowed values (enables completion)         |
+| `default=X`    | Default value                               |
+| `env=VAR`      | Default from environment variable           |
+| `subcommand`   | Field is a subcommand                       |
+| `subcommand=X` | Subcommand with custom name                 |
+
+Combine with commas: `targ:"positional,required,enum=dev|prod"`
+
+## Library Mode
+
+Embed targ in your own binary:
 
 ```go
 package main
 
 import (
     "fmt"
-    "targ"
+    "github.com/toejough/targ"
 )
 
 type Greet struct {
-    Name string `targ:"required"`
+    Name string `targ:"positional,required"`
 }
 
 func (g *Greet) Run() {
@@ -36,15 +90,26 @@ func main() {
 }
 ```
 
-With a single root, you run flags directly without a command name:
+With a single root command, flags are used directly:
 
 ```bash
-$ your-binary --name Alice
+./greet Alice
 ```
 
-If you register multiple roots, you select a command name first (e.g. `your-binary greet --name Alice`).
+With multiple roots, select a command first:
 
-Niladic functions can also be commands:
+```go
+func main() {
+    targ.Run(&Greet{}, &Farewell{})
+}
+```
+
+```bash
+./cli greet Alice
+./cli farewell Bob
+```
+
+Niladic functions also work as commands:
 
 ```go
 func Clean() { fmt.Println("cleaning") }
@@ -54,214 +119,214 @@ func main() {
 }
 ```
 
-### 2. Build Tool Mode (Mage-style)
+## Build Tool Mode
 
-Create a `command.go` file (name doesn't matter) in a directory. DO NOT define a `main` function.
-Add the build tag `//go:build targ` to any file you want scanned.
+Create command files. Do use the build tag: `//go:build targ`. Don't supply a main function.
 
 ```go
 //go:build targ
 
 package main
 
-import "fmt"
+import "github.com/toejough/targ/sh"
+
+// Build compiles the project.
+func Build() error {
+    return sh.Run("go", "build", "./...")
+}
+
+// Test runs all tests.
+func Test() error {
+    return sh.Run("go", "test", "./...")
+}
+
+// CI runs the full pipeline.
+func CI() error {
+    return targ.Deps(Build, Test, Lint)
+}
+```
+
+Run from that directory:
+
+```bash
+targ build
+targ test
+targ ci
+```
+
+### Commands with Flags
+
+Struct commands work the same way in build tool mode:
+
+```go
+//go:build targ
+
+package main
 
 type Build struct {
-    Target string `targ:"flag"`
+    Target  string `targ:"positional,default=./..."`
+    Verbose bool   `targ:"flag,short=v"`
 }
 
-func (b *Build) Run() {
-    fmt.Printf("Building %s\n", b.Target)
+func (b *Build) Run() error {
+    args := []string{"build"}
+    if b.Verbose {
+        args = append(args, "-v")
+    }
+    args = append(args, b.Target)
+    return sh.Run("go", args...)
 }
 ```
 
-Install the `targ` tool:
+### Multi-Directory Layout
 
-```bash
-go install github.com/toejough/targ/cmd/targ@latest
-```
-
-Run commands in that directory:
-
-```bash
-$ targ build --target prod
-```
-
-Build tool mode rules:
-
-- Discovery is recursive and only includes files with the `//go:build targ` tag.
-- Commands are grouped by file and namespaced by the minimal path segments needed for disambiguation.
-- Targ drops common leading path segments and collapses directory chains with a single child.
-- Build tool mode never has a default command.
-- `--no-cache` forces rebuilding the build tool binary.
-- `--keep` keeps the generated bootstrap file for inspection.
-
-Example layout:
+Discovery is recursive. Commands are namespaced by path:
 
 ```text
 repo/
   tools/
     issues/
-      issues.go  //go:build targ (package issues)
-    other/
-      foo.go     //go:build targ (package other)
-      bar.go     //go:build targ (package other)
+      issues.go  //go:build targ
+    deploy/
+      deploy.go  //go:build targ
 ```
-
-Example usage:
 
 ```bash
-$ targ issues list
-$ targ other foo thing
-$ targ other bar ship
+targ issues list
+targ deploy prod
 ```
 
-If only one tagged file is found, its commands are exposed at the root (no prefix).
+If only one tagged file exists, commands appear at the root (no prefix).
 
-Build tool example in this repo:
+## Subcommands
 
-```bash
-$ targ list
-$ targ create --title "New Issue" --description "..." --priority Medium
-$ targ move 4 --status done
-$ targ update 40 --status done --description "..." --details "..."
-```
-
-### Subcommands
-
-Define subcommands using fields with the `targ:"subcommand"` tag.
+Define subcommands with struct fields:
 
 ```go
 type Math struct {
-    // Command: "add"
     Add *AddCmd `targ:"subcommand"`
-    // Command: "run" (aliased)
-    RunCmd *RunCmd `targ:"subcommand=run"`
+    Mul *MulCmd `targ:"subcommand=multiply"`
 }
 
 func (m *Math) Run() {
-    // This runs if you type just `math`
-    fmt.Println("Math root")
+    fmt.Println("Usage: math <add|multiply>")
 }
 
 type AddCmd struct {
-    A int `targ:"positional"`
-    B int `targ:"positional"`
+    A, B int `targ:"positional"`
 }
 
 func (a *AddCmd) Run() {
-    fmt.Printf("%d + %d = %d\n", a.A, a.B, a.A+a.B)
+    fmt.Printf("%d\n", a.A+a.B)
 }
 ```
 
-When a root has subcommands, its `Run` method is used as the fallback when no subcommand is provided.
+```bash
+./math add 2 3      # 5
+./math multiply 2 3 # 6
+```
 
-`Run` can be `func()`, `func() error`, `func(context.Context)`, or `func(context.Context) error`. Function commands support the same signatures.
+## Command Signatures
 
-### Command Description
+`Run` methods and function commands support these signatures:
 
-Add documentation comments to your `Run` methods to populate the help text.
+- `func()`
+- `func() error`
+- `func(context.Context)`
+- `func(context.Context) error`
+
+## Command Descriptions
+
+Document commands with comments:
 
 ```go
-// Greet the user.
-// This command prints a greeting message.
-func (g *Greet) Run() {
-    // ...
+// Deploy pushes code to the specified environment.
+// Requires valid AWS credentials.
+func (d *Deploy) Run() error { ... }
+```
+
+Or implement `Description()`:
+
+```go
+func (d *Deploy) Description() string {
+    return "Deploy to " + d.defaultEnv()
 }
 ```
 
-This will appear in the help output:
+## Command Names
 
-```
-$ targ greet --help
-Usage: greet [flags] [subcommand]
+Command names are derived from struct or function names, converted to kebab-case:
 
-Greet the user.
-This command prints a greeting message.
+| Definition | Command |
+|------------|---------|
+| `type BuildAll struct{}` | `build-all` |
+| `func RunTests()` | `run-tests` |
 
-Flags:
-...
-```
-
-For function commands, descriptions are only available via generated wrappers.
-In build tool mode, `targ` generates wrappers automatically from function comments.
-In direct binary mode, you can generate wrappers manually (see `targ gen`) and pass the generated struct to `Run`.
-
-### Command Metadata Overrides
-
-If you need to override the command name or description, implement the following optional methods:
+Override with `Name()`:
 
 ```go
-func (c *MyCmd) Name() string { return "CustomName" }
-func (c *MyCmd) Description() string { return "Custom description." }
+func (c *MyCmd) Name() string { return "custom-name" }
 ```
-
-`Name` is treated like a struct name (it will be converted to kebab-case).
-`Description` replaces any comment-derived description.
-
-### Command Wrapper Generation
-
-Use `targ gen` to generate wrappers for exported niladic functions in the current package.
-This writes `generated_targ_<pkg>.go`, which defines a struct per function with `Run`,
-`Name`, and (when comments exist) `Description`.
-
-### Tags
-
-- `targ:"required"`: Flag is required.
-- `targ:"desc=..."`: Description for help text (for flags).
-- `targ:"name=..."`: Custom flag name.
-- `targ:"short=..."`: Short flag alias (e.g., `short=n` for `-n`).
-- `targ:"enum=a|b|c"`: Allowed values for completion.
-- `targ:"subcommand=..."`: Rename subcommand.
-- `targ:"env=VAR_NAME"`: Default value from environment variable.
-- `targ:"positional"`: Map positional arguments to this field.
-- `targ:"default=VALUE"`: Default value (only supported default mechanism).
-
-Defaults only come from `default=...` tags. Passing non-zero values in the struct you give to `targ.Run` will return an error.
 
 ## Dependencies
 
-Use `targ.Deps` to run command dependencies exactly once per invocation:
+Run dependencies exactly once per invocation:
 
 ```go
 func Build() error {
-    return targ.Deps(Test, Lint)
+    return targ.Deps(Generate, Compile)
+}
+
+func Test() error {
+    return targ.Deps(Build) // Generate won't run twice
 }
 ```
 
-Use `targ.ParallelDeps` to run independent tasks concurrently while still sharing dependencies:
+Run independent tasks concurrently:
 
 ```go
 func CI() error {
-    return targ.ParallelDeps(Test, Lint)
+    return targ.ParallelDeps(Test, Lint, Build)
 }
+```
+
+## Shell Helpers
+
+Use `targ/sh` for command execution:
+
+```go
+import "github.com/toejough/targ/sh"
+
+// Run a command, inherit stdout/stderr
+err := sh.Run("go", "build", "./...")
+
+// Capture output
+out, err := sh.Output("go", "env", "GOMOD")
+
+// Check if command exists
+if sh.Which("docker") != "" { ... }
 ```
 
 ## File Checks
 
-Use `targ.Newer` to check inputs against outputs (or an implicit cache when outputs are empty):
+Skip work when files haven't changed:
 
 ```go
+// Compare input modtimes against outputs
 needs, err := targ.Newer([]string{"**/*.go"}, []string{"bin/app"})
-if err != nil {
-    return err
-}
 if !needs {
     return nil
 }
 ```
 
-When outputs are empty, `Newer` compares the current matches and modtimes to a cached snapshot stored in the XDG cache directory.
+When outputs are empty, `Newer` uses a cached snapshot.
 
-Use `target.Checksum` to skip work when file contents are unchanged:
+Content-based checking:
 
 ```go
-import "targ/target"
+import "github.com/toejough/targ/target"
 
 changed, err := target.Checksum([]string{"**/*.go"}, ".targ/cache/build.sum")
-if err != nil {
-    return err
-}
 if !changed {
     return nil
 }
@@ -269,7 +334,7 @@ if !changed {
 
 ## Watch Mode
 
-Use `targ.Watch` to react to file additions, removals, and modifications:
+React to file changes:
 
 ```go
 err := targ.Watch(ctx, []string{"**/*.go"}, targ.WatchOptions{}, func(changes targ.ChangeSet) error {
@@ -277,22 +342,9 @@ err := targ.Watch(ctx, []string{"**/*.go"}, targ.WatchOptions{}, func(changes ta
 })
 ```
 
-## Shell Helpers
-
-Use `targ/sh` for simple shell execution helpers:
-
-```go
-import "targ/sh"
-
-if err := sh.Run("go", "test", "./..."); err != nil {
-    panic(err)
-}
-out, err := sh.Output("go", "env", "GOMOD")
-```
-
 ## Shell Completion
 
-To enable shell completion, generate the script and source it.
+Generate and source completion scripts:
 
 ```bash
 # Bash
@@ -305,11 +357,63 @@ source <(your-binary --completion zsh)
 your-binary --completion fish | source
 ```
 
-The completion supports:
+Supports commands, subcommands, flags, and enum values.
 
-- Commands and subcommands
-- Long/short flags
-- Enum values declared via `enum=` tags
+## Dynamic Overrides
+
+Override command or field metadata at runtime.
+
+### Command Metadata
+
+```go
+func (c *MyCmd) Name() string        { return "custom-name" }
+func (c *MyCmd) Description() string { return "Dynamic description" }
+```
+
+### Tag Options
+
+Override any tag option dynamically:
+
+```go
+type Deploy struct {
+    Env string `targ:"positional,enum=dev|prod"`
+}
+
+func (d *Deploy) TagOptions(field string, opts targ.TagOptions) (targ.TagOptions, error) {
+    if field == "Env" {
+        // Load allowed environments from config
+        opts.Enum = strings.Join(loadEnvs(), "|")
+    }
+    return opts, nil
+}
+```
+
+Useful for:
+
+- Loading enum values from config/database
+- Conditional required fields
+- Environment-specific defaults
+
+## Build Tool Flags
+
+| Flag         | Description                                  |
+| ------------ | -------------------------------------------- |
+| `--no-cache` | Force rebuild of the build tool binary       |
+| `--keep`     | Keep generated bootstrap file for inspection |
+
+## Wrapper Generation
+
+Generate struct wrappers for function commands to enable descriptions in library mode:
+
+```bash
+targ gen
+```
+
+This creates `generated_targ_<pkg>.go` with struct wrappers that include `Name()` and `Description()` methods from function comments.
+
+In build tool mode, this happens automatically.
+
+## Installation
 
 ```bash
 go get github.com/toejough/targ
