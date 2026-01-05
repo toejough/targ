@@ -94,6 +94,12 @@ func setFieldFromString(fieldVal reflect.Value, value string) error {
 			return err
 		}
 		fieldVal.SetBool(parsed)
+	case reflect.Slice:
+		elem := reflect.New(fieldVal.Type().Elem()).Elem()
+		if err := setFieldFromString(elem, value); err != nil {
+			return err
+		}
+		fieldVal.Set(reflect.Append(fieldVal, elem))
 	default:
 		return fmt.Errorf("unsupported value type %s", fieldVal.Type())
 	}

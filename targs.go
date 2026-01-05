@@ -224,7 +224,8 @@ func parseStruct(t interface{}) (*CommandNode, error) {
 }
 
 func (n *CommandNode) execute(ctx context.Context, args []string) error {
-	return n.executeWithParents(ctx, args, nil, map[string]bool{})
+	_, err := n.executeWithParents(ctx, args, nil, map[string]bool{}, false)
+	return err
 }
 
 type commandInstance struct {
@@ -237,73 +238,51 @@ func (n *CommandNode) executeWithParents(
 	args []string,
 	parents []commandInstance,
 	visited map[string]bool,
-) error {
+	explicit bool,
+) ([]string, error) {
 	if n.Func.IsValid() {
-		return executeFunctionWithParents(ctx, args, n, parents, visited)
+		return executeFunctionWithParents(ctx, args, n, parents, visited, explicit)
 	}
 
 	inst, err := nodeInstance(n)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	chain := append(parents, commandInstance{node: n, value: inst})
 
-	fs := flag.NewFlagSet(n.Name, flag.ContinueOnError)
-	fs.Usage = func() { printCommandHelp(n) }
-
-	specs, longNames, err := registerChainFlags(fs, chain)
+	specs, _, err := collectFlagSpecs(chain)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	expandedArgs, err := expandShortFlagGroups(args, specs)
-	if err != nil {
-		return err
-	}
-	if err := validateLongFlagArgs(expandedArgs, longNames); err != nil {
-		return err
-	}
-	if err := fs.Parse(expandedArgs); err != nil {
-		if err == flag.ErrHelp {
-			return nil
-		}
-		return err
-	}
-	fs.Visit(func(f *flag.Flag) {
-		visited[f.Name] = true
-	})
 
-	remaining := fs.Args()
-	if len(remaining) > 0 {
-		subName := remaining[0]
-		if sub, ok := n.Subcommands[subName]; ok {
-			if err := assignSubcommandField(n, inst, subName, sub); err != nil {
-				return err
-			}
-			return sub.executeWithParents(ctx, remaining[1:], chain, visited)
+	result, err := parseCommandArgs(n, inst, chain, args, visited, explicit, true, false)
+	if err != nil {
+		return nil, err
+	}
+	if result.subcommand != nil {
+		if err := assignSubcommandField(n, inst, result.subcommand.Name, result.subcommand); err != nil {
+			return nil, err
 		}
+		return result.subcommand.executeWithParents(ctx, result.remaining, chain, visited, true)
 	}
 
 	if err := applyDefaultsAndEnv(specs, visited); err != nil {
-		return err
+		return nil, err
 	}
 	if err := checkRequiredFlags(specs, visited); err != nil {
-		return err
-	}
-	posArgIdx, err := applyPositionals(inst, n, remaining)
-	if err != nil {
-		return err
+		return nil, err
 	}
 
 	if err := runPersistentHooks(ctx, chain, "PersistentBefore"); err != nil {
-		return err
+		return nil, err
 	}
-	if err := runCommand(ctx, n, inst, remaining, posArgIdx); err != nil {
-		return err
+	if err := runCommand(ctx, n, inst, nil, 0); err != nil {
+		return nil, err
 	}
 	if err := runPersistentHooks(ctx, reverseChain(chain), "PersistentAfter"); err != nil {
-		return err
+		return nil, err
 	}
-	return nil
+	return result.remaining, nil
 }
 
 func executeFunctionWithParents(
@@ -312,51 +291,32 @@ func executeFunctionWithParents(
 	node *CommandNode,
 	parents []commandInstance,
 	visited map[string]bool,
-) error {
-	fs := flag.NewFlagSet(node.Name, flag.ContinueOnError)
-	fs.Usage = func() { printCommandHelp(node) }
-
-	specs, longNames, err := registerChainFlags(fs, parents)
+	explicit bool,
+) ([]string, error) {
+	specs, _, err := collectFlagSpecs(parents)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	expandedArgs, err := expandShortFlagGroups(args, specs)
+	result, err := parseCommandArgs(nil, reflect.Value{}, parents, args, visited, explicit, true, false)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	if err := validateLongFlagArgs(expandedArgs, longNames); err != nil {
-		return err
-	}
-	if err := fs.Parse(expandedArgs); err != nil {
-		if err == flag.ErrHelp {
-			return nil
-		}
-		return err
-	}
-	fs.Visit(func(f *flag.Flag) {
-		visited[f.Name] = true
-	})
-
-	remaining := fs.Args()
 	if err := applyDefaultsAndEnv(specs, visited); err != nil {
-		return err
+		return nil, err
 	}
 	if err := checkRequiredFlags(specs, visited); err != nil {
-		return err
-	}
-	if len(remaining) > 0 {
-		return fmt.Errorf("unexpected argument: %s", remaining[0])
+		return nil, err
 	}
 	if err := runPersistentHooks(ctx, parents, "PersistentBefore"); err != nil {
-		return err
+		return nil, err
 	}
 	if err := callFunction(ctx, node.Func); err != nil {
-		return err
+		return nil, err
 	}
 	if err := runPersistentHooks(ctx, reverseChain(parents), "PersistentAfter"); err != nil {
-		return err
+		return nil, err
 	}
-	return nil
+	return result.remaining, nil
 }
 
 func nodeInstance(node *CommandNode) (reflect.Value, error) {

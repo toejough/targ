@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"runtime/debug"
 	"sort"
 	"strconv"
@@ -463,16 +464,37 @@ func resolveTargDependency() targDependency {
 			dep.ModulePath = info.Main.Path
 		}
 		if info.Main.Version != "" && info.Main.Version != "(devel)" && !strings.Contains(info.Main.Version, "+dirty") {
-			dep.Version = info.Main.Version
 			if modCache, err := goEnv("GOMODCACHE"); err == nil && modCache != "" {
-				candidate := filepath.Join(modCache, dep.ModulePath+"@"+dep.Version)
-				if info, err := os.Stat(candidate); err == nil && info.IsDir() {
+				candidate := filepath.Join(modCache, dep.ModulePath+"@"+info.Main.Version)
+				if statInfo, err := os.Stat(candidate); err == nil && statInfo.IsDir() {
+					dep.Version = info.Main.Version
 					dep.ReplaceDir = candidate
 				}
 			}
+		} else if root, ok := buildSourceRoot(); ok {
+			dep.ReplaceDir = root
 		}
 	}
 	return dep
+}
+
+func buildSourceRoot() (string, bool) {
+	_, file, _, ok := runtime.Caller(0)
+	if !ok || file == "" {
+		return "", false
+	}
+	dir := filepath.Dir(file)
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			return dir, true
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+	return "", false
 }
 
 func looksLikeModulePath(path string) bool {
@@ -1049,6 +1071,9 @@ func buildBootstrapData(
 		}
 
 		local := sameDir(absStart, info.Dir)
+		if info.Package == "main" && !local {
+			return bootstrapData{}, fmt.Errorf("cannot import package main at %s; run targ from that directory or use a non-main package", info.Dir)
+		}
 		importPath := ""
 		importName := ""
 		prefix := ""

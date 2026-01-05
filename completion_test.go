@@ -177,6 +177,42 @@ func TestCompletionSuggestsPositionalValues(t *testing.T) {
 	}
 }
 
+type CompletionFirmwareRoot struct {
+	FlashOnly *CompletionFlashOnly `targ:"subcommand=flash-only"`
+}
+
+func (c *CompletionFirmwareRoot) Name() string { return "firmware" }
+
+type CompletionFlashOnly struct{}
+
+func (c *CompletionFlashOnly) Run() {}
+
+type CompletionDiscoverRoot struct{}
+
+func (c *CompletionDiscoverRoot) Name() string { return "discover" }
+
+func (c *CompletionDiscoverRoot) Run() {}
+
+func TestCompletionSuggestsRootsAfterCommand(t *testing.T) {
+	firmware, err := parseCommand(&CompletionFirmwareRoot{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	discover, err := parseCommand(&CompletionDiscoverRoot{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	out := captureStdout(t, func() {
+		if err := doCompletion([]*CommandNode{firmware, discover}, "app firmware flash-only d"); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	if !strings.Contains(out, "discover") {
+		t.Fatalf("expected discover suggestion, got: %q", out)
+	}
+}
+
 func captureStdout(t *testing.T, fn func()) string {
 	t.Helper()
 	orig := os.Stdout

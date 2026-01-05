@@ -10,6 +10,40 @@ var (
 	helloWorldCalled  bool
 )
 
+var (
+	multiSubOneCalls       int
+	multiSubTwoCalls       int
+	multiRootFlashCalls    int
+	multiRootDiscoverCalls int
+)
+
+type multiSubOne struct{}
+type multiSubTwo struct{}
+
+type MultiSubRoot struct {
+	One *multiSubOne `targ:"subcommand"`
+	Two *multiSubTwo `targ:"subcommand"`
+}
+
+func (o *multiSubOne) Run() { multiSubOneCalls++ }
+func (t *multiSubTwo) Run() { multiSubTwoCalls++ }
+
+type firmwareRoot struct {
+	FlashOnly *firmwareFlashOnly `targ:"subcommand=flash-only"`
+}
+
+func (f *firmwareRoot) Name() string { return "firmware" }
+
+type firmwareFlashOnly struct{}
+
+func (f *firmwareFlashOnly) Run() { multiRootFlashCalls++ }
+
+type discoverRoot struct{}
+
+func (d *discoverRoot) Name() string { return "discover" }
+
+func (d *discoverRoot) Run() { multiRootDiscoverCalls++ }
+
 func DefaultFunc() {
 	defaultFuncCalled = true
 }
@@ -123,5 +157,51 @@ func TestRunWithEnv_FunctionSubcommand(t *testing.T) {
 
 	if !called {
 		t.Fatal("expected function subcommand to be called")
+	}
+}
+
+func TestRunWithEnv_MultipleSubcommands(t *testing.T) {
+	multiSubOneCalls = 0
+	multiSubTwoCalls = 0
+
+	env := MockrunEnv(t)
+	done := make(chan struct{})
+
+	go func() {
+		runWithEnv(env.Interface(), RunOptions{AllowDefault: true}, &MultiSubRoot{})
+		close(done)
+	}()
+
+	env.Args.ExpectCalledWithExactly().InjectReturnValues([]string{"cmd", "one", "two"})
+	<-done
+
+	if multiSubOneCalls != 1 {
+		t.Fatalf("expected One to run once, got %d", multiSubOneCalls)
+	}
+	if multiSubTwoCalls != 1 {
+		t.Fatalf("expected Two to run once, got %d", multiSubTwoCalls)
+	}
+}
+
+func TestRunWithEnv_MultipleRoots_SubcommandThenRoot(t *testing.T) {
+	multiRootFlashCalls = 0
+	multiRootDiscoverCalls = 0
+
+	env := MockrunEnv(t)
+	done := make(chan struct{})
+
+	go func() {
+		runWithEnv(env.Interface(), RunOptions{AllowDefault: false}, &firmwareRoot{}, &discoverRoot{})
+		close(done)
+	}()
+
+	env.Args.ExpectCalledWithExactly().InjectReturnValues([]string{"cmd", "firmware", "flash-only", "discover"})
+	<-done
+
+	if multiRootFlashCalls != 1 {
+		t.Fatalf("expected flash-only to run once, got %d", multiRootFlashCalls)
+	}
+	if multiRootDiscoverCalls != 1 {
+		t.Fatalf("expected discover to run once, got %d", multiRootDiscoverCalls)
 	}
 }

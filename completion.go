@@ -1,9 +1,7 @@
 package targ
 
 import (
-	"flag"
 	"fmt"
-	"io"
 	"reflect"
 	"strings"
 )
@@ -19,9 +17,6 @@ func doCompletion(roots []*CommandNode, commandLine string) error {
 	// Remove binary name
 	parts = parts[1:]
 
-	// Traverse to find the current node and the word being completed
-	// We want to complete the LAST part.
-
 	var prefix string
 	var processedArgs []string
 
@@ -33,28 +28,17 @@ func doCompletion(roots []*CommandNode, commandLine string) error {
 		processedArgs = parts
 	}
 
-	// Traverse
+	// Resolve current command context.
 	var currentNode *CommandNode
 	singleRoot := len(roots) == 1
 	atRoot := true
+	allowRootSuggestions := len(roots) > 1
+	positionalsComplete := false
 
-	// Find root
 	if singleRoot {
 		currentNode = roots[0]
 	} else {
-		if len(processedArgs) > 0 {
-			rootName := processedArgs[0]
-			for _, r := range roots {
-				if strings.EqualFold(r.Name, rootName) {
-					currentNode = r
-					break
-				}
-			}
-			processedArgs = processedArgs[1:]
-			atRoot = false
-		} else {
-			// We are at root level
-			// Suggest roots
+		if len(processedArgs) == 0 {
 			for _, r := range roots {
 				if strings.HasPrefix(r.Name, prefix) {
 					fmt.Println(r.Name)
@@ -62,26 +46,58 @@ func doCompletion(roots []*CommandNode, commandLine string) error {
 			}
 			return nil
 		}
-	}
-
-	if currentNode == nil {
-		return nil
-	}
-
-	// Walk subcommands (stop when we hit flags or end-of-flags)
-	for len(processedArgs) > 0 {
-		subName := processedArgs[0]
-		if subName == "--" || strings.HasPrefix(subName, "-") {
-			break
+		rootName := processedArgs[0]
+		for _, r := range roots {
+			if strings.EqualFold(r.Name, rootName) {
+				currentNode = r
+				break
+			}
 		}
-		if sub, ok := currentNode.Subcommands[subName]; ok {
-			currentNode = sub
-			processedArgs = processedArgs[1:]
-			atRoot = false
-		} else {
-			// Unknown path, cannot complete further
+		if currentNode == nil {
 			return nil
 		}
+		processedArgs = processedArgs[1:]
+		atRoot = false
+	}
+
+	explicit := !singleRoot
+	var chain []commandInstance
+	for {
+		nextChain, result, err := completionParse(currentNode, processedArgs, explicit)
+		if err != nil {
+			return nil
+		}
+		chain = nextChain
+		positionalsComplete = result.positionalsComplete
+		if result.subcommand != nil {
+			currentNode = result.subcommand
+			processedArgs = result.remaining
+			explicit = true
+			atRoot = false
+			positionalsComplete = false
+			continue
+		}
+		if len(result.remaining) > 0 {
+			if !singleRoot {
+				nextRoot := findCompletionRoot(roots, result.remaining[0])
+				if nextRoot == nil {
+					return nil
+				}
+				currentNode = nextRoot
+				processedArgs = result.remaining[1:]
+				explicit = true
+				atRoot = false
+				positionalsComplete = false
+				continue
+			}
+			currentNode = roots[0]
+			processedArgs = result.remaining
+			explicit = false
+			atRoot = true
+			positionalsComplete = false
+			continue
+		}
+		break
 	}
 
 	// Now we are at currentNode, and we need to suggest based on prefix
@@ -100,10 +116,6 @@ func doCompletion(roots []*CommandNode, commandLine string) error {
 	// We just want to inspect the struct fields.
 
 	// Check if prefix starts with "-"
-	chain, err := completionChain(currentNode, processedArgs)
-	if err != nil {
-		return err
-	}
 	values, valuesOK, err := enumValuesForArg(chain, processedArgs, prefix, isNewArg)
 	if err != nil {
 		return err
@@ -133,7 +145,7 @@ func doCompletion(roots []*CommandNode, commandLine string) error {
 	if expectingFlagValue(processedArgs, specs) {
 		return nil
 	}
-	posIndex, err := positionalIndex(currentNode, processedArgs)
+	posIndex, err := positionalIndex(currentNode, processedArgs, chain)
 	if err != nil {
 		return err
 	}
@@ -145,15 +157,26 @@ func doCompletion(roots []*CommandNode, commandLine string) error {
 		return err
 	}
 	if posIndex >= len(fields) {
-		return nil
+		goto maybeSuggestRoots
 	}
 	if fields[posIndex].Opts.Enum == "" {
-		return nil
+		goto maybeSuggestRoots
 	}
 	values = strings.Split(fields[posIndex].Opts.Enum, "|")
 	for _, value := range values {
 		if strings.HasPrefix(value, prefix) {
 			fmt.Println(value)
+		}
+	}
+	return nil
+
+maybeSuggestRoots:
+	if !allowRootSuggestions || !positionalsComplete || strings.HasPrefix(prefix, "-") {
+		return nil
+	}
+	for _, root := range roots {
+		if strings.HasPrefix(root.Name, prefix) {
+			fmt.Println(root.Name)
 		}
 	}
 	return nil
@@ -328,6 +351,7 @@ func enumValuesForArg(chain []commandInstance, args []string, prefix string, isN
 
 type completionFlagSpec struct {
 	TakesValue bool
+	Variadic   bool
 }
 
 func completionFlagSpecs(chain []commandInstance) (map[string]completionFlagSpec, error) {
@@ -347,9 +371,10 @@ func completionFlagSpecs(chain []commandInstance) (map[string]completionFlagSpec
 				continue
 			}
 			takesValue := field.Type.Kind() != reflect.Bool
-			specs["--"+opts.Name] = completionFlagSpec{TakesValue: takesValue}
+			variadic := field.Type.Kind() == reflect.Slice
+			specs["--"+opts.Name] = completionFlagSpec{TakesValue: takesValue, Variadic: variadic}
 			if opts.Short != "" {
-				specs["-"+opts.Short] = completionFlagSpec{TakesValue: takesValue}
+				specs["-"+opts.Short] = completionFlagSpec{TakesValue: takesValue, Variadic: variadic}
 			}
 		}
 	}
@@ -418,25 +443,15 @@ func positionalFields(node *CommandNode, inst reflect.Value) ([]positionalField,
 	return fields, nil
 }
 
-func positionalIndex(node *CommandNode, args []string) (int, error) {
-	chain, err := completionChain(node, args)
-	if err != nil {
-		return 0, err
-	}
+func positionalIndex(node *CommandNode, args []string, chain []commandInstance) (int, error) {
 	specs, err := completionFlagSpecs(chain)
 	if err != nil {
 		return 0, err
 	}
 	count := 0
-	afterDash := false
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
-		if afterDash {
-			count++
-			continue
-		}
 		if arg == "--" {
-			afterDash = true
 			continue
 		}
 		if strings.HasPrefix(arg, "--") {
@@ -444,16 +459,35 @@ func positionalIndex(node *CommandNode, args []string) (int, error) {
 				continue
 			}
 			if spec, ok := specs[arg]; ok && spec.TakesValue {
-				if i+1 < len(args) {
+				if spec.Variadic {
+					for i+1 < len(args) {
+						next := args[i+1]
+						if next == "--" || strings.HasPrefix(next, "-") {
+							break
+						}
+						i++
+					}
+				} else if i+1 < len(args) {
 					i++
 				}
 			}
 			continue
 		}
 		if strings.HasPrefix(arg, "-") && len(arg) > 1 {
+			if strings.Contains(arg, "=") {
+				continue
+			}
 			if len(arg) == 2 {
 				if spec, ok := specs[arg]; ok && spec.TakesValue {
-					if i+1 < len(args) {
+					if spec.Variadic {
+						for i+1 < len(args) {
+							next := args[i+1]
+							if next == "--" || strings.HasPrefix(next, "-") {
+								break
+							}
+							i++
+						}
+					} else if i+1 < len(args) {
 						i++
 					}
 				}
@@ -485,30 +519,37 @@ func positionalIndex(node *CommandNode, args []string) (int, error) {
 }
 
 func completionChain(node *CommandNode, args []string) ([]commandInstance, error) {
+	if node == nil {
+		return nil, nil
+	}
+	chain, _, err := completionParse(node, args, true)
+	return chain, err
+}
+
+func completionParse(node *CommandNode, args []string, explicit bool) ([]commandInstance, parseResult, error) {
 	chainNodes := nodeChain(node)
 	chain := make([]commandInstance, 0, len(chainNodes))
 	for _, current := range chainNodes {
 		inst, err := nodeInstance(current)
 		if err != nil {
-			return nil, err
+			return nil, parseResult{}, err
 		}
 		chain = append(chain, commandInstance{node: current, value: inst})
 	}
 	if len(chain) == 0 {
-		return nil, nil
+		return nil, parseResult{}, nil
 	}
-	fs := flag.NewFlagSet(node.Name, flag.ContinueOnError)
-	fs.SetOutput(io.Discard)
-	specs, _, err := registerChainFlags(fs, chain)
-	if err != nil {
-		return nil, err
+	result, err := parseCommandArgs(node, chain[len(chain)-1].value, chain, args, map[string]bool{}, explicit, false, true)
+	return chain, result, err
+}
+
+func findCompletionRoot(roots []*CommandNode, name string) *CommandNode {
+	for _, root := range roots {
+		if strings.EqualFold(root.Name, name) {
+			return root
+		}
 	}
-	expandedArgs, err := expandShortFlagGroups(args, specs)
-	if err != nil {
-		return nil, err
-	}
-	_ = fs.Parse(expandedArgs)
-	return chain, nil
+	return nil
 }
 
 // PrintCompletionScript prints a shell completion script for the given shell.

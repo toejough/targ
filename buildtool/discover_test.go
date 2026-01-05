@@ -519,3 +519,38 @@ func main() {}
 		t.Fatalf("expected error to mention main and file, got: %v", err)
 	}
 }
+
+func TestDiscover_SkipsTargCacheDir(t *testing.T) {
+	fsMock := MockFileSystem(t)
+	opts := Options{StartDir: "/root"}
+	done := make(chan struct{})
+	var (
+		infos []PackageInfo
+		err   error
+	)
+
+	go func() {
+		infos, err = Discover(fsMock.Interface(), opts)
+		close(done)
+	}()
+
+	fsMock.ReadDir.ExpectCalledWithExactly("/root").InjectReturnValues([]fs.DirEntry{
+		fakeDirEntry{name: ".targ", dir: true},
+		fakeDirEntry{name: "cmd.go", dir: false},
+	}, nil)
+	fsMock.ReadFile.ExpectCalledWithExactly("/root/cmd.go").InjectReturnValues([]byte(`//go:build targ
+
+package build
+
+func Build() {}
+`), nil)
+
+	<-done
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(infos) != 1 {
+		t.Fatalf("expected 1 package info, got %d", len(infos))
+	}
+}

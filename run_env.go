@@ -124,33 +124,55 @@ func runWithEnv(env runEnv, opts RunOptions, targets ...interface{}) {
 		}
 
 		if hasDefault {
-			if err := roots[0].execute(ctx, rest); err != nil {
+			if len(rest) == 0 {
+				if _, err := roots[0].executeWithParents(ctx, nil, nil, map[string]bool{}, false); err != nil {
+					env.Printf("Error: %v\n", err)
+					env.Exit(1)
+				}
+				return nil
+			}
+			remaining := rest
+			for len(remaining) > 0 {
+				next, err := roots[0].executeWithParents(ctx, remaining, nil, map[string]bool{}, false)
+				if err != nil {
+					env.Printf("Error: %v\n", err)
+					env.Exit(1)
+					return nil
+				}
+				if len(next) == len(remaining) {
+					env.Printf("Unknown command: %s\n", remaining[0])
+					env.Exit(1)
+					return nil
+				}
+				remaining = next
+			}
+			return nil
+		}
+
+		remaining := rest
+		for len(remaining) > 0 {
+			var matched *CommandNode
+			for _, root := range roots {
+				if strings.EqualFold(root.Name, remaining[0]) {
+					matched = root
+					break
+				}
+			}
+
+			if matched == nil {
+				env.Printf("Unknown command: %s\n", remaining[0])
+				printUsage(roots)
+				env.Exit(1)
+				return nil
+			}
+
+			next, err := matched.executeWithParents(ctx, remaining[1:], nil, map[string]bool{}, true)
+			if err != nil {
 				env.Printf("Error: %v\n", err)
 				env.Exit(1)
+				return nil
 			}
-			return nil
-		}
-
-		// Find matching root
-		var matched *CommandNode
-		for _, root := range roots {
-			if strings.EqualFold(root.Name, rest[0]) {
-				matched = root
-				break
-			}
-		}
-
-		if matched == nil {
-			env.Printf("Unknown command: %s\n", rest[0])
-			printUsage(roots)
-			env.Exit(1)
-			return nil
-		}
-
-		// Execute the matched root
-		if err := matched.execute(ctx, rest[1:]); err != nil {
-			env.Printf("Error: %v\n", err)
-			env.Exit(1)
+			remaining = next
 		}
 		return nil
 	})

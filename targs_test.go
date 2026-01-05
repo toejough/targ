@@ -218,6 +218,31 @@ func TestStructDefaults_InvalidEnvValues(t *testing.T) {
 	}
 }
 
+type InterleaveArgs struct {
+	Name  string `targ:"positional"`
+	Count int    `targ:"flag,short=c"`
+}
+
+func (c *InterleaveArgs) Run() {}
+
+func TestInterleavedFlagsAndPositionals(t *testing.T) {
+	cmdStruct := &InterleaveArgs{}
+	cmd, err := parseCommand(cmdStruct)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if err := cmd.execute(context.Background(), []string{"Bob", "--count", "2"}); err != nil {
+		t.Fatalf("execution failed: %v", err)
+	}
+	if cmdStruct.Name != "Bob" {
+		t.Fatalf("expected Name=Bob, got %q", cmdStruct.Name)
+	}
+	if cmdStruct.Count != 2 {
+		t.Fatalf("expected Count=2, got %d", cmdStruct.Count)
+	}
+}
+
 type UnexportedFlag struct {
 	hidden string `targ:"flag"`
 }
