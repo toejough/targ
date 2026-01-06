@@ -180,23 +180,41 @@ func (b *Build) Run() error {
 
 ### Multi-Directory Layout
 
-Discovery is recursive. Commands are namespaced by path:
+Discovery is recursive. Commands are namespaced by earliest unique path:
 
 ```text
 repo/
   tools/
     issues/
-      issues.go  //go:build targ
+      targets.go  //go:build targ
     deploy/
-      deploy.go  //go:build targ
+      systemA/
+        commands.go  //go:build targ
+      systemB/
+        commands.go  //go:build targ
+        otherCommands.go //go:build targ
 ```
 
 ```bash
+# running from repo/
 targ issues list
-targ deploy prod
+targ deploy systemA prod
+targ deploy systemB commands prod
 ```
 
 If only one tagged file exists, commands appear at the root (no prefix).
+
+```text
+repo/
+  tools/
+    issues/
+      targets.go  //go:build targ
+```
+
+```bash
+# running from repo/
+targ list
+```
 
 ## Subcommands
 
@@ -257,10 +275,10 @@ func (d *Deploy) Description() string {
 
 Command names are derived from struct or function names, converted to kebab-case:
 
-| Definition | Command |
-|------------|---------|
+| Definition               | Command     |
+| ------------------------ | ----------- |
 | `type BuildAll struct{}` | `build-all` |
-| `func RunTests()` | `run-tests` |
+| `func RunTests()`        | `run-tests` |
 
 Override with `Name()`:
 
@@ -278,15 +296,23 @@ func Build() error {
 }
 
 func Test() error {
-    return targ.Deps(Build) // Generate won't run twice
+    return targ.Deps(Build)
 }
+
+func Lint() error {
+    return targ.Deps(Build)
+}
+```
+
+```fish
+targ test lint # runs Generate, Compile, Build, Test, then Lint, all only once.
 ```
 
 Run independent tasks concurrently:
 
 ```go
 func CI() error {
-    return targ.ParallelDeps(Test, Lint, Build)
+    return targ.ParallelDeps(Test, Lint) // runs Test and Lint concurrently. Build still only runs once.
 }
 ```
 
