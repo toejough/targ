@@ -67,22 +67,16 @@ type bootstrapData struct {
 }
 
 func main() {
-	if len(os.Args) > 1 && os.Args[1] == "gen" {
-		if err := runGenerate(); err != nil {
-			fmt.Fprintf(os.Stderr, "Error generating wrappers: %v\n", err)
-			os.Exit(1)
-		}
-		return
-	}
-
 	var noCache bool
 	var keepBootstrap bool
 	var completionShell string
 	var helpFlag bool
+	var generateFlag bool
 
 	fs := flag.NewFlagSet("targ", flag.ContinueOnError)
 	fs.BoolVar(&noCache, "no-cache", false, "disable cached build tool binaries")
 	fs.BoolVar(&keepBootstrap, "keep", false, "keep generated bootstrap file")
+	fs.BoolVar(&generateFlag, "generate", false, "generate struct wrappers for function commands")
 	fs.StringVar(&completionShell, "completion", "", "print shell completion (bash|zsh|fish)")
 	fs.BoolVar(&helpFlag, "help", false, "print help information")
 	fs.BoolVar(&helpFlag, "h", false, "alias for --help")
@@ -159,6 +153,14 @@ func main() {
 		}
 		if err := targ.PrintCompletionScript(completionShell, binName); err != nil {
 			fmt.Fprintf(errOut, "Unsupported shell: %s. Supported: bash, zsh, fish\n", completionShell)
+			os.Exit(1)
+		}
+		return
+	}
+
+	if generateFlag {
+		if err := runGenerate(); err != nil {
+			fmt.Fprintf(os.Stderr, "Error generating wrappers: %v\n", err)
 			os.Exit(1)
 		}
 		return
@@ -394,14 +396,6 @@ func writeBootstrapFile(dir string, data []byte, keep bool) (string, func() erro
 }
 
 func runGenerate() error {
-	var buildTag string
-	fs := flag.NewFlagSet("gen", flag.ContinueOnError)
-	fs.StringVar(&buildTag, "tag", "", "optional build tag for generated wrappers")
-	fs.SetOutput(os.Stdout)
-	if err := fs.Parse(os.Args[2:]); err != nil {
-		return err
-	}
-
 	dir, err := os.Getwd()
 	if err != nil {
 		return fmt.Errorf("error resolving working directory: %w", err)
@@ -409,7 +403,6 @@ func runGenerate() error {
 
 	_, err = buildtool.GenerateFunctionWrappers(buildtool.OSFileSystem{}, buildtool.GenerateOptions{
 		Dir:        dir,
-		BuildTag:   buildTag,
 		OnlyTagged: false,
 	})
 	return err
@@ -648,6 +641,7 @@ func printBuildToolUsage(out io.Writer) {
 	fmt.Fprintln(out, "Flags:")
 	fmt.Fprintf(out, "    %-28s %s\n", "--no-cache", "disable cached build tool binaries")
 	fmt.Fprintf(out, "    %-28s %s\n", "--keep", "keep generated bootstrap file")
+	fmt.Fprintf(out, "    %-28s %s\n", "--generate", "generate struct wrappers for function commands")
 	fmt.Fprintf(out, "    %-28s %s\n", "--completion {bash|zsh|fish}", "print completion script for specified shell. Uses the current shell if none is")
 	fmt.Fprintf(out, "    %-28s %s\n", "", "specified. The output should be eval'd/sourced in the shell to enable completions.")
 	fmt.Fprintf(out, "    %-28s %s\n", "", "(e.g. 'targ --completion fish | source')")
