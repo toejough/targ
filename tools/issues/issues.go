@@ -7,35 +7,68 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
-	"strconv"
 	"strings"
 
-	"github.com/toejough/targ"
 	"github.com/toejough/targ/internal/issuefile"
 )
 
 type List struct {
 	File   string `targ:"flag,default=issues.md,desc=Issue file to read"`
-	Status string `targ:"flag,desc=Filter by status,enum=backlog|selected|in-progress|review|done|cancelled|blocked"`
+	Status string `targ:"flag,desc=Filter by status,enum=backlog|selected|in-progress|review|done|cancelled|blocked|open"`
 	Query  string `targ:"flag,desc=Case-insensitive title filter"`
+	Source string `targ:"flag,default=all,desc=Issue source,enum=all|local|github"`
 }
 
 func (c *List) Description() string {
-	return "List issues"
+	return "List issues from local file and/or GitHub"
 }
 
 func (c *List) Run() error {
-	file, issues, err := loadIssues(c.File)
-	if err != nil {
-		return err
+	type displayIssue struct {
+		ID     string
+		Status string
+		Title  string
 	}
-	_ = file
-	var filtered []issuefile.Issue
+	var all []displayIssue
+
+	// Load local issues
+	if c.Source == "all" || c.Source == "local" {
+		file, issues, err := loadIssues(c.File)
+		if err != nil && c.Source == "local" {
+			return err
+		}
+		_ = file
+		for _, issue := range issues {
+			all = append(all, displayIssue{
+				ID:     formatIssueID("local", issue.Number),
+				Status: normalizeStatus(issue.Status),
+				Title:  issue.Title,
+			})
+		}
+	}
+
+	// Load GitHub issues
+	if c.Source == "all" || c.Source == "github" {
+		ghIssues, err := listGitHubIssues("")
+		if err != nil && c.Source == "github" {
+			return err
+		}
+		if err == nil {
+			for _, issue := range ghIssues {
+				all = append(all, displayIssue{
+					ID:     formatIssueID("github", issue.Number),
+					Status: ghStateToStatus(issue.State),
+					Title:  issue.Title,
+				})
+			}
+		}
+	}
+
+	// Filter by status
 	wantStatus := normalizeStatus(c.Status)
-	for _, issue := range issues {
-		issueStatus := normalizeStatus(issue.Status)
-		if wantStatus != "" && !strings.EqualFold(issueStatus, wantStatus) {
+	var filtered []displayIssue
+	for _, issue := range all {
+		if wantStatus != "" && !strings.EqualFold(issue.Status, wantStatus) {
 			continue
 		}
 		if c.Query != "" && !strings.Contains(strings.ToLower(issue.Title), strings.ToLower(c.Query)) {
@@ -43,37 +76,57 @@ func (c *List) Run() error {
 		}
 		filtered = append(filtered, issue)
 	}
-	sort.Slice(filtered, func(i, j int) bool {
-		return filtered[i].Number < filtered[j].Number
-	})
+
 	fmt.Println("ID\tStatus\tTitle")
 	for _, issue := range filtered {
-		fmt.Printf("%d\t%s\t%s\n", issue.Number, normalizeStatus(issue.Status), issue.Title)
+		fmt.Printf("%s\t%s\t%s\n", issue.ID, issue.Status, issue.Title)
 	}
 	return nil
 }
 
 type Move struct {
 	File   string `targ:"flag,default=issues.md,desc=Issue file to update"`
-	ID     int    `targ:"positional,required"`
+	ID     string `targ:"positional,required,desc=Issue ID (e.g. 5 for local or gh#5 for GitHub)"`
 	Status string `targ:"flag,required,desc=New status,enum=backlog|selected|in-progress|review|done|cancelled|blocked"`
 }
 
 func (c *Move) Description() string {
-	return "Move an issue to a new status"
+	return "Move a local or GitHub issue to a new status"
 }
 
 func (c *Move) Run() error {
+	source, number, err := parseIssueID(c.ID)
+	if err != nil {
+		return err
+	}
+
+	status := normalizeStatus(c.Status)
+
+	if source == "github" {
+		// For GitHub, moving to done/cancelled means closing, otherwise reopening
+		if status == "done" || status == "cancelled" {
+			if err := closeGitHubIssue(number); err != nil {
+				return err
+			}
+		} else {
+			if err := reopenGitHubIssue(number); err != nil {
+				return err
+			}
+		}
+		fmt.Printf("Moved GitHub issue %s to %s\n", formatIssueID("github", number), status)
+		return nil
+	}
+
+	// Handle local issue
 	content, _, err := loadIssues(c.File)
 	if err != nil {
 		return err
 	}
 	file := content
-	issue, _ := file.Find(c.ID)
+	issue, _ := file.Find(number)
 	if issue == nil {
-		return fmt.Errorf("issue %d not found", c.ID)
+		return fmt.Errorf("issue %d not found", number)
 	}
-	status := normalizeStatus(c.Status)
 	block := issuefile.IssueBlockLines(file.Lines, *issue)
 	block = issuefile.UpdateStatus(block, status)
 	file.Remove(*issue)
@@ -86,6 +139,7 @@ func (c *Move) Run() error {
 		return err
 	}
 
+	fmt.Printf("Moved local issue %s to %s\n", formatIssueID("local", number), status)
 	return writeIssues(c.File, file.Lines)
 }
 
@@ -152,6 +206,7 @@ func (c *Validate) Run() error {
 
 type Create struct {
 	File       string `targ:"flag,default=issues.md,desc=Issue file to update"`
+	GitHub     bool   `targ:"flag,desc=Create issue on GitHub instead of locally"`
 	Title      string `targ:"flag,required,desc=Issue title"`
 	Status     string `targ:"flag,default=backlog,desc=Initial status,enum=backlog|selected|in-progress|review|done|cancelled|blocked"`
 	Desc       string `targ:"flag,name=description,default=TBD,desc=Issue description"`
@@ -160,12 +215,12 @@ type Create struct {
 }
 
 func (c *Create) Description() string {
-	return "Create a new issue entry"
+	return "Create a new issue locally or on GitHub"
 }
 
 type Update struct {
 	File       string `targ:"flag,default=issues.md,desc=Issue file to update"`
-	ID         int    `targ:"positional,required"`
+	ID         string `targ:"positional,required,desc=Issue ID (e.g. 5 for local or gh#5 for GitHub)"`
 	Status     string `targ:"flag,desc=New status,enum=backlog|selected|in-progress|review|done|cancelled|blocked"`
 	Desc       string `targ:"flag,name=description,desc=Description text"`
 	Priority   string `targ:"flag,desc=Priority,enum=low|medium|high"`
@@ -174,40 +229,45 @@ type Update struct {
 }
 
 func (c *Update) Description() string {
-	return "Update an existing issue entry"
-}
-
-func (c *Update) TagOptions(field string, opts targ.TagOptions) (targ.TagOptions, error) {
-	if field != "ID" {
-		return opts, nil
-	}
-	if normalizeStatus(c.Status) != "cancelled" {
-		return opts, nil
-	}
-	file := c.File
-	if file == "" {
-		file = "issues.md"
-	}
-	_, issues, err := loadIssues(file)
-	if err != nil {
-		return opts, err
-	}
-	ids := make([]int, 0, len(issues))
-	for _, issue := range issues {
-		if normalizeStatus(issue.Status) == "backlog" {
-			ids = append(ids, issue.Number)
-		}
-	}
-	sort.Ints(ids)
-	values := make([]string, 0, len(ids))
-	for _, id := range ids {
-		values = append(values, strconv.Itoa(id))
-	}
-	opts.Enum = strings.Join(values, "|")
-	return opts, nil
+	return "Update a local or GitHub issue"
 }
 
 func (c *Update) Run() error {
+	source, number, err := parseIssueID(c.ID)
+	if err != nil {
+		return err
+	}
+
+	if source == "github" {
+		// Handle GitHub issue update
+		ghUpdates := gitHubUpdates{}
+		if c.Desc != "" {
+			ghUpdates.Body = &c.Desc
+		}
+		// GitHub doesn't have priority/acceptance/details fields directly
+		// For status changes, we close/reopen
+		if c.Status != "" {
+			status := normalizeStatus(c.Status)
+			if status == "done" || status == "cancelled" {
+				if err := closeGitHubIssue(number); err != nil {
+					return err
+				}
+			} else {
+				if err := reopenGitHubIssue(number); err != nil {
+					return err
+				}
+			}
+		}
+		if ghUpdates.Body != nil {
+			if err := updateGitHubIssue(number, ghUpdates); err != nil {
+				return err
+			}
+		}
+		fmt.Printf("Updated GitHub issue: %s\n", formatIssueID("github", number))
+		return nil
+	}
+
+	// Handle local issue update
 	file, _, err := loadIssues(c.File)
 	if err != nil {
 		return err
@@ -236,13 +296,23 @@ func (c *Update) Run() error {
 		return fmt.Errorf("no updates provided")
 	}
 
-	if _, err := file.UpdateIssue(c.ID, updates); err != nil {
+	if _, err := file.UpdateIssue(number, updates); err != nil {
 		return err
 	}
+	fmt.Printf("Updated local issue: %s\n", formatIssueID("local", number))
 	return writeIssues(c.File, file.Lines)
 }
 
 func (c *Create) Run() error {
+	if c.GitHub {
+		num, err := createGitHubIssue(c.Title, c.Desc)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("Created GitHub issue: %s\n", formatIssueID("github", num))
+		return nil
+	}
+
 	content, issues, err := loadIssues(c.File)
 	if err != nil {
 		return err
@@ -284,6 +354,7 @@ func (c *Create) Run() error {
 	if err := content.Insert(section, block); err != nil {
 		return err
 	}
+	fmt.Printf("Created local issue: %s\n", formatIssueID("local", newID))
 	return writeIssues(c.File, content.Lines)
 }
 
