@@ -14,7 +14,7 @@ import (
 
 type List struct {
 	File   string `targ:"flag,default=issues.md,desc=Issue file to read"`
-	Status string `targ:"flag,desc=Filter by status,enum=backlog|selected|in-progress|review|done|cancelled|blocked|open"`
+	Status string `targ:"flag,desc=Filter by status,enum=backlog|selected|in-progress|review|done|cancelled|blocked"`
 	Query  string `targ:"flag,desc=Case-insensitive title filter"`
 	Source string `targ:"flag,default=all,desc=Issue source,enum=all|local|github"`
 }

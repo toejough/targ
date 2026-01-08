@@ -155,6 +155,6 @@ func ghStateToStatus(state string) string {
 	case "closed":
 		return "done"
 	default:
-		return "open"
+		return "backlog"
 	}
 }
