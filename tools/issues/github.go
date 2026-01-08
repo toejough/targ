@@ -151,7 +151,7 @@ func formatIssueID(source string, number int) string {
 
 // ghStateToStatus maps GitHub state to local status.
 func ghStateToStatus(state string) string {
-	switch state {
+	switch strings.ToLower(state) {
 	case "closed":
 		return "done"
 	default:
