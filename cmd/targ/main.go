@@ -36,6 +36,7 @@ type bootstrapImport struct {
 
 type bootstrapFuncWrapper struct {
 	TypeName     string
+	Name         string
 	FuncExpr     string
 	UsesContext  bool
 	ReturnsError bool
@@ -1101,6 +1102,7 @@ func buildBootstrapData(
 				typeName := wrapperNames.uniqueTypeName(base)
 				funcWrappers = append(funcWrappers, bootstrapFuncWrapper{
 					TypeName:     typeName,
+					Name:         cmd.Name,
 					FuncExpr:     prefix + cmd.Name,
 					UsesContext:  cmd.UsesContext,
 					ReturnsError: cmd.ReturnsError,
@@ -1336,6 +1338,10 @@ func (c *{{ .TypeName }}) Run({{ if .UsesContext }}ctx context.Context{{ end }})
 	return nil
 {{- end }}
 {{- end }}
+}
+
+func (c *{{ .TypeName }}) Name() string {
+	return "{{ .Name }}"
 }
 {{- end }}
 
