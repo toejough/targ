@@ -75,7 +75,16 @@ func customSetter(fieldVal reflect.Value) (func(string) error, bool) {
 }
 
 func setFieldFromString(fieldVal reflect.Value, value string) error {
+	return setFieldWithPosition(fieldVal, value, nil)
+}
+
+// setFieldWithPosition sets a field value, optionally tracking position for Interleaved slices.
+// If pos is non-nil and the field is []Interleaved[T], the position is used and incremented.
+func setFieldWithPosition(fieldVal reflect.Value, value string, pos *int) error {
 	if setter, ok := customSetter(fieldVal); ok {
+		if pos != nil {
+			*pos++
+		}
 		return setter(value)
 	}
 
@@ -95,16 +104,54 @@ func setFieldFromString(fieldVal reflect.Value, value string) error {
 		}
 		fieldVal.SetBool(parsed)
 	case reflect.Slice:
-		elem := reflect.New(fieldVal.Type().Elem()).Elem()
-		if err := setFieldFromString(elem, value); err != nil {
-			return err
+		elemType := fieldVal.Type().Elem()
+		if isInterleavedType(elemType) && pos != nil {
+			// Create Interleaved[T] with position
+			elem := reflect.New(elemType).Elem()
+			valueField := elem.FieldByName("Value")
+			posField := elem.FieldByName("Position")
+			if err := setFieldWithPosition(valueField, value, nil); err != nil {
+				return err
+			}
+			posField.SetInt(int64(*pos))
+			*pos++
+			fieldVal.Set(reflect.Append(fieldVal, elem))
+		} else {
+			elem := reflect.New(elemType).Elem()
+			if err := setFieldWithPosition(elem, value, pos); err != nil {
+				return err
+			}
+			fieldVal.Set(reflect.Append(fieldVal, elem))
 		}
-		fieldVal.Set(reflect.Append(fieldVal, elem))
 	default:
 		return fmt.Errorf("unsupported value type %s", fieldVal.Type())
 	}
 
+	if pos != nil && fieldVal.Kind() != reflect.Slice {
+		*pos++
+	}
+
 	return nil
+}
+
+// isInterleavedType checks if a type is Interleaved[T] by looking for Value and Position fields.
+func isInterleavedType(t reflect.Type) bool {
+	if t.Kind() != reflect.Struct {
+		return false
+	}
+	// Check for our Interleaved struct signature: Value field and Position int field
+	valueField, hasValue := t.FieldByName("Value")
+	posField, hasPos := t.FieldByName("Position")
+	if !hasValue || !hasPos {
+		return false
+	}
+	// Position must be int
+	if posField.Type.Kind() != reflect.Int {
+		return false
+	}
+	// Value field exists (any type is fine)
+	_ = valueField
+	return true
 }
 
 func fieldSupportsTextUnmarshal(fieldType reflect.Type) bool {

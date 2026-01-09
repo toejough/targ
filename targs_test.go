@@ -1164,3 +1164,151 @@ func TestExecuteWithOptions_NoDefaultShowsUsage(t *testing.T) {
 	// Note: printUsage uses fmt.Println so output isn't captured in ExecuteResult
 	// The key test is that no error is returned and command is not called
 }
+
+// --- Repeated Flags Tests ---
+
+type RepeatedFlagsCmd struct {
+	Tags []string `targ:"flag"`
+}
+
+func (c *RepeatedFlagsCmd) Run() {}
+
+func TestRepeatedFlags_Accumulates(t *testing.T) {
+	cmd := &RepeatedFlagsCmd{}
+	_, err := Execute([]string{"app", "--tags", "a", "--tags", "b", "--tags", "c"}, cmd)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(cmd.Tags) != 3 {
+		t.Fatalf("expected 3 tags, got %d: %v", len(cmd.Tags), cmd.Tags)
+	}
+	if cmd.Tags[0] != "a" || cmd.Tags[1] != "b" || cmd.Tags[2] != "c" {
+		t.Fatalf("unexpected tags order: %v", cmd.Tags)
+	}
+}
+
+type RepeatedIntFlagsCmd struct {
+	Counts []int `targ:"flag"`
+}
+
+func (c *RepeatedIntFlagsCmd) Run() {}
+
+func TestRepeatedFlags_IntSlice(t *testing.T) {
+	cmd := &RepeatedIntFlagsCmd{}
+	_, err := Execute([]string{"app", "--counts", "1", "--counts", "2", "--counts", "3"}, cmd)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(cmd.Counts) != 3 {
+		t.Fatalf("expected 3 counts, got %d: %v", len(cmd.Counts), cmd.Counts)
+	}
+	if cmd.Counts[0] != 1 || cmd.Counts[1] != 2 || cmd.Counts[2] != 3 {
+		t.Fatalf("unexpected counts: %v", cmd.Counts)
+	}
+}
+
+// --- Interleaved Flags Tests ---
+
+type InterleavedFlagsCmd struct {
+	Include []Interleaved[string] `targ:"flag"`
+	Exclude []Interleaved[string] `targ:"flag"`
+}
+
+func (c *InterleavedFlagsCmd) Run() {}
+
+func TestInterleavedFlags_TracksPosition(t *testing.T) {
+	cmd := &InterleavedFlagsCmd{}
+	_, err := Execute([]string{"app", "--include", "a", "--exclude", "b", "--include", "c"}, cmd)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Check includes
+	if len(cmd.Include) != 2 {
+		t.Fatalf("expected 2 includes, got %d: %v", len(cmd.Include), cmd.Include)
+	}
+	if cmd.Include[0].Value != "a" || cmd.Include[0].Position != 0 {
+		t.Fatalf("expected include[0]={a,0}, got %+v", cmd.Include[0])
+	}
+	if cmd.Include[1].Value != "c" || cmd.Include[1].Position != 2 {
+		t.Fatalf("expected include[1]={c,2}, got %+v", cmd.Include[1])
+	}
+
+	// Check excludes
+	if len(cmd.Exclude) != 1 {
+		t.Fatalf("expected 1 exclude, got %d: %v", len(cmd.Exclude), cmd.Exclude)
+	}
+	if cmd.Exclude[0].Value != "b" || cmd.Exclude[0].Position != 1 {
+		t.Fatalf("expected exclude[0]={b,1}, got %+v", cmd.Exclude[0])
+	}
+}
+
+func TestInterleavedFlags_ReconstructOrder(t *testing.T) {
+	cmd := &InterleavedFlagsCmd{}
+	_, err := Execute([]string{"app", "--exclude", "x", "--include", "a", "--include", "b", "--exclude", "y"}, cmd)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Merge and sort by position to reconstruct order
+	type item struct {
+		isInclude bool
+		value     string
+		position  int
+	}
+	var all []item
+	for _, inc := range cmd.Include {
+		all = append(all, item{true, inc.Value, inc.Position})
+	}
+	for _, exc := range cmd.Exclude {
+		all = append(all, item{false, exc.Value, exc.Position})
+	}
+
+	// Sort by position
+	for i := 0; i < len(all)-1; i++ {
+		for j := i + 1; j < len(all); j++ {
+			if all[j].position < all[i].position {
+				all[i], all[j] = all[j], all[i]
+			}
+		}
+	}
+
+	// Verify reconstructed order: exclude x, include a, include b, exclude y
+	expected := []item{
+		{false, "x", 0},
+		{true, "a", 1},
+		{true, "b", 2},
+		{false, "y", 3},
+	}
+	if len(all) != len(expected) {
+		t.Fatalf("expected %d items, got %d", len(expected), len(all))
+	}
+	for i, exp := range expected {
+		if all[i] != exp {
+			t.Fatalf("item[%d]: expected %+v, got %+v", i, exp, all[i])
+		}
+	}
+}
+
+type InterleavedIntCmd struct {
+	Values []Interleaved[int] `targ:"flag"`
+}
+
+func (c *InterleavedIntCmd) Run() {}
+
+func TestInterleavedFlags_IntType(t *testing.T) {
+	cmd := &InterleavedIntCmd{}
+	_, err := Execute([]string{"app", "--values", "10", "--values", "20"}, cmd)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(cmd.Values) != 2 {
+		t.Fatalf("expected 2 values, got %d", len(cmd.Values))
+	}
+	if cmd.Values[0].Value != 10 || cmd.Values[0].Position != 0 {
+		t.Fatalf("expected values[0]={10,0}, got %+v", cmd.Values[0])
+	}
+	if cmd.Values[1].Value != 20 || cmd.Values[1].Position != 1 {
+		t.Fatalf("expected values[1]={20,1}, got %+v", cmd.Values[1])
+	}
+}

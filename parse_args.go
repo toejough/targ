@@ -95,6 +95,22 @@ func parseCommandArgs(
 	enforceRequired bool,
 	allowIncomplete bool,
 ) (parseResult, error) {
+	// Position counter for Interleaved slice tracking
+	argPosition := 0
+	return parseCommandArgsWithPosition(node, inst, chain, args, visited, explicit, enforceRequired, allowIncomplete, &argPosition)
+}
+
+func parseCommandArgsWithPosition(
+	node *CommandNode,
+	inst reflect.Value,
+	chain []commandInstance,
+	args []string,
+	visited map[string]bool,
+	explicit bool,
+	enforceRequired bool,
+	allowIncomplete bool,
+	argPosition *int,
+) (parseResult, error) {
 	if visited == nil {
 		visited = map[string]bool{}
 	}
@@ -138,7 +154,7 @@ func parseCommandArgs(
 			if posIndex < len(posSpecs) && posSpecs[posIndex].variadic && posCounts[posIndex] > 0 {
 				posIndex++
 			}
-			consumed, err := parseFlagArg(arg, expandedArgs, i, specByLong, specByShort, visited, allowIncomplete)
+			consumed, err := parseFlagArgWithPosition(arg, expandedArgs, i, specByLong, specByShort, visited, allowIncomplete, argPosition)
 			if err != nil {
 				return parseResult{}, err
 			}
@@ -149,13 +165,13 @@ func parseCommandArgs(
 		if posIndex < len(posSpecs) {
 			spec := posSpecs[posIndex]
 			if spec.variadic {
-				if err := setFieldFromString(spec.value, arg); err != nil {
+				if err := setFieldWithPosition(spec.value, arg, argPosition); err != nil {
 					return parseResult{}, err
 				}
 				posCounts[posIndex]++
 				continue
 			}
-			if err := setFieldFromString(spec.value, arg); err != nil {
+			if err := setFieldWithPosition(spec.value, arg, argPosition); err != nil {
 				return parseResult{}, err
 			}
 			posCounts[posIndex] = 1
@@ -213,6 +229,19 @@ func parseFlagArg(
 	visited map[string]bool,
 	allowIncomplete bool,
 ) (int, error) {
+	return parseFlagArgWithPosition(arg, args, index, specByLong, specByShort, visited, allowIncomplete, nil)
+}
+
+func parseFlagArgWithPosition(
+	arg string,
+	args []string,
+	index int,
+	specByLong map[string]*flagSpec,
+	specByShort map[string]*flagSpec,
+	visited map[string]bool,
+	allowIncomplete bool,
+	argPosition *int,
+) (int, error) {
 	if strings.HasPrefix(arg, "--") {
 		name := strings.TrimPrefix(arg, "--")
 		value := ""
@@ -228,9 +257,9 @@ func parseFlagArg(
 		}
 		markFlagVisited(visited, spec)
 		if hasValue {
-			return 0, setFieldFromString(spec.value, value)
+			return 0, setFieldWithPosition(spec.value, value, argPosition)
 		}
-		return parseFlagValue(spec, args, index, visited, allowIncomplete)
+		return parseFlagValueWithPosition(spec, args, index, visited, allowIncomplete, argPosition)
 	}
 
 	name := strings.TrimPrefix(arg, "-")
@@ -247,14 +276,21 @@ func parseFlagArg(
 	}
 	markFlagVisited(visited, spec)
 	if hasValue {
-		return 0, setFieldFromString(spec.value, value)
+		return 0, setFieldWithPosition(spec.value, value, argPosition)
 	}
-	return parseFlagValue(spec, args, index, visited, allowIncomplete)
+	return parseFlagValueWithPosition(spec, args, index, visited, allowIncomplete, argPosition)
 }
 
 func parseFlagValue(spec *flagSpec, args []string, index int, visited map[string]bool, allowIncomplete bool) (int, error) {
+	return parseFlagValueWithPosition(spec, args, index, visited, allowIncomplete, nil)
+}
+
+func parseFlagValueWithPosition(spec *flagSpec, args []string, index int, visited map[string]bool, allowIncomplete bool, argPosition *int) (int, error) {
 	if spec.value.Kind() == reflect.Bool {
 		spec.value.SetBool(true)
+		if argPosition != nil {
+			*argPosition++
+		}
 		return 0, nil
 	}
 	if spec.value.Kind() == reflect.Slice {
@@ -264,7 +300,7 @@ func parseFlagValue(spec *flagSpec, args []string, index int, visited map[string
 			if next == "--" || strings.HasPrefix(next, "-") {
 				break
 			}
-			if err := setFieldFromString(spec.value, next); err != nil {
+			if err := setFieldWithPosition(spec.value, next, argPosition); err != nil {
 				return 0, err
 			}
 			count++
@@ -287,7 +323,7 @@ func parseFlagValue(spec *flagSpec, args []string, index int, visited map[string
 	if next == "--" || strings.HasPrefix(next, "-") {
 		return 0, fmt.Errorf("flag needs an argument: --%s", spec.name)
 	}
-	if err := setFieldFromString(spec.value, next); err != nil {
+	if err := setFieldWithPosition(spec.value, next, argPosition); err != nil {
 		return 0, err
 	}
 	return 1, nil

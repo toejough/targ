@@ -23,7 +23,7 @@ Issues to choose from for future work.
 #### Universal
 
 **Status**
-backlog
+done
 
 **Description**
 Allow flags to be specified multiple times and accumulate values (e.g. `--tag a --tag b`).
@@ -36,12 +36,35 @@ Medium
 **Acceptance**
 Repeated flag values accumulate into slice fields with predictable ordering.
 
+#### Design
+
+**Basic repeated flags**: `[]T` fields accumulate values in order.
+```go
+type MyCmd struct {
+    Tag []string `targ:"flag"`
+}
+// --tag a --tag b → Tag = []string{"a", "b"}
+```
+
+**Interleaved repeated flags**: `[]targ.Interleaved[T]` tracks global position across all flags.
+```go
+type MyCmd struct {
+    Include []targ.Interleaved[string] `targ:"flag"`
+    Exclude []targ.Interleaved[string] `targ:"flag"`
+}
+// --include a --exclude b --include c →
+// Include = [{Value:"a", Position:0}, {Value:"c", Position:2}]
+// Exclude = [{Value:"b", Position:1}]
+```
+
+User can merge slices and sort by Position to reconstruct interleaved order.
+
 ### 50. Variadic positionals
 
 #### Universal
 
 **Status**
-backlog
+done
 
 **Description**
 Support variadic positional args (e.g. a `[]string` positional capturing remaining args).
@@ -53,6 +76,11 @@ Medium
 
 **Acceptance**
 Trailing slice positional captures remaining args and appears clearly in usage/help.
+
+#### Implementation Notes
+
+**Details**
+Already implemented - slice positionals automatically capture remaining args. Usage line shows placeholder with brackets (e.g., `[FILES...]`).
 
 ### 51. Map-type args
 

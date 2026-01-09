@@ -11,6 +11,14 @@ import (
 	"unicode"
 )
 
+// Interleaved wraps a value with its parse position for tracking flag ordering.
+// Use []Interleaved[T] when you need to know the relative order of flags
+// across multiple slice fields (e.g., interleaved --include and --exclude).
+type Interleaved[T any] struct {
+	Value    T
+	Position int
+}
+
 // Run executes the CLI using os.Args and exits on error.
 func Run(targets ...interface{}) {
 	RunWithOptions(RunOptions{AllowDefault: true}, targets...)
