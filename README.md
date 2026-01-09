@@ -1,7 +1,7 @@
 # Targ
 
 <p align="center">
-  <img src="targ.png" alt="Targ logo" width="500">
+  <img src="assets/targ.png" alt="Targ logo" width="500">
 </p>
 
 Build CLIs with minimal configuration. Inspired by Mage, go-arg, and Cobra.
