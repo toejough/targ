@@ -163,7 +163,7 @@ Timeout cancels the run and surfaces a clear error/exit code.
 #### Universal
 
 **Status**
-backlog
+cancelled
 
 **Description**
 Provide syscall helpers for common process control patterns beyond `targ/sh`.
@@ -175,6 +175,9 @@ Low
 
 **Acceptance**
 Helpers cover common use cases without requiring direct syscall usage.
+
+**Note**
+Replaced with specific issues for individual helpers (59-64) based on Mage sh package analysis.
 
 ### 55. README examples in sync
 
@@ -321,6 +324,114 @@ RunOptions{
     DisableGlobalFlags: []string{"timeout", "completion"},
 }
 ```
+
+### 59. sh.RunWith - run command with custom environment
+
+#### Universal
+
+**Status**
+backlog
+
+**Description**
+Add `RunWith(env map[string]string, cmd string, args ...string) error` and `RunWithV` variant to run commands with custom environment variables.
+
+#### Planning
+
+**Priority**
+Low
+
+**Acceptance**
+Can run commands with additional/overridden environment variables.
+
+### 60. sh.ExitStatus - extract exit code from error
+
+#### Universal
+
+**Status**
+backlog
+
+**Description**
+Add `ExitStatus(err error) int` to extract the exit code from an exec error. Returns 0 if nil, the exit code if available, or 1 for other errors.
+
+#### Planning
+
+**Priority**
+Low
+
+**Acceptance**
+Can get numeric exit code from command errors for conditional logic.
+
+### 61. sh.CmdRan - check if command actually ran
+
+#### Universal
+
+**Status**
+backlog
+
+**Description**
+Add `CmdRan(err error) bool` to distinguish between "command not found" and "command ran but failed". Returns true if command executed (even with non-zero exit), false if command couldn't start.
+
+#### Planning
+
+**Priority**
+Low
+
+**Acceptance**
+Can distinguish missing commands from failed commands.
+
+### 62. sh.RunCmd / sh.OutCmd - reusable command functions
+
+#### Universal
+
+**Status**
+backlog
+
+**Description**
+Add `RunCmd(cmd string, args ...string) func(args ...string) error` and `OutCmd` variant to create reusable command functions with pre-baked arguments.
+
+#### Planning
+
+**Priority**
+Low
+
+**Acceptance**
+Can create command aliases like `git := sh.RunCmd("git")` then call `git("status")`.
+
+### 63. sh.Copy - file copy helper
+
+#### Universal
+
+**Status**
+backlog
+
+**Description**
+Add `Copy(dst, src string) error` to robustly copy a file, overwriting destination if it exists.
+
+#### Planning
+
+**Priority**
+Low
+
+**Acceptance**
+Can copy files without using shell commands.
+
+### 64. sh.Rm - file/directory removal helper
+
+#### Universal
+
+**Status**
+backlog
+
+**Description**
+Add `Rm(path string) error` to remove a file or directory (recursively). No error if path doesn't exist.
+
+#### Planning
+
+**Priority**
+Low
+
+**Acceptance**
+Can remove files/directories without using shell commands.
 
 ## Done
 
