@@ -70,16 +70,15 @@ type bootstrapData struct {
 func main() {
 	var noCache bool
 	var keepBootstrap bool
-	var completionShell string
 	var helpFlag bool
 	var generateFlag bool
 	var timeoutFlag string
+	var completionShell string
 
 	fs := flag.NewFlagSet("targ", flag.ContinueOnError)
 	fs.BoolVar(&noCache, "no-cache", false, "disable cached build tool binaries")
 	fs.BoolVar(&keepBootstrap, "keep", false, "keep generated bootstrap file")
 	fs.BoolVar(&generateFlag, "generate", false, "generate struct wrappers for function commands")
-	fs.StringVar(&completionShell, "completion", "", "print shell completion (bash|zsh|fish)")
 	fs.BoolVar(&helpFlag, "help", false, "print help information")
 	fs.BoolVar(&helpFlag, "h", false, "alias for --help")
 	fs.Usage = func() {
@@ -93,25 +92,12 @@ func main() {
 		errOut = io.Discard
 	}
 	helpRequested, helpTargets := parseHelpRequest(rawArgs)
-	// Extract leading --timeout before any command (global timeout)
+	// Extract leading flags before any command
 	timeoutFlag, rawArgs = extractLeadingTimeout(rawArgs)
+	completionShell, rawArgs = extractLeadingCompletion(rawArgs)
+	completionRequested := completionShell != ""
 	parseArgs := make([]string, 0, len(rawArgs))
-	completionRequested := false
-	for i := 0; i < len(rawArgs); i++ {
-		arg := rawArgs[i]
-		if arg == "--completion" {
-			completionRequested = true
-			shell := ""
-			if i+1 < len(rawArgs) && !strings.HasPrefix(rawArgs[i+1], "-") {
-				shell = rawArgs[i+1]
-				i++
-			}
-			parseArgs = append(parseArgs, "-completion="+shell)
-			continue
-		}
-		if strings.HasPrefix(arg, "--completion=") {
-			completionRequested = true
-		}
+	for _, arg := range rawArgs {
 		parseArgs = append(parseArgs, arg)
 	}
 	if err := fs.Parse(parseArgs); err != nil {
@@ -146,10 +132,10 @@ func main() {
 	}
 
 	if completionRequested {
-		if completionShell == "" {
+		if completionShell == "auto" {
 			completionShell = detectShell()
 		}
-		if completionShell == "" {
+		if completionShell == "" || completionShell == "auto" {
 			fmt.Fprintln(errOut, "Usage: --completion [bash|zsh|fish]")
 			os.Exit(1)
 		}
@@ -819,6 +805,39 @@ func extractLeadingTimeout(args []string) (string, []string) {
 		result = append(result, arg)
 	}
 	return timeout, result
+}
+
+// extractLeadingCompletion extracts --completion from args before any command.
+// Returns the shell value (empty if not found) and remaining args.
+func extractLeadingCompletion(args []string) (string, []string) {
+	var result []string
+	var shell string
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		// Stop looking for completion once we hit a non-flag (command name)
+		if !strings.HasPrefix(arg, "-") {
+			result = append(result, args[i:]...)
+			break
+		}
+		if arg == "--completion" {
+			if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
+				shell = args[i+1]
+				i++
+			} else {
+				shell = "auto" // Signal that completion was requested but no shell specified
+			}
+			continue
+		}
+		if strings.HasPrefix(arg, "--completion=") {
+			shell = strings.TrimPrefix(arg, "--completion=")
+			if shell == "" {
+				shell = "auto"
+			}
+			continue
+		}
+		result = append(result, arg)
+	}
+	return shell, result
 }
 
 func camelToKebab(name string) string {

@@ -119,40 +119,13 @@ func runWithEnv(env runEnv, opts RunOptions, targets ...interface{}) error {
 
 		rest := args[1:]
 
-		// 1. Check for runtime completion request (Hidden command)
+		// Check for runtime completion request (Hidden command)
 		if rest[0] == "__complete" {
 			// usage: __complete "entire command line"
 			if len(rest) > 1 {
 				if err := doCompletion(roots, rest[1]); err != nil {
 					env.Printf("Error: %v\n", err)
 				}
-			}
-			return nil
-		}
-
-		// 2. Check for completion script generation
-		if rest[0] == "--completion" {
-			shell := ""
-			if len(rest) > 1 {
-				shell = rest[1]
-			}
-			if shell == "" {
-				shell = detectShell()
-			}
-			if shell == "" {
-				env.Println("Usage: --completion [bash|zsh|fish]")
-				return nil
-			}
-			binName := args[0]
-			// Determine binary name from path
-			if idx := strings.LastIndex(binName, "/"); idx != -1 {
-				binName = binName[idx+1:]
-			}
-			if idx := strings.LastIndex(binName, "\\"); idx != -1 {
-				binName = binName[idx+1:]
-			}
-			if err := PrintCompletionScript(shell, binName); err != nil {
-				env.Printf("Unsupported shell: %s. Supported: bash, zsh, fish\n", shell)
 			}
 			return nil
 		}
