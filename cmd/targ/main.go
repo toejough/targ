@@ -73,12 +73,14 @@ func main() {
 	var completionShell string
 	var helpFlag bool
 	var generateFlag bool
+	var timeoutFlag string
 
 	fs := flag.NewFlagSet("targ", flag.ContinueOnError)
 	fs.BoolVar(&noCache, "no-cache", false, "disable cached build tool binaries")
 	fs.BoolVar(&keepBootstrap, "keep", false, "keep generated bootstrap file")
 	fs.BoolVar(&generateFlag, "generate", false, "generate struct wrappers for function commands")
 	fs.StringVar(&completionShell, "completion", "", "print shell completion (bash|zsh|fish)")
+	fs.StringVar(&timeoutFlag, "timeout", "", "set execution timeout (e.g., 10m, 1h)")
 	fs.BoolVar(&helpFlag, "help", false, "print help information")
 	fs.BoolVar(&helpFlag, "h", false, "alias for --help")
 	fs.Usage = func() {
@@ -109,6 +111,17 @@ func main() {
 		if strings.HasPrefix(arg, "--completion=") {
 			completionRequested = true
 		}
+		if arg == "--timeout" {
+			if i+1 < len(rawArgs) && !strings.HasPrefix(rawArgs[i+1], "-") {
+				parseArgs = append(parseArgs, "-timeout="+rawArgs[i+1])
+				i++
+				continue
+			}
+		}
+		if strings.HasPrefix(arg, "--timeout=") {
+			parseArgs = append(parseArgs, "-timeout="+strings.TrimPrefix(arg, "--timeout="))
+			continue
+		}
 		parseArgs = append(parseArgs, arg)
 	}
 	if err := fs.Parse(parseArgs); err != nil {
@@ -135,6 +148,11 @@ func main() {
 	}
 	if helpRequested && helpTargets {
 		args = append(args, "--help")
+	}
+
+	// Prepend timeout flag to args for the bootstrap binary
+	if timeoutFlag != "" {
+		args = append([]string{"--timeout", timeoutFlag}, args...)
 	}
 
 	if completionRequested {
@@ -643,6 +661,7 @@ func printBuildToolUsage(out io.Writer) {
 	fmt.Fprintf(out, "    %-28s %s\n", "--no-cache", "disable cached build tool binaries")
 	fmt.Fprintf(out, "    %-28s %s\n", "--keep", "keep generated bootstrap file")
 	fmt.Fprintf(out, "    %-28s %s\n", "--generate", "generate struct wrappers for function commands")
+	fmt.Fprintf(out, "    %-28s %s\n", "--timeout <duration>", "set execution timeout (e.g., 10m, 1h)")
 	fmt.Fprintf(out, "    %-28s %s\n", "--completion {bash|zsh|fish}", "print completion script for specified shell. Uses the current shell if none is")
 	fmt.Fprintf(out, "    %-28s %s\n", "", "specified. The output should be eval'd/sourced in the shell to enable completions.")
 	fmt.Fprintf(out, "    %-28s %s\n", "", "(e.g. 'targ --completion fish | source')")
