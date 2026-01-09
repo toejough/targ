@@ -610,8 +610,8 @@ func targCacheDir() string {
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
-		// Fallback to current directory if home can't be determined
-		return ".targ"
+		// Fallback to temp directory if home can't be determined
+		return filepath.Join(os.TempDir(), "targ-cache")
 	}
 	return filepath.Join(home, ".cache", "targ")
 }
