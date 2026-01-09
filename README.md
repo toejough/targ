@@ -4,7 +4,9 @@
   <img src="assets/targ.png" alt="Targ logo" width="500">
 </p>
 
-Build CLIs with minimal configuration. Inspired by Mage, go-arg, and Cobra.
+Build CLIs and run build targets with minimal configuration. Inspired by Mage, go-arg, and Cobra.
+
+Targ, as an installable tool, is a t[arg]et runner. Also you can use it as a library to parse your [t]args. Also that yeti gopher is a targ 😆.
 
 ## Quick Start
 
