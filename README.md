@@ -422,23 +422,10 @@ Useful for:
 
 ## Build Tool Flags
 
-| Flag         | Description                                    |
-| ------------ | ---------------------------------------------- |
-| `--no-cache` | Force rebuild of the build tool binary         |
-| `--keep`     | Keep generated bootstrap file for inspection   |
-| `--generate` | Generate struct wrappers for function commands |
-
-## Wrapper Generation
-
-Generate struct wrappers for function commands to enable descriptions in library mode:
-
-```bash
-targ --generate
-```
-
-This creates `generated_targ_<pkg>.go` with struct wrappers that include `Name()` and `Description()` methods from function comments.
-
-In build tool mode, this happens automatically.
+| Flag         | Description                                  |
+| ------------ | -------------------------------------------- |
+| `--no-cache` | Force rebuild of the build tool binary       |
+| `--keep`     | Keep generated bootstrap file for inspection |
 
 ## Installation
 

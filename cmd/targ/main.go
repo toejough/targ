@@ -71,14 +71,12 @@ func main() {
 	var noCache bool
 	var keepBootstrap bool
 	var helpFlag bool
-	var generateFlag bool
 	var timeoutFlag string
 	var completionShell string
 
 	fs := flag.NewFlagSet("targ", flag.ContinueOnError)
 	fs.BoolVar(&noCache, "no-cache", false, "disable cached build tool binaries")
 	fs.BoolVar(&keepBootstrap, "keep", false, "keep generated bootstrap file")
-	fs.BoolVar(&generateFlag, "generate", false, "generate struct wrappers for function commands")
 	fs.BoolVar(&helpFlag, "help", false, "print help information")
 	fs.BoolVar(&helpFlag, "h", false, "alias for --help")
 	fs.Usage = func() {
@@ -148,14 +146,6 @@ func main() {
 		}
 		if err := targ.PrintCompletionScript(completionShell, binName); err != nil {
 			fmt.Fprintf(errOut, "Unsupported shell: %s. Supported: bash, zsh, fish\n", completionShell)
-			os.Exit(1)
-		}
-		return
-	}
-
-	if generateFlag {
-		if err := runGenerate(); err != nil {
-			fmt.Fprintf(os.Stderr, "Error generating wrappers: %v\n", err)
 			os.Exit(1)
 		}
 		return
@@ -404,19 +394,6 @@ func writeBootstrapFile(dir string, data []byte, keep bool) (string, func() erro
 	return tempFile, cleanup, nil
 }
 
-func runGenerate() error {
-	dir, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("error resolving working directory: %w", err)
-	}
-
-	_, err = buildtool.GenerateFunctionWrappers(buildtool.OSFileSystem{}, buildtool.GenerateOptions{
-		Dir:        dir,
-		OnlyTagged: false,
-	})
-	return err
-}
-
 func findModuleRootAndPath(startDir string) (string, string, bool, error) {
 	dir := startDir
 	for {
@@ -650,7 +627,6 @@ func printBuildToolUsage(out io.Writer) {
 	fmt.Fprintln(out, "Flags:")
 	fmt.Fprintf(out, "    %-28s %s\n", "--no-cache", "disable cached build tool binaries")
 	fmt.Fprintf(out, "    %-28s %s\n", "--keep", "keep generated bootstrap file")
-	fmt.Fprintf(out, "    %-28s %s\n", "--generate", "generate struct wrappers for function commands")
 	fmt.Fprintf(out, "    %-28s %s\n", "--timeout <duration>", "set execution timeout (e.g., 10m, 1h)")
 	fmt.Fprintf(out, "    %-28s %s\n", "--completion {bash|zsh|fish}", "print completion script for specified shell. Uses the current shell if none is")
 	fmt.Fprintf(out, "    %-28s %s\n", "", "specified. The output should be eval'd/sourced in the shell to enable completions.")
