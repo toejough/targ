@@ -123,6 +123,25 @@ func setFieldWithPosition(fieldVal reflect.Value, value string, pos *int) error 
 			}
 			fieldVal.Set(reflect.Append(fieldVal, elem))
 		}
+	case reflect.Map:
+		// Initialize map if nil
+		if fieldVal.IsNil() {
+			fieldVal.Set(reflect.MakeMap(fieldVal.Type()))
+		}
+		// Parse key=value
+		parts := strings.SplitN(value, "=", 2)
+		if len(parts) != 2 {
+			return fmt.Errorf("invalid map value %q, expected key=value", value)
+		}
+		keyVal := reflect.New(fieldVal.Type().Key()).Elem()
+		valVal := reflect.New(fieldVal.Type().Elem()).Elem()
+		if err := setFieldWithPosition(keyVal, parts[0], nil); err != nil {
+			return err
+		}
+		if err := setFieldWithPosition(valVal, parts[1], nil); err != nil {
+			return err
+		}
+		fieldVal.SetMapIndex(keyVal, valVal)
 	default:
 		return fmt.Errorf("unsupported value type %s", fieldVal.Type())
 	}

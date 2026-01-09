@@ -1312,3 +1312,81 @@ func TestInterleavedFlags_IntType(t *testing.T) {
 		t.Fatalf("expected values[1]={20,1}, got %+v", cmd.Values[1])
 	}
 }
+
+// --- Map Flags Tests ---
+
+type MapStringStringCmd struct {
+	Labels map[string]string `targ:"flag"`
+}
+
+func (c *MapStringStringCmd) Run() {}
+
+func TestMapFlags_StringString(t *testing.T) {
+	cmd := &MapStringStringCmd{}
+	_, err := Execute([]string{"app", "--labels", "env=prod", "--labels", "app=web"}, cmd)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(cmd.Labels) != 2 {
+		t.Fatalf("expected 2 labels, got %d: %v", len(cmd.Labels), cmd.Labels)
+	}
+	if cmd.Labels["env"] != "prod" {
+		t.Fatalf("expected env=prod, got %q", cmd.Labels["env"])
+	}
+	if cmd.Labels["app"] != "web" {
+		t.Fatalf("expected app=web, got %q", cmd.Labels["app"])
+	}
+}
+
+type MapStringIntCmd struct {
+	Ports map[string]int `targ:"flag"`
+}
+
+func (c *MapStringIntCmd) Run() {}
+
+func TestMapFlags_StringInt(t *testing.T) {
+	cmd := &MapStringIntCmd{}
+	_, err := Execute([]string{"app", "--ports", "http=80", "--ports", "https=443"}, cmd)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(cmd.Ports) != 2 {
+		t.Fatalf("expected 2 ports, got %d: %v", len(cmd.Ports), cmd.Ports)
+	}
+	if cmd.Ports["http"] != 80 {
+		t.Fatalf("expected http=80, got %d", cmd.Ports["http"])
+	}
+	if cmd.Ports["https"] != 443 {
+		t.Fatalf("expected https=443, got %d", cmd.Ports["https"])
+	}
+}
+
+func TestMapFlags_InvalidFormat(t *testing.T) {
+	cmd := &MapStringStringCmd{}
+	_, err := Execute([]string{"app", "--labels", "invalid"}, cmd)
+	if err == nil {
+		t.Fatal("expected error for invalid map format")
+	}
+}
+
+func TestMapFlags_OverwriteKey(t *testing.T) {
+	cmd := &MapStringStringCmd{}
+	_, err := Execute([]string{"app", "--labels", "env=dev", "--labels", "env=prod"}, cmd)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cmd.Labels["env"] != "prod" {
+		t.Fatalf("expected env=prod (overwritten), got %q", cmd.Labels["env"])
+	}
+}
+
+func TestMapFlags_ValueWithEquals(t *testing.T) {
+	cmd := &MapStringStringCmd{}
+	_, err := Execute([]string{"app", "--labels", "equation=a=b"}, cmd)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cmd.Labels["equation"] != "a=b" {
+		t.Fatalf("expected equation=a=b, got %q", cmd.Labels["equation"])
+	}
+}

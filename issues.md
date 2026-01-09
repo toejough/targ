@@ -87,7 +87,7 @@ Already implemented - slice positionals automatically capture remaining args. Us
 #### Universal
 
 **Status**
-backlog
+done
 
 **Description**
 Support map-type flags or positionals with `key=value` parsing.
@@ -99,6 +99,14 @@ Low
 
 **Acceptance**
 Map fields can be populated via repeated `key=value` inputs with validation.
+
+#### Implementation Notes
+
+**Details**
+- Syntax: `--labels key=value` repeated for multiple entries
+- Supports `map[string]string`, `map[string]int`, etc.
+- Values containing `=` are handled correctly (splits on first `=` only)
+- Later values overwrite earlier ones for same key
 
 ### 52. Multi-command invocation
 
