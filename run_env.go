@@ -7,6 +7,7 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 )
 
 type runEnv interface {
@@ -72,6 +73,20 @@ func runWithEnv(env runEnv, opts RunOptions, targets ...interface{}) error {
 		defer cancel()
 		ctx = rootCtx
 	}
+
+	// Extract --timeout flag before command parsing
+	args := env.Args()
+	timeout, args, err := extractTimeout(args)
+	if err != nil {
+		env.Printf("Error: %v\n", err)
+		return ExitError{Code: 1}
+	}
+	if timeout > 0 {
+		timeoutCtx, cancel := context.WithTimeout(ctx, timeout)
+		defer cancel()
+		ctx = timeoutCtx
+	}
+
 	return withDepTracker(ctx, func() error {
 		roots := []*CommandNode{}
 		for _, t := range targets {
@@ -90,7 +105,6 @@ func runWithEnv(env runEnv, opts RunOptions, targets ...interface{}) error {
 
 		singleRoot := len(roots) == 1
 		hasDefault := singleRoot && opts.AllowDefault
-		args := env.Args()
 		if len(args) < 2 {
 			if hasDefault {
 				if err := roots[0].execute(ctx, nil); err != nil {
@@ -223,4 +237,45 @@ func detectShell() string {
 	default:
 		return ""
 	}
+}
+
+// extractTimeout looks for --timeout flag and returns the duration and remaining args.
+func extractTimeout(args []string) (time.Duration, []string, error) {
+	var result []string
+	var timeout time.Duration
+	skip := false
+
+	for i, arg := range args {
+		if skip {
+			skip = false
+			continue
+		}
+
+		if arg == "--timeout" {
+			if i+1 >= len(args) {
+				return 0, nil, fmt.Errorf("--timeout requires a duration value (e.g., 10m, 1h)")
+			}
+			d, err := time.ParseDuration(args[i+1])
+			if err != nil {
+				return 0, nil, fmt.Errorf("invalid timeout duration %q: %w", args[i+1], err)
+			}
+			timeout = d
+			skip = true
+			continue
+		}
+
+		if strings.HasPrefix(arg, "--timeout=") {
+			val := strings.TrimPrefix(arg, "--timeout=")
+			d, err := time.ParseDuration(val)
+			if err != nil {
+				return 0, nil, fmt.Errorf("invalid timeout duration %q: %w", val, err)
+			}
+			timeout = d
+			continue
+		}
+
+		result = append(result, arg)
+	}
+
+	return timeout, result, nil
 }

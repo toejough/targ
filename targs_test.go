@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 // Helper for tests
@@ -1388,5 +1389,70 @@ func TestMapFlags_ValueWithEquals(t *testing.T) {
 	}
 	if cmd.Labels["equation"] != "a=b" {
 		t.Fatalf("expected equation=a=b, got %q", cmd.Labels["equation"])
+	}
+}
+
+// --- Timeout Tests ---
+
+type TimeoutCmd struct {
+	Called bool
+}
+
+func (c *TimeoutCmd) Run(ctx context.Context) error {
+	c.Called = true
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(10 * time.Millisecond):
+		return nil
+	}
+}
+
+func TestTimeout_NotExceeded(t *testing.T) {
+	cmd := &TimeoutCmd{}
+	_, err := Execute([]string{"app", "--timeout", "1s"}, cmd)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !cmd.Called {
+		t.Fatal("expected command to be called")
+	}
+}
+
+func TestTimeout_Exceeded(t *testing.T) {
+	cmd := &SlowCmd{}
+	_, err := Execute([]string{"app", "--timeout", "10ms"}, cmd)
+	if err == nil {
+		t.Fatal("expected timeout error")
+	}
+}
+
+type SlowCmd struct{}
+
+func (c *SlowCmd) Run(ctx context.Context) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(1 * time.Second):
+		return nil
+	}
+}
+
+func TestTimeout_InvalidDuration(t *testing.T) {
+	cmd := &TimeoutCmd{}
+	_, err := Execute([]string{"app", "--timeout", "invalid"}, cmd)
+	if err == nil {
+		t.Fatal("expected error for invalid duration")
+	}
+}
+
+func TestTimeout_EqualsStyle(t *testing.T) {
+	cmd := &TimeoutCmd{}
+	_, err := Execute([]string{"app", "--timeout=1s"}, cmd)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !cmd.Called {
+		t.Fatal("expected command to be called")
 	}
 }

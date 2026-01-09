@@ -113,7 +113,7 @@ Map fields can be populated via repeated `key=value` inputs with validation.
 #### Universal
 
 **Status**
-backlog
+done
 
 **Description**
 Allow invoking multiple commands in a single targ run (e.g. `targ build test deploy`).
@@ -126,12 +126,17 @@ Medium
 **Acceptance**
 Multiple commands execute in order with shared dependency semantics.
 
+#### Implementation Notes
+
+**Details**
+Already implemented - commands execute in sequence and `Deps()` calls are shared across the entire run (dependencies only execute once).
+
 ### 53. Timeouts for build tool runs
 
 #### Universal
 
 **Status**
-backlog
+done
 
 **Description**
 Provide timeout controls for build-tool executions (CLI flag or API option).
@@ -143,6 +148,15 @@ Low
 
 **Acceptance**
 Timeout cancels the run and surfaces a clear error/exit code.
+
+#### Implementation Notes
+
+**Details**
+- Added `--timeout <duration>` flag (e.g., `--timeout 10m`, `--timeout 1h`)
+- Supports both `--timeout 10m` and `--timeout=10m` syntax
+- Timeout is off by default (no timeout unless flag is specified)
+- Context is cancelled when timeout expires, propagating to commands
+- Clear error messages for missing/invalid duration values
 
 ### 54. Syscall helpers
 
@@ -260,7 +274,7 @@ Shortlist parsers and document tradeoffs; decide whether to keep manual parser.
 backlog
 
 **Description**
-Expose a built-in --completion flag in direct-binary mode (like build-tool mode) so users don’t need to wire it manually.
+Expose a built-in --completion flag in direct-binary mode (like build-tool mode) so users don't need to wire it manually.
 
 #### Planning
 
@@ -269,6 +283,44 @@ Medium
 
 **Acceptance**
 TBD
+
+### 58. Suppress automatic global flags
+
+#### Universal
+
+**Status**
+backlog
+
+**Description**
+Allow users to suppress automatic global flags (--help, --completion, --timeout) via RunOptions or similar mechanism.
+
+#### Planning
+
+**Priority**
+Low
+
+**Acceptance**
+- Add RunOptions fields to disable individual global flags
+- Or add a single `DisableGlobalFlags []string` option
+- Help output should not show disabled flags
+
+#### Design
+
+**Option A**: Individual booleans
+```go
+RunOptions{
+    DisableHelp:       true,
+    DisableCompletion: true,
+    DisableTimeout:    true,
+}
+```
+
+**Option B**: String slice
+```go
+RunOptions{
+    DisableGlobalFlags: []string{"timeout", "completion"},
+}
+```
 
 ## Done
 

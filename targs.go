@@ -783,6 +783,7 @@ func printTargOptions() {
 	fmt.Println("\nTarg options:")
 	fmt.Println("  --help")
 	fmt.Println("  --completion [bash|zsh|fish]")
+	fmt.Println("  --timeout <duration>")
 }
 
 func buildUsageLine(node *CommandNode) (string, error) {
