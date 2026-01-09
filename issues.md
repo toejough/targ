@@ -207,7 +207,7 @@ Manually verified README examples. Fixed one issue: removed `sh.Which` example (
 #### Universal
 
 **Status**
-backlog
+cancelled
 
 **Description**
 Ensure consistent behavior across supported platforms (paths, env, ordering).
@@ -216,6 +216,9 @@ Ensure consistent behavior across supported platforms (paths, env, ordering).
 
 **Priority**
 Medium
+
+**Note**
+No known issues. Platform-aware code already exists (sh.IsWindows, path handling). Reopen if specific issues arise.
 
 **Acceptance**
 Cross-platform test coverage proves deterministic behavior where expected.
