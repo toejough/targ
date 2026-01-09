@@ -11,7 +11,7 @@ import (
 	"unicode"
 )
 
-// Run executes the CLI.
+// Run executes the CLI using os.Args and exits on error.
 func Run(targets ...interface{}) {
 	RunWithOptions(RunOptions{AllowDefault: true}, targets...)
 }
@@ -21,9 +21,34 @@ type RunOptions struct {
 	AllowDefault bool
 }
 
-// RunWithOptions executes the CLI with configurable behavior.
+// RunWithOptions executes the CLI using os.Args and exits on error.
 func RunWithOptions(opts RunOptions, targets ...interface{}) {
-	runWithEnv(osRunEnv{}, opts, targets...)
+	err := runWithEnv(osRunEnv{}, opts, targets...)
+	if err != nil {
+		if exitErr, ok := err.(ExitError); ok {
+			os.Exit(exitErr.Code)
+		}
+		os.Exit(1)
+	}
+}
+
+// ExecuteResult contains the result of executing commands.
+type ExecuteResult struct {
+	Output string
+}
+
+// Execute runs commands with the given args and returns results instead of exiting.
+// This is useful for testing. Args should include the program name as the first element.
+func Execute(args []string, targets ...interface{}) (ExecuteResult, error) {
+	return ExecuteWithOptions(args, RunOptions{AllowDefault: true}, targets...)
+}
+
+// ExecuteWithOptions runs commands with given args and options, returning results.
+// This is useful for testing. Args should include the program name as the first element.
+func ExecuteWithOptions(args []string, opts RunOptions, targets ...interface{}) (ExecuteResult, error) {
+	env := &executeEnv{args: args}
+	err := runWithEnv(env, opts, targets...)
+	return ExecuteResult{Output: env.output.String()}, err
 }
 
 func printUsage(nodes []*CommandNode) {

@@ -34,14 +34,45 @@ func (osRunEnv) Exit(code int) {
 	os.Exit(code)
 }
 
-func runWithEnv(env runEnv, opts RunOptions, targets ...interface{}) {
+// ExitError is returned when a command exits with a non-zero code.
+type ExitError struct {
+	Code int
+}
+
+func (e ExitError) Error() string {
+	return fmt.Sprintf("exit code %d", e.Code)
+}
+
+// executeEnv captures args and errors for testing.
+type executeEnv struct {
+	args   []string
+	output strings.Builder
+}
+
+func (e *executeEnv) Args() []string {
+	return e.args
+}
+
+func (e *executeEnv) Printf(format string, args ...any) {
+	fmt.Fprintf(&e.output, format, args...)
+}
+
+func (e *executeEnv) Println(args ...any) {
+	fmt.Fprintln(&e.output, args...)
+}
+
+func (e *executeEnv) Exit(code int) {
+	// No-op: error is returned via runWithEnv
+}
+
+func runWithEnv(env runEnv, opts RunOptions, targets ...interface{}) error {
 	ctx := context.Background()
 	if _, ok := env.(osRunEnv); ok {
 		rootCtx, cancel := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 		defer cancel()
 		ctx = rootCtx
 	}
-	_ = withDepTracker(ctx, func() error {
+	return withDepTracker(ctx, func() error {
 		roots := []*CommandNode{}
 		for _, t := range targets {
 			node, err := parseTarget(t)
@@ -64,7 +95,7 @@ func runWithEnv(env runEnv, opts RunOptions, targets ...interface{}) {
 			if hasDefault {
 				if err := roots[0].execute(ctx, nil); err != nil {
 					env.Printf("Error: %v\n", err)
-					env.Exit(1)
+					return ExitError{Code: 1}
 				}
 				return nil
 			}
@@ -127,7 +158,7 @@ func runWithEnv(env runEnv, opts RunOptions, targets ...interface{}) {
 			if len(rest) == 0 {
 				if _, err := roots[0].executeWithParents(ctx, nil, nil, map[string]bool{}, false); err != nil {
 					env.Printf("Error: %v\n", err)
-					env.Exit(1)
+					return ExitError{Code: 1}
 				}
 				return nil
 			}
@@ -136,13 +167,11 @@ func runWithEnv(env runEnv, opts RunOptions, targets ...interface{}) {
 				next, err := roots[0].executeWithParents(ctx, remaining, nil, map[string]bool{}, false)
 				if err != nil {
 					env.Printf("Error: %v\n", err)
-					env.Exit(1)
-					return nil
+					return ExitError{Code: 1}
 				}
 				if len(next) == len(remaining) {
 					env.Printf("Unknown command: %s\n", remaining[0])
-					env.Exit(1)
-					return nil
+					return ExitError{Code: 1}
 				}
 				remaining = next
 			}
@@ -162,15 +191,13 @@ func runWithEnv(env runEnv, opts RunOptions, targets ...interface{}) {
 			if matched == nil {
 				env.Printf("Unknown command: %s\n", remaining[0])
 				printUsage(roots)
-				env.Exit(1)
-				return nil
+				return ExitError{Code: 1}
 			}
 
 			next, err := matched.executeWithParents(ctx, remaining[1:], nil, map[string]bool{}, true)
 			if err != nil {
 				env.Printf("Error: %v\n", err)
-				env.Exit(1)
-				return nil
+				return ExitError{Code: 1}
 			}
 			remaining = next
 		}

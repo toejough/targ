@@ -1037,3 +1037,130 @@ func TestCommandMetaOverrides(t *testing.T) {
 		t.Fatalf("expected description override, got %q", node.Description)
 	}
 }
+
+// --- Execute API Tests ---
+
+type ExecuteTestCmd struct {
+	Name   string `targ:"flag"`
+	Called bool
+}
+
+func (c *ExecuteTestCmd) Run() {
+	c.Called = true
+}
+
+func TestExecute_Success(t *testing.T) {
+	cmd := &ExecuteTestCmd{}
+	// With AllowDefault=true (the default for Execute), single root doesn't need command name
+	result, err := Execute([]string{"app", "--name", "Alice"}, cmd)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !cmd.Called {
+		t.Fatal("expected command to be called")
+	}
+	if cmd.Name != "Alice" {
+		t.Fatalf("expected name=Alice, got %q", cmd.Name)
+	}
+	_ = result // Output may be empty for successful command
+}
+
+type ExecuteErrorCmd struct{}
+
+func (c *ExecuteErrorCmd) Run() error {
+	return fmt.Errorf("command failed")
+}
+
+func TestExecute_CommandError(t *testing.T) {
+	cmd := &ExecuteErrorCmd{}
+	// With AllowDefault=true, single root doesn't need command name
+	result, err := Execute([]string{"app"}, cmd)
+	if err == nil {
+		t.Fatal("expected error from command")
+	}
+	// Error is wrapped as ExitError, actual message is in output
+	exitErr, ok := err.(ExitError)
+	if !ok {
+		t.Fatalf("expected ExitError, got %T: %v", err, err)
+	}
+	if exitErr.Code != 1 {
+		t.Fatalf("expected exit code 1, got %d", exitErr.Code)
+	}
+	// The actual error message is captured in output
+	if !strings.Contains(result.Output, "command failed") {
+		t.Fatalf("expected error message in output, got: %q", result.Output)
+	}
+}
+
+func TestExecute_UnknownCommand(t *testing.T) {
+	cmd := &ExecuteTestCmd{}
+	result, err := ExecuteWithOptions([]string{"app", "unknown"}, RunOptions{AllowDefault: false}, cmd)
+	if err == nil {
+		t.Fatal("expected error for unknown command")
+	}
+	exitErr, ok := err.(ExitError)
+	if !ok {
+		t.Fatalf("expected ExitError, got %T: %v", err, err)
+	}
+	if exitErr.Code != 1 {
+		t.Fatalf("expected exit code 1, got %d", exitErr.Code)
+	}
+	if !strings.Contains(result.Output, "Unknown command") {
+		t.Fatalf("expected unknown command message, got: %q", result.Output)
+	}
+}
+
+type ExecuteOutputCmd struct{}
+
+func (c *ExecuteOutputCmd) Run() {
+	fmt.Println("hello from command")
+}
+
+func TestExecute_CapturesOutput(t *testing.T) {
+	cmd := &ExecuteOutputCmd{}
+	// Note: Execute captures env.Printf/Println, not fmt.Println
+	// The command's fmt.Println goes to os.Stdout, not the executeEnv
+	// But error messages from targ go to env.Printf
+	_, err := ExecuteWithOptions([]string{"app", "nonexistent"}, RunOptions{AllowDefault: false}, cmd)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	// Verify ExitError is returned
+	if _, ok := err.(ExitError); !ok {
+		t.Fatalf("expected ExitError, got %T", err)
+	}
+}
+
+type ExecuteDefaultCmd struct {
+	Called bool
+}
+
+func (c *ExecuteDefaultCmd) Run() {
+	c.Called = true
+}
+
+func TestExecuteWithOptions_AllowDefault(t *testing.T) {
+	cmd := &ExecuteDefaultCmd{}
+	// With AllowDefault=true and single root, running with no args should execute the default
+	_, err := ExecuteWithOptions([]string{"app"}, RunOptions{AllowDefault: true}, cmd)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !cmd.Called {
+		t.Fatal("expected default command to be called")
+	}
+}
+
+func TestExecuteWithOptions_NoDefaultShowsUsage(t *testing.T) {
+	cmd := &ExecuteDefaultCmd{}
+	// With AllowDefault=false, no args should just print usage (no error)
+	_, err := ExecuteWithOptions([]string{"app"}, RunOptions{AllowDefault: false}, cmd)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cmd.Called {
+		t.Fatal("expected command NOT to be called without AllowDefault")
+	}
+	// Note: printUsage uses fmt.Println so output isn't captured in ExecuteResult
+	// The key test is that no error is returned and command is not called
+}
