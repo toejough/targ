@@ -32,7 +32,8 @@
       "Bash(wc:*)",
       "Bash(echo \"Not used in examples\" grep -r \"CommandNode\" /Users/joe/repos/personal/commander/cmd --include=\"*.go\")",
       "Bash(ls:*)",
-      "Bash(go run:*)"
+      "Bash(go run:*)",
+      "Bash(go mod tidy:*)"
     ]
   }
 }

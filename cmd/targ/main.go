@@ -166,15 +166,29 @@ func main() {
 		os.Exit(1)
 	}
 
+	var generatedWrappers []string
 	for _, dir := range taggedDirs {
-		if _, err := buildtool.GenerateFunctionWrappers(buildtool.OSFileSystem{}, buildtool.GenerateOptions{
+		wrapper, err := buildtool.GenerateFunctionWrappers(buildtool.OSFileSystem{}, buildtool.GenerateOptions{
 			Dir:        dir.Path,
 			BuildTag:   "targ",
 			OnlyTagged: true,
-		}); err != nil {
+		})
+		if err != nil {
 			fmt.Fprintf(errOut, "Error generating command wrappers: %v\n", err)
 			os.Exit(1)
 		}
+		if wrapper != "" {
+			generatedWrappers = append(generatedWrappers, wrapper)
+		}
+	}
+	cleanupWrappers := func() {
+		for _, path := range generatedWrappers {
+			_ = os.Remove(path)
+		}
+	}
+	exit := func(code int) {
+		cleanupWrappers()
+		os.Exit(code)
 	}
 
 	infos, err := buildtool.Discover(buildtool.OSFileSystem{}, buildtool.Options{
@@ -183,7 +197,7 @@ func main() {
 	})
 	if err != nil {
 		fmt.Fprintf(errOut, "Error discovering commands: %v\n", err)
-		os.Exit(1)
+		exit(1)
 	}
 
 	// Determine the target directory (where the target files are)
@@ -198,7 +212,7 @@ func main() {
 	importRoot, modulePath, moduleFound, err := findModuleInDir(packageDir)
 	if err != nil {
 		fmt.Fprintf(errOut, "Error checking for module: %v\n", err)
-		os.Exit(1)
+		exit(1)
 	}
 	buildRoot := importRoot
 	usingFallback := false
@@ -209,7 +223,7 @@ func main() {
 		buildRoot, err = ensureFallbackModuleRoot(startDir, modulePath, dep)
 		if err != nil {
 			fmt.Fprintf(errOut, "Error preparing fallback module: %v\n", err)
-			os.Exit(1)
+			exit(1)
 		}
 		usingFallback = true
 	}
@@ -217,14 +231,14 @@ func main() {
 	data, err := buildBootstrapData(infos, packageDir, importRoot, modulePath)
 	if err != nil {
 		fmt.Fprintf(errOut, "Error preparing bootstrap: %v\n", err)
-		os.Exit(1)
+		exit(1)
 	}
 
 	tmpl := template.Must(template.New("main").Parse(bootstrapTemplate))
 	var buf bytes.Buffer
 	if err := tmpl.Execute(&buf, data); err != nil {
 		fmt.Fprintf(errOut, "Error generating code: %v\n", err)
-		os.Exit(1)
+		exit(1)
 	}
 
 	taggedFiles, err := buildtool.TaggedFiles(buildtool.OSFileSystem{}, buildtool.Options{
@@ -233,25 +247,25 @@ func main() {
 	})
 	if err != nil {
 		fmt.Fprintf(errOut, "Error gathering tagged files: %v\n", err)
-		os.Exit(1)
+		exit(1)
 	}
 	moduleFiles, err := collectModuleFiles(importRoot)
 	if err != nil {
 		fmt.Fprintf(errOut, "Error gathering module files: %v\n", err)
-		os.Exit(1)
+		exit(1)
 	}
 	cacheInputs := append(taggedFiles, moduleFiles...)
 	cacheKey, err := computeCacheKey(modulePath, importRoot, "targ", buf.Bytes(), cacheInputs)
 	if err != nil {
 		fmt.Fprintf(errOut, "Error computing cache key: %v\n", err)
-		os.Exit(1)
+		exit(1)
 	}
 
 	localMain := len(infos) == 1 && infos[0].Package == "main"
 	relPackageDir, err := filepath.Rel(startDir, packageDir)
 	if err != nil {
 		fmt.Fprintf(errOut, "Error resolving package path: %v\n", err)
-		os.Exit(1)
+		exit(1)
 	}
 	buildPackageDir := packageDir
 	if usingFallback {
@@ -272,7 +286,7 @@ func main() {
 		localMainDir, err := ensureLocalMainBuildDir(packageDir, cacheRoot)
 		if err != nil {
 			fmt.Fprintf(errOut, "Error preparing local main build directory: %v\n", err)
-			os.Exit(1)
+			exit(1)
 		}
 		buildPackageDir = localMainDir
 		bootstrapDir = localMainDir
@@ -283,7 +297,7 @@ func main() {
 	tempFile, cleanupTemp, err = writeBootstrapFile(bootstrapDir, buf.Bytes(), keepBootstrap)
 	if err != nil {
 		fmt.Fprintf(errOut, "Error writing bootstrap file: %v\n", err)
-		os.Exit(1)
+		exit(1)
 	}
 	if !keepBootstrap {
 		defer cleanupTemp()
@@ -292,7 +306,7 @@ func main() {
 	cacheDir := filepath.Join(projCache, "bin")
 	if err := os.MkdirAll(cacheDir, 0755); err != nil {
 		fmt.Fprintf(errOut, "Error creating cache directory: %v\n", err)
-		os.Exit(1)
+		exit(1)
 	}
 	binaryPath := filepath.Join(cacheDir, fmt.Sprintf("targ_%s", cacheKey))
 
@@ -320,11 +334,12 @@ func main() {
 					_ = cleanupTemp()
 				}
 				if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() != 0 {
-					os.Exit(exitErr.ExitCode())
+					exit(exitErr.ExitCode())
 				}
 				fmt.Fprintf(errOut, "Error running command: %v\n", err)
-				os.Exit(1)
+				exit(1)
 			}
+			cleanupWrappers()
 			return
 		}
 	}
@@ -357,7 +372,7 @@ func main() {
 			fmt.Fprint(errOut, buildOutput.String())
 		}
 		fmt.Fprintf(errOut, "Error building command: %v\n", err)
-		os.Exit(1)
+		exit(1)
 	}
 
 	cmd := exec.Command(binaryPath, args...)
@@ -369,8 +384,9 @@ func main() {
 		if !keepBootstrap {
 			_ = cleanupTemp()
 		}
-		os.Exit(1)
+		exit(1)
 	}
+	cleanupWrappers()
 }
 
 func writeBootstrapFile(dir string, data []byte, keep bool) (string, func() error, error) {
