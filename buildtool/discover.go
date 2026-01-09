@@ -644,9 +644,15 @@ func receiverTypeName(recv *ast.FieldList) string {
 
 func camelToKebab(s string) string {
 	var result strings.Builder
-	for i, r := range s {
+	runes := []rune(s)
+	for i, r := range runes {
 		if i > 0 && unicode.IsUpper(r) {
-			result.WriteRune('-')
+			prev := runes[i-1]
+			// Insert hyphen if previous is lowercase (e.g., fooBar -> foo-bar)
+			// OR if we're at the start of a new word after an acronym (e.g., APIServer -> api-server)
+			if unicode.IsLower(prev) || (i+1 < len(runes) && unicode.IsLower(runes[i+1])) {
+				result.WriteRune('-')
+			}
 		}
 		result.WriteRune(unicode.ToLower(r))
 	}

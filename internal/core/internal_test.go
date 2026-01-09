@@ -190,6 +190,35 @@ func TestPersistentFlagConflicts(t *testing.T) {
 	}
 }
 
+// --- camelToKebab ---
+
+func TestCamelToKebab(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"FooBar", "foo-bar"},
+		{"CI", "ci"},
+		{"CLI", "cli"},
+		{"APIServer", "api-server"},
+		{"FooAPI", "foo-api"},
+		{"getHTTPResponse", "get-http-response"},
+		{"HTTPSConnection", "https-connection"},
+		{"SimpleTest", "simple-test"},
+		{"ABC", "abc"},
+		{"ABCdef", "ab-cdef"},
+		{"Test", "test"},
+		{"test", "test"},
+		{"", ""},
+	}
+	for _, tt := range tests {
+		got := camelToKebab(tt.input)
+		if got != tt.want {
+			t.Errorf("camelToKebab(%q) = %q, want %q", tt.input, got, tt.want)
+		}
+	}
+}
+
 // --- Helpers for other test files ---
 
 // parseCommand is a helper used by completion_test.go

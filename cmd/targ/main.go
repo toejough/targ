@@ -856,14 +856,20 @@ func extractLeadingCompletion(args []string) (string, []string) {
 }
 
 func camelToKebab(name string) string {
-	var out strings.Builder
-	for i, r := range name {
-		if i > 0 && r >= 'A' && r <= 'Z' {
-			out.WriteByte('-')
+	var result strings.Builder
+	runes := []rune(name)
+	for i, r := range runes {
+		if i > 0 && unicode.IsUpper(r) {
+			prev := runes[i-1]
+			// Insert hyphen if previous is lowercase (e.g., fooBar -> foo-bar)
+			// OR if we're at the start of a new word after an acronym (e.g., APIServer -> api-server)
+			if unicode.IsLower(prev) || (i+1 < len(runes) && unicode.IsLower(runes[i+1])) {
+				result.WriteRune('-')
+			}
 		}
-		out.WriteRune(r)
+		result.WriteRune(unicode.ToLower(r))
 	}
-	return strings.ToLower(out.String())
+	return result.String()
 }
 
 type namespaceNode struct {
