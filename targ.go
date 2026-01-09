@@ -7,32 +7,44 @@ import (
 	"strings"
 
 	"github.com/toejough/targ/file"
+	"github.com/toejough/targ/internal/core"
 )
 
+// --- Re-exported types from core ---
+
 // Interleaved wraps a value with its parse position for tracking flag ordering.
-// Use []Interleaved[T] when you need to know the relative order of flags
-// across multiple slice fields (e.g., interleaved --include and --exclude).
-type Interleaved[T any] struct {
-	Value    T
-	Position int
-}
+type Interleaved[T any] = core.Interleaved[T]
+
+// RunOptions controls runtime behavior for RunWithOptions.
+type RunOptions = core.RunOptions
+
+// TagKind identifies the type of a struct field in command parsing.
+type TagKind = core.TagKind
+
+// TagOptions contains parsed tag options for a struct field.
+type TagOptions = core.TagOptions
+
+// ExitError is returned when a command exits with a non-zero code.
+type ExitError = core.ExitError
+
+// Re-export TagKind constants
+const (
+	TagKindUnknown    = core.TagKindUnknown
+	TagKindFlag       = core.TagKindFlag
+	TagKindPositional = core.TagKindPositional
+	TagKindSubcommand = core.TagKindSubcommand
+)
+
+// --- Public API ---
 
 // Run executes the CLI using os.Args and exits on error.
 func Run(targets ...interface{}) {
 	RunWithOptions(RunOptions{AllowDefault: true}, targets...)
 }
 
-// RunOptions controls runtime behavior for RunWithOptions.
-type RunOptions struct {
-	AllowDefault      bool
-	DisableHelp       bool
-	DisableTimeout    bool
-	DisableCompletion bool
-}
-
 // RunWithOptions executes the CLI using os.Args and exits on error.
 func RunWithOptions(opts RunOptions, targets ...interface{}) {
-	err := runWithEnv(osRunEnv{}, opts, targets...)
+	err := core.RunWithEnv(core.NewOsEnv(), opts, targets...)
 	if err != nil {
 		if exitErr, ok := err.(ExitError); ok {
 			os.Exit(exitErr.Code)
@@ -55,32 +67,9 @@ func Execute(args []string, targets ...interface{}) (ExecuteResult, error) {
 // ExecuteWithOptions runs commands with given args and options, returning results.
 // This is useful for testing. Args should include the program name as the first element.
 func ExecuteWithOptions(args []string, opts RunOptions, targets ...interface{}) (ExecuteResult, error) {
-	env := &executeEnv{args: args}
-	err := runWithEnv(env, opts, targets...)
-	return ExecuteResult{Output: env.output.String()}, err
-}
-
-// TagKind identifies the type of a struct field in command parsing.
-type TagKind string
-
-const (
-	TagKindUnknown    TagKind = "unknown"
-	TagKindFlag       TagKind = "flag"
-	TagKindPositional TagKind = "positional"
-	TagKindSubcommand TagKind = "subcommand"
-)
-
-// TagOptions contains parsed tag options for a struct field.
-type TagOptions struct {
-	Kind        TagKind
-	Name        string
-	Short       string
-	Desc        string
-	Env         string
-	Default     *string
-	Enum        string
-	Placeholder string
-	Required    bool
+	env := core.NewExecuteEnv(args)
+	err := core.RunWithEnv(env, opts, targets...)
+	return ExecuteResult{Output: env.Output()}, err
 }
 
 // DetectRootCommands filters a list of possible command objects to find those
@@ -130,6 +119,11 @@ func DetectRootCommands(candidates ...interface{}) []interface{} {
 	}
 
 	return roots
+}
+
+// PrintCompletionScript outputs shell completion scripts for the given shell.
+func PrintCompletionScript(shell string, binName string) error {
+	return core.PrintCompletionScript(shell, binName)
 }
 
 // --- Backwards-compatible file utility re-exports ---

@@ -1,4 +1,4 @@
-package targ
+package core
 
 import (
 	// "fmt"

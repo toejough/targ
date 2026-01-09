@@ -1,4 +1,4 @@
-package targ
+package core
 
 import (
 	"context"
@@ -63,10 +63,26 @@ func (e *executeEnv) Println(args ...any) {
 }
 
 func (e *executeEnv) Exit(code int) {
-	// No-op: error is returned via runWithEnv
+	// No-op: error is returned via RunWithEnv
 }
 
-func runWithEnv(env runEnv, opts RunOptions, targets ...interface{}) error {
+// Output returns the captured output from command execution.
+func (e *executeEnv) Output() string {
+	return e.output.String()
+}
+
+// NewOsEnv returns a runEnv that uses os.Args and real stdout/exit.
+func NewOsEnv() runEnv {
+	return osRunEnv{}
+}
+
+// NewExecuteEnv returns a runEnv that captures output for testing.
+func NewExecuteEnv(args []string) *executeEnv {
+	return &executeEnv{args: args}
+}
+
+// RunWithEnv executes commands with a custom environment.
+func RunWithEnv(env runEnv, opts RunOptions, targets ...interface{}) error {
 	ctx := context.Background()
 	if _, ok := env.(osRunEnv); ok {
 		rootCtx, cancel := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)

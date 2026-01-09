@@ -1,7 +1,37 @@
 {
   "permissions": {
     "allow": [
-      "WebFetch(domain:github.com)"
+      "WebFetch(domain:github.com)",
+      "Bash(./targ:*)",
+      "Bash(gh:*)",
+      "Bash(gh auth:*)",
+      "Bash(find:*)",
+      "Bash(go build:*)",
+      "Bash(go test:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(cat:*)",
+      "Bash(/tmp/targ ./tools/issues:*)",
+      "Bash(/tmp/targ:*)",
+      "Bash(terminal-notifier:*)",
+      "Bash(/tmp/targ-test:*)",
+      "Bash(go install:*)",
+      "Bash(targ list --help:*)",
+      "Bash(targ list:*)",
+      "Bash(defined\" because --help wasn''t recognized at the command level.\n\nNow --help and -h are intercepted before flag parsing and trigger\ncommand-specific help output.\n\nAI-Used: [claude]\nEOF\n\\)\")",
+      "Bash(targ --completion:*)",
+      "WebSearch",
+      "Bash(/tmp/greet:*)",
+      "Bash(targ --help:*)",
+      "Bash(targ --generate:*)",
+      "Bash(perl -i -pe:*)",
+      "Bash(/tmp/cli_example:*)",
+      "Bash(done)",
+      "Bash(grep:*)",
+      "Bash(tree:*)",
+      "Bash(wc:*)",
+      "Bash(echo \"Not used in examples\" grep -r \"CommandNode\" /Users/joe/repos/personal/commander/cmd --include=\"*.go\")",
+      "Bash(ls:*)"
     ]
   }
 }

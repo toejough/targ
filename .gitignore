@@ -2,3 +2,5 @@
 .targs/
 *.test
 targ
+.DS_Store
+.crush/

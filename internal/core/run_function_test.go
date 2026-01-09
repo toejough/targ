@@ -1,4 +1,4 @@
-package targ
+package core
 
 import (
 	"context"
@@ -59,7 +59,7 @@ func TestRunWithEnv_SingleFunction_DefaultCommand(t *testing.T) {
 	done := make(chan struct{})
 
 	go func() {
-		runWithEnv(env.Interface(), RunOptions{AllowDefault: true}, DefaultFunc)
+		RunWithEnv(env.Interface(), RunOptions{AllowDefault: true}, DefaultFunc)
 		close(done)
 	}()
 
@@ -84,7 +84,7 @@ func TestRunWithEnv_ContextFunction(t *testing.T) {
 	done := make(chan struct{})
 
 	go func() {
-		runWithEnv(env.Interface(), RunOptions{AllowDefault: true}, ContextFunc)
+		RunWithEnv(env.Interface(), RunOptions{AllowDefault: true}, ContextFunc)
 		close(done)
 	}()
 
@@ -103,7 +103,7 @@ func TestRunWithEnv_MultipleTargets_FunctionByName(t *testing.T) {
 	done := make(chan struct{})
 
 	go func() {
-		runWithEnv(env.Interface(), RunOptions{AllowDefault: true}, HelloWorld, &TestCmdStruct{})
+		RunWithEnv(env.Interface(), RunOptions{AllowDefault: true}, HelloWorld, &TestCmdStruct{})
 		close(done)
 	}()
 
@@ -122,7 +122,7 @@ func TestRunWithEnv_SingleFunction_NoDefault(t *testing.T) {
 	done := make(chan struct{})
 
 	go func() {
-		runWithEnv(env.Interface(), RunOptions{AllowDefault: false}, DefaultFunc)
+		RunWithEnv(env.Interface(), RunOptions{AllowDefault: false}, DefaultFunc)
 		close(done)
 	}()
 
@@ -148,7 +148,7 @@ func TestRunWithEnv_FunctionSubcommand(t *testing.T) {
 	done := make(chan struct{})
 
 	go func() {
-		runWithEnv(env.Interface(), RunOptions{AllowDefault: true}, root)
+		RunWithEnv(env.Interface(), RunOptions{AllowDefault: true}, root)
 		close(done)
 	}()
 
@@ -168,7 +168,7 @@ func TestRunWithEnv_MultipleSubcommands(t *testing.T) {
 	done := make(chan struct{})
 
 	go func() {
-		runWithEnv(env.Interface(), RunOptions{AllowDefault: true}, &MultiSubRoot{})
+		RunWithEnv(env.Interface(), RunOptions{AllowDefault: true}, &MultiSubRoot{})
 		close(done)
 	}()
 
@@ -191,7 +191,7 @@ func TestRunWithEnv_MultipleRoots_SubcommandThenRoot(t *testing.T) {
 	done := make(chan struct{})
 
 	go func() {
-		runWithEnv(env.Interface(), RunOptions{AllowDefault: false}, &firmwareRoot{}, &discoverRoot{})
+		RunWithEnv(env.Interface(), RunOptions{AllowDefault: false}, &firmwareRoot{}, &discoverRoot{})
 		close(done)
 	}()
 
@@ -209,7 +209,7 @@ func TestRunWithEnv_MultipleRoots_SubcommandThenRoot(t *testing.T) {
 func TestRunWithEnv_DisableHelp(t *testing.T) {
 	// With DisableHelp, --help should be passed through as unknown flag
 	env := &executeEnv{args: []string{"cmd", "--help"}}
-	err := runWithEnv(env, RunOptions{DisableHelp: true}, DefaultFunc)
+	err := RunWithEnv(env, RunOptions{DisableHelp: true}, DefaultFunc)
 	if err == nil {
 		t.Fatal("expected error when help is disabled and --help is passed")
 	}
@@ -222,7 +222,7 @@ func TestRunWithEnv_DisableHelp(t *testing.T) {
 func TestRunWithEnv_DisableTimeout(t *testing.T) {
 	// With DisableTimeout, --timeout should be passed through as unknown flag
 	env := &executeEnv{args: []string{"cmd", "--timeout", "5m"}}
-	err := runWithEnv(env, RunOptions{DisableTimeout: true}, DefaultFunc)
+	err := RunWithEnv(env, RunOptions{DisableTimeout: true}, DefaultFunc)
 	if err == nil {
 		t.Fatal("expected error when timeout is disabled and --timeout is passed")
 	}
@@ -231,7 +231,7 @@ func TestRunWithEnv_DisableTimeout(t *testing.T) {
 func TestRunWithEnv_DisableCompletion(t *testing.T) {
 	// With DisableCompletion, --completion should be passed through as unknown flag
 	env := &executeEnv{args: []string{"cmd", "--completion", "bash"}}
-	err := runWithEnv(env, RunOptions{DisableCompletion: true}, DefaultFunc)
+	err := RunWithEnv(env, RunOptions{DisableCompletion: true}, DefaultFunc)
 	if err == nil {
 		t.Fatal("expected error when completion is disabled and --completion is passed")
 	}

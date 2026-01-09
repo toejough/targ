@@ -1,4 +1,4 @@
-package targ
+package core
 
 // internal_test.go contains whitebox tests that require access to unexported
 // symbols. These test internal implementation details that cannot be easily
