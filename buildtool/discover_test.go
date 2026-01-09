@@ -276,19 +276,12 @@ func TestDiscover_FunctionWrappersOverrideFuncs(t *testing.T) {
 		fakeDirEntry{name: "cmd.go", dir: false},
 		fakeDirEntry{name: "generated_targ_build.go", dir: false},
 	}, nil)
+	// generated_targ_* files should be skipped, not read
 	fsMock.ReadFile.ExpectCalledWithExactly("/root/cmd.go").InjectReturnValues([]byte(`//go:build targ
 
 package build
 
 func Build() {}
-`), nil)
-	fsMock.ReadFile.ExpectCalledWithExactly("/root/generated_targ_build.go").InjectReturnValues([]byte(`//go:build targ
-
-package build
-
-type BuildCommand struct{}
-
-func (c *BuildCommand) Run() {}
 `), nil)
 
 	<-done
@@ -300,11 +293,12 @@ func (c *BuildCommand) Run() {}
 		t.Fatalf("expected 1 package info, got %d", len(infos))
 	}
 	info := infos[0]
-	if names := commandNamesByKind(info, CommandStruct); len(names) != 1 || names[0] != "BuildCommand" {
-		t.Fatalf("expected structs [BuildCommand], got %v", names)
+	// Only the function from cmd.go should be found, not the struct from generated file
+	if names := commandNamesByKind(info, CommandStruct); len(names) != 0 {
+		t.Fatalf("expected no structs (generated file skipped), got %v", names)
 	}
-	if names := commandNamesByKind(info, CommandFunc); len(names) != 0 {
-		t.Fatalf("expected funcs to be empty, got %v", names)
+	if names := commandNamesByKind(info, CommandFunc); len(names) != 1 || names[0] != "Build" {
+		t.Fatalf("expected funcs [Build], got %v", names)
 	}
 }
 
