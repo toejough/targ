@@ -273,6 +273,13 @@ func (n *CommandNode) executeWithParents(
 	visited map[string]bool,
 	explicit bool,
 ) ([]string, error) {
+	// Check for help flag
+	if helpRequested, remaining := extractHelpFlag(args); helpRequested {
+		printCommandHelp(n)
+		printTargOptions()
+		return remaining, nil
+	}
+
 	// Extract per-command timeout
 	timeout, args, err := extractTimeout(args)
 	if err != nil {

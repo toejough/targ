@@ -279,3 +279,19 @@ func extractTimeout(args []string) (time.Duration, []string, error) {
 
 	return timeout, result, nil
 }
+
+// extractHelpFlag checks if -h or --help is in args and returns remaining args.
+func extractHelpFlag(args []string) (bool, []string) {
+	var result []string
+	helpFound := false
+
+	for _, arg := range args {
+		if arg == "-h" || arg == "--help" {
+			helpFound = true
+			continue
+		}
+		result = append(result, arg)
+	}
+
+	return helpFound, result
+}
