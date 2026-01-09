@@ -205,3 +205,34 @@ func TestRunWithEnv_MultipleRoots_SubcommandThenRoot(t *testing.T) {
 		t.Fatalf("expected discover to run once, got %d", multiRootDiscoverCalls)
 	}
 }
+
+func TestRunWithEnv_DisableHelp(t *testing.T) {
+	// With DisableHelp, --help should be passed through as unknown flag
+	env := &executeEnv{args: []string{"cmd", "--help"}}
+	err := runWithEnv(env, RunOptions{DisableHelp: true}, DefaultFunc)
+	if err == nil {
+		t.Fatal("expected error when help is disabled and --help is passed")
+	}
+	// Should error as unknown flag
+	if exitErr, ok := err.(ExitError); !ok || exitErr.Code != 1 {
+		t.Fatalf("expected ExitError with code 1, got %v", err)
+	}
+}
+
+func TestRunWithEnv_DisableTimeout(t *testing.T) {
+	// With DisableTimeout, --timeout should be passed through as unknown flag
+	env := &executeEnv{args: []string{"cmd", "--timeout", "5m"}}
+	err := runWithEnv(env, RunOptions{DisableTimeout: true}, DefaultFunc)
+	if err == nil {
+		t.Fatal("expected error when timeout is disabled and --timeout is passed")
+	}
+}
+
+func TestRunWithEnv_DisableCompletion(t *testing.T) {
+	// With DisableCompletion, --completion should be passed through as unknown flag
+	env := &executeEnv{args: []string{"cmd", "--completion", "bash"}}
+	err := runWithEnv(env, RunOptions{DisableCompletion: true}, DefaultFunc)
+	if err == nil {
+		t.Fatal("expected error when completion is disabled and --completion is passed")
+	}
+}

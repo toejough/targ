@@ -117,7 +117,7 @@ func (d *depTracker) execute(target interface{}) error {
 	if err != nil {
 		return err
 	}
-	return node.execute(d.ctx, nil)
+	return node.execute(d.ctx, nil, RunOptions{})
 }
 
 func depKeyFor(target interface{}) (depKey, error) {

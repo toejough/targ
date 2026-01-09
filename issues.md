@@ -282,7 +282,7 @@ Shortlist parsers and document tradeoffs; decide whether to keep manual parser.
 #### Universal
 
 **Status**
-backlog
+done
 
 **Description**
 Expose a built-in --completion flag in direct-binary mode (like build-tool mode) so users don't need to wire it manually.
@@ -293,14 +293,17 @@ Expose a built-in --completion flag in direct-binary mode (like build-tool mode)
 Medium
 
 **Acceptance**
-TBD
+- `./mycli --completion bash` prints completion script
+- `./mycli --completion=zsh` also works
+- Shows in help output
+- Errors if used after a command (like other unrecognized flags)
 
 ### 58. Suppress automatic global flags
 
 #### Universal
 
 **Status**
-backlog
+done
 
 **Description**
 Allow users to suppress automatic global flags (--help, --completion, --timeout) via RunOptions or similar mechanism.
@@ -311,9 +314,9 @@ Allow users to suppress automatic global flags (--help, --completion, --timeout)
 Low
 
 **Acceptance**
-- Add RunOptions fields to disable individual global flags
-- Or add a single `DisableGlobalFlags []string` option
+- Add RunOptions fields to disable individual global flags: `DisableHelp`, `DisableTimeout`, `DisableCompletion`
 - Help output should not show disabled flags
+- Disabled flags are treated as unknown flags (error)
 
 #### Design
 

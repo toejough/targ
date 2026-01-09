@@ -46,7 +46,7 @@ func TestDepsRunsOnce(t *testing.T) {
 		if parseErr != nil {
 			return parseErr
 		}
-		return node.execute(context.Background(), nil)
+		return node.execute(context.Background(), nil, RunOptions{})
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -63,7 +63,7 @@ func TestDepsErrorCached(t *testing.T) {
 		if parseErr != nil {
 			return parseErr
 		}
-		if runErr := node.execute(context.Background(), []string{"--err"}); runErr == nil {
+		if runErr := node.execute(context.Background(), []string{"--err"}, RunOptions{}); runErr == nil {
 			return fmt.Errorf("expected error")
 		}
 		if runErr := Deps(depErr); runErr == nil {

@@ -26,7 +26,10 @@ func Run(targets ...interface{}) {
 
 // RunOptions controls runtime behavior for RunWithOptions.
 type RunOptions struct {
-	AllowDefault bool
+	AllowDefault      bool
+	DisableHelp       bool
+	DisableTimeout    bool
+	DisableCompletion bool
 }
 
 // RunWithOptions executes the CLI using os.Args and exits on error.
@@ -75,7 +78,7 @@ func binaryName() string {
 	return name
 }
 
-func printUsage(nodes []*CommandNode) {
+func printUsage(nodes []*CommandNode, opts RunOptions) {
 	fmt.Printf("Usage: %s <command> [args]\n", binaryName())
 	fmt.Println("\nAvailable commands:")
 
@@ -83,7 +86,7 @@ func printUsage(nodes []*CommandNode) {
 		printCommandSummary(node, "  ")
 	}
 
-	printTargOptions()
+	printTargOptions(opts)
 }
 
 func printCommandSummary(node *CommandNode, indent string) {
@@ -272,8 +275,8 @@ func parseStruct(t interface{}) (*CommandNode, error) {
 	return node, nil
 }
 
-func (n *CommandNode) execute(ctx context.Context, args []string) error {
-	_, err := n.executeWithParents(ctx, args, nil, map[string]bool{}, false)
+func (n *CommandNode) execute(ctx context.Context, args []string, opts RunOptions) error {
+	_, err := n.executeWithParents(ctx, args, nil, map[string]bool{}, false, opts)
 	return err
 }
 
@@ -288,23 +291,29 @@ func (n *CommandNode) executeWithParents(
 	parents []commandInstance,
 	visited map[string]bool,
 	explicit bool,
+	opts RunOptions,
 ) ([]string, error) {
 	// Check for help flag
-	if helpRequested, remaining := extractHelpFlag(args); helpRequested {
-		printCommandHelp(n)
-		printTargOptions()
-		return remaining, nil
+	if !opts.DisableHelp {
+		if helpRequested, remaining := extractHelpFlag(args); helpRequested {
+			printCommandHelp(n)
+			printTargOptions(opts)
+			return remaining, nil
+		}
 	}
 
 	// Extract per-command timeout
-	timeout, args, err := extractTimeout(args)
-	if err != nil {
-		return nil, err
-	}
-	if timeout > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, timeout)
-		defer cancel()
+	if !opts.DisableTimeout {
+		timeout, remaining, err := extractTimeout(args)
+		if err != nil {
+			return nil, err
+		}
+		args = remaining
+		if timeout > 0 {
+			var cancel context.CancelFunc
+			ctx, cancel = context.WithTimeout(ctx, timeout)
+			defer cancel()
+		}
 	}
 
 	if n.Func.IsValid() {
@@ -330,7 +339,7 @@ func (n *CommandNode) executeWithParents(
 		if err := assignSubcommandField(n, inst, result.subcommand.Name, result.subcommand); err != nil {
 			return nil, err
 		}
-		return result.subcommand.executeWithParents(ctx, result.remaining, chain, visited, true)
+		return result.subcommand.executeWithParents(ctx, result.remaining, chain, visited, true, opts)
 	}
 
 	if err := applyDefaultsAndEnv(specs, visited); err != nil {
@@ -814,10 +823,23 @@ func printCommandHelp(node *CommandNode) {
 	}
 }
 
-func printTargOptions() {
-	fmt.Println("\nTarg options:")
-	fmt.Println("  --help")
-	fmt.Println("  --timeout <duration>")
+func printTargOptions(opts RunOptions) {
+	var flags []string
+	if !opts.DisableCompletion {
+		flags = append(flags, "  --completion [bash|zsh|fish]")
+	}
+	if !opts.DisableHelp {
+		flags = append(flags, "  --help")
+	}
+	if !opts.DisableTimeout {
+		flags = append(flags, "  --timeout <duration>")
+	}
+	if len(flags) > 0 {
+		fmt.Println("\nTarg options:")
+		for _, f := range flags {
+			fmt.Println(f)
+		}
+	}
 }
 
 func buildUsageLine(node *CommandNode) (string, error) {

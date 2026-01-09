@@ -76,15 +76,18 @@ func runWithEnv(env runEnv, opts RunOptions, targets ...interface{}) error {
 
 	// Extract --timeout flag before command parsing
 	args := env.Args()
-	timeout, args, err := extractTimeout(args)
-	if err != nil {
-		env.Printf("Error: %v\n", err)
-		return ExitError{Code: 1}
-	}
-	if timeout > 0 {
-		timeoutCtx, cancel := context.WithTimeout(ctx, timeout)
-		defer cancel()
-		ctx = timeoutCtx
+	if !opts.DisableTimeout {
+		timeout, remaining, err := extractTimeout(args)
+		if err != nil {
+			env.Printf("Error: %v\n", err)
+			return ExitError{Code: 1}
+		}
+		args = remaining
+		if timeout > 0 {
+			timeoutCtx, cancel := context.WithTimeout(ctx, timeout)
+			defer cancel()
+			ctx = timeoutCtx
+		}
 	}
 
 	return withDepTracker(ctx, func() error {
@@ -107,13 +110,13 @@ func runWithEnv(env runEnv, opts RunOptions, targets ...interface{}) error {
 		hasDefault := singleRoot && opts.AllowDefault
 		if len(args) < 2 {
 			if hasDefault {
-				if err := roots[0].execute(ctx, nil); err != nil {
+				if err := roots[0].execute(ctx, nil, opts); err != nil {
 					env.Printf("Error: %v\n", err)
 					return ExitError{Code: 1}
 				}
 				return nil
 			}
-			printUsage(roots)
+			printUsage(roots, opts)
 			return nil
 		}
 
@@ -131,19 +134,50 @@ func runWithEnv(env runEnv, opts RunOptions, targets ...interface{}) error {
 		}
 
 		// Handle global help
-		if rest[0] == "-h" || rest[0] == "--help" {
+		if !opts.DisableHelp && (rest[0] == "-h" || rest[0] == "--help") {
 			if hasDefault {
 				printCommandHelp(roots[0])
-				printTargOptions()
+				printTargOptions(opts)
 			} else {
-				printUsage(roots)
+				printUsage(roots, opts)
 			}
 			return nil
 		}
 
+		// Handle --completion flag
+		if !opts.DisableCompletion {
+			if rest[0] == "--completion" {
+				shell := ""
+				if len(rest) > 1 && !strings.HasPrefix(rest[1], "-") {
+					shell = rest[1]
+				}
+				if shell == "" {
+					shell = detectShell()
+				}
+				if shell == "" {
+					env.Println("Usage: --completion [bash|zsh|fish]")
+					env.Println("Could not detect shell. Please specify one.")
+					return ExitError{Code: 1}
+				}
+				if err := PrintCompletionScript(shell, binaryName()); err != nil {
+					env.Printf("Error: %v\n", err)
+					return ExitError{Code: 1}
+				}
+				return nil
+			}
+			if strings.HasPrefix(rest[0], "--completion=") {
+				shell := strings.TrimPrefix(rest[0], "--completion=")
+				if err := PrintCompletionScript(shell, binaryName()); err != nil {
+					env.Printf("Error: %v\n", err)
+					return ExitError{Code: 1}
+				}
+				return nil
+			}
+		}
+
 		if hasDefault {
 			if len(rest) == 0 {
-				if _, err := roots[0].executeWithParents(ctx, nil, nil, map[string]bool{}, false); err != nil {
+				if _, err := roots[0].executeWithParents(ctx, nil, nil, map[string]bool{}, false, opts); err != nil {
 					env.Printf("Error: %v\n", err)
 					return ExitError{Code: 1}
 				}
@@ -151,7 +185,7 @@ func runWithEnv(env runEnv, opts RunOptions, targets ...interface{}) error {
 			}
 			remaining := rest
 			for len(remaining) > 0 {
-				next, err := roots[0].executeWithParents(ctx, remaining, nil, map[string]bool{}, false)
+				next, err := roots[0].executeWithParents(ctx, remaining, nil, map[string]bool{}, false, opts)
 				if err != nil {
 					env.Printf("Error: %v\n", err)
 					return ExitError{Code: 1}
@@ -177,11 +211,11 @@ func runWithEnv(env runEnv, opts RunOptions, targets ...interface{}) error {
 
 			if matched == nil {
 				env.Printf("Unknown command: %s\n", remaining[0])
-				printUsage(roots)
+				printUsage(roots, opts)
 				return ExitError{Code: 1}
 			}
 
-			next, err := matched.executeWithParents(ctx, remaining[1:], nil, map[string]bool{}, true)
+			next, err := matched.executeWithParents(ctx, remaining[1:], nil, map[string]bool{}, true, opts)
 			if err != nil {
 				env.Printf("Error: %v\n", err)
 				return ExitError{Code: 1}
