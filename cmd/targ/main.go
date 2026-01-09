@@ -80,7 +80,6 @@ func main() {
 	fs.BoolVar(&keepBootstrap, "keep", false, "keep generated bootstrap file")
 	fs.BoolVar(&generateFlag, "generate", false, "generate struct wrappers for function commands")
 	fs.StringVar(&completionShell, "completion", "", "print shell completion (bash|zsh|fish)")
-	fs.StringVar(&timeoutFlag, "timeout", "", "set execution timeout (e.g., 10m, 1h)")
 	fs.BoolVar(&helpFlag, "help", false, "print help information")
 	fs.BoolVar(&helpFlag, "h", false, "alias for --help")
 	fs.Usage = func() {
@@ -94,6 +93,8 @@ func main() {
 		errOut = io.Discard
 	}
 	helpRequested, helpTargets := parseHelpRequest(rawArgs)
+	// Extract leading --timeout before any command (global timeout)
+	timeoutFlag, rawArgs = extractLeadingTimeout(rawArgs)
 	parseArgs := make([]string, 0, len(rawArgs))
 	completionRequested := false
 	for i := 0; i < len(rawArgs); i++ {
@@ -110,17 +111,6 @@ func main() {
 		}
 		if strings.HasPrefix(arg, "--completion=") {
 			completionRequested = true
-		}
-		if arg == "--timeout" {
-			if i+1 < len(rawArgs) && !strings.HasPrefix(rawArgs[i+1], "-") {
-				parseArgs = append(parseArgs, "-timeout="+rawArgs[i+1])
-				i++
-				continue
-			}
-		}
-		if strings.HasPrefix(arg, "--timeout=") {
-			parseArgs = append(parseArgs, "-timeout="+strings.TrimPrefix(arg, "--timeout="))
-			continue
 		}
 		parseArgs = append(parseArgs, arg)
 	}
@@ -787,6 +777,34 @@ func parseHelpRequest(args []string) (bool, bool) {
 		sawTarget = true
 	}
 	return helpRequested, sawTarget
+}
+
+// extractLeadingTimeout extracts --timeout from args before any command.
+// Returns the timeout value (empty if not found) and remaining args.
+func extractLeadingTimeout(args []string) (string, []string) {
+	var result []string
+	var timeout string
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		// Stop looking for timeout once we hit a non-flag (command name)
+		if !strings.HasPrefix(arg, "-") {
+			result = append(result, args[i:]...)
+			break
+		}
+		if arg == "--timeout" {
+			if i+1 < len(args) {
+				timeout = args[i+1]
+				i++
+			}
+			continue
+		}
+		if strings.HasPrefix(arg, "--timeout=") {
+			timeout = strings.TrimPrefix(arg, "--timeout=")
+			continue
+		}
+		result = append(result, arg)
+	}
+	return timeout, result
 }
 
 func camelToKebab(name string) string {

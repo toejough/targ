@@ -273,6 +273,17 @@ func (n *CommandNode) executeWithParents(
 	visited map[string]bool,
 	explicit bool,
 ) ([]string, error) {
+	// Extract per-command timeout
+	timeout, args, err := extractTimeout(args)
+	if err != nil {
+		return nil, err
+	}
+	if timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
+	}
+
 	if n.Func.IsValid() {
 		return executeFunctionWithParents(ctx, args, n, parents, visited, explicit)
 	}

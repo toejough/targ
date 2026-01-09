@@ -1427,9 +1427,12 @@ func TestTimeout_Exceeded(t *testing.T) {
 	}
 }
 
-type SlowCmd struct{}
+type SlowCmd struct {
+	Called bool
+}
 
 func (c *SlowCmd) Run(ctx context.Context) error {
+	c.Called = true
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
@@ -1449,6 +1452,80 @@ func TestTimeout_InvalidDuration(t *testing.T) {
 func TestTimeout_EqualsStyle(t *testing.T) {
 	cmd := &TimeoutCmd{}
 	_, err := Execute([]string{"app", "--timeout=1s"}, cmd)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !cmd.Called {
+		t.Fatal("expected command to be called")
+	}
+}
+
+func TestTimeout_PerCommand(t *testing.T) {
+	// Timeout after command name should apply to that command
+	cmd := &TimeoutCmd{}
+	_, err := ExecuteWithOptions(
+		[]string{"app", "timeout-cmd", "--timeout", "1s"},
+		RunOptions{AllowDefault: false},
+		cmd,
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !cmd.Called {
+		t.Fatal("expected command to be called")
+	}
+}
+
+func TestTimeout_PerCommandExceeded(t *testing.T) {
+	// Per-command timeout that expires
+	cmd := &SlowCmd{}
+	_, err := ExecuteWithOptions(
+		[]string{"app", "slow-cmd", "--timeout", "10ms"},
+		RunOptions{AllowDefault: false},
+		cmd,
+	)
+	if err == nil {
+		t.Fatal("expected timeout error")
+	}
+}
+
+type FastCmd struct {
+	Called bool
+}
+
+func (c *FastCmd) Run(ctx context.Context) error {
+	c.Called = true
+	return nil
+}
+
+func TestTimeout_MultiCommandDifferentTimeouts(t *testing.T) {
+	// Each command gets its own timeout
+	fast := &FastCmd{}
+	slow := &SlowCmd{}
+	_, err := ExecuteWithOptions(
+		[]string{"app", "fast-cmd", "--timeout", "10ms", "slow-cmd", "--timeout", "2s"},
+		RunOptions{AllowDefault: false},
+		fast, slow,
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !fast.Called {
+		t.Fatal("expected fast command to be called")
+	}
+	if !slow.Called {
+		t.Fatal("expected slow command to be called")
+	}
+}
+
+func TestTimeout_GlobalAndPerCommand(t *testing.T) {
+	// Global timeout at start, per-command timeout should also work
+	cmd := &TimeoutCmd{}
+	_, err := ExecuteWithOptions(
+		[]string{"app", "--timeout", "5s", "timeout-cmd", "--timeout", "1s"},
+		RunOptions{AllowDefault: false},
+		cmd,
+	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
