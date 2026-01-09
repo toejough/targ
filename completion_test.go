@@ -152,7 +152,7 @@ func TestCompletionSuggestsEnumValuesAfterFlag(t *testing.T) {
 	}
 
 	out := captureStdout(t, func() {
-		if err := doCompletion([]*CommandNode{cmd}, "app --mode "); err != nil {
+		if err := doCompletion([]*commandNode{cmd}, "app --mode "); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 	})
@@ -168,7 +168,7 @@ func TestCompletionSuggestsPositionalValues(t *testing.T) {
 	}
 
 	out := captureStdout(t, func() {
-		if err := doCompletion([]*CommandNode{cmd}, "app --status cancelled "); err != nil {
+		if err := doCompletion([]*commandNode{cmd}, "app --status cancelled "); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 	})
@@ -204,7 +204,7 @@ func TestCompletionSuggestsRootsAfterCommand(t *testing.T) {
 	}
 
 	out := captureStdout(t, func() {
-		if err := doCompletion([]*CommandNode{firmware, discover}, "app firmware flash-only d"); err != nil {
+		if err := doCompletion([]*commandNode{firmware, discover}, "app firmware flash-only d"); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 	})

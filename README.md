@@ -338,8 +338,10 @@ out, err := sh.Output("go", "env", "GOMOD")
 Skip work when files haven't changed:
 
 ```go
+import "github.com/toejough/targ/file"
+
 // Compare input modtimes against outputs
-needs, err := targ.Newer([]string{"**/*.go"}, []string{"bin/app"})
+needs, err := file.Newer([]string{"**/*.go"}, []string{"bin/app"})
 if !needs {
     return nil
 }
@@ -350,9 +352,9 @@ When outputs are empty, `Newer` uses a cached snapshot.
 Content-based checking:
 
 ```go
-import "github.com/toejough/targ/target"
+import "github.com/toejough/targ/file"
 
-changed, err := target.Checksum([]string{"**/*.go"}, ".targ/cache/build.sum")
+changed, err := file.Checksum([]string{"**/*.go"}, ".targ/cache/build.sum")
 if !changed {
     return nil
 }
@@ -363,7 +365,9 @@ if !changed {
 React to file changes:
 
 ```go
-err := targ.Watch(ctx, []string{"**/*.go"}, targ.WatchOptions{}, func(changes targ.ChangeSet) error {
+import "github.com/toejough/targ/file"
+
+err := file.Watch(ctx, []string{"**/*.go"}, file.WatchOptions{}, func(changes file.ChangeSet) error {
     return sh.Run("go", "test", "./...")
 })
 ```

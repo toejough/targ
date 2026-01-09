@@ -1,4 +1,4 @@
-package targ
+package file
 
 import (
 	"crypto/sha256"

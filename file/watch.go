@@ -1,4 +1,4 @@
-package targ
+package file
 
 import (
 	"context"
@@ -8,12 +8,14 @@ import (
 	"time"
 )
 
+// ChangeSet contains the files that changed between snapshots.
 type ChangeSet struct {
 	Added    []string
 	Removed  []string
 	Modified []string
 }
 
+// WatchOptions configures the Watch function.
 type WatchOptions struct {
 	Interval time.Duration
 }

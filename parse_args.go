@@ -15,7 +15,7 @@ type positionalSpec struct {
 
 type parseResult struct {
 	remaining           []string
-	subcommand          *CommandNode
+	subcommand          *commandNode
 	positionalsComplete bool
 }
 
@@ -56,7 +56,7 @@ func collectFlagSpecs(chain []commandInstance) ([]*flagSpec, map[string]bool, er
 	return specs, longNames, nil
 }
 
-func collectPositionalSpecs(node *CommandNode, inst reflect.Value) ([]positionalSpec, error) {
+func collectPositionalSpecs(node *commandNode, inst reflect.Value) ([]positionalSpec, error) {
 	if node == nil || node.Type == nil {
 		return nil, nil
 	}
@@ -86,7 +86,7 @@ func collectPositionalSpecs(node *CommandNode, inst reflect.Value) ([]positional
 }
 
 func parseCommandArgs(
-	node *CommandNode,
+	node *commandNode,
 	inst reflect.Value,
 	chain []commandInstance,
 	args []string,
@@ -101,7 +101,7 @@ func parseCommandArgs(
 }
 
 func parseCommandArgsWithPosition(
-	node *CommandNode,
+	node *commandNode,
 	inst reflect.Value,
 	chain []commandInstance,
 	args []string,

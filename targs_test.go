@@ -11,7 +11,7 @@ import (
 )
 
 // Helper for tests
-func parseCommand(f interface{}) (*CommandNode, error) {
+func parseCommand(f interface{}) (*commandNode, error) {
 	return parseStruct(f)
 }
 
@@ -882,7 +882,7 @@ func TestCompletionIncludesInheritedFlags(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	out := captureStdout(t, func() {
-		if err := doCompletion([]*CommandNode{cmd}, "app child --"); err != nil {
+		if err := doCompletion([]*commandNode{cmd}, "app child --"); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 	})

@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-func parseTarget(t interface{}) (*CommandNode, error) {
+func parseTarget(t interface{}) (*commandNode, error) {
 	if t == nil {
 		return nil, fmt.Errorf("nil target")
 	}
@@ -21,7 +21,7 @@ func parseTarget(t interface{}) (*CommandNode, error) {
 	return parseStruct(t)
 }
 
-func parseFunc(v reflect.Value) (*CommandNode, error) {
+func parseFunc(v reflect.Value) (*commandNode, error) {
 	typ := v.Type()
 	if typ.Kind() != reflect.Func {
 		return nil, fmt.Errorf("expected func, got %v", typ.Kind())
@@ -36,10 +36,10 @@ func parseFunc(v reflect.Value) (*CommandNode, error) {
 		return nil, fmt.Errorf("unable to determine function name")
 	}
 
-	return &CommandNode{
+	return &commandNode{
 		Name:        camelToKebab(name),
 		Func:        v,
-		Subcommands: make(map[string]*CommandNode),
+		Subcommands: make(map[string]*commandNode),
 	}, nil
 }
 

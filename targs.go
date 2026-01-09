@@ -78,7 +78,7 @@ func binaryName() string {
 	return name
 }
 
-func printUsage(nodes []*CommandNode, opts RunOptions) {
+func printUsage(nodes []*commandNode, opts RunOptions) {
 	fmt.Printf("Usage: %s <command> [args]\n", binaryName())
 	fmt.Println("\nAvailable commands:")
 
@@ -89,7 +89,7 @@ func printUsage(nodes []*CommandNode, opts RunOptions) {
 	printTargOptions(opts)
 }
 
-func printCommandSummary(node *CommandNode, indent string) {
+func printCommandSummary(node *commandNode, indent string) {
 	fmt.Printf("%s%-20s %s\n", indent, node.Name, node.Description)
 
 	// Recursively print subcommands
@@ -106,13 +106,13 @@ func printCommandSummary(node *CommandNode, indent string) {
 	}
 }
 
-type CommandNode struct {
+type commandNode struct {
 	Name        string
 	Type        reflect.Type
 	Value       reflect.Value // The struct instance
 	Func        reflect.Value // Niladic function target
-	Parent      *CommandNode
-	Subcommands map[string]*CommandNode
+	Parent      *commandNode
+	Subcommands map[string]*commandNode
 	RunMethod   reflect.Value
 	Description string
 }
@@ -150,7 +150,7 @@ type flagSpec struct {
 	envApplied     bool
 }
 
-func parseStruct(t interface{}) (*CommandNode, error) {
+func parseStruct(t interface{}) (*commandNode, error) {
 	if t == nil {
 		return nil, fmt.Errorf("nil target")
 	}
@@ -195,11 +195,11 @@ func parseStruct(t interface{}) (*CommandNode, error) {
 
 	name := camelToKebab(typ.Name())
 
-	node := &CommandNode{
+	node := &commandNode{
 		Name:        name,
 		Type:        typ,
 		Value:       v,
-		Subcommands: make(map[string]*CommandNode),
+		Subcommands: make(map[string]*commandNode),
 	}
 
 	// 1. Look for Run method on the *pointer* to the struct
@@ -240,14 +240,14 @@ func parseStruct(t interface{}) (*CommandNode, error) {
 				fieldType = fieldType.Elem()
 			}
 
-			var subNode *CommandNode
+			var subNode *commandNode
 			if fieldType.Kind() == reflect.Func {
 				if err := validateFuncType(field.Type); err != nil {
 					return nil, err
 				}
-				subNode = &CommandNode{
+				subNode = &commandNode{
 					Func:        reflect.Zero(field.Type),
-					Subcommands: make(map[string]*CommandNode),
+					Subcommands: make(map[string]*commandNode),
 				}
 			} else {
 				// We need an instance of the field type to parse it.
@@ -275,17 +275,17 @@ func parseStruct(t interface{}) (*CommandNode, error) {
 	return node, nil
 }
 
-func (n *CommandNode) execute(ctx context.Context, args []string, opts RunOptions) error {
+func (n *commandNode) execute(ctx context.Context, args []string, opts RunOptions) error {
 	_, err := n.executeWithParents(ctx, args, nil, map[string]bool{}, false, opts)
 	return err
 }
 
 type commandInstance struct {
-	node  *CommandNode
+	node  *commandNode
 	value reflect.Value
 }
 
-func (n *CommandNode) executeWithParents(
+func (n *commandNode) executeWithParents(
 	ctx context.Context,
 	args []string,
 	parents []commandInstance,
@@ -364,7 +364,7 @@ func (n *CommandNode) executeWithParents(
 func executeFunctionWithParents(
 	ctx context.Context,
 	args []string,
-	node *CommandNode,
+	node *commandNode,
 	parents []commandInstance,
 	visited map[string]bool,
 	explicit bool,
@@ -395,7 +395,7 @@ func executeFunctionWithParents(
 	return result.remaining, nil
 }
 
-func nodeInstance(node *CommandNode) (reflect.Value, error) {
+func nodeInstance(node *commandNode) (reflect.Value, error) {
 	if node != nil && node.Value.IsValid() && node.Value.Kind() == reflect.Struct && node.Value.CanAddr() {
 		return node.Value, nil
 	}
@@ -572,7 +572,7 @@ func flagVisited(spec *flagSpec, visited map[string]bool) bool {
 	return false
 }
 
-func applyPositionals(inst reflect.Value, node *CommandNode, args []string) (int, error) {
+func applyPositionals(inst reflect.Value, node *commandNode, args []string) (int, error) {
 	if node == nil || node.Type == nil {
 		if len(args) > 0 {
 			return 0, fmt.Errorf("unexpected argument: %s", args[0])
@@ -623,7 +623,7 @@ func applyPositionals(inst reflect.Value, node *CommandNode, args []string) (int
 	return posIndex, nil
 }
 
-func assignSubcommandField(parent *CommandNode, parentInst reflect.Value, subName string, sub *CommandNode) error {
+func assignSubcommandField(parent *commandNode, parentInst reflect.Value, subName string, sub *commandNode) error {
 	if parent == nil || parent.Type == nil {
 		return nil
 	}
@@ -691,7 +691,7 @@ func reverseChain(chain []commandInstance) []commandInstance {
 	return out
 }
 
-func runCommand(ctx context.Context, node *CommandNode, inst reflect.Value, args []string, posArgIdx int) error {
+func runCommand(ctx context.Context, node *commandNode, inst reflect.Value, args []string, posArgIdx int) error {
 	if node == nil {
 		return nil
 	}
@@ -755,7 +755,7 @@ func callMethod(ctx context.Context, receiver reflect.Value, name string) (bool,
 	return true, nil
 }
 
-func printCommandHelp(node *CommandNode) {
+func printCommandHelp(node *commandNode) {
 	binName := binaryName()
 	if node.Type == nil {
 		fmt.Printf("Usage: %s %s\n\n", binName, node.Name)
@@ -842,7 +842,7 @@ func printTargOptions(opts RunOptions) {
 	}
 }
 
-func buildUsageLine(node *CommandNode) (string, error) {
+func buildUsageLine(node *commandNode) (string, error) {
 	parts := []string{node.Name}
 	flags, err := collectFlagHelpChain(node)
 	if err != nil {
@@ -972,7 +972,7 @@ func applyTagOptionsOverride(inst reflect.Value, field reflect.StructField, opts
 	return results[0].Interface().(TagOptions), nil
 }
 
-func tagOptionsInstance(node *CommandNode) reflect.Value {
+func tagOptionsInstance(node *commandNode) reflect.Value {
 	if node == nil {
 		return reflect.Value{}
 	}
@@ -1008,7 +1008,7 @@ type flagHelp struct {
 	Inherited   bool
 }
 
-func collectFlagHelp(node *CommandNode) ([]flagHelp, error) {
+func collectFlagHelp(node *commandNode) ([]flagHelp, error) {
 	if node.Type == nil {
 		return nil, nil
 	}
@@ -1055,7 +1055,7 @@ func collectFlagHelp(node *CommandNode) ([]flagHelp, error) {
 	return flags, nil
 }
 
-func collectFlagHelpChain(node *CommandNode) ([]flagHelp, error) {
+func collectFlagHelpChain(node *commandNode) ([]flagHelp, error) {
 	chain := nodeChain(node)
 	var flags []flagHelp
 	for i, current := range chain {
@@ -1078,7 +1078,7 @@ type positionalHelp struct {
 	Required    bool
 }
 
-func collectPositionalHelp(node *CommandNode) ([]positionalHelp, error) {
+func collectPositionalHelp(node *commandNode) ([]positionalHelp, error) {
 	if node.Type == nil {
 		return nil, nil
 	}
@@ -1197,11 +1197,11 @@ func expandShortFlagGroups(args []string, specs []*flagSpec) ([]string, error) {
 	return expanded, nil
 }
 
-func nodeChain(node *CommandNode) []*CommandNode {
+func nodeChain(node *commandNode) []*commandNode {
 	if node == nil {
 		return nil
 	}
-	var chain []*CommandNode
+	var chain []*commandNode
 	for current := node; current != nil; current = current.Parent {
 		chain = append(chain, current)
 	}

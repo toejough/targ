@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-func doCompletion(roots []*CommandNode, commandLine string) error {
+func doCompletion(roots []*commandNode, commandLine string) error {
 	// 1. Tokenize the command line
 	// The commandLine includes the binary name. e.g. "myapp build -t"
 	parts, isNewArg := tokenizeCommandLine(commandLine)
@@ -29,7 +29,7 @@ func doCompletion(roots []*CommandNode, commandLine string) error {
 	}
 
 	// Resolve current command context.
-	var currentNode *CommandNode
+	var currentNode *commandNode
 	singleRoot := len(roots) == 1
 	atRoot := true
 	allowRootSuggestions := len(roots) > 1
@@ -424,7 +424,7 @@ type positionalField struct {
 	Opts  TagOptions
 }
 
-func positionalFields(node *CommandNode, inst reflect.Value) ([]positionalField, error) {
+func positionalFields(node *commandNode, inst reflect.Value) ([]positionalField, error) {
 	if node == nil || node.Type == nil {
 		return nil, nil
 	}
@@ -443,7 +443,7 @@ func positionalFields(node *CommandNode, inst reflect.Value) ([]positionalField,
 	return fields, nil
 }
 
-func positionalIndex(node *CommandNode, args []string, chain []commandInstance) (int, error) {
+func positionalIndex(node *commandNode, args []string, chain []commandInstance) (int, error) {
 	specs, err := completionFlagSpecs(chain)
 	if err != nil {
 		return 0, err
@@ -518,7 +518,7 @@ func positionalIndex(node *CommandNode, args []string, chain []commandInstance) 
 	return count, nil
 }
 
-func completionChain(node *CommandNode, args []string) ([]commandInstance, error) {
+func completionChain(node *commandNode, args []string) ([]commandInstance, error) {
 	if node == nil {
 		return nil, nil
 	}
@@ -526,7 +526,7 @@ func completionChain(node *CommandNode, args []string) ([]commandInstance, error
 	return chain, err
 }
 
-func completionParse(node *CommandNode, args []string, explicit bool) ([]commandInstance, parseResult, error) {
+func completionParse(node *commandNode, args []string, explicit bool) ([]commandInstance, parseResult, error) {
 	chainNodes := nodeChain(node)
 	chain := make([]commandInstance, 0, len(chainNodes))
 	for _, current := range chainNodes {
@@ -543,7 +543,7 @@ func completionParse(node *CommandNode, args []string, explicit bool) ([]command
 	return chain, result, err
 }
 
-func findCompletionRoot(roots []*CommandNode, name string) *CommandNode {
+func findCompletionRoot(roots []*commandNode, name string) *commandNode {
 	for _, root := range roots {
 		if strings.EqualFold(root.Name, name) {
 			return root

@@ -91,7 +91,7 @@ func runWithEnv(env runEnv, opts RunOptions, targets ...interface{}) error {
 	}
 
 	return withDepTracker(ctx, func() error {
-		roots := []*CommandNode{}
+		roots := []*commandNode{}
 		for _, t := range targets {
 			node, err := parseTarget(t)
 			if err != nil {
@@ -201,7 +201,7 @@ func runWithEnv(env runEnv, opts RunOptions, targets ...interface{}) error {
 
 		remaining := rest
 		for len(remaining) > 0 {
-			var matched *CommandNode
+			var matched *commandNode
 			for _, root := range roots {
 				if strings.EqualFold(root.Name, remaining[0]) {
 					matched = root
