@@ -59,11 +59,11 @@ func TestRunWithEnv_SingleFunction_DefaultCommand(t *testing.T) {
 	done := make(chan struct{})
 
 	go func() {
-		RunWithEnv(env.Interface(), RunOptions{AllowDefault: true}, DefaultFunc)
+		RunWithEnv(env.Mock, RunOptions{AllowDefault: true}, DefaultFunc)
 		close(done)
 	}()
 
-	env.Args.ExpectCalledWithExactly().InjectReturnValues([]string{"cmd"})
+	env.Method.Args.ExpectCalledWithExactly().InjectReturnValues([]string{"cmd"})
 	<-done
 
 	if !defaultFuncCalled {
@@ -84,11 +84,11 @@ func TestRunWithEnv_ContextFunction(t *testing.T) {
 	done := make(chan struct{})
 
 	go func() {
-		RunWithEnv(env.Interface(), RunOptions{AllowDefault: true}, ContextFunc)
+		RunWithEnv(env.Mock, RunOptions{AllowDefault: true}, ContextFunc)
 		close(done)
 	}()
 
-	env.Args.ExpectCalledWithExactly().InjectReturnValues([]string{"cmd"})
+	env.Method.Args.ExpectCalledWithExactly().InjectReturnValues([]string{"cmd"})
 	<-done
 
 	if !helloWorldCalled {
@@ -103,11 +103,11 @@ func TestRunWithEnv_MultipleTargets_FunctionByName(t *testing.T) {
 	done := make(chan struct{})
 
 	go func() {
-		RunWithEnv(env.Interface(), RunOptions{AllowDefault: true}, HelloWorld, &TestCmdStruct{})
+		RunWithEnv(env.Mock, RunOptions{AllowDefault: true}, HelloWorld, &TestCmdStruct{})
 		close(done)
 	}()
 
-	env.Args.ExpectCalledWithExactly().InjectReturnValues([]string{"cmd", "hello-world"})
+	env.Method.Args.ExpectCalledWithExactly().InjectReturnValues([]string{"cmd", "hello-world"})
 	<-done
 
 	if !helloWorldCalled {
@@ -122,11 +122,11 @@ func TestRunWithEnv_SingleFunction_NoDefault(t *testing.T) {
 	done := make(chan struct{})
 
 	go func() {
-		RunWithEnv(env.Interface(), RunOptions{AllowDefault: false}, DefaultFunc)
+		RunWithEnv(env.Mock, RunOptions{AllowDefault: false}, DefaultFunc)
 		close(done)
 	}()
 
-	env.Args.ExpectCalledWithExactly().InjectReturnValues([]string{"cmd"})
+	env.Method.Args.ExpectCalledWithExactly().InjectReturnValues([]string{"cmd"})
 	<-done
 
 	if defaultFuncCalled {
@@ -148,11 +148,11 @@ func TestRunWithEnv_FunctionSubcommand(t *testing.T) {
 	done := make(chan struct{})
 
 	go func() {
-		RunWithEnv(env.Interface(), RunOptions{AllowDefault: true}, root)
+		RunWithEnv(env.Mock, RunOptions{AllowDefault: true}, root)
 		close(done)
 	}()
 
-	env.Args.ExpectCalledWithExactly().InjectReturnValues([]string{"cmd", "hello"})
+	env.Method.Args.ExpectCalledWithExactly().InjectReturnValues([]string{"cmd", "hello"})
 	<-done
 
 	if !called {
@@ -168,11 +168,11 @@ func TestRunWithEnv_MultipleSubcommands(t *testing.T) {
 	done := make(chan struct{})
 
 	go func() {
-		RunWithEnv(env.Interface(), RunOptions{AllowDefault: true}, &MultiSubRoot{})
+		RunWithEnv(env.Mock, RunOptions{AllowDefault: true}, &MultiSubRoot{})
 		close(done)
 	}()
 
-	env.Args.ExpectCalledWithExactly().InjectReturnValues([]string{"cmd", "one", "two"})
+	env.Method.Args.ExpectCalledWithExactly().InjectReturnValues([]string{"cmd", "one", "two"})
 	<-done
 
 	if multiSubOneCalls != 1 {
@@ -191,11 +191,11 @@ func TestRunWithEnv_MultipleRoots_SubcommandThenRoot(t *testing.T) {
 	done := make(chan struct{})
 
 	go func() {
-		RunWithEnv(env.Interface(), RunOptions{AllowDefault: false}, &firmwareRoot{}, &discoverRoot{})
+		RunWithEnv(env.Mock, RunOptions{AllowDefault: false}, &firmwareRoot{}, &discoverRoot{})
 		close(done)
 	}()
 
-	env.Args.ExpectCalledWithExactly().InjectReturnValues([]string{"cmd", "firmware", "flash-only", "discover"})
+	env.Method.Args.ExpectCalledWithExactly().InjectReturnValues([]string{"cmd", "firmware", "flash-only", "discover"})
 	<-done
 
 	if multiRootFlashCalls != 1 {

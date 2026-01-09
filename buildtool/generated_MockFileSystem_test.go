@@ -3,21 +3,22 @@
 package buildtool
 
 import (
-	_imptest "github.com/toejough/imptest/imptest"
+	_imptest "github.com/toejough/imptest"
 	fs "io/fs"
 )
 
-// FileSystemMock is the mock for FileSystem.
-type FileSystemMock struct {
-	imp       *_imptest.Imp
+// FileSystemMockHandle is the test handle for FileSystem.
+type FileSystemMockHandle struct {
+	Mock       FileSystem
+	Method     *FileSystemMockMethods
+	Controller *_imptest.Imp
+}
+
+// FileSystemMockMethods holds method wrappers for setting expectations.
+type FileSystemMockMethods struct {
 	ReadDir   *FileSystemMockReadDirMethod
 	ReadFile  *FileSystemMockReadFileMethod
 	WriteFile *FileSystemMockWriteFileMethod
-}
-
-// Interface returns the FileSystem implementation that can be passed to code under test.
-func (m *FileSystemMock) Interface() FileSystem {
-	return &mockFileSystemImpl{mock: m}
 }
 
 // FileSystemMockReadDirArgs holds typed arguments for ReadDir.
@@ -46,13 +47,8 @@ func (c *FileSystemMockReadDirCall) InjectReturnValues(result0 []fs.DirEntry, re
 // FileSystemMockReadDirMethod wraps DependencyMethod with typed returns.
 type FileSystemMockReadDirMethod struct {
 	*_imptest.DependencyMethod
-}
-
-// Eventually switches to unordered mode for concurrent code.
-// Waits indefinitely for a matching call; mismatches are queued.
-// Returns typed wrapper preserving type-safe GetArgs() access.
-func (m *FileSystemMockReadDirMethod) Eventually() *FileSystemMockReadDirMethod {
-	return &FileSystemMockReadDirMethod{DependencyMethod: m.DependencyMethod.Eventually()}
+	// Eventually is the async version of this method for concurrent code.
+	Eventually *FileSystemMockReadDirMethod
 }
 
 // ExpectCalledWithExactly waits for a call with exactly the specified arguments.
@@ -93,13 +89,8 @@ func (c *FileSystemMockReadFileCall) InjectReturnValues(result0 []byte, result1 
 // FileSystemMockReadFileMethod wraps DependencyMethod with typed returns.
 type FileSystemMockReadFileMethod struct {
 	*_imptest.DependencyMethod
-}
-
-// Eventually switches to unordered mode for concurrent code.
-// Waits indefinitely for a matching call; mismatches are queued.
-// Returns typed wrapper preserving type-safe GetArgs() access.
-func (m *FileSystemMockReadFileMethod) Eventually() *FileSystemMockReadFileMethod {
-	return &FileSystemMockReadFileMethod{DependencyMethod: m.DependencyMethod.Eventually()}
+	// Eventually is the async version of this method for concurrent code.
+	Eventually *FileSystemMockReadFileMethod
 }
 
 // ExpectCalledWithExactly waits for a call with exactly the specified arguments.
@@ -144,13 +135,8 @@ func (c *FileSystemMockWriteFileCall) InjectReturnValues(result0 error) {
 // FileSystemMockWriteFileMethod wraps DependencyMethod with typed returns.
 type FileSystemMockWriteFileMethod struct {
 	*_imptest.DependencyMethod
-}
-
-// Eventually switches to unordered mode for concurrent code.
-// Waits indefinitely for a matching call; mismatches are queued.
-// Returns typed wrapper preserving type-safe GetArgs() access.
-func (m *FileSystemMockWriteFileMethod) Eventually() *FileSystemMockWriteFileMethod {
-	return &FileSystemMockWriteFileMethod{DependencyMethod: m.DependencyMethod.Eventually()}
+	// Eventually is the async version of this method for concurrent code.
+	Eventually *FileSystemMockWriteFileMethod
 }
 
 // ExpectCalledWithExactly waits for a call with exactly the specified arguments.
@@ -165,20 +151,25 @@ func (m *FileSystemMockWriteFileMethod) ExpectCalledWithMatches(matchers ...any)
 	return &FileSystemMockWriteFileCall{DependencyCall: call}
 }
 
-// MockFileSystem creates a new FileSystemMock for testing.
-func MockFileSystem(t _imptest.TestReporter) *FileSystemMock {
-	imp := _imptest.NewImp(t)
-	return &FileSystemMock{
-		imp:       imp,
-		ReadDir:   &FileSystemMockReadDirMethod{DependencyMethod: _imptest.NewDependencyMethod(imp, "ReadDir")},
-		ReadFile:  &FileSystemMockReadFileMethod{DependencyMethod: _imptest.NewDependencyMethod(imp, "ReadFile")},
-		WriteFile: &FileSystemMockWriteFileMethod{DependencyMethod: _imptest.NewDependencyMethod(imp, "WriteFile")},
+// MockFileSystem creates a new FileSystemMockHandle for testing.
+func MockFileSystem(t _imptest.TestReporter) *FileSystemMockHandle {
+	ctrl := _imptest.NewImp(t)
+	methods := &FileSystemMockMethods{
+		ReadDir:   newFileSystemMockReadDirMethod(_imptest.NewDependencyMethod(ctrl, "ReadDir")),
+		ReadFile:  newFileSystemMockReadFileMethod(_imptest.NewDependencyMethod(ctrl, "ReadFile")),
+		WriteFile: newFileSystemMockWriteFileMethod(_imptest.NewDependencyMethod(ctrl, "WriteFile")),
 	}
+	h := &FileSystemMockHandle{
+		Method:     methods,
+		Controller: ctrl,
+	}
+	h.Mock = &mockFileSystemImpl{handle: h}
+	return h
 }
 
 // mockFileSystemImpl implements FileSystem.
 type mockFileSystemImpl struct {
-	mock *FileSystemMock
+	handle *FileSystemMockHandle
 }
 
 // ReadDir implements FileSystem.ReadDir.
@@ -188,19 +179,20 @@ func (impl *mockFileSystemImpl) ReadDir(name string) ([]fs.DirEntry, error) {
 		Args:         []any{name},
 		ResponseChan: make(chan _imptest.GenericResponse, 1),
 	}
-	impl.mock.imp.CallChan <- call
+	impl.handle.Controller.CallChan <- call
 	resp := <-call.ResponseChan
 	if resp.Type == "panic" {
 		panic(resp.PanicValue)
 	}
 
 	var result1 []fs.DirEntry
-	var result2 error
 	if len(resp.ReturnValues) > 0 {
 		if value, ok := resp.ReturnValues[0].([]fs.DirEntry); ok {
 			result1 = value
 		}
 	}
+
+	var result2 error
 	if len(resp.ReturnValues) > 1 {
 		if value, ok := resp.ReturnValues[1].(error); ok {
 			result2 = value
@@ -217,19 +209,20 @@ func (impl *mockFileSystemImpl) ReadFile(name string) ([]byte, error) {
 		Args:         []any{name},
 		ResponseChan: make(chan _imptest.GenericResponse, 1),
 	}
-	impl.mock.imp.CallChan <- call
+	impl.handle.Controller.CallChan <- call
 	resp := <-call.ResponseChan
 	if resp.Type == "panic" {
 		panic(resp.PanicValue)
 	}
 
 	var result1 []byte
-	var result2 error
 	if len(resp.ReturnValues) > 0 {
 		if value, ok := resp.ReturnValues[0].([]byte); ok {
 			result1 = value
 		}
 	}
+
+	var result2 error
 	if len(resp.ReturnValues) > 1 {
 		if value, ok := resp.ReturnValues[1].(error); ok {
 			result2 = value
@@ -246,7 +239,7 @@ func (impl *mockFileSystemImpl) WriteFile(name string, data []byte, perm fs.File
 		Args:         []any{name, data, perm},
 		ResponseChan: make(chan _imptest.GenericResponse, 1),
 	}
-	impl.mock.imp.CallChan <- call
+	impl.handle.Controller.CallChan <- call
 	resp := <-call.ResponseChan
 	if resp.Type == "panic" {
 		panic(resp.PanicValue)
@@ -260,4 +253,25 @@ func (impl *mockFileSystemImpl) WriteFile(name string, data []byte, perm fs.File
 	}
 
 	return result1
+}
+
+// newFileSystemMockReadDirMethod creates a typed method wrapper with Eventually initialized.
+func newFileSystemMockReadDirMethod(dm *_imptest.DependencyMethod) *FileSystemMockReadDirMethod {
+	m := &FileSystemMockReadDirMethod{DependencyMethod: dm}
+	m.Eventually = &FileSystemMockReadDirMethod{DependencyMethod: dm.Eventually}
+	return m
+}
+
+// newFileSystemMockReadFileMethod creates a typed method wrapper with Eventually initialized.
+func newFileSystemMockReadFileMethod(dm *_imptest.DependencyMethod) *FileSystemMockReadFileMethod {
+	m := &FileSystemMockReadFileMethod{DependencyMethod: dm}
+	m.Eventually = &FileSystemMockReadFileMethod{DependencyMethod: dm.Eventually}
+	return m
+}
+
+// newFileSystemMockWriteFileMethod creates a typed method wrapper with Eventually initialized.
+func newFileSystemMockWriteFileMethod(dm *_imptest.DependencyMethod) *FileSystemMockWriteFileMethod {
+	m := &FileSystemMockWriteFileMethod{DependencyMethod: dm}
+	m.Eventually = &FileSystemMockWriteFileMethod{DependencyMethod: dm.Eventually}
+	return m
 }

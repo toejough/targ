@@ -1,4 +1,4 @@
 github.com/bmatcuk/doublestar/v4 v4.6.1 h1:FH9SifrbvJhnlQpztAx++wlkk70QBf0iBWDwNy7PA4I=
 github.com/bmatcuk/doublestar/v4 v4.6.1/go.mod h1:xBQ8jztBU6kakFMg+8WGxn0c6z1fTSPVIjEY1Wr7jzc=
-github.com/toejough/imptest v0.0.0-20260102034344-9fb1ee014527 h1:2340EgLrdN79FxC6wjCaXQX7Q3gW3isgf02J5ysjjyk=
-github.com/toejough/imptest v0.0.0-20260102034344-9fb1ee014527/go.mod h1:wujx9Qt+0d722lNnQwqgAbGeNb8Xy6kgjM3f+WQO2s0=
+github.com/toejough/imptest v0.0.0-20260109202530-cf98c6717b50 h1:sY2d6Ct3aX+AoQGUPqN9ICnzUN2qx0MeezjvWJNHMJM=
+github.com/toejough/imptest v0.0.0-20260109202530-cf98c6717b50/go.mod h1:L5gsE4oBISu8cFkBAshDfclSn0MYLcT7Pn9AKZJWwPw=

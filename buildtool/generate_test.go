@@ -14,7 +14,7 @@ func TestGenerateFunctionWrappers_BuildTagAndDescriptions(t *testing.T) {
 	)
 
 	go func() {
-		path, err = GenerateFunctionWrappers(fsMock.Interface(), GenerateOptions{
+		path, err = GenerateFunctionWrappers(fsMock.Mock, GenerateOptions{
 			Dir:        "/root",
 			BuildTag:   "targ",
 			OnlyTagged: true,
@@ -22,11 +22,11 @@ func TestGenerateFunctionWrappers_BuildTagAndDescriptions(t *testing.T) {
 		close(done)
 	}()
 
-	fsMock.ReadDir.ExpectCalledWithExactly("/root").InjectReturnValues([]fs.DirEntry{
+	fsMock.Method.ReadDir.ExpectCalledWithExactly("/root").InjectReturnValues([]fs.DirEntry{
 		fakeDirEntry{name: "cmd.go", dir: false},
 		fakeDirEntry{name: "other.go", dir: false},
 	}, nil)
-	fsMock.ReadFile.ExpectCalledWithExactly("/root/cmd.go").InjectReturnValues([]byte(`//go:build targ
+	fsMock.Method.ReadFile.ExpectCalledWithExactly("/root/cmd.go").InjectReturnValues([]byte(`//go:build targ
 
 package build
 
@@ -36,7 +36,7 @@ func Build() {}
 // Deploy does more.
 func Deploy() error { return nil }
 `), nil)
-	fsMock.ReadFile.ExpectCalledWithExactly("/root/other.go").InjectReturnValues([]byte(`package other
+	fsMock.Method.ReadFile.ExpectCalledWithExactly("/root/other.go").InjectReturnValues([]byte(`package other
 
 func Ignored() {}
 `), nil)
@@ -76,7 +76,7 @@ func (c *DeployCommand) Description() string {
 }
 `
 
-	fsMock.WriteFile.ExpectCalledWithExactly(
+	fsMock.Method.WriteFile.ExpectCalledWithExactly(
 		"/root/generated_targ_build.go",
 		[]byte(expected),
 		fs.FileMode(0644),
@@ -101,7 +101,7 @@ func TestGenerateFunctionWrappers_SkipsSubcommandFunctions(t *testing.T) {
 	)
 
 	go func() {
-		path, err = GenerateFunctionWrappers(fsMock.Interface(), GenerateOptions{
+		path, err = GenerateFunctionWrappers(fsMock.Mock, GenerateOptions{
 			Dir:        "/root",
 			BuildTag:   "targ",
 			OnlyTagged: true,
@@ -109,10 +109,10 @@ func TestGenerateFunctionWrappers_SkipsSubcommandFunctions(t *testing.T) {
 		close(done)
 	}()
 
-	fsMock.ReadDir.ExpectCalledWithExactly("/root").InjectReturnValues([]fs.DirEntry{
+	fsMock.Method.ReadDir.ExpectCalledWithExactly("/root").InjectReturnValues([]fs.DirEntry{
 		fakeDirEntry{name: "cmd.go", dir: false},
 	}, nil)
-	fsMock.ReadFile.ExpectCalledWithExactly("/root/cmd.go").InjectReturnValues([]byte(`//go:build targ
+	fsMock.Method.ReadFile.ExpectCalledWithExactly("/root/cmd.go").InjectReturnValues([]byte(`//go:build targ
 
 package build
 
@@ -139,7 +139,7 @@ func TestGenerateFunctionWrappers_ErrorsOnNameCollision(t *testing.T) {
 	var err error
 
 	go func() {
-		_, err = GenerateFunctionWrappers(fsMock.Interface(), GenerateOptions{
+		_, err = GenerateFunctionWrappers(fsMock.Mock, GenerateOptions{
 			Dir:        "/root",
 			BuildTag:   "targ",
 			OnlyTagged: true,
@@ -147,10 +147,10 @@ func TestGenerateFunctionWrappers_ErrorsOnNameCollision(t *testing.T) {
 		close(done)
 	}()
 
-	fsMock.ReadDir.ExpectCalledWithExactly("/root").InjectReturnValues([]fs.DirEntry{
+	fsMock.Method.ReadDir.ExpectCalledWithExactly("/root").InjectReturnValues([]fs.DirEntry{
 		fakeDirEntry{name: "cmd.go", dir: false},
 	}, nil)
-	fsMock.ReadFile.ExpectCalledWithExactly("/root/cmd.go").InjectReturnValues([]byte(`//go:build targ
+	fsMock.Method.ReadFile.ExpectCalledWithExactly("/root/cmd.go").InjectReturnValues([]byte(`//go:build targ
 
 package build
 
@@ -175,7 +175,7 @@ func TestGenerateFunctionWrappers_ContextRun(t *testing.T) {
 	)
 
 	go func() {
-		path, err = GenerateFunctionWrappers(fsMock.Interface(), GenerateOptions{
+		path, err = GenerateFunctionWrappers(fsMock.Mock, GenerateOptions{
 			Dir:        "/root",
 			BuildTag:   "targ",
 			OnlyTagged: true,
@@ -183,10 +183,10 @@ func TestGenerateFunctionWrappers_ContextRun(t *testing.T) {
 		close(done)
 	}()
 
-	fsMock.ReadDir.ExpectCalledWithExactly("/root").InjectReturnValues([]fs.DirEntry{
+	fsMock.Method.ReadDir.ExpectCalledWithExactly("/root").InjectReturnValues([]fs.DirEntry{
 		fakeDirEntry{name: "cmd.go", dir: false},
 	}, nil)
-	fsMock.ReadFile.ExpectCalledWithExactly("/root/cmd.go").InjectReturnValues([]byte(`//go:build targ
+	fsMock.Method.ReadFile.ExpectCalledWithExactly("/root/cmd.go").InjectReturnValues([]byte(`//go:build targ
 
 package build
 
@@ -219,7 +219,7 @@ func (c *RunCommand) Description() string {
 }
 `
 
-	fsMock.WriteFile.ExpectCalledWithExactly(
+	fsMock.Method.WriteFile.ExpectCalledWithExactly(
 		"/root/generated_targ_build.go",
 		[]byte(expected),
 		fs.FileMode(0644),

@@ -15,27 +15,27 @@ func TestSelectTaggedDirs_ReturnsAllDirs(t *testing.T) {
 	)
 
 	go func() {
-		dirs, err = SelectTaggedDirs(fsMock.Interface(), opts)
+		dirs, err = SelectTaggedDirs(fsMock.Mock, opts)
 		close(done)
 	}()
 
-	fsMock.ReadDir.ExpectCalledWithExactly("/root").InjectReturnValues([]fs.DirEntry{
+	fsMock.Method.ReadDir.ExpectCalledWithExactly("/root").InjectReturnValues([]fs.DirEntry{
 		fakeDirEntry{name: "pkg1", dir: true},
 		fakeDirEntry{name: "pkg2", dir: true},
 	}, nil)
-	fsMock.ReadDir.ExpectCalledWithExactly("/root/pkg1").InjectReturnValues([]fs.DirEntry{
+	fsMock.Method.ReadDir.ExpectCalledWithExactly("/root/pkg1").InjectReturnValues([]fs.DirEntry{
 		fakeDirEntry{name: "cmd.go", dir: false},
 	}, nil)
-	fsMock.ReadFile.ExpectCalledWithExactly("/root/pkg1/cmd.go").InjectReturnValues([]byte(`//go:build targ
+	fsMock.Method.ReadFile.ExpectCalledWithExactly("/root/pkg1/cmd.go").InjectReturnValues([]byte(`//go:build targ
 
 package pkg1
 
 func Hello() {}
 `), nil)
-	fsMock.ReadDir.ExpectCalledWithExactly("/root/pkg2").InjectReturnValues([]fs.DirEntry{
+	fsMock.Method.ReadDir.ExpectCalledWithExactly("/root/pkg2").InjectReturnValues([]fs.DirEntry{
 		fakeDirEntry{name: "cmd.go", dir: false},
 	}, nil)
-	fsMock.ReadFile.ExpectCalledWithExactly("/root/pkg2/cmd.go").InjectReturnValues([]byte(`//go:build targ
+	fsMock.Method.ReadFile.ExpectCalledWithExactly("/root/pkg2/cmd.go").InjectReturnValues([]byte(`//go:build targ
 
 package pkg2
 

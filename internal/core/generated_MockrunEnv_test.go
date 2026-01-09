@@ -3,24 +3,29 @@
 package core
 
 import (
-	_imptest "github.com/toejough/imptest/imptest"
+	_imptest "github.com/toejough/imptest"
 )
 
-// MockrunEnv creates a new runEnvMock for testing.
-func MockrunEnv(t _imptest.TestReporter) *runEnvMock {
-	imp := _imptest.NewImp(t)
-	return &runEnvMock{
-		imp:     imp,
-		Args:    _imptest.NewDependencyMethod(imp, "Args"),
-		Printf:  &runEnvMockPrintfMethod{DependencyMethod: _imptest.NewDependencyMethod(imp, "Printf")},
-		Println: &runEnvMockPrintlnMethod{DependencyMethod: _imptest.NewDependencyMethod(imp, "Println")},
-		Exit:    &runEnvMockExitMethod{DependencyMethod: _imptest.NewDependencyMethod(imp, "Exit")},
+// MockrunEnv creates a new runEnvMockHandle for testing.
+func MockrunEnv(t _imptest.TestReporter) *runEnvMockHandle {
+	ctrl := _imptest.NewImp(t)
+	methods := &runEnvMockMethods{
+		Args:    _imptest.NewDependencyMethod(ctrl, "Args"),
+		Printf:  newrunEnvMockPrintfMethod(_imptest.NewDependencyMethod(ctrl, "Printf")),
+		Println: newrunEnvMockPrintlnMethod(_imptest.NewDependencyMethod(ctrl, "Println")),
+		Exit:    newrunEnvMockExitMethod(_imptest.NewDependencyMethod(ctrl, "Exit")),
 	}
+	h := &runEnvMockHandle{
+		Method:     methods,
+		Controller: ctrl,
+	}
+	h.Mock = &mockrunEnvImpl{handle: h}
+	return h
 }
 
 // mockrunEnvImpl implements runEnv.
 type mockrunEnvImpl struct {
-	mock *runEnvMock
+	handle *runEnvMockHandle
 }
 
 // Args implements runEnv.Args.
@@ -30,7 +35,7 @@ func (impl *mockrunEnvImpl) Args() []string {
 		Args:         []any{},
 		ResponseChan: make(chan _imptest.GenericResponse, 1),
 	}
-	impl.mock.imp.CallChan <- call
+	impl.handle.Controller.CallChan <- call
 	resp := <-call.ResponseChan
 	if resp.Type == "panic" {
 		panic(resp.PanicValue)
@@ -53,7 +58,7 @@ func (impl *mockrunEnvImpl) Exit(code int) {
 		Args:         []any{code},
 		ResponseChan: make(chan _imptest.GenericResponse, 1),
 	}
-	impl.mock.imp.CallChan <- call
+	impl.handle.Controller.CallChan <- call
 	resp := <-call.ResponseChan
 	if resp.Type == "panic" {
 		panic(resp.PanicValue)
@@ -72,7 +77,7 @@ func (impl *mockrunEnvImpl) Printf(format string, args ...any) {
 		Args:         callArgs,
 		ResponseChan: make(chan _imptest.GenericResponse, 1),
 	}
-	impl.mock.imp.CallChan <- call
+	impl.handle.Controller.CallChan <- call
 	resp := <-call.ResponseChan
 	if resp.Type == "panic" {
 		panic(resp.PanicValue)
@@ -91,26 +96,12 @@ func (impl *mockrunEnvImpl) Println(args ...any) {
 		Args:         callArgs,
 		ResponseChan: make(chan _imptest.GenericResponse, 1),
 	}
-	impl.mock.imp.CallChan <- call
+	impl.handle.Controller.CallChan <- call
 	resp := <-call.ResponseChan
 	if resp.Type == "panic" {
 		panic(resp.PanicValue)
 	}
 
-}
-
-// runEnvMock is the mock for runEnv.
-type runEnvMock struct {
-	imp     *_imptest.Imp
-	Args    *_imptest.DependencyMethod
-	Printf  *runEnvMockPrintfMethod
-	Println *runEnvMockPrintlnMethod
-	Exit    *runEnvMockExitMethod
-}
-
-// Interface returns the runEnv implementation that can be passed to code under test.
-func (m *runEnvMock) Interface() runEnv {
-	return &mockrunEnvImpl{mock: m}
 }
 
 // runEnvMockArgsCall wraps DependencyCall with typed GetArgs and InjectReturnValues.
@@ -144,13 +135,8 @@ func (c *runEnvMockExitCall) GetArgs() runEnvMockExitArgs {
 // runEnvMockExitMethod wraps DependencyMethod with typed returns.
 type runEnvMockExitMethod struct {
 	*_imptest.DependencyMethod
-}
-
-// Eventually switches to unordered mode for concurrent code.
-// Waits indefinitely for a matching call; mismatches are queued.
-// Returns typed wrapper preserving type-safe GetArgs() access.
-func (m *runEnvMockExitMethod) Eventually() *runEnvMockExitMethod {
-	return &runEnvMockExitMethod{DependencyMethod: m.DependencyMethod.Eventually()}
+	// Eventually is the async version of this method for concurrent code.
+	Eventually *runEnvMockExitMethod
 }
 
 // ExpectCalledWithExactly waits for a call with exactly the specified arguments.
@@ -163,6 +149,21 @@ func (m *runEnvMockExitMethod) ExpectCalledWithExactly(code int) *runEnvMockExit
 func (m *runEnvMockExitMethod) ExpectCalledWithMatches(matchers ...any) *runEnvMockExitCall {
 	call := m.DependencyMethod.ExpectCalledWithMatches(matchers...)
 	return &runEnvMockExitCall{DependencyCall: call}
+}
+
+// runEnvMockHandle is the test handle for runEnv.
+type runEnvMockHandle struct {
+	Mock       runEnv
+	Method     *runEnvMockMethods
+	Controller *_imptest.Imp
+}
+
+// runEnvMockMethods holds method wrappers for setting expectations.
+type runEnvMockMethods struct {
+	Args    *_imptest.DependencyMethod
+	Printf  *runEnvMockPrintfMethod
+	Println *runEnvMockPrintlnMethod
+	Exit    *runEnvMockExitMethod
 }
 
 // runEnvMockPrintfArgs holds typed arguments for Printf.
@@ -188,13 +189,8 @@ func (c *runEnvMockPrintfCall) GetArgs() runEnvMockPrintfArgs {
 // runEnvMockPrintfMethod wraps DependencyMethod with typed returns.
 type runEnvMockPrintfMethod struct {
 	*_imptest.DependencyMethod
-}
-
-// Eventually switches to unordered mode for concurrent code.
-// Waits indefinitely for a matching call; mismatches are queued.
-// Returns typed wrapper preserving type-safe GetArgs() access.
-func (m *runEnvMockPrintfMethod) Eventually() *runEnvMockPrintfMethod {
-	return &runEnvMockPrintfMethod{DependencyMethod: m.DependencyMethod.Eventually()}
+	// Eventually is the async version of this method for concurrent code.
+	Eventually *runEnvMockPrintfMethod
 }
 
 // ExpectCalledWithExactly waits for a call with exactly the specified arguments.
@@ -234,13 +230,8 @@ func (c *runEnvMockPrintlnCall) GetArgs() runEnvMockPrintlnArgs {
 // runEnvMockPrintlnMethod wraps DependencyMethod with typed returns.
 type runEnvMockPrintlnMethod struct {
 	*_imptest.DependencyMethod
-}
-
-// Eventually switches to unordered mode for concurrent code.
-// Waits indefinitely for a matching call; mismatches are queued.
-// Returns typed wrapper preserving type-safe GetArgs() access.
-func (m *runEnvMockPrintlnMethod) Eventually() *runEnvMockPrintlnMethod {
-	return &runEnvMockPrintlnMethod{DependencyMethod: m.DependencyMethod.Eventually()}
+	// Eventually is the async version of this method for concurrent code.
+	Eventually *runEnvMockPrintlnMethod
 }
 
 // ExpectCalledWithExactly waits for a call with exactly the specified arguments.
@@ -257,4 +248,25 @@ func (m *runEnvMockPrintlnMethod) ExpectCalledWithExactly(args ...any) *runEnvMo
 func (m *runEnvMockPrintlnMethod) ExpectCalledWithMatches(matchers ...any) *runEnvMockPrintlnCall {
 	call := m.DependencyMethod.ExpectCalledWithMatches(matchers...)
 	return &runEnvMockPrintlnCall{DependencyCall: call}
+}
+
+// newrunEnvMockExitMethod creates a typed method wrapper with Eventually initialized.
+func newrunEnvMockExitMethod(dm *_imptest.DependencyMethod) *runEnvMockExitMethod {
+	m := &runEnvMockExitMethod{DependencyMethod: dm}
+	m.Eventually = &runEnvMockExitMethod{DependencyMethod: dm.Eventually}
+	return m
+}
+
+// newrunEnvMockPrintfMethod creates a typed method wrapper with Eventually initialized.
+func newrunEnvMockPrintfMethod(dm *_imptest.DependencyMethod) *runEnvMockPrintfMethod {
+	m := &runEnvMockPrintfMethod{DependencyMethod: dm}
+	m.Eventually = &runEnvMockPrintfMethod{DependencyMethod: dm.Eventually}
+	return m
+}
+
+// newrunEnvMockPrintlnMethod creates a typed method wrapper with Eventually initialized.
+func newrunEnvMockPrintlnMethod(dm *_imptest.DependencyMethod) *runEnvMockPrintlnMethod {
+	m := &runEnvMockPrintlnMethod{DependencyMethod: dm}
+	m.Eventually = &runEnvMockPrintlnMethod{DependencyMethod: dm.Eventually}
+	return m
 }
