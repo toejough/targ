@@ -59,8 +59,24 @@ func ExecuteWithOptions(args []string, opts RunOptions, targets ...interface{}) 
 	return ExecuteResult{Output: env.output.String()}, err
 }
 
+// binaryName returns the intended binary name for help output.
+// Prefers TARG_BIN_NAME env var (set by build-tool mode), falls back to os.Args[0].
+func binaryName() string {
+	if name := os.Getenv("TARG_BIN_NAME"); name != "" {
+		return name
+	}
+	name := os.Args[0]
+	if idx := strings.LastIndex(name, "/"); idx != -1 {
+		name = name[idx+1:]
+	}
+	if idx := strings.LastIndex(name, "\\"); idx != -1 {
+		name = name[idx+1:]
+	}
+	return name
+}
+
 func printUsage(nodes []*CommandNode) {
-	fmt.Println("Usage: <command> [args]")
+	fmt.Printf("Usage: %s <command> [args]\n", binaryName())
 	fmt.Println("\nAvailable commands:")
 
 	for _, node := range nodes {
@@ -731,8 +747,9 @@ func callMethod(ctx context.Context, receiver reflect.Value, name string) (bool,
 }
 
 func printCommandHelp(node *CommandNode) {
+	binName := binaryName()
 	if node.Type == nil {
-		fmt.Printf("Usage: %s\n\n", node.Name)
+		fmt.Printf("Usage: %s %s\n\n", binName, node.Name)
 		if node.Description != "" {
 			fmt.Println(node.Description)
 		}
@@ -744,7 +761,7 @@ func printCommandHelp(node *CommandNode) {
 		fmt.Printf("Error: %v\n", err)
 		return
 	}
-	fmt.Printf("Usage: %s\n\n", usageLine)
+	fmt.Printf("Usage: %s %s\n\n", binName, usageLine)
 
 	// If description is empty, try to fetch it if we haven't already
 	if node.Description == "" && node.RunMethod.IsValid() {

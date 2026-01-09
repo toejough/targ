@@ -313,9 +313,22 @@ func main() {
 	}
 	binaryPath := filepath.Join(cacheDir, fmt.Sprintf("targ_%s", cacheKey))
 
+	// Get binary name for help output
+	targBinName := "targ"
+	if binArg := os.Args[0]; binArg != "" {
+		if idx := strings.LastIndex(binArg, "/"); idx != -1 {
+			targBinName = binArg[idx+1:]
+		} else if idx := strings.LastIndex(binArg, "\\"); idx != -1 {
+			targBinName = binArg[idx+1:]
+		} else {
+			targBinName = binArg
+		}
+	}
+
 	if !noCache {
 		if info, err := os.Stat(binaryPath); err == nil && info.Mode().IsRegular() && info.Mode()&0111 != 0 {
 			cmd := exec.Command(binaryPath, args...)
+			cmd.Env = append(os.Environ(), "TARG_BIN_NAME="+targBinName)
 			cmd.Stdout = os.Stdout
 			cmd.Stderr = errOut
 			cmd.Stdin = os.Stdin
@@ -365,6 +378,7 @@ func main() {
 	}
 
 	cmd := exec.Command(binaryPath, args...)
+	cmd.Env = append(os.Environ(), "TARG_BIN_NAME="+targBinName)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = errOut
 	cmd.Stdin = os.Stdin
