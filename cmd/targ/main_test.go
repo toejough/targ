@@ -113,14 +113,63 @@ func TestBuildBootstrapData_Namespaces(t *testing.T) {
 	}
 }
 
-func TestFindModuleRootAndPath_NoModule(t *testing.T) {
+func TestFindModuleInDir_NoModule(t *testing.T) {
 	dir := t.TempDir()
-	root, modulePath, found, err := findModuleRootAndPath(dir)
+	root, modulePath, found, err := findModuleInDir(dir)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if found {
 		t.Fatal("expected no module to be found")
+	}
+	if root != "" || modulePath != "" {
+		t.Fatalf("expected empty results, got root=%q module=%q", root, modulePath)
+	}
+}
+
+func TestFindModuleInDir_WithModule(t *testing.T) {
+	dir := t.TempDir()
+	modContent := "module example.com/test\n\ngo 1.21\n"
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte(modContent), 0644); err != nil {
+		t.Fatalf("unexpected write error: %v", err)
+	}
+
+	root, modulePath, found, err := findModuleInDir(dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !found {
+		t.Fatal("expected module to be found")
+	}
+	if root != dir {
+		t.Fatalf("expected root=%q, got %q", dir, root)
+	}
+	if modulePath != "example.com/test" {
+		t.Fatalf("expected modulePath=%q, got %q", "example.com/test", modulePath)
+	}
+}
+
+func TestFindModuleInDir_DoesNotWalkUp(t *testing.T) {
+	// Create parent with go.mod
+	parent := t.TempDir()
+	modContent := "module example.com/parent\n\ngo 1.21\n"
+	if err := os.WriteFile(filepath.Join(parent, "go.mod"), []byte(modContent), 0644); err != nil {
+		t.Fatalf("unexpected write error: %v", err)
+	}
+
+	// Create child without go.mod
+	child := filepath.Join(parent, "child")
+	if err := os.MkdirAll(child, 0755); err != nil {
+		t.Fatalf("unexpected mkdir error: %v", err)
+	}
+
+	// Should NOT find parent's go.mod
+	root, modulePath, found, err := findModuleInDir(child)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if found {
+		t.Fatal("expected no module to be found (should not walk up)")
 	}
 	if root != "" || modulePath != "" {
 		t.Fatalf("expected empty results, got root=%q module=%q", root, modulePath)

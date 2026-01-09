@@ -1,4 +1,4 @@
 *.test
-targ
+/targ
 .DS_Store
 .crush/

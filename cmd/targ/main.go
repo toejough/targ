@@ -186,9 +186,18 @@ func main() {
 		os.Exit(1)
 	}
 
-	importRoot, modulePath, moduleFound, err := findModuleRootAndPath(startDir)
+	// Determine the target directory (where the target files are)
+	packageDir := startDir
+	if len(infos) == 1 && infos[0].Package == "main" {
+		packageDir = infos[0].Dir
+	}
+
+	// Only use a go.mod if it's in the same directory as the target files
+	// This ensures targets are self-contained and don't accidentally depend
+	// on a parent module that may not have targ as a dependency
+	importRoot, modulePath, moduleFound, err := findModuleInDir(packageDir)
 	if err != nil {
-		fmt.Fprintf(errOut, "Error finding module root: %v\n", err)
+		fmt.Fprintf(errOut, "Error checking for module: %v\n", err)
 		os.Exit(1)
 	}
 	buildRoot := importRoot
@@ -203,11 +212,6 @@ func main() {
 			os.Exit(1)
 		}
 		usingFallback = true
-	}
-
-	packageDir := startDir
-	if len(infos) == 1 && infos[0].Package == "main" {
-		packageDir = infos[0].Dir
 	}
 
 	data, err := buildBootstrapData(infos, packageDir, importRoot, modulePath)
@@ -397,27 +401,22 @@ func writeBootstrapFile(dir string, data []byte, keep bool) (string, func() erro
 	return tempFile, cleanup, nil
 }
 
-func findModuleRootAndPath(startDir string) (string, string, bool, error) {
-	dir := startDir
-	for {
-		modPath := filepath.Join(dir, "go.mod")
-		data, err := os.ReadFile(modPath)
-		if err == nil {
-			modulePath := parseModulePath(string(data))
-			if modulePath == "" {
-				return "", "", true, fmt.Errorf("module path not found in %s", modPath)
-			}
-			return dir, modulePath, true, nil
+// findModuleInDir checks for a go.mod only in the specified directory (no walking up).
+// This ensures targets are self-contained and don't accidentally use a parent module.
+func findModuleInDir(dir string) (string, string, bool, error) {
+	modPath := filepath.Join(dir, "go.mod")
+	data, err := os.ReadFile(modPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", "", false, nil
 		}
-
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			break
-		}
-		dir = parent
+		return "", "", false, err
 	}
-
-	return "", "", false, nil
+	modulePath := parseModulePath(string(data))
+	if modulePath == "" {
+		return "", "", true, fmt.Errorf("module path not found in %s", modPath)
+	}
+	return dir, modulePath, true, nil
 }
 
 func parseModulePath(content string) string {
