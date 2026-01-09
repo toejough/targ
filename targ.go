@@ -126,6 +126,19 @@ func PrintCompletionScript(shell string, binName string) error {
 	return core.PrintCompletionScript(shell, binName)
 }
 
+// Deps executes each dependency exactly once per CLI run.
+// Dependencies are tracked by their reflect.Value, so the same function or
+// struct pointer will only run once even if Deps is called multiple times.
+func Deps(targets ...interface{}) error {
+	return core.Deps(targets...)
+}
+
+// ParallelDeps executes dependencies in parallel, ensuring each target runs once.
+// Like Deps, each dependency only executes once per CLI run.
+func ParallelDeps(targets ...interface{}) error {
+	return core.ParallelDeps(targets...)
+}
+
 // --- Backwards-compatible file utility re-exports ---
 
 // Match expands one or more patterns using fish-style globs.
