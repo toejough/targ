@@ -1,2 +1,4 @@
 .targ/
 .targs/
+*.test
+targ
