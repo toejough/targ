@@ -196,7 +196,7 @@ func findTaggedDirs(fs FileSystem, startDir string, tag string) ([]taggedDir, er
 			name := entry.Name()
 			fullPath := filepath.Join(current.path, name)
 			if entry.IsDir() {
-				if name == ".git" || name == ".targ" || name == "vendor" {
+				if name == ".git" || name == "vendor" {
 					continue
 				}
 				queue = append(queue, dirEntry{path: fullPath, depth: current.depth + 1})

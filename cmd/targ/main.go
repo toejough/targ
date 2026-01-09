@@ -253,16 +253,10 @@ func main() {
 	if usingFallback {
 		buildPackageDir = filepath.Join(buildRoot, relPackageDir)
 	}
-	bootstrapDir := filepath.Join(importRoot, ".targ", "tmp")
-	if usingFallback {
-		bootstrapDir = filepath.Join(buildRoot, ".targ", "tmp")
-	}
+	projCache := projectCacheDir(importRoot)
+	bootstrapDir := filepath.Join(projCache, "tmp")
 	if localMain {
-		tempRoot := importRoot
-		if usingFallback {
-			tempRoot = buildRoot
-		}
-		localMainDir, err := ensureLocalMainBuildDir(packageDir, tempRoot)
+		localMainDir, err := ensureLocalMainBuildDir(packageDir, projCache)
 		if err != nil {
 			fmt.Fprintf(errOut, "Error preparing local main build directory: %v\n", err)
 			os.Exit(1)
@@ -282,7 +276,7 @@ func main() {
 		defer cleanupTemp()
 	}
 
-	cacheDir := filepath.Join(buildRoot, ".targ", "cache")
+	cacheDir := filepath.Join(projCache, "bin")
 	if err := os.MkdirAll(cacheDir, 0755); err != nil {
 		fmt.Fprintf(errOut, "Error creating cache directory: %v\n", err)
 		os.Exit(1)
@@ -495,7 +489,7 @@ func goEnv(key string) (string, error) {
 
 func ensureFallbackModuleRoot(startDir string, modulePath string, dep targDependency) (string, error) {
 	hash := sha256.Sum256([]byte(startDir))
-	root := filepath.Join(startDir, ".targ", "cache", "mod", fmt.Sprintf("%x", hash[:8]))
+	root := filepath.Join(projectCacheDir(startDir), "mod", fmt.Sprintf("%x", hash[:8]))
 	if err := os.MkdirAll(root, 0755); err != nil {
 		return "", err
 	}
@@ -518,7 +512,7 @@ func linkModuleRoot(startDir string, root string) error {
 	}
 	for _, entry := range entries {
 		name := entry.Name()
-		if name == ".targ" || name == ".git" {
+		if name == ".git" {
 			continue
 		}
 		src := filepath.Join(startDir, name)
@@ -539,9 +533,9 @@ func linkModuleRoot(startDir string, root string) error {
 	return nil
 }
 
-func ensureLocalMainBuildDir(packageDir string, root string) (string, error) {
+func ensureLocalMainBuildDir(packageDir string, cacheRoot string) (string, error) {
 	hash := sha256.Sum256([]byte(packageDir))
-	dir := filepath.Join(root, ".targ", "tmp", "localmain", fmt.Sprintf("%x", hash[:8]))
+	dir := filepath.Join(cacheRoot, "localmain", fmt.Sprintf("%x", hash[:8]))
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return "", err
 	}
@@ -551,7 +545,7 @@ func ensureLocalMainBuildDir(packageDir string, root string) (string, error) {
 	}
 	for _, entry := range entries {
 		name := entry.Name()
-		if name == ".targ" || name == ".git" {
+		if name == ".git" {
 			continue
 		}
 		src := filepath.Join(packageDir, name)
@@ -597,6 +591,27 @@ func touchFile(path string) error {
 		return err
 	}
 	return nil
+}
+
+// targCacheDir returns the centralized cache directory for targ following XDG spec.
+// Uses $XDG_CACHE_HOME/targ or ~/.cache/targ as fallback.
+func targCacheDir() string {
+	if dir := os.Getenv("XDG_CACHE_HOME"); dir != "" {
+		return filepath.Join(dir, "targ")
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		// Fallback to current directory if home can't be determined
+		return ".targ"
+	}
+	return filepath.Join(home, ".cache", "targ")
+}
+
+// projectCacheDir returns a project-specific subdirectory within the targ cache.
+// Uses a hash of the project path to isolate projects.
+func projectCacheDir(projectPath string) string {
+	hash := sha256.Sum256([]byte(projectPath))
+	return filepath.Join(targCacheDir(), fmt.Sprintf("%x", hash[:8]))
 }
 
 func detectShell() string {
@@ -1320,7 +1335,7 @@ func collectModuleFiles(moduleRoot string) ([]buildtool.TaggedFile, error) {
 		}
 		if entry.IsDir() {
 			name := entry.Name()
-			if name == ".git" || name == ".targ" || name == "vendor" {
+			if name == ".git" || name == "vendor" {
 				return filepath.SkipDir
 			}
 			return nil

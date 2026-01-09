@@ -535,7 +535,7 @@ func TestDiscover_SkipsTargCacheDir(t *testing.T) {
 	}()
 
 	fsMock.ReadDir.ExpectCalledWithExactly("/root").InjectReturnValues([]fs.DirEntry{
-		fakeDirEntry{name: ".targ", dir: true},
+		fakeDirEntry{name: ".git", dir: true},
 		fakeDirEntry{name: "cmd.go", dir: false},
 	}, nil)
 	fsMock.ReadFile.ExpectCalledWithExactly("/root/cmd.go").InjectReturnValues([]byte(`//go:build targ
