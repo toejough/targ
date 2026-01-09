@@ -255,8 +255,17 @@ func main() {
 	}
 	projCache := projectCacheDir(importRoot)
 	bootstrapDir := filepath.Join(projCache, "tmp")
+	if usingFallback {
+		// When using fallback module, bootstrap must be inside buildRoot
+		// so it can find the go.mod with the replace directive
+		bootstrapDir = filepath.Join(buildRoot, "tmp")
+	}
 	if localMain {
-		localMainDir, err := ensureLocalMainBuildDir(packageDir, projCache)
+		cacheRoot := projCache
+		if usingFallback {
+			cacheRoot = buildRoot
+		}
+		localMainDir, err := ensureLocalMainBuildDir(packageDir, cacheRoot)
 		if err != nil {
 			fmt.Fprintf(errOut, "Error preparing local main build directory: %v\n", err)
 			os.Exit(1)
