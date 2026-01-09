@@ -326,11 +326,11 @@ import "github.com/toejough/targ/sh"
 // Run a command, inherit stdout/stderr
 err := sh.Run("go", "build", "./...")
 
+// Run with verbose output (prints command before running)
+err := sh.RunV("go", "test", "./...")
+
 // Capture output
 out, err := sh.Output("go", "env", "GOMOD")
-
-// Check if command exists
-if sh.Which("docker") != "" { ... }
 ```
 
 ## File Checks

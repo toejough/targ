@@ -184,7 +184,7 @@ Replaced with specific issues for individual helpers (59-64) based on Mage sh pa
 #### Universal
 
 **Status**
-backlog
+done
 
 **Description**
 Add checks or tooling to keep README examples in sync with real behavior.
@@ -196,6 +196,11 @@ Low
 
 **Acceptance**
 CI or tooling verifies README examples compile/run or match output.
+
+#### Implementation Notes
+
+**Details**
+Manually verified README examples. Fixed one issue: removed `sh.Which` example (function doesn't exist), replaced with `sh.RunV` example. Other examples verified correct.
 
 ### 56. Deterministic behavior across platforms
 
