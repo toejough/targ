@@ -8,8 +8,9 @@ import (
 )
 
 type depKey struct {
-	kind string
-	id   uintptr
+	kind    string
+	id      uintptr
+	typName string
 }
 
 type depTracker struct {
@@ -127,12 +128,13 @@ func depKeyFor(target interface{}) (depKey, error) {
 	v := reflect.ValueOf(target)
 	switch v.Kind() {
 	case reflect.Func:
-		return depKey{kind: "func", id: v.Pointer()}, nil
+		return depKey{kind: "func", id: v.Pointer(), typName: v.Type().String()}, nil
 	case reflect.Ptr:
 		if v.IsNil() {
 			return depKey{}, fmt.Errorf("dependency target cannot be nil")
 		}
-		return depKey{kind: "ptr", id: v.Pointer()}, nil
+		// Include type name to distinguish zero-sized structs with same address
+		return depKey{kind: "ptr", id: v.Pointer(), typName: v.Type().String()}, nil
 	default:
 		return depKey{}, fmt.Errorf("dependency target must be func or pointer to struct")
 	}
