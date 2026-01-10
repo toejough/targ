@@ -102,19 +102,28 @@ func doCompletion(roots []*commandNode, commandLine string) error {
 
 	// Now we are at currentNode, and we need to suggest based on prefix
 
-	// 1. Suggest Subcommands
+	// 1. Suggest Subcommands (children)
 	for name := range currentNode.Subcommands {
 		if strings.HasPrefix(name, prefix) {
 			fmt.Println(name)
 		}
 	}
 
-	// 2. Suggest Flags
-	// We need to look at fields again.
-	// Note: We need to recreate the flag set logic or reuse parsing?
-	// Reusing parsing is hard because it consumes args.
-	// We just want to inspect the struct fields.
+	// 2. Suggest Siblings (parent's subcommands) for implicit sibling resolution
+	if currentNode.Parent != nil {
+		for name := range currentNode.Parent.Subcommands {
+			if strings.HasPrefix(name, prefix) {
+				fmt.Println(name)
+			}
+		}
+	}
 
+	// 3. Suggest ^ for root reset when not at root
+	if !atRoot && strings.HasPrefix("^", prefix) {
+		fmt.Println("^")
+	}
+
+	// 4. Suggest Flags
 	// Check if prefix starts with "-"
 	values, valuesOK, err := enumValuesForArg(chain, processedArgs, prefix, isNewArg)
 	if err != nil {
