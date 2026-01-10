@@ -536,7 +536,8 @@ func linkModuleRoot(startDir string, root string) error {
 	}
 	for _, entry := range entries {
 		name := entry.Name()
-		if name == ".git" {
+		// Skip .git and module files - we'll create our own go.mod/go.sum
+		if name == ".git" || name == "go.mod" || name == "go.sum" {
 			continue
 		}
 		src := filepath.Join(startDir, name)
