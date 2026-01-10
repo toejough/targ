@@ -3,7 +3,10 @@
 // Package check provides build targets for testing, coverage, and linting.
 package check
 
-import "github.com/toejough/targ/sh"
+import (
+	"github.com/toejough/targ"
+	"github.com/toejough/targ/sh"
+)
 
 // Test runs all tests with coverage.
 type Test struct{}
@@ -51,10 +54,5 @@ func (a *All) Description() string {
 }
 
 func (a *All) Run() error {
-	t := &Test{}
-	if err := t.Run(); err != nil {
-		return err
-	}
-	l := &Lint{}
-	return l.Run()
+	return targ.Deps(&Test{}, &Lint{})
 }
