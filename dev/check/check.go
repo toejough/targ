@@ -3,13 +3,7 @@
 // Package check provides build targets for testing, coverage, and linting.
 package check
 
-import (
-	"fmt"
-	"os"
-	"os/exec"
-
-	"github.com/toejough/targ/sh"
-)
+import "github.com/toejough/targ/sh"
 
 // Test runs all tests with coverage.
 type Test struct{}
@@ -42,15 +36,11 @@ func (c *Coverage) Run() error {
 type Lint struct{}
 
 func (l *Lint) Description() string {
-	return "Run linter (golangci-lint or go vet)"
+	return "Run golangci-lint"
 }
 
 func (l *Lint) Run() error {
-	if _, err := exec.LookPath("golangci-lint"); err == nil {
-		return sh.RunV("golangci-lint", "run")
-	}
-	fmt.Fprintln(os.Stderr, "golangci-lint not found, using go vet")
-	return sh.RunV("go", "vet", "./...")
+	return sh.RunV("golangci-lint", "run")
 }
 
 // All runs tests and lint.
