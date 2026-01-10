@@ -372,17 +372,6 @@ func main() {
 		}
 	}
 
-	var tempFile string
-	var cleanupTemp func() error
-	tempFile, cleanupTemp, err = writeBootstrapFile(bootstrapDir, buf.Bytes(), keepBootstrap)
-	if err != nil {
-		fmt.Fprintf(errOut, "Error writing bootstrap file: %v\n", err)
-		exit(1)
-	}
-	if !keepBootstrap {
-		defer cleanupTemp()
-	}
-
 	cacheDir := filepath.Join(projCache, "bin")
 	if err := os.MkdirAll(cacheDir, 0755); err != nil {
 		fmt.Fprintf(errOut, "Error creating cache directory: %v\n", err)
@@ -402,6 +391,7 @@ func main() {
 		}
 	}
 
+	// Check if cached binary exists - if so, run it without writing bootstrap file
 	if !noCache {
 		if info, err := os.Stat(binaryPath); err == nil && info.Mode().IsRegular() && info.Mode()&0111 != 0 {
 			cmd := exec.Command(binaryPath, args...)
@@ -410,9 +400,6 @@ func main() {
 			cmd.Stderr = errOut
 			cmd.Stdin = os.Stdin
 			if err := cmd.Run(); err != nil {
-				if !keepBootstrap {
-					_ = cleanupTemp()
-				}
 				if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() != 0 {
 					exit(exitErr.ExitCode())
 				}
@@ -422,6 +409,18 @@ func main() {
 			cleanupWrappers()
 			return
 		}
+	}
+
+	// Write bootstrap file only when we need to build
+	var tempFile string
+	var cleanupTemp func() error
+	tempFile, cleanupTemp, err = writeBootstrapFile(bootstrapDir, buf.Bytes(), keepBootstrap)
+	if err != nil {
+		fmt.Fprintf(errOut, "Error writing bootstrap file: %v\n", err)
+		exit(1)
+	}
+	if !keepBootstrap {
+		defer cleanupTemp()
 	}
 
 	buildArgs := []string{"build", "-tags", "targ", "-o", binaryPath}
@@ -455,15 +454,18 @@ func main() {
 		exit(1)
 	}
 
+	// Clean up bootstrap file before running the binary
+	// so commands like reorderDeclsCheck don't see it
+	if !keepBootstrap {
+		_ = cleanupTemp()
+	}
+
 	cmd := exec.Command(binaryPath, args...)
 	cmd.Env = append(os.Environ(), "TARG_BIN_NAME="+targBinName)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = errOut
 	cmd.Stdin = os.Stdin
 	if err := cmd.Run(); err != nil {
-		if !keepBootstrap {
-			_ = cleanupTemp()
-		}
 		exit(1)
 	}
 	cleanupWrappers()
