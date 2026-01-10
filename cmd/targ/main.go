@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -67,6 +68,32 @@ type bootstrapData struct {
 	UsesContext  bool
 }
 
+// moduleTargets groups discovered packages by their module.
+type moduleTargets struct {
+	ModuleRoot string
+	ModulePath string
+	Packages   []buildtool.PackageInfo
+}
+
+// commandInfo represents a command from a module binary.
+type commandInfo struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+}
+
+// moduleRegistry tracks built binaries and their commands.
+type moduleRegistry struct {
+	BinaryPath string
+	ModuleRoot string
+	ModulePath string
+	Commands   []commandInfo
+}
+
+// listOutput is the JSON structure returned by __list command.
+type listOutput struct {
+	Commands []commandInfo `json:"commands"`
+}
+
 func main() {
 	var noCache bool
 	var keepBootstrap bool
@@ -108,18 +135,8 @@ func main() {
 		helpRequested = true
 	}
 
-	if helpRequested && !helpTargets {
-		startDir, err := os.Getwd()
-		if err != nil {
-			fmt.Fprintf(errOut, "Error resolving working directory: %v\n", err)
-			os.Exit(1)
-		}
-		if err := printBuildToolHelp(os.Stdout, startDir); err != nil {
-			fmt.Fprintf(errOut, "Error discovering packages: %v\n", err)
-			os.Exit(1)
-		}
-		return
-	}
+	// For --help without targets, we need to check if it's multi-module
+	// This is deferred until after module grouping
 	if helpRequested && helpTargets {
 		args = append(args, "--help")
 	}
@@ -200,6 +217,54 @@ func main() {
 		exit(1)
 	}
 
+	// Group packages by module
+	moduleGroups, err := groupByModule(infos, startDir)
+	if err != nil {
+		fmt.Fprintf(errOut, "Error grouping packages by module: %v\n", err)
+		exit(1)
+	}
+
+	// Handle --help without targets
+	if helpRequested && !helpTargets {
+		if len(moduleGroups) > 1 {
+			// Multi-module: build binaries and show aggregated help
+			registry, err := buildMultiModuleBinaries(moduleGroups, startDir, noCache, keepBootstrap, errOut)
+			if err != nil {
+				fmt.Fprintf(errOut, "Error building module binaries: %v\n", err)
+				exit(1)
+			}
+			cleanupWrappers()
+			printMultiModuleHelp(registry)
+			return
+		}
+		// Single module: use standard help
+		if err := printBuildToolHelp(os.Stdout, startDir); err != nil {
+			fmt.Fprintf(errOut, "Error discovering packages: %v\n", err)
+			exit(1)
+		}
+		cleanupWrappers()
+		return
+	}
+
+	// For multi-module case, use the new multi-binary dispatch
+	if len(moduleGroups) > 1 {
+		registry, err := buildMultiModuleBinaries(moduleGroups, startDir, noCache, keepBootstrap, errOut)
+		if err != nil {
+			fmt.Fprintf(errOut, "Error building module binaries: %v\n", err)
+			exit(1)
+		}
+		cleanupWrappers()
+		if err := dispatchCommand(registry, args, errOut); err != nil {
+			if exitErr, ok := err.(*exec.ExitError); ok {
+				os.Exit(exitErr.ExitCode())
+			}
+			fmt.Fprintf(errOut, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	// Single module case - use existing logic
 	// Determine the target directory (where the target files are)
 	packageDir := startDir
 	if len(infos) == 1 && infos[0].Package == "main" {
@@ -474,6 +539,51 @@ func parseModulePath(content string) string {
 		}
 	}
 	return ""
+}
+
+// groupByModule groups packages by their module root.
+// Packages without a module are grouped under startDir with "targ.local" module path.
+func groupByModule(infos []buildtool.PackageInfo, startDir string) ([]moduleTargets, error) {
+	byModule := make(map[string]*moduleTargets)
+
+	for _, info := range infos {
+		if len(info.Files) == 0 {
+			continue
+		}
+
+		// Find module for first file in package
+		modRoot, modPath, found, err := findModuleForPath(info.Files[0].Path)
+		if err != nil {
+			return nil, err
+		}
+		if !found {
+			// No module found - use startDir as pseudo-module
+			modRoot = startDir
+			modPath = "targ.local"
+		}
+
+		// Group by module root
+		if mt, ok := byModule[modRoot]; ok {
+			mt.Packages = append(mt.Packages, info)
+		} else {
+			byModule[modRoot] = &moduleTargets{
+				ModuleRoot: modRoot,
+				ModulePath: modPath,
+				Packages:   []buildtool.PackageInfo{info},
+			}
+		}
+	}
+
+	// Convert to sorted slice for deterministic ordering
+	result := make([]moduleTargets, 0, len(byModule))
+	for _, mt := range byModule {
+		result = append(result, *mt)
+	}
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].ModuleRoot < result[j].ModuleRoot
+	})
+
+	return result, nil
 }
 
 type targDependency struct {
@@ -1427,6 +1537,334 @@ func collectModuleFiles(moduleRoot string) ([]buildtool.TaggedFile, error) {
 		return nil, err
 	}
 	return files, nil
+}
+
+// buildMultiModuleBinaries builds a binary for each module group and returns the registry.
+func buildMultiModuleBinaries(
+	moduleGroups []moduleTargets,
+	startDir string,
+	noCache bool,
+	keepBootstrap bool,
+	errOut io.Writer,
+) ([]moduleRegistry, error) {
+	var registry []moduleRegistry
+	dep := resolveTargDependency()
+
+	for _, mt := range moduleGroups {
+		reg, err := buildModuleBinary(mt, startDir, dep, noCache, keepBootstrap, errOut)
+		if err != nil {
+			return nil, fmt.Errorf("building module %s: %w", mt.ModulePath, err)
+		}
+		registry = append(registry, reg)
+	}
+
+	return registry, nil
+}
+
+// buildModuleBinary builds a single module's binary and queries its commands.
+func buildModuleBinary(
+	mt moduleTargets,
+	startDir string,
+	dep targDependency,
+	noCache bool,
+	keepBootstrap bool,
+	errOut io.Writer,
+) (moduleRegistry, error) {
+	reg := moduleRegistry{
+		ModuleRoot: mt.ModuleRoot,
+		ModulePath: mt.ModulePath,
+	}
+
+	// Determine if using fallback module
+	usingFallback := mt.ModulePath == "targ.local"
+	buildRoot := mt.ModuleRoot
+	importRoot := mt.ModuleRoot
+
+	if usingFallback {
+		var err error
+		buildRoot, err = ensureFallbackModuleRoot(startDir, mt.ModulePath, dep)
+		if err != nil {
+			return reg, fmt.Errorf("preparing fallback module: %w", err)
+		}
+	}
+
+	// Determine package directory
+	packageDir := startDir
+	if len(mt.Packages) == 1 && mt.Packages[0].Package == "main" {
+		packageDir = mt.Packages[0].Dir
+	}
+
+	// Build bootstrap data
+	data, err := buildBootstrapData(mt.Packages, packageDir, importRoot, mt.ModulePath)
+	if err != nil {
+		return reg, fmt.Errorf("preparing bootstrap: %w", err)
+	}
+
+	// Generate bootstrap code
+	tmpl := template.Must(template.New("main").Parse(bootstrapTemplate))
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, data); err != nil {
+		return reg, fmt.Errorf("generating code: %w", err)
+	}
+
+	// Compute cache key for this module
+	taggedFiles, err := collectModuleTaggedFiles(mt)
+	if err != nil {
+		return reg, fmt.Errorf("gathering tagged files: %w", err)
+	}
+	moduleFiles, err := collectModuleFiles(importRoot)
+	if err != nil {
+		return reg, fmt.Errorf("gathering module files: %w", err)
+	}
+	cacheInputs := append(taggedFiles, moduleFiles...)
+	cacheKey, err := computeCacheKey(mt.ModulePath, importRoot, "targ", buf.Bytes(), cacheInputs)
+	if err != nil {
+		return reg, fmt.Errorf("computing cache key: %w", err)
+	}
+
+	// Determine build directories
+	localMain := len(mt.Packages) == 1 && mt.Packages[0].Package == "main"
+	buildPackageDir := packageDir
+	bootstrapDir := filepath.Join(projectCacheDir(importRoot), "tmp")
+
+	if usingFallback {
+		relPackageDir, err := filepath.Rel(startDir, packageDir)
+		if err != nil {
+			return reg, fmt.Errorf("resolving package path: %w", err)
+		}
+		buildPackageDir = filepath.Join(buildRoot, relPackageDir)
+		bootstrapDir = filepath.Join(buildRoot, "tmp")
+	}
+
+	if localMain {
+		if usingFallback {
+			localMainDir, err := ensureLocalMainBuildDir(packageDir, buildRoot)
+			if err != nil {
+				return reg, fmt.Errorf("preparing local main build directory: %w", err)
+			}
+			buildPackageDir = localMainDir
+			bootstrapDir = localMainDir
+		} else {
+			bootstrapDir = packageDir
+			buildPackageDir = packageDir
+		}
+	}
+
+	// Write bootstrap file
+	tempFile, cleanupTemp, err := writeBootstrapFile(bootstrapDir, buf.Bytes(), keepBootstrap)
+	if err != nil {
+		return reg, fmt.Errorf("writing bootstrap file: %w", err)
+	}
+	if !keepBootstrap {
+		defer cleanupTemp()
+	}
+
+	// Determine binary path
+	projCache := projectCacheDir(importRoot)
+	cacheDir := filepath.Join(projCache, "bin")
+	if err := os.MkdirAll(cacheDir, 0755); err != nil {
+		return reg, fmt.Errorf("creating cache directory: %w", err)
+	}
+	binaryPath := filepath.Join(cacheDir, fmt.Sprintf("targ_%s", cacheKey))
+	reg.BinaryPath = binaryPath
+
+	// Check cache
+	if !noCache {
+		if info, err := os.Stat(binaryPath); err == nil && info.Mode().IsRegular() && info.Mode()&0111 != 0 {
+			// Binary exists, query commands
+			cmds, err := queryModuleCommands(binaryPath)
+			if err != nil {
+				return reg, fmt.Errorf("querying commands: %w", err)
+			}
+			reg.Commands = cmds
+			return reg, nil
+		}
+	}
+
+	// Ensure targ dependency is available (bootstrap imports it even if targets don't)
+	getCmd := exec.Command("go", "get", dep.ModulePath)
+	getCmd.Dir = importRoot
+	getCmd.Stdout = io.Discard
+	getCmd.Stderr = io.Discard
+	_ = getCmd.Run() // Ignore errors - the build will fail if there's a real issue
+
+	// Build the binary
+	buildArgs := []string{"build", "-tags", "targ", "-o", binaryPath}
+	if usingFallback {
+		buildArgs = append(buildArgs, "-mod=mod")
+	}
+	if localMain {
+		buildArgs = append(buildArgs, ".")
+	} else {
+		buildArgs = append(buildArgs, tempFile)
+	}
+
+	buildCmd := exec.Command("go", buildArgs...)
+	var buildOutput bytes.Buffer
+	buildCmd.Stdout = io.Discard
+	buildCmd.Stderr = &buildOutput
+
+	if localMain {
+		buildCmd.Dir = buildPackageDir
+	} else if usingFallback {
+		buildCmd.Dir = buildRoot
+	} else {
+		buildCmd.Dir = importRoot
+	}
+
+	if err := buildCmd.Run(); err != nil {
+		if buildOutput.Len() > 0 {
+			fmt.Fprint(errOut, buildOutput.String())
+		}
+		return reg, fmt.Errorf("building command: %w", err)
+	}
+
+	// Query commands from the newly built binary
+	cmds, err := queryModuleCommands(binaryPath)
+	if err != nil {
+		return reg, fmt.Errorf("querying commands: %w", err)
+	}
+	reg.Commands = cmds
+
+	return reg, nil
+}
+
+// collectModuleTaggedFiles collects tagged files from a module's packages.
+func collectModuleTaggedFiles(mt moduleTargets) ([]buildtool.TaggedFile, error) {
+	var files []buildtool.TaggedFile
+	for _, pkg := range mt.Packages {
+		for _, f := range pkg.Files {
+			data, err := os.ReadFile(f.Path)
+			if err != nil {
+				return nil, err
+			}
+			files = append(files, buildtool.TaggedFile{
+				Path:    f.Path,
+				Content: data,
+			})
+		}
+	}
+	return files, nil
+}
+
+// queryModuleCommands queries a module binary for its available commands.
+func queryModuleCommands(binaryPath string) ([]commandInfo, error) {
+	cmd := exec.Command(binaryPath, "__list")
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("running __list: %w", err)
+	}
+
+	var result listOutput
+	if err := json.Unmarshal(output, &result); err != nil {
+		return nil, fmt.Errorf("parsing __list output: %w", err)
+	}
+
+	return result.Commands, nil
+}
+
+// dispatchCommand finds the right binary for a command and executes it.
+func dispatchCommand(registry []moduleRegistry, args []string, errOut io.Writer) error {
+	// Handle help request
+	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" {
+		printMultiModuleHelp(registry)
+		return nil
+	}
+
+	// Handle completion
+	if args[0] == "__complete" {
+		return dispatchCompletion(registry, args)
+	}
+
+	// Find the command in the registry
+	cmdName := args[0]
+	for _, reg := range registry {
+		for _, cmd := range reg.Commands {
+			// Check if command matches (exact match or prefix for subcommands)
+			if cmd.Name == cmdName || strings.HasPrefix(cmd.Name, cmdName+" ") {
+				// Execute via the module's binary
+				proc := exec.Command(reg.BinaryPath, args...)
+				proc.Stdin = os.Stdin
+				proc.Stdout = os.Stdout
+				proc.Stderr = errOut
+
+				// Set TARG_BIN_NAME for proper help output
+				targBinName := "targ"
+				if binArg := os.Args[0]; binArg != "" {
+					if idx := strings.LastIndex(binArg, "/"); idx != -1 {
+						targBinName = binArg[idx+1:]
+					} else {
+						targBinName = binArg
+					}
+				}
+				proc.Env = append(os.Environ(), "TARG_BIN_NAME="+targBinName)
+
+				return proc.Run()
+			}
+		}
+	}
+
+	// Command not found
+	fmt.Fprintf(errOut, "Unknown command: %s\n", cmdName)
+	printMultiModuleHelp(registry)
+	return fmt.Errorf("unknown command: %s", cmdName)
+}
+
+// printMultiModuleHelp prints aggregated help for all modules.
+func printMultiModuleHelp(registry []moduleRegistry) {
+	fmt.Println("targ is a build-tool runner that discovers tagged commands and executes them.")
+	fmt.Println()
+	fmt.Println("Usage: targ [FLAGS...] COMMAND [COMMAND_ARGS...]")
+	fmt.Println()
+	fmt.Println("Commands:")
+
+	// Collect all commands and sort by name
+	type cmdEntry struct {
+		name        string
+		description string
+	}
+	var allCmds []cmdEntry
+	for _, reg := range registry {
+		for _, cmd := range reg.Commands {
+			allCmds = append(allCmds, cmdEntry{cmd.Name, cmd.Description})
+		}
+	}
+	sort.Slice(allCmds, func(i, j int) bool {
+		return allCmds[i].name < allCmds[j].name
+	})
+
+	for _, cmd := range allCmds {
+		fmt.Printf("    %-20s %s\n", cmd.name, cmd.description)
+	}
+
+	fmt.Println()
+	fmt.Println("More info: https://github.com/toejough/targ#readme")
+}
+
+// dispatchCompletion handles completion requests by querying all binaries.
+func dispatchCompletion(registry []moduleRegistry, args []string) error {
+	if len(args) < 2 {
+		return nil
+	}
+
+	// Query each binary for completions and aggregate
+	seen := make(map[string]bool)
+	for _, reg := range registry {
+		cmd := exec.Command(reg.BinaryPath, args...)
+		output, err := cmd.Output()
+		if err != nil {
+			continue // Skip failed completions
+		}
+		for _, line := range strings.Split(string(output), "\n") {
+			line = strings.TrimSpace(line)
+			if line != "" && !seen[line] {
+				seen[line] = true
+				fmt.Println(line)
+			}
+		}
+	}
+
+	return nil
 }
 
 const bootstrapTemplate = `

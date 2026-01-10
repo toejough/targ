@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/signal"
@@ -153,6 +154,15 @@ func RunWithEnv(env runEnv, opts RunOptions, targets ...interface{}) error {
 				if err := doCompletion(roots, rest[1]); err != nil {
 					env.Printf("Error: %v\n", err)
 				}
+			}
+			return nil
+		}
+
+		// Check for list command request (Hidden command for multi-module support)
+		if rest[0] == "__list" {
+			if err := doList(roots); err != nil {
+				env.Printf("Error: %v\n", err)
+				return ExitError{Code: 1}
 			}
 			return nil
 		}
@@ -325,4 +335,48 @@ func extractHelpFlag(args []string) (bool, []string) {
 	}
 
 	return helpFound, result
+}
+
+// listCommandInfo represents a command in the __list output.
+type listCommandInfo struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+}
+
+// listOutput is the JSON structure returned by the __list command.
+type listOutput struct {
+	Commands []listCommandInfo `json:"commands"`
+}
+
+// doList outputs JSON with command names and descriptions.
+func doList(roots []*commandNode) error {
+	output := listOutput{
+		Commands: make([]listCommandInfo, 0),
+	}
+
+	for _, node := range roots {
+		collectCommands(node, "", &output.Commands)
+	}
+
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	return enc.Encode(output)
+}
+
+// collectCommands recursively collects command info from a node and its subcommands.
+func collectCommands(node *commandNode, prefix string, commands *[]listCommandInfo) {
+	name := node.Name
+	if prefix != "" {
+		name = prefix + " " + name
+	}
+
+	*commands = append(*commands, listCommandInfo{
+		Name:        name,
+		Description: node.Description,
+	})
+
+	// Recursively collect subcommands
+	for _, sub := range node.Subcommands {
+		collectCommands(sub, name, commands)
+	}
 }
