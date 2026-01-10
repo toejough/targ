@@ -354,7 +354,36 @@ func (n *commandNode) executeWithParents(
 		if err := assignSubcommandField(n, inst, result.subcommand.Name, result.subcommand); err != nil {
 			return nil, err
 		}
-		return result.subcommand.executeWithParents(ctx, result.remaining, chain, visited, true, opts)
+		remaining, err := result.subcommand.executeWithParents(ctx, result.remaining, chain, visited, true, opts)
+		if err != nil {
+			return nil, err
+		}
+		// Implicit sibling resolution: try to match remaining args against siblings
+		for len(remaining) > 0 {
+			// Check for ^ (reset to root)
+			if remaining[0] == "^" {
+				return remaining[1:], nil
+			}
+			// Try to match as sibling (case-insensitive)
+			var sibling *commandNode
+			for name, sub := range n.Subcommands {
+				if strings.EqualFold(name, remaining[0]) {
+					sibling = sub
+					break
+				}
+			}
+			if sibling == nil {
+				break
+			}
+			if err := assignSubcommandField(n, inst, sibling.Name, sibling); err != nil {
+				return nil, err
+			}
+			remaining, err = sibling.executeWithParents(ctx, remaining[1:], chain, visited, true, opts)
+			if err != nil {
+				return nil, err
+			}
+		}
+		return remaining, nil
 	}
 
 	if err := applyDefaultsAndEnv(specs, visited); err != nil {

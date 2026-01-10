@@ -206,6 +206,24 @@ func TestRunWithEnv_MultipleRoots_SubcommandThenRoot(t *testing.T) {
 	}
 }
 
+func TestRunWithEnv_CaretResetsToRoot(t *testing.T) {
+	multiSubOneCalls = 0
+	multiRootDiscoverCalls = 0
+
+	env := &executeEnv{args: []string{"cmd", "multi-sub-root", "one", "^", "discover"}}
+	err := RunWithEnv(env, RunOptions{AllowDefault: false}, &MultiSubRoot{}, &discoverRoot{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if multiSubOneCalls != 1 {
+		t.Fatalf("expected One to run once, got %d", multiSubOneCalls)
+	}
+	if multiRootDiscoverCalls != 1 {
+		t.Fatalf("expected discover to run once, got %d", multiRootDiscoverCalls)
+	}
+}
+
 func TestRunWithEnv_DisableHelp(t *testing.T) {
 	// With DisableHelp, --help should be passed through as unknown flag
 	env := &executeEnv{args: []string{"cmd", "--help"}}
