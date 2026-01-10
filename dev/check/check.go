@@ -46,13 +46,24 @@ func (l *Lint) Run() error {
 	return sh.RunV("golangci-lint", "run")
 }
 
-// All runs tests and lint.
+// Order checks declaration ordering with go-reorder.
+type Order struct{}
+
+func (o *Order) Description() string {
+	return "Check declaration ordering"
+}
+
+func (o *Order) Run() error {
+	return sh.RunV("go-reorder", "-c", ".")
+}
+
+// All runs tests, lint, and order check.
 type All struct{}
 
 func (a *All) Description() string {
-	return "Run tests and lint"
+	return "Run tests, lint, and order check"
 }
 
 func (a *All) Run() error {
-	return targ.Deps(&Test{}, &Lint{})
+	return targ.Deps(&Test{}, &Lint{}, &Order{})
 }
