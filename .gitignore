@@ -2,3 +2,4 @@
 /targ
 .DS_Store
 .crush/
+coverage.out
