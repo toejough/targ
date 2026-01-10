@@ -113,9 +113,9 @@ func TestBuildBootstrapData_Namespaces(t *testing.T) {
 	}
 }
 
-func TestFindModuleInDir_NoModule(t *testing.T) {
+func TestFindModuleForPath_NoModule(t *testing.T) {
 	dir := t.TempDir()
-	root, modulePath, found, err := findModuleInDir(dir)
+	root, modulePath, found, err := findModuleForPath(dir)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -127,14 +127,14 @@ func TestFindModuleInDir_NoModule(t *testing.T) {
 	}
 }
 
-func TestFindModuleInDir_WithModule(t *testing.T) {
+func TestFindModuleForPath_WithModule(t *testing.T) {
 	dir := t.TempDir()
 	modContent := "module example.com/test\n\ngo 1.21\n"
 	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte(modContent), 0644); err != nil {
 		t.Fatalf("unexpected write error: %v", err)
 	}
 
-	root, modulePath, found, err := findModuleInDir(dir)
+	root, modulePath, found, err := findModuleForPath(dir)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -149,7 +149,7 @@ func TestFindModuleInDir_WithModule(t *testing.T) {
 	}
 }
 
-func TestFindModuleInDir_DoesNotWalkUp(t *testing.T) {
+func TestFindModuleForPath_WalksUp(t *testing.T) {
 	// Create parent with go.mod
 	parent := t.TempDir()
 	modContent := "module example.com/parent\n\ngo 1.21\n"
@@ -163,16 +163,53 @@ func TestFindModuleInDir_DoesNotWalkUp(t *testing.T) {
 		t.Fatalf("unexpected mkdir error: %v", err)
 	}
 
-	// Should NOT find parent's go.mod
-	root, modulePath, found, err := findModuleInDir(child)
+	// Should find parent's go.mod by walking up
+	root, modulePath, found, err := findModuleForPath(child)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if found {
-		t.Fatal("expected no module to be found (should not walk up)")
+	if !found {
+		t.Fatal("expected module to be found by walking up")
 	}
-	if root != "" || modulePath != "" {
-		t.Fatalf("expected empty results, got root=%q module=%q", root, modulePath)
+	if root != parent {
+		t.Fatalf("expected root=%q, got %q", parent, root)
+	}
+	if modulePath != "example.com/parent" {
+		t.Fatalf("expected modulePath=%q, got %q", "example.com/parent", modulePath)
+	}
+}
+
+func TestFindModuleForPath_WithFile(t *testing.T) {
+	// Test that findModuleForPath works when given a file path
+	parent := t.TempDir()
+	modContent := "module example.com/parent\n\ngo 1.21\n"
+	if err := os.WriteFile(filepath.Join(parent, "go.mod"), []byte(modContent), 0644); err != nil {
+		t.Fatalf("unexpected write error: %v", err)
+	}
+
+	// Create a subdirectory with a file
+	child := filepath.Join(parent, "pkg")
+	if err := os.MkdirAll(child, 0755); err != nil {
+		t.Fatalf("unexpected mkdir error: %v", err)
+	}
+	targetFile := filepath.Join(child, "main.go")
+	if err := os.WriteFile(targetFile, []byte("package main"), 0644); err != nil {
+		t.Fatalf("unexpected write error: %v", err)
+	}
+
+	// Should find parent's go.mod when given a file path
+	root, modulePath, found, err := findModuleForPath(targetFile)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !found {
+		t.Fatal("expected module to be found by walking up from file")
+	}
+	if root != parent {
+		t.Fatalf("expected root=%q, got %q", parent, root)
+	}
+	if modulePath != "example.com/parent" {
+		t.Fatalf("expected modulePath=%q, got %q", "example.com/parent", modulePath)
 	}
 }
 

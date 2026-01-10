@@ -206,10 +206,20 @@ func main() {
 		packageDir = infos[0].Dir
 	}
 
-	// Only use a go.mod if it's in the same directory as the target files
-	// This ensures targets are self-contained and don't accidentally depend
-	// on a parent module that may not have targ as a dependency
-	importRoot, modulePath, moduleFound, err := findModuleInDir(packageDir)
+	// Find module by walking up from the first target file
+	var firstTargetFile string
+	for _, info := range infos {
+		if len(info.Files) > 0 {
+			firstTargetFile = info.Files[0].Path
+			break
+		}
+	}
+	if firstTargetFile == "" {
+		fmt.Fprintf(errOut, "Error: no target files found\n")
+		exit(1)
+	}
+
+	importRoot, modulePath, moduleFound, err := findModuleForPath(firstTargetFile)
 	if err != nil {
 		fmt.Fprintf(errOut, "Error checking for module: %v\n", err)
 		exit(1)
@@ -217,6 +227,7 @@ func main() {
 	buildRoot := importRoot
 	usingFallback := false
 	if !moduleFound {
+		// No go.mod found - create a minimal fallback module in cache
 		importRoot = startDir
 		modulePath = "targ.local"
 		dep := resolveTargDependency()
@@ -279,17 +290,21 @@ func main() {
 		bootstrapDir = filepath.Join(buildRoot, "tmp")
 	}
 	if localMain {
-		cacheRoot := projCache
 		if usingFallback {
-			cacheRoot = buildRoot
+			// For fallback module, use cache directory with symlinks
+			localMainDir, err := ensureLocalMainBuildDir(packageDir, buildRoot)
+			if err != nil {
+				fmt.Fprintf(errOut, "Error preparing local main build directory: %v\n", err)
+				exit(1)
+			}
+			buildPackageDir = localMainDir
+			bootstrapDir = localMainDir
+		} else {
+			// For real module, build from original directory
+			// Bootstrap file is temporary and will be cleaned up
+			bootstrapDir = packageDir
+			buildPackageDir = packageDir
 		}
-		localMainDir, err := ensureLocalMainBuildDir(packageDir, cacheRoot)
-		if err != nil {
-			fmt.Fprintf(errOut, "Error preparing local main build directory: %v\n", err)
-			exit(1)
-		}
-		buildPackageDir = localMainDir
-		bootstrapDir = localMainDir
 	}
 
 	var tempFile string
@@ -417,22 +432,38 @@ func writeBootstrapFile(dir string, data []byte, keep bool) (string, func() erro
 	return tempFile, cleanup, nil
 }
 
-// findModuleInDir checks for a go.mod only in the specified directory (no walking up).
-// This ensures targets are self-contained and don't accidentally use a parent module.
-func findModuleInDir(dir string) (string, string, bool, error) {
-	modPath := filepath.Join(dir, "go.mod")
-	data, err := os.ReadFile(modPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return "", "", false, nil
+// findModuleForPath walks up from the given path to find the nearest go.mod.
+// Returns the module root directory, module path, whether found, and any error.
+func findModuleForPath(path string) (string, string, bool, error) {
+	// Start from the directory containing the path
+	dir := path
+	if info, err := os.Stat(path); err == nil && !info.IsDir() {
+		dir = filepath.Dir(path)
+	}
+
+	for {
+		modPath := filepath.Join(dir, "go.mod")
+		data, err := os.ReadFile(modPath)
+		if err == nil {
+			modulePath := parseModulePath(string(data))
+			if modulePath == "" {
+				return "", "", true, fmt.Errorf("module path not found in %s", modPath)
+			}
+			return dir, modulePath, true, nil
 		}
-		return "", "", false, err
+		if !os.IsNotExist(err) {
+			return "", "", false, err
+		}
+
+		// Move up to parent directory
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			// Reached filesystem root
+			break
+		}
+		dir = parent
 	}
-	modulePath := parseModulePath(string(data))
-	if modulePath == "" {
-		return "", "", true, fmt.Errorf("module path not found in %s", modPath)
-	}
-	return dir, modulePath, true, nil
+	return "", "", false, nil
 }
 
 func parseModulePath(content string) string {
