@@ -28,6 +28,12 @@ func doCompletion(roots []*commandNode, commandLine string) error {
 		processedArgs = parts
 	}
 
+	// Skip targ-level flags (--no-cache, --keep, --timeout, --completion, --help)
+	processedArgs = skipTargFlags(processedArgs)
+	if !isNewArg && len(parts) > 0 && !strings.HasPrefix(prefix, "-") {
+		// prefix might have been a targ flag value, recalculate after skipping
+	}
+
 	// Resolve current command context.
 	var currentNode *commandNode
 	singleRoot := len(roots) == 1
@@ -54,6 +60,12 @@ func doCompletion(roots []*commandNode, commandLine string) error {
 			}
 		}
 		if currentNode == nil {
+			// If no root matched, it might be a partial prefix - suggest matching roots
+			for _, r := range roots {
+				if strings.HasPrefix(r.Name, processedArgs[0]) {
+					fmt.Println(r.Name)
+				}
+			}
 			return nil
 		}
 		processedArgs = processedArgs[1:]
@@ -608,3 +620,31 @@ function __%s_complete
 end
 complete -c %s -a "(__%s_complete)" -f
 `
+
+// skipTargFlags removes targ-level flags from the args for completion purposes.
+// These flags are handled by the outer targ binary, not the bootstrap.
+func skipTargFlags(args []string) []string {
+	var result []string
+	skip := false
+	for _, arg := range args {
+		if skip {
+			skip = false
+			continue
+		}
+		// Flags that take a value
+		if arg == "--timeout" || arg == "--completion" {
+			skip = true
+			continue
+		}
+		// Flags with = syntax
+		if strings.HasPrefix(arg, "--timeout=") || strings.HasPrefix(arg, "--completion=") {
+			continue
+		}
+		// Boolean flags
+		if arg == "--no-cache" || arg == "--keep" || arg == "-h" || arg == "--help" {
+			continue
+		}
+		result = append(result, arg)
+	}
+	return result
+}
