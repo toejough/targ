@@ -106,6 +106,14 @@ func RunWithEnv(env runEnv, opts RunOptions, targets ...interface{}) error {
 		}
 	}
 
+	// Check for --help anywhere in args - if found, enter help-only mode
+	if !opts.DisableHelp {
+		if helpFound, remaining := extractHelpFlag(args); helpFound {
+			opts.HelpOnly = true
+			args = remaining
+		}
+	}
+
 	return withDepTracker(ctx, func() error {
 		roots := []*commandNode{}
 		for _, t := range targets {

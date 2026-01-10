@@ -14,6 +14,7 @@ type RunOptions struct {
 	DisableHelp       bool
 	DisableTimeout    bool
 	DisableCompletion bool
+	HelpOnly          bool // Internal: set when --help is detected, skips execution
 }
 
 // TagKind identifies the type of a struct field in command parsing.

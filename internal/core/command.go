@@ -308,8 +308,15 @@ func (n *commandNode) executeWithParents(
 	explicit bool,
 	opts RunOptions,
 ) ([]string, error) {
-	// Check for help flag
-	if !opts.DisableHelp {
+	// In help-only mode, print help for this command
+	if opts.HelpOnly {
+		printCommandHelp(n)
+		printTargOptions(opts)
+		fmt.Println() // Blank line between command helps
+	}
+
+	// Check for help flag (for backwards compatibility with per-command --help)
+	if !opts.DisableHelp && !opts.HelpOnly {
 		if helpRequested, remaining := extractHelpFlag(args); helpRequested {
 			printCommandHelp(n)
 			printTargOptions(opts)
@@ -332,7 +339,7 @@ func (n *commandNode) executeWithParents(
 	}
 
 	if n.Func.IsValid() {
-		return executeFunctionWithParents(ctx, args, n, parents, visited, explicit)
+		return executeFunctionWithParents(ctx, args, n, parents, visited, explicit, opts)
 	}
 
 	inst, err := nodeInstance(n)
@@ -386,6 +393,11 @@ func (n *commandNode) executeWithParents(
 		return remaining, nil
 	}
 
+	// In help-only mode, skip validation and execution
+	if opts.HelpOnly {
+		return result.remaining, nil
+	}
+
 	if err := applyDefaultsAndEnv(specs, visited); err != nil {
 		return nil, err
 	}
@@ -412,6 +424,7 @@ func executeFunctionWithParents(
 	parents []commandInstance,
 	visited map[string]bool,
 	explicit bool,
+	opts RunOptions,
 ) ([]string, error) {
 	specs, _, err := collectFlagSpecs(parents)
 	if err != nil {
@@ -420,6 +433,10 @@ func executeFunctionWithParents(
 	result, err := parseCommandArgs(nil, reflect.Value{}, parents, args, visited, explicit, true, false)
 	if err != nil {
 		return nil, err
+	}
+	// In help-only mode, skip validation and execution
+	if opts.HelpOnly {
+		return result.remaining, nil
 	}
 	if err := applyDefaultsAndEnv(specs, visited); err != nil {
 		return nil, err
