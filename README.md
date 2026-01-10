@@ -433,6 +433,22 @@ Useful for:
 | `--no-cache` | Force rebuild of the build tool binary       |
 | `--keep`     | Keep generated bootstrap file for inspection |
 
+## Cache Management
+
+Targ caches compiled build tool binaries in `~/.cache/targ/` (or `$XDG_CACHE_HOME/targ/`). Each project gets a subdirectory based on a hash of its path.
+
+To force a fresh build with updated dependencies:
+
+```bash
+targ --no-cache <command>
+```
+
+To completely clear the cache:
+
+```bash
+rm -rf ~/.cache/targ/
+```
+
 ## Installation
 
 ```bash
