@@ -555,6 +555,14 @@ func linkModuleRoot(startDir string, root string) error {
 			return err
 		}
 	}
+	// Clean up stale go.mod/go.sum symlinks from before the fix
+	for _, name := range []string{"go.mod", "go.sum"} {
+		dst := filepath.Join(root, name)
+		info, err := os.Lstat(dst)
+		if err == nil && info.Mode()&os.ModeSymlink != 0 {
+			_ = os.Remove(dst)
+		}
+	}
 	return nil
 }
 
