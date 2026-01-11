@@ -180,3 +180,39 @@ func TestParallelDepsReturnsError(t *testing.T) {
 		t.Fatal("expected error")
 	}
 }
+
+func TestResetDeps(t *testing.T) {
+	callCount := 0
+	target := func() { callCount++ }
+
+	err := withDepTracker(context.Background(), func() error {
+		// First call runs the target
+		if err := Deps(target); err != nil {
+			return err
+		}
+		if callCount != 1 {
+			return fmt.Errorf("expected 1 call, got %d", callCount)
+		}
+
+		// Second call skips (already ran)
+		if err := Deps(target); err != nil {
+			return err
+		}
+		if callCount != 1 {
+			return fmt.Errorf("expected still 1 call, got %d", callCount)
+		}
+
+		// After reset, target runs again
+		ResetDeps()
+		if err := Deps(target); err != nil {
+			return err
+		}
+		if callCount != 2 {
+			return fmt.Errorf("expected 2 calls after reset, got %d", callCount)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}

@@ -33,7 +33,20 @@
       "Bash(echo \"Not used in examples\" grep -r \"CommandNode\" /Users/joe/repos/personal/commander/cmd --include=\"*.go\")",
       "Bash(ls:*)",
       "Bash(go run:*)",
-      "Bash(go mod tidy:*)"
+      "Bash(go mod tidy:*)",
+      "Bash(go get:*)",
+      "Bash(mage check:*)",
+      "Bash(go generate:*)",
+      "WebFetch(domain:ajalt.github.io)",
+      "Bash(golangci-lint run:*)",
+      "Bash(git rm:*)",
+      "Bash(git checkout:*)",
+      "Bash(targ watch --help:*)",
+      "Bash(shasum:*)",
+      "Bash(targ build test --help:*)",
+      "Bash(targ check test lint --help:*)",
+      "Bash(targ --keep build:*)",
+      "Bash(git restore:*)"
     ]
   }
 }

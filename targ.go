@@ -139,6 +139,13 @@ func ParallelDeps(targets ...interface{}) error {
 	return core.ParallelDeps(targets...)
 }
 
+// ResetDeps clears the dependency execution cache, allowing all targets
+// to run again on subsequent Deps() calls. This is useful for watch mode
+// where the same targets need to re-run on each file change.
+func ResetDeps() {
+	core.ResetDeps()
+}
+
 // --- Backwards-compatible file utility re-exports ---
 
 // Match expands one or more patterns using fish-style globs.

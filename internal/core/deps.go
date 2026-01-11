@@ -49,6 +49,17 @@ func Deps(targets ...interface{}) error {
 	return nil
 }
 
+// ResetDeps clears the dependency execution cache, allowing all targets
+// to run again on subsequent Deps() calls. This is useful for watch mode
+// where the same targets need to re-run on each file change.
+func ResetDeps() {
+	depsMu.Lock()
+	defer depsMu.Unlock()
+	if currentDeps != nil {
+		currentDeps.done = make(map[depKey]error)
+	}
+}
+
 // ParallelDeps executes dependencies in parallel, ensuring each target runs once.
 func ParallelDeps(targets ...interface{}) error {
 	depsMu.Lock()
