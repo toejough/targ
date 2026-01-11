@@ -1878,6 +1878,7 @@ package main
 
 import (
 	"github.com/toejough/targ"
+	"github.com/toejough/targ/sh"
 {{- if .UsesContext }}
 	"context"
 {{- end }}
@@ -1886,9 +1887,9 @@ import (
 	"os"
 {{- end }}
 {{- range .Imports }}
-{{- if and (ne .Path "github.com/toejough/targ") (ne .Alias "") }}
+{{- if and (ne .Path "github.com/toejough/targ") (ne .Path "github.com/toejough/targ/sh") (ne .Alias "") }}
 	{{ .Alias }} "{{ .Path }}"
-{{- else if ne .Path "github.com/toejough/targ" }}
+{{- else if and (ne .Path "github.com/toejough/targ") (ne .Path "github.com/toejough/targ/sh") }}
 	"{{ .Path }}"
 {{- end }}
 {{- end }}
@@ -1929,6 +1930,7 @@ type {{ .TypeName }} struct {
 {{- end }}
 
 func main() {
+	sh.EnableCleanup()
 {{- if .BannerLit }}
 	if len(os.Args) == 1 || (len(os.Args) > 1 && (os.Args[1] == "-h" || os.Args[1] == "--help")) {
 		fmt.Println({{ .BannerLit }})

@@ -23,7 +23,15 @@ func Run(name string, args ...string) error {
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 	cmd.Stdin = stdin
-	return cmd.Run()
+	setProcGroup(cmd)
+
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	registerProcess(cmd.Process)
+	err := cmd.Wait()
+	unregisterProcess(cmd.Process)
+	return err
 }
 
 // RunV executes a command and prints it first.
@@ -36,8 +44,20 @@ func RunV(name string, args ...string) error {
 func Output(name string, args ...string) (string, error) {
 	cmd := execCommand(name, args...)
 	cmd.Stdin = stdin
-	out, err := cmd.CombinedOutput()
-	return string(out), err
+	setProcGroup(cmd)
+
+	// Use Start/Wait instead of CombinedOutput so we can register the process
+	var buf safeBuffer
+	cmd.Stdout = &buf
+	cmd.Stderr = &buf
+
+	if err := cmd.Start(); err != nil {
+		return "", err
+	}
+	registerProcess(cmd.Process)
+	err := cmd.Wait()
+	unregisterProcess(cmd.Process)
+	return buf.String(), err
 }
 
 // IsWindows reports whether the current OS is Windows.
