@@ -6,7 +6,28 @@
 
 Build CLIs and run build targets with minimal configuration. Inspired by Mage, go-arg, and Cobra.
 
-Targ, as an installable tool, is a t[arg]et runner. Also you can use it as a library to parse your [t]args. Also that yeti gopher is a targ 😆.
+## Quick Reference
+
+**Key files:** `targ.go` (public API), `sh/` (shell execution), `file/` (file utilities)
+
+| Want to... | Do this |
+|------------|---------|
+| Run build targets | `//go:build targ` files + `targ <command>` |
+| Parse CLI flags | Struct with `targ:"..."` tags + `targ.Run(&cmd{})` |
+| Run shell commands | `sh.Run("go", "build")` or `sh.RunContext(ctx, ...)` |
+| Skip unchanged work | `file.Newer(inputs, outputs)` or `file.Checksum(...)` |
+| Watch for changes | `file.Watch(ctx, patterns, opts, callback)` |
+| Run deps once | `targ.Deps(A, B, C)` or `targ.ParallelDeps(...)` |
+
+## Installation
+
+```bash
+# Build tool (run targets)
+go install github.com/toejough/targ/cmd/targ@latest
+
+# Library (embed in your binary)
+go get github.com/toejough/targ
+```
 
 ## Quick Start
 
@@ -25,7 +46,6 @@ func Lint() error  { return sh.Run("golangci-lint", "run") }
 ```
 
 ```bash
-go install github.com/toejough/targ/cmd/targ@latest
 targ build
 targ test
 ```
@@ -47,6 +67,91 @@ func main() { targ.Run(&Deploy{}) }
 ./deploy prod --force
 ```
 
+## From Build Targets to Dedicated CLI
+
+Targ makes it easy to start with simple build targets and evolve to a full CLI.
+
+### Stage 1: Simple Functions
+
+Start with plain functions for quick automation:
+
+```go
+//go:build targ
+
+package main
+
+import "github.com/toejough/targ/sh"
+
+func Build() error { return sh.Run("go", "build", "-o", "myapp", "./...") }
+func Test() error  { return sh.Run("go", "test", "./...") }
+```
+
+```bash
+targ build  # Run with targ
+```
+
+### Stage 2: Add Flags
+
+Need options? Convert to a struct:
+
+```go
+//go:build targ
+
+package main
+
+type Build struct {
+    Output  string `targ:"flag,short=o,default=myapp,desc=Output binary name"`
+    Verbose bool   `targ:"flag,short=v,desc=Verbose output"`
+}
+
+func (b *Build) Run() error {
+    args := []string{"build", "-o", b.Output}
+    if b.Verbose {
+        args = append(args, "-v")
+    }
+    return sh.Run("go", append(args, "./...")...)
+}
+```
+
+```bash
+targ build --output=myapp --verbose
+```
+
+### Stage 3: Dedicated Binary
+
+Ready to ship? Remove the build tag and add main:
+
+```go
+package main
+
+import "github.com/toejough/targ"
+
+type Build struct {
+    Output  string `targ:"flag,short=o,default=myapp,desc=Output binary name"`
+    Verbose bool   `targ:"flag,short=v,desc=Verbose output"`
+}
+
+func (b *Build) Run() error { /* same as before */ }
+
+type Test struct {
+    Cover bool `targ:"flag,desc=Enable coverage"`
+}
+
+func (t *Test) Run() error { /* ... */ }
+
+func main() {
+    targ.Run(&Build{}, &Test{})
+}
+```
+
+```bash
+go build -o mytool .
+./mytool build --verbose
+./mytool test --cover
+```
+
+The same struct definitions work in both modes. Your targets become your CLI.
+
 ## Tags
 
 Configure fields with `targ:"..."` struct tags:
@@ -62,6 +167,7 @@ Configure fields with `targ:"..."` struct tags:
 | `enum=a\|b\|c` | Allowed values (enables completion)         |
 | `default=X`    | Default value                               |
 | `env=VAR`      | Default from environment variable           |
+| `global`       | Flag available to all subcommands           |
 | `subcommand`   | Field is a subcommand                       |
 | `subcommand=X` | Subcommand with custom name                 |
 
@@ -306,15 +412,26 @@ func Lint() error {
 }
 ```
 
-```fish
-targ test lint # runs Generate, Compile, Build, Test, then Lint, all only once.
+```bash
+targ test lint  # runs Generate, Compile, Build, Test, then Lint, all only once
 ```
 
 Run independent tasks concurrently:
 
 ```go
 func CI() error {
-    return targ.ParallelDeps(Test, Lint) // runs Test and Lint concurrently. Build still only runs once.
+    return targ.ParallelDeps(Test, Lint)  // runs Test and Lint concurrently
+}
+```
+
+For watch mode, reset the cache between iterations:
+
+```go
+func Watch(ctx context.Context) error {
+    return file.Watch(ctx, []string{"**/*.go"}, file.WatchOptions{}, func(_ file.ChangeSet) error {
+        targ.ResetDeps()  // allow targets to run again
+        return Check()
+    })
 }
 ```
 
@@ -333,6 +450,21 @@ err := sh.RunV("go", "test", "./...")
 
 // Capture output
 out, err := sh.Output("go", "env", "GOMOD")
+```
+
+### Context-Aware Execution
+
+For cancellable commands (e.g., in watch mode), use the context variants. When cancelled, the entire process tree is killed:
+
+```go
+// Cancellable command
+err := sh.RunContext(ctx, "go", "test", "./...")
+
+// Cancellable with verbose output
+err := sh.RunContextV(ctx, "golangci-lint", "run")
+
+// Cancellable with output capture
+out, err := sh.OutputContext(ctx, "go", "list", "./...")
 ```
 
 ## File Checks
@@ -369,9 +501,28 @@ React to file changes:
 ```go
 import "github.com/toejough/targ/file"
 
-err := file.Watch(ctx, []string{"**/*.go"}, file.WatchOptions{}, func(changes file.ChangeSet) error {
-    return sh.Run("go", "test", "./...")
-})
+func Watch(ctx context.Context) error {
+    return file.Watch(ctx, []string{"**/*.go"}, file.WatchOptions{}, func(_ file.ChangeSet) error {
+        targ.ResetDeps()  // reset so targets run again
+        return sh.RunContext(ctx, "go", "test", "./...")
+    })
+}
+```
+
+For interruptible watch (cancel running command on new changes):
+
+```go
+func Watch(ctx context.Context) error {
+    var cancel context.CancelFunc
+    return file.Watch(ctx, []string{"**/*.go"}, file.WatchOptions{}, func(_ file.ChangeSet) error {
+        if cancel != nil {
+            cancel()  // stop previous run
+        }
+        runCtx, cancel = context.WithCancel(ctx)
+        targ.ResetDeps()
+        return sh.RunContext(runCtx, "go", "test", "./...")
+    })
+}
 ```
 
 ## Shell Completion
@@ -390,6 +541,22 @@ your-binary --completion fish | source
 ```
 
 Supports commands, subcommands, flags, and enum values.
+
+## Example Help Output
+
+```
+$ ./deploy --help
+Deploy pushes code to the specified environment.
+
+Usage: deploy <env> [flags]
+
+Arguments:
+  env    Environment to deploy to (required, one of: dev, staging, prod)
+
+Flags:
+  -f, --force    Skip confirmation
+  -h, --help     Show this help
+```
 
 ## Dynamic Overrides
 
@@ -426,6 +593,80 @@ Useful for:
 - Conditional required fields
 - Environment-specific defaults
 
+## Patterns
+
+### Conditional Build
+
+```go
+func Build() error {
+    needs, _ := file.Newer([]string{"**/*.go"}, []string{"bin/app"})
+    if !needs {
+        fmt.Println("up to date")
+        return nil
+    }
+    return sh.Run("go", "build", "-o", "bin/app", "./...")
+}
+```
+
+### CI Pipeline
+
+```go
+func CI() error {
+    if err := targ.Deps(Generate); err != nil {
+        return err
+    }
+    // Run independent checks in parallel
+    if err := targ.ParallelDeps(Build, Lint); err != nil {
+        return err
+    }
+    return targ.Deps(Test)
+}
+```
+
+### Testing Commands
+
+```go
+func TestDeploy(t *testing.T) {
+    result, err := targ.Execute([]string{"app", "deploy", "prod", "--force"}, &Deploy{})
+    if err != nil {
+        t.Fatal(err)
+    }
+    if !strings.Contains(result.Output, "Deploying to prod") {
+        t.Errorf("unexpected output: %s", result.Output)
+    }
+}
+```
+
+### Variadic Positional Args
+
+```go
+type Cat struct {
+    Files []string `targ:"positional,required,desc=Files to concatenate"`
+}
+
+func (c *Cat) Run() error {
+    for _, f := range c.Files {
+        // process each file
+    }
+    return nil
+}
+```
+
+```bash
+./cat file1.txt file2.txt file3.txt
+```
+
+## When to Use Targ
+
+| Need | Tool |
+|------|------|
+| Build targets + CLI parsing | **Targ** |
+| Simple build targets only | Targ or Mage |
+| Complex CLI with plugins/middleware | Cobra |
+| Just struct-to-flags mapping | go-arg |
+
+**Targ's sweet spot**: You want build automation that can evolve into a full CLI, or you want CLI parsing with minimal boilerplate.
+
 ## Build Tool Flags
 
 | Flag         | Description                                  |
@@ -435,9 +676,9 @@ Useful for:
 
 ## Cache Management
 
-Targ caches compiled build tool binaries in `~/.cache/targ/` (or `$XDG_CACHE_HOME/targ/`). Each project gets a subdirectory based on a hash of its path.
+Targ caches compiled build tool binaries in `~/.cache/targ/` (or `$XDG_CACHE_HOME/targ/`). Each project gets a subdirectory based on a hash of its path. The cache is invalidated when source files or `go.mod`/`go.sum` change.
 
-To force a fresh build with updated dependencies:
+To force a fresh build:
 
 ```bash
 targ --no-cache <command>
@@ -447,10 +688,4 @@ To completely clear the cache:
 
 ```bash
 rm -rf ~/.cache/targ/
-```
-
-## Installation
-
-```bash
-go get github.com/toejough/targ
 ```
