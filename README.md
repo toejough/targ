@@ -10,14 +10,14 @@ Build CLIs and run build targets with minimal configuration. Inspired by Mage, g
 
 **Key files:** `targ.go` (public API), `sh/` (shell execution), `file/` (file utilities)
 
-| Want to... | Do this |
-|------------|---------|
-| Run build targets | `//go:build targ` files + `targ <command>` |
-| Parse CLI flags | Struct with `targ:"..."` tags + `targ.Run(&cmd{})` |
-| Run shell commands | `sh.Run("go", "build")` or `sh.RunContext(ctx, ...)` |
+| Want to...          | Do this                                               |
+| ------------------- | ----------------------------------------------------- |
+| Run build targets   | `//go:build targ` files + `targ <command>`            |
+| Parse CLI flags     | Struct with `targ:"..."` tags + `targ.Run(&cmd{})`    |
+| Run shell commands  | `sh.Run("go", "build")` or `sh.RunContext(ctx, ...)`  |
 | Skip unchanged work | `file.Newer(inputs, outputs)` or `file.Checksum(...)` |
-| Watch for changes | `file.Watch(ctx, patterns, opts, callback)` |
-| Run deps once | `targ.Deps(A, B, C)` or `targ.ParallelDeps(...)` |
+| Watch for changes   | `file.Watch(ctx, patterns, opts, callback)`           |
+| Run deps once       | `targ.Deps(A, B, C)` or `targ.ParallelDeps(...)`      |
 
 ## Installation
 
@@ -656,16 +656,62 @@ func (c *Cat) Run() error {
 ./cat file1.txt file2.txt file3.txt
 ```
 
+### Ordered Repeated Flags
+
+When flag order matters (e.g., include/exclude filters), use `[]targ.Interleaved[T]`:
+
+```go
+type Filter struct {
+    Include []targ.Interleaved[string] `targ:"flag,short=i"`
+    Exclude []targ.Interleaved[string] `targ:"flag,short=e"`
+}
+
+func (f *Filter) Run() error {
+    // Reconstruct original order using Position field
+    type rule struct {
+        include bool
+        pattern string
+        pos     int
+    }
+    var rules []rule
+    for _, inc := range f.Include {
+        rules = append(rules, rule{true, inc.Value, inc.Position})
+    }
+    for _, exc := range f.Exclude {
+        rules = append(rules, rule{false, exc.Value, exc.Position})
+    }
+    sort.Slice(rules, func(i, j int) bool {
+        return rules[i].pos < rules[j].pos
+    })
+    // rules now in original command-line order
+    for _, r := range rules {
+        fmt.Printf("%v: %s\n", r.include, r.pattern)
+    }
+    return nil
+}
+```
+
+```bash
+./filter -i "*.go" -e "vendor/*" -i "*.md" -e "*.generated.go"
+# Output (in order):
+# true: *.go
+# false: vendor/*
+# true: *.md
+# false: *.generated.go
+```
+
+Each `Interleaved[T]` has `.Value` (the parsed value) and `.Position` (0-indexed order across all interleaved flags).
+
 ## When to Use Targ
 
-| Need | Tool |
-|------|------|
-| Build targets + CLI parsing | **Targ** |
-| Simple build targets only | Targ or Mage |
-| Complex CLI with plugins/middleware | Cobra |
-| Just struct-to-flags mapping | go-arg |
+| Need                                           | Tool         |
+| ---------------------------------------------- | ------------ |
+| Build targets + CLI parsing                    | **Targ**     |
+| Simple build targets only                      | Targ or Mage |
+| Simple, clear CLI with struct-to-flags mapping | go-arg       |
+| Complex CLI with plugins/middleware            | Cobra        |
 
-**Targ's sweet spot**: You want build automation that can evolve into a full CLI, or you want CLI parsing with minimal boilerplate.
+**Targ's sweet spot**: You want build automation that can evolve into a full CLI, or you want CLI parsing with minimal boilerplate that can grow with you to more complex cases.
 
 ## Build Tool Flags
 
