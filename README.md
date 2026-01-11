@@ -262,6 +262,21 @@ func CI() error {
 }
 ```
 
+Pass context to dependencies (for cancellation in watch mode):
+
+```go
+func Check(ctx context.Context) error {
+    return targ.DepsCtx(ctx, Tidy, Lint, Test)
+}
+
+func Watch(ctx context.Context) error {
+    return file.Watch(ctx, []string{"**/*.go"}, file.WatchOptions{}, func(_ file.ChangeSet) error {
+        targ.ResetDeps()
+        return Check(ctx)
+    })
+}
+```
+
 ## Shell Helpers
 
 Use `targ/sh` for command execution:

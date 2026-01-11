@@ -139,6 +139,17 @@ func ParallelDeps(targets ...interface{}) error {
 	return core.ParallelDeps(targets...)
 }
 
+// DepsCtx executes each dependency exactly once per CLI run, passing ctx to each.
+// This allows passing a cancellable context to dependencies in watch mode.
+func DepsCtx(ctx context.Context, targets ...interface{}) error {
+	return core.DepsCtx(ctx, targets...)
+}
+
+// ParallelDepsCtx executes dependencies in parallel, passing ctx to each.
+func ParallelDepsCtx(ctx context.Context, targets ...interface{}) error {
+	return core.ParallelDepsCtx(ctx, targets...)
+}
+
 // ResetDeps clears the dependency execution cache, allowing all targets
 // to run again on subsequent Deps() calls. This is useful for watch mode
 // where the same targets need to re-run on each file change.

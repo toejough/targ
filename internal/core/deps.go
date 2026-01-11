@@ -42,7 +42,24 @@ func Deps(targets ...interface{}) error {
 		return fmt.Errorf("Deps must be called during targ.Run")
 	}
 	for _, target := range targets {
-		if err := tracker.run(target); err != nil {
+		if err := tracker.run(tracker.ctx, target); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// DepsCtx executes each dependency exactly once per CLI run, passing ctx to each.
+// This allows passing a cancellable context to dependencies in watch mode.
+func DepsCtx(ctx context.Context, targets ...interface{}) error {
+	depsMu.Lock()
+	tracker := currentDeps
+	depsMu.Unlock()
+	if tracker == nil {
+		return fmt.Errorf("DepsCtx must be called during targ.Run")
+	}
+	for _, target := range targets {
+		if err := tracker.run(ctx, target); err != nil {
 			return err
 		}
 	}
@@ -68,6 +85,21 @@ func ParallelDeps(targets ...interface{}) error {
 	if tracker == nil {
 		return fmt.Errorf("ParallelDeps must be called during targ.Run")
 	}
+	return parallelRun(tracker, tracker.ctx, targets)
+}
+
+// ParallelDepsCtx executes dependencies in parallel, passing ctx to each.
+func ParallelDepsCtx(ctx context.Context, targets ...interface{}) error {
+	depsMu.Lock()
+	tracker := currentDeps
+	depsMu.Unlock()
+	if tracker == nil {
+		return fmt.Errorf("ParallelDepsCtx must be called during targ.Run")
+	}
+	return parallelRun(tracker, ctx, targets)
+}
+
+func parallelRun(tracker *depTracker, ctx context.Context, targets []interface{}) error {
 	if len(targets) == 0 {
 		return nil
 	}
@@ -78,7 +110,7 @@ func ParallelDeps(targets ...interface{}) error {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			errCh <- tracker.run(target)
+			errCh <- tracker.run(ctx, target)
 		}()
 	}
 	wg.Wait()
@@ -92,7 +124,7 @@ func ParallelDeps(targets ...interface{}) error {
 	return firstErr
 }
 
-func (d *depTracker) run(target interface{}) error {
+func (d *depTracker) run(ctx context.Context, target interface{}) error {
 	key, err := depKeyFor(target)
 	if err != nil {
 		return err
@@ -114,7 +146,7 @@ func (d *depTracker) run(target interface{}) error {
 	d.inFlight[key] = ch
 	d.mu.Unlock()
 
-	err = d.execute(target)
+	err = d.execute(ctx, target)
 
 	d.mu.Lock()
 	d.done[key] = err
@@ -124,12 +156,12 @@ func (d *depTracker) run(target interface{}) error {
 	return err
 }
 
-func (d *depTracker) execute(target interface{}) error {
+func (d *depTracker) execute(ctx context.Context, target interface{}) error {
 	node, err := parseTarget(target)
 	if err != nil {
 		return err
 	}
-	return node.execute(d.ctx, nil, RunOptions{})
+	return node.execute(ctx, nil, RunOptions{})
 }
 
 func depKeyFor(target interface{}) (depKey, error) {
