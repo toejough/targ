@@ -1522,7 +1522,11 @@ func collectModuleFiles(moduleRoot string) ([]buildtool.TaggedFile, error) {
 			}
 			return nil
 		}
-		if !strings.HasSuffix(entry.Name(), ".go") || strings.HasSuffix(entry.Name(), "_test.go") {
+		name := entry.Name()
+		// Include go.mod and go.sum for cache invalidation when dependencies change
+		isModFile := name == "go.mod" || name == "go.sum"
+		isGoFile := strings.HasSuffix(name, ".go") && !strings.HasSuffix(name, "_test.go")
+		if !isModFile && !isGoFile {
 			return nil
 		}
 		data, err := os.ReadFile(path)
