@@ -2,10 +2,12 @@ package sh
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"os/exec"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestRun_Success(t *testing.T) {
@@ -115,7 +117,118 @@ func TestHelperProcess(t *testing.T) {
 	case "fail":
 		_, _ = os.Stderr.WriteString("fail\n")
 		os.Exit(1)
+	case "sleep":
+		// Sleep for a long time (used for cancellation tests)
+		time.Sleep(10 * time.Second)
+		os.Exit(0)
 	default:
 		os.Exit(0)
+	}
+}
+
+func TestRunContext_Success(t *testing.T) {
+	restore := overrideStdio(t)
+	defer restore()
+
+	var out bytes.Buffer
+	stdout = &out
+	stderr = &out
+
+	ctx := context.Background()
+	if err := RunContext(ctx, "echo", "hello"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out.String(), "hello") {
+		t.Fatalf("expected output to contain hello, got %q", out.String())
+	}
+}
+
+func TestRunContext_Cancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- RunContext(ctx, "sleep", "10")
+	}()
+
+	// Give it time to start
+	time.Sleep(50 * time.Millisecond)
+
+	// Cancel should kill immediately
+	cancel()
+
+	select {
+	case err := <-errCh:
+		if err != context.Canceled {
+			t.Errorf("expected context.Canceled, got %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Error("command did not terminate after cancel")
+	}
+}
+
+func TestRunContextV_PrintsCommand(t *testing.T) {
+	restore := overrideStdio(t)
+	defer restore()
+
+	var out bytes.Buffer
+	stdout = &out
+	stderr = &out
+
+	ctx := context.Background()
+	if err := RunContextV(ctx, "echo", "hello"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out.String(), "+ echo hello") {
+		t.Fatalf("expected verbose prefix, got %q", out.String())
+	}
+}
+
+func TestOutputContext_Success(t *testing.T) {
+	ctx := context.Background()
+	output, err := OutputContext(ctx, "echo", "hello")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(output, "hello") {
+		t.Fatalf("expected output to contain hello, got %q", output)
+	}
+}
+
+func TestOutputContext_Cancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+
+	errCh := make(chan error, 1)
+	go func() {
+		_, err := OutputContext(ctx, "sleep", "10")
+		errCh <- err
+	}()
+
+	// Give it time to start
+	time.Sleep(50 * time.Millisecond)
+
+	// Cancel should kill immediately
+	cancel()
+
+	select {
+	case err := <-errCh:
+		if err != context.Canceled {
+			t.Errorf("expected context.Canceled, got %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Error("command did not terminate after cancel")
+	}
+}
+
+func overrideStdio(t *testing.T) func() {
+	t.Helper()
+	prevStdout := stdout
+	prevStderr := stderr
+	prevStdin := stdin
+
+	return func() {
+		stdout = prevStdout
+		stderr = prevStderr
+		stdin = prevStdin
 	}
 }
