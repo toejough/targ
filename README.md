@@ -238,11 +238,11 @@ func (c *MyCmd) Name() string { return "custom-name" }
 
 ## Dependencies
 
-Run dependencies exactly once per invocation:
+Run dependencies exactly once per invocation. By default, Deps **fails fast** - stops on first error:
 
 ```go
 func Build() error {
-    return targ.Deps(Generate, Compile)
+    return targ.Deps(Generate, Compile)  // stops if Generate fails
 }
 
 func Test() error {
@@ -254,28 +254,33 @@ func Test() error {
 targ test lint  # runs Generate, Compile, Build, Test, then Lint - each only once
 ```
 
-Run independent tasks concurrently:
+Options can be mixed with targets:
 
 ```go
+// Parallel execution (fail-fast, cancels siblings on error)
 func CI() error {
-    return targ.ParallelDeps(Test, Lint)
-}
-```
-
-Pass context to dependencies (for cancellation in watch mode):
-
-```go
-func Check(ctx context.Context) error {
-    return targ.DepsCtx(ctx, Tidy, Lint, Test)
+    return targ.Deps(Test, Lint, targ.Parallel())
 }
 
+// Run all even if some fail
+func CheckAll() error {
+    return targ.Deps(Lint, Test, Vet, targ.Parallel(), targ.ContinueOnError())
+}
+
+// Pass context for cancellation
 func Watch(ctx context.Context) error {
     return file.Watch(ctx, []string{"**/*.go"}, file.WatchOptions{}, func(_ file.ChangeSet) error {
         targ.ResetDeps()
-        return Check(ctx)
+        return targ.Deps(Tidy, Lint, Test, targ.WithContext(ctx))
     })
 }
 ```
+
+| Option | Effect |
+|--------|--------|
+| `targ.Parallel()` | Run concurrently instead of sequentially |
+| `targ.ContinueOnError()` | Run all targets, return first error |
+| `targ.WithContext(ctx)` | Pass context to targets (for cancellation) |
 
 ## Shell Helpers
 

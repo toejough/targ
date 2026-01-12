@@ -126,28 +126,29 @@ func PrintCompletionScript(shell string, binName string) error {
 	return core.PrintCompletionScript(shell, binName)
 }
 
-// Deps executes each dependency exactly once per CLI run.
-// Dependencies are tracked by their reflect.Value, so the same function or
-// struct pointer will only run once even if Deps is called multiple times.
-func Deps(targets ...interface{}) error {
-	return core.Deps(targets...)
-}
+// DepsOption configures Deps behavior.
+type DepsOption = core.DepsOption
 
-// ParallelDeps executes dependencies in parallel, ensuring each target runs once.
-// Like Deps, each dependency only executes once per CLI run.
-func ParallelDeps(targets ...interface{}) error {
-	return core.ParallelDeps(targets...)
-}
+// Parallel runs dependencies concurrently instead of sequentially.
+func Parallel() DepsOption { return core.Parallel() }
 
-// DepsCtx executes each dependency exactly once per CLI run, passing ctx to each.
-// This allows passing a cancellable context to dependencies in watch mode.
-func DepsCtx(ctx context.Context, targets ...interface{}) error {
-	return core.DepsCtx(ctx, targets...)
-}
+// ContinueOnError runs all dependencies even if one fails.
+// Without this option, Deps fails fast (cancels remaining on first error).
+func ContinueOnError() DepsOption { return core.ContinueOnError() }
 
-// ParallelDepsCtx executes dependencies in parallel, passing ctx to each.
-func ParallelDepsCtx(ctx context.Context, targets ...interface{}) error {
-	return core.ParallelDepsCtx(ctx, targets...)
+// WithContext passes a custom context to dependencies.
+// Useful for cancellation in watch mode.
+func WithContext(ctx context.Context) DepsOption { return core.WithContext(ctx) }
+
+// Deps executes dependencies, each exactly once per CLI run.
+// Options can be mixed with targets in any order:
+//
+//	targ.Deps(A, B, C)                              // serial, fail-fast
+//	targ.Deps(A, B, C, targ.Parallel())             // parallel, fail-fast
+//	targ.Deps(A, B, C, targ.ContinueOnError())      // serial, run all
+//	targ.Deps(A, B, targ.Parallel(), targ.WithContext(ctx))
+func Deps(args ...interface{}) error {
+	return core.Deps(args...)
 }
 
 // ResetDeps clears the dependency execution cache, allowing all targets
@@ -155,6 +156,21 @@ func ParallelDepsCtx(ctx context.Context, targets ...interface{}) error {
 // where the same targets need to re-run on each file change.
 func ResetDeps() {
 	core.ResetDeps()
+}
+
+// Deprecated: Use Deps with Parallel() and ContinueOnError() options instead.
+func ParallelDeps(targets ...interface{}) error {
+	return core.ParallelDeps(targets...)
+}
+
+// Deprecated: Use Deps with Parallel(), ContinueOnError(), and WithContext() options instead.
+func ParallelDepsCtx(ctx context.Context, targets ...interface{}) error {
+	return core.ParallelDepsCtx(ctx, targets...)
+}
+
+// Deprecated: Use Deps with WithContext() option instead.
+func DepsCtx(ctx context.Context, targets ...interface{}) error {
+	return core.DepsCtx(ctx, targets...)
 }
 
 // --- Backwards-compatible file utility re-exports ---

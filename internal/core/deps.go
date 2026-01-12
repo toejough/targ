@@ -33,35 +33,140 @@ func newDepTracker(ctx context.Context) *depTracker {
 	}
 }
 
-// Deps executes each dependency exactly once per CLI run.
-func Deps(targets ...interface{}) error {
+// DepsOption configures Deps behavior.
+type DepsOption interface {
+	applyDeps(*depsConfig)
+}
+
+type depsConfig struct {
+	parallel        bool
+	continueOnError bool
+	ctx             context.Context
+}
+
+type parallelOpt struct{}
+
+func (parallelOpt) applyDeps(c *depsConfig) { c.parallel = true }
+
+// Parallel runs dependencies concurrently instead of sequentially.
+func Parallel() DepsOption { return parallelOpt{} }
+
+type continueOnErrorOpt struct{}
+
+func (continueOnErrorOpt) applyDeps(c *depsConfig) { c.continueOnError = true }
+
+// ContinueOnError runs all dependencies even if one fails.
+// Without this option, Deps fails fast (cancels remaining on first error).
+func ContinueOnError() DepsOption { return continueOnErrorOpt{} }
+
+type withContextOpt struct{ ctx context.Context }
+
+func (o withContextOpt) applyDeps(c *depsConfig) { c.ctx = o.ctx }
+
+// WithContext passes a custom context to dependencies.
+// Useful for cancellation in watch mode.
+func WithContext(ctx context.Context) DepsOption { return withContextOpt{ctx} }
+
+// Deps executes dependencies, each exactly once per CLI run.
+// Options can be mixed with targets in any order:
+//
+//	targ.Deps(A, B, C)                              // serial, fail-fast
+//	targ.Deps(A, B, C, targ.Parallel())             // parallel, fail-fast
+//	targ.Deps(A, B, C, targ.ContinueOnError())      // serial, run all
+//	targ.Deps(A, B, targ.Parallel(), targ.WithContext(ctx))
+func Deps(args ...interface{}) error {
 	depsMu.Lock()
 	tracker := currentDeps
 	depsMu.Unlock()
 	if tracker == nil {
 		return fmt.Errorf("Deps must be called during targ.Run")
 	}
-	for _, target := range targets {
-		if err := tracker.run(tracker.ctx, target); err != nil {
-			return err
+
+	// Separate options from targets
+	var cfg depsConfig
+	var targets []interface{}
+	for _, arg := range args {
+		if opt, ok := arg.(DepsOption); ok {
+			opt.applyDeps(&cfg)
+		} else {
+			targets = append(targets, arg)
 		}
 	}
-	return nil
+
+	// Use tracker's context if none specified
+	ctx := cfg.ctx
+	if ctx == nil {
+		ctx = tracker.ctx
+	}
+
+	if cfg.parallel {
+		return parallelRun(tracker, ctx, targets, cfg.continueOnError)
+	}
+	return serialRun(tracker, ctx, targets, cfg.continueOnError)
 }
 
-// DepsCtx executes each dependency exactly once per CLI run, passing ctx to each.
-// This allows passing a cancellable context to dependencies in watch mode.
-func DepsCtx(ctx context.Context, targets ...interface{}) error {
-	depsMu.Lock()
-	tracker := currentDeps
-	depsMu.Unlock()
-	if tracker == nil {
-		return fmt.Errorf("DepsCtx must be called during targ.Run")
-	}
+func serialRun(tracker *depTracker, ctx context.Context, targets []interface{}, continueOnError bool) error {
+	var firstErr error
 	for _, target := range targets {
-		if err := tracker.run(ctx, target); err != nil {
-			return err
+		// Check for cancellation before each target
+		select {
+		case <-ctx.Done():
+			if firstErr != nil {
+				return firstErr
+			}
+			return ctx.Err()
+		default:
 		}
+
+		if err := tracker.run(ctx, target); err != nil {
+			if !continueOnError {
+				return err
+			}
+			if firstErr == nil {
+				firstErr = err
+			}
+		}
+	}
+	return firstErr
+}
+
+func parallelRun(tracker *depTracker, ctx context.Context, targets []interface{}, continueOnError bool) error {
+	if len(targets) == 0 {
+		return nil
+	}
+
+	// For fail-fast, create a cancellable context
+	runCtx := ctx
+	var cancel context.CancelFunc
+	if !continueOnError {
+		runCtx, cancel = context.WithCancel(ctx)
+		defer cancel()
+	}
+
+	var wg sync.WaitGroup
+	errCh := make(chan error, len(targets))
+
+	for _, target := range targets {
+		target := target
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			err := tracker.run(runCtx, target)
+			if err != nil {
+				errCh <- err
+				if !continueOnError && cancel != nil {
+					cancel() // cancel siblings on first error
+				}
+			}
+		}()
+	}
+
+	wg.Wait()
+	close(errCh)
+
+	// Return first error
+	for err := range errCh {
+		return err
 	}
 	return nil
 }
@@ -77,51 +182,22 @@ func ResetDeps() {
 	}
 }
 
-// ParallelDeps executes dependencies in parallel, ensuring each target runs once.
+// Deprecated: Use Deps with Parallel() option instead.
 func ParallelDeps(targets ...interface{}) error {
-	depsMu.Lock()
-	tracker := currentDeps
-	depsMu.Unlock()
-	if tracker == nil {
-		return fmt.Errorf("ParallelDeps must be called during targ.Run")
-	}
-	return parallelRun(tracker, tracker.ctx, targets)
+	args := append([]interface{}{Parallel(), ContinueOnError()}, targets...)
+	return Deps(args...)
 }
 
-// ParallelDepsCtx executes dependencies in parallel, passing ctx to each.
+// Deprecated: Use Deps with Parallel() and WithContext() options instead.
 func ParallelDepsCtx(ctx context.Context, targets ...interface{}) error {
-	depsMu.Lock()
-	tracker := currentDeps
-	depsMu.Unlock()
-	if tracker == nil {
-		return fmt.Errorf("ParallelDepsCtx must be called during targ.Run")
-	}
-	return parallelRun(tracker, ctx, targets)
+	args := append([]interface{}{Parallel(), ContinueOnError(), WithContext(ctx)}, targets...)
+	return Deps(args...)
 }
 
-func parallelRun(tracker *depTracker, ctx context.Context, targets []interface{}) error {
-	if len(targets) == 0 {
-		return nil
-	}
-	var wg sync.WaitGroup
-	errCh := make(chan error, len(targets))
-	for _, target := range targets {
-		target := target
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			errCh <- tracker.run(ctx, target)
-		}()
-	}
-	wg.Wait()
-	close(errCh)
-	var firstErr error
-	for err := range errCh {
-		if err != nil && firstErr == nil {
-			firstErr = err
-		}
-	}
-	return firstErr
+// Deprecated: Use Deps with WithContext() option instead.
+func DepsCtx(ctx context.Context, targets ...interface{}) error {
+	args := append([]interface{}{WithContext(ctx)}, targets...)
+	return Deps(args...)
 }
 
 func (d *depTracker) run(ctx context.Context, target interface{}) error {
