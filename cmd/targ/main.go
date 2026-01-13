@@ -95,13 +95,23 @@ type listOutput struct {
 }
 
 func main() {
+	// Handle --init early, before flag parsing
+	if initResult := handleInitFlag(os.Args[1:]); initResult != nil {
+		if initResult.err != nil {
+			fmt.Fprintln(os.Stderr, initResult.err)
+			os.Exit(1)
+		}
+		fmt.Println(initResult.message)
+		return
+	}
+
 	// Handle --alias early, before flag parsing
 	if aliasResult := handleAliasFlag(os.Args[1:]); aliasResult != nil {
 		if aliasResult.err != nil {
 			fmt.Fprintln(os.Stderr, aliasResult.err)
 			os.Exit(1)
 		}
-		fmt.Println(aliasResult.code)
+		fmt.Print(aliasResult.code)
 		return
 	}
 
@@ -832,8 +842,9 @@ func printBuildToolUsage(out io.Writer) {
 	fmt.Fprintf(out, "    %-28s %s\n", "--completion {bash|zsh|fish}", "print completion script for specified shell. Uses the current shell if none is")
 	fmt.Fprintf(out, "    %-28s %s\n", "", "specified. The output should be eval'd/sourced in the shell to enable completions.")
 	fmt.Fprintf(out, "    %-28s %s\n", "", "(e.g. 'targ --completion fish | source')")
+	fmt.Fprintf(out, "    %-28s %s\n", "--init [FILE]", "create a starter targets file (default: targs.go)")
 	fmt.Fprintf(out, "    %-28s %s\n", "--alias NAME \"COMMAND\"", "generate Go code for a simple shell command target")
-	fmt.Fprintf(out, "    %-28s %s\n", "", "(e.g. 'targ --alias tidy \"go mod tidy\" >> targets.go')")
+	fmt.Fprintf(out, "    %-28s %s\n", "", "(e.g. 'targ --alias tidy \"go mod tidy\" >> targs.go')")
 	fmt.Fprintf(out, "    %-28s %s\n", "--help", "Print help information")
 }
 
@@ -1885,6 +1896,59 @@ func dispatchCompletion(registry []moduleRegistry, args []string) error {
 	return nil
 }
 
+type initResult struct {
+	message string
+	err     error
+}
+
+// handleInitFlag checks for --init and creates a starter targets file.
+// Returns nil if --init was not specified.
+func handleInitFlag(args []string) *initResult {
+	for i, arg := range args {
+		if arg == "--init" {
+			filename := "targs.go"
+			if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
+				filename = args[i+1]
+			}
+			msg, err := createTargetsFile(filename)
+			return &initResult{message: msg, err: err}
+		}
+		if strings.HasPrefix(arg, "--init=") {
+			filename := strings.TrimPrefix(arg, "--init=")
+			if filename == "" {
+				filename = "targs.go"
+			}
+			msg, err := createTargetsFile(filename)
+			return &initResult{message: msg, err: err}
+		}
+	}
+	return nil
+}
+
+// createTargetsFile creates a starter targets file with the build tag.
+func createTargetsFile(filename string) (string, error) {
+	// Check if file already exists
+	if _, err := os.Stat(filename); err == nil {
+		return "", fmt.Errorf("%s already exists", filename)
+	}
+
+	content := `//go:build targ
+
+package main
+
+import "github.com/toejough/targ/sh"
+
+// Keep the compiler happy - sh is used by generated aliases
+var _ = sh.Run
+`
+
+	if err := os.WriteFile(filename, []byte(content), 0644); err != nil {
+		return "", fmt.Errorf("writing %s: %w", filename, err)
+	}
+
+	return fmt.Sprintf("Created %s", filename), nil
+}
+
 type aliasResult struct {
 	code string
 	err  error
@@ -1944,8 +2008,9 @@ func generateAlias(name string, command string) (string, error) {
 		argsStr += strconv.Quote(part)
 	}
 
-	// Generate the code
-	code := fmt.Sprintf(`// %s runs %q.
+	// Generate the code with leading newline for nice appending
+	code := fmt.Sprintf(`
+// %s runs %q.
 func %s() error {
 	return sh.Run(%s)
 }

@@ -515,21 +515,29 @@ func (f *Filter) Run() error {
 | --------------------------- | -------------------------------------------- |
 | `--no-cache`                | Force rebuild of the build tool binary       |
 | `--keep`                    | Keep generated bootstrap file for inspection |
+| `--init [FILE]`             | Create a starter targets file (default: targs.go) |
 | `--alias NAME "COMMAND"`    | Generate Go code for a shell command target  |
 | `--completion [bash\|zsh\|fish]` | Print shell completion script           |
 
 ### Quick Target Scaffolding
 
-Use `--alias` to quickly generate boilerplate for simple shell command targets:
+Use `--init` to create a starter file, then `--alias` to add targets:
 
 ```bash
-targ --alias tidy "go mod tidy" >> targets.go
-targ --alias lint "golangci-lint run" >> targets.go
+targ --init                                    # creates targs.go with build tag
+targ --alias tidy "go mod tidy" >> targs.go
+targ --alias lint "golangci-lint run" >> targs.go
 ```
 
-This generates:
+This creates:
 
 ```go
+//go:build targ
+
+package main
+
+import "github.com/toejough/targ/sh"
+
 // Tidy runs "go mod tidy".
 func Tidy() error {
 	return sh.Run("go", "mod", "tidy")
