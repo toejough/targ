@@ -154,10 +154,14 @@ func doCompletion(roots []*commandNode, commandLine string) error {
 		currentNode = roots[0]
 	} else {
 		if len(processedArgs) == 0 {
-			// If prefix starts with -, suggest global flags
+			// If prefix starts with -, suggest all targ flags (root level)
 			if strings.HasPrefix(prefix, "-") {
-				globalOpts := []string{"--help", "--timeout", "--completion"}
-				for _, opt := range globalOpts {
+				for _, opt := range targGlobalFlags {
+					if strings.HasPrefix(opt, prefix) {
+						fmt.Println(opt)
+					}
+				}
+				for _, opt := range targRootOnlyFlags {
 					if strings.HasPrefix(opt, prefix) {
 						fmt.Println(opt)
 					}
@@ -532,6 +536,30 @@ func positionalIndex(node *commandNode, args []string, chain []commandInstance) 
 	return count, nil
 }
 
+// Targ-level flags for completion suggestions and filtering.
+// These are handled by the targ binary, not the bootstrap commands.
+var (
+	// targRootOnlyFlags are flags only valid at root level (before any command).
+	targRootOnlyFlags = []string{"--no-cache", "--keep", "--completion"}
+
+	// targGlobalFlags are flags valid at any command level.
+	targGlobalFlags = []string{"--help", "--timeout"}
+
+	// targFlagsWithValues are flags that consume the next argument as a value.
+	targFlagsWithValues = map[string]bool{
+		"--timeout":    true,
+		"--completion": true,
+	}
+
+	// targBooleanFlags are flags that don't take a value.
+	targBooleanFlags = map[string]bool{
+		"--no-cache": true,
+		"--keep":     true,
+		"--help":     true,
+		"-h":         true,
+	}
+)
+
 // skipTargFlags removes targ-level flags from the args for completion purposes.
 // These flags are handled by the outer targ binary, not the bootstrap.
 func skipTargFlags(args []string) []string {
@@ -542,17 +570,24 @@ func skipTargFlags(args []string) []string {
 			skip = false
 			continue
 		}
-		// Flags that take a value
-		if arg == "--timeout" || arg == "--completion" {
+		// Check flags that take a value
+		if targFlagsWithValues[arg] {
 			skip = true
 			continue
 		}
-		// Flags with = syntax
-		if strings.HasPrefix(arg, "--timeout=") || strings.HasPrefix(arg, "--completion=") {
+		// Check flags with = syntax
+		isValueFlag := false
+		for flag := range targFlagsWithValues {
+			if strings.HasPrefix(arg, flag+"=") {
+				isValueFlag = true
+				break
+			}
+		}
+		if isValueFlag {
 			continue
 		}
-		// Boolean flags
-		if arg == "--no-cache" || arg == "--keep" || arg == "-h" || arg == "--help" {
+		// Check boolean flags
+		if targBooleanFlags[arg] {
 			continue
 		}
 		result = append(result, arg)
@@ -560,7 +595,7 @@ func skipTargFlags(args []string) []string {
 	return result
 }
 
-func suggestFlags(chain []commandInstance, prefix string, includeCompletion bool) error {
+func suggestFlags(chain []commandInstance, prefix string, atRoot bool) error {
 	if len(chain) == 0 {
 		return nil
 	}
@@ -600,16 +635,20 @@ func suggestFlags(chain []commandInstance, prefix string, includeCompletion bool
 		}
 	}
 
-	// Suggest targ global options
-	// --help and --timeout are valid for all commands
-	// --completion is only valid at root (to print completion script)
-	globalOpts := []string{"--help", "--timeout"}
-	if includeCompletion {
-		globalOpts = append(globalOpts, "--completion")
-	}
-	for _, opt := range globalOpts {
+	// Suggest targ global flags (valid at any level)
+	for _, opt := range targGlobalFlags {
 		if strings.HasPrefix(opt, prefix) && !seen[opt] {
 			fmt.Println(opt)
+			seen[opt] = true
+		}
+	}
+	// Suggest targ root-only flags when at root
+	if atRoot {
+		for _, opt := range targRootOnlyFlags {
+			if strings.HasPrefix(opt, prefix) && !seen[opt] {
+				fmt.Println(opt)
+				seen[opt] = true
+			}
 		}
 	}
 	return nil
