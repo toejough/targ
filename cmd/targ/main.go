@@ -220,6 +220,11 @@ func main() {
 		}
 	}
 	if len(filePaths) == 0 {
+		// Handle completion even with no targets - suggest targ flags
+		if len(args) > 0 && args[0] == "__complete" {
+			printNoTargetsCompletion(args)
+			return
+		}
 		_, _ = fmt.Fprintf(errOut, "Error: no target files found\n")
 		exit(1)
 	}
@@ -2225,6 +2230,44 @@ func printBuildToolHelp(out io.Writer, startDir string) error {
 	_, _ = fmt.Fprintln(out, "")
 	_, _ = fmt.Fprintln(out, "More info: https://github.com/toejough/targ#readme")
 	return nil
+}
+
+// printNoTargetsCompletion outputs completion suggestions when no target files exist.
+// This allows users to discover flags like --init even before creating targets.
+func printNoTargetsCompletion(args []string) {
+	// Parse the command line from __complete args
+	if len(args) < 2 {
+		return
+	}
+	cmdLine := args[1]
+	parts := strings.Fields(cmdLine)
+	// Remove binary name
+	if len(parts) > 0 {
+		parts = parts[1:]
+	}
+
+	// Determine prefix (what user is typing)
+	prefix := ""
+	if len(parts) > 0 && !strings.HasSuffix(cmdLine, " ") {
+		prefix = parts[len(parts)-1]
+	}
+
+	// All targ flags available at root level
+	allFlags := []string{
+		"--help",
+		"--timeout",
+		"--no-cache",
+		"--keep",
+		"--completion",
+		"--init",
+		"--alias",
+	}
+
+	for _, flag := range allFlags {
+		if strings.HasPrefix(flag, prefix) {
+			fmt.Println(flag)
+		}
+	}
 }
 
 func printBuildToolUsage(out io.Writer) {
