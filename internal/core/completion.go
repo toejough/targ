@@ -154,24 +154,21 @@ func doCompletion(roots []*commandNode, commandLine string) error {
 		currentNode = roots[0]
 	} else {
 		if len(processedArgs) == 0 {
-			// If prefix starts with -, suggest all targ flags (root level)
-			if strings.HasPrefix(prefix, "-") {
-				for _, opt := range targGlobalFlags {
-					if strings.HasPrefix(opt, prefix) {
-						fmt.Println(opt)
-					}
-				}
-				for _, opt := range targRootOnlyFlags {
-					if strings.HasPrefix(opt, prefix) {
-						fmt.Println(opt)
-					}
-				}
-				return nil
-			}
-			// Otherwise suggest root command names
+			// At root level, suggest both commands and flags
 			for _, r := range roots {
 				if strings.HasPrefix(r.Name, prefix) {
 					fmt.Println(r.Name)
+				}
+			}
+			// Also suggest targ flags at root level
+			for _, opt := range targGlobalFlags {
+				if strings.HasPrefix(opt, prefix) {
+					fmt.Println(opt)
+				}
+			}
+			for _, opt := range targRootOnlyFlags {
+				if strings.HasPrefix(opt, prefix) {
+					fmt.Println(opt)
 				}
 			}
 			return nil
