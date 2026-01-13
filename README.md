@@ -18,6 +18,7 @@ Build CLIs and run build targets with minimal configuration. Inspired by Mage, g
 | Skip unchanged work | `file.Newer(inputs, outputs)` or `file.Checksum(...)` |
 | Watch for changes   | `file.Watch(ctx, patterns, opts, callback)`           |
 | Run deps once       | `targ.Deps(A, B, C)` or `targ.ParallelDeps(...)`      |
+| Scaffold a target   | `targ --alias tidy "go mod tidy" >> targets.go`       |
 
 ## Installation
 
@@ -510,10 +511,37 @@ func (f *Filter) Run() error {
 
 ## Build Tool Flags
 
-| Flag         | Description                                  |
-| ------------ | -------------------------------------------- |
-| `--no-cache` | Force rebuild of the build tool binary       |
-| `--keep`     | Keep generated bootstrap file for inspection |
+| Flag                        | Description                                  |
+| --------------------------- | -------------------------------------------- |
+| `--no-cache`                | Force rebuild of the build tool binary       |
+| `--keep`                    | Keep generated bootstrap file for inspection |
+| `--alias NAME "COMMAND"`    | Generate Go code for a shell command target  |
+| `--completion [bash\|zsh\|fish]` | Print shell completion script           |
+
+### Quick Target Scaffolding
+
+Use `--alias` to quickly generate boilerplate for simple shell command targets:
+
+```bash
+targ --alias tidy "go mod tidy" >> targets.go
+targ --alias lint "golangci-lint run" >> targets.go
+```
+
+This generates:
+
+```go
+// Tidy runs "go mod tidy".
+func Tidy() error {
+	return sh.Run("go", "mod", "tidy")
+}
+
+// Lint runs "golangci-lint run".
+func Lint() error {
+	return sh.Run("golangci-lint", "run")
+}
+```
+
+Kebab-case names are converted to PascalCase (`run-tests` → `RunTests`).
 
 ## Cache Management
 
