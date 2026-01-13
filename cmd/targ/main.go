@@ -111,7 +111,7 @@ func main() {
 			fmt.Fprintln(os.Stderr, aliasResult.err)
 			os.Exit(1)
 		}
-		fmt.Print(aliasResult.code)
+		fmt.Println(aliasResult.message)
 		return
 	}
 
@@ -843,8 +843,8 @@ func printBuildToolUsage(out io.Writer) {
 	fmt.Fprintf(out, "    %-28s %s\n", "", "specified. The output should be eval'd/sourced in the shell to enable completions.")
 	fmt.Fprintf(out, "    %-28s %s\n", "", "(e.g. 'targ --completion fish | source')")
 	fmt.Fprintf(out, "    %-28s %s\n", "--init [FILE]", "create a starter targets file (default: targs.go)")
-	fmt.Fprintf(out, "    %-28s %s\n", "--alias NAME \"COMMAND\"", "generate Go code for a simple shell command target")
-	fmt.Fprintf(out, "    %-28s %s\n", "", "(e.g. 'targ --alias tidy \"go mod tidy\" >> targs.go')")
+	fmt.Fprintf(out, "    %-28s %s\n", "--alias NAME \"CMD\" [FILE]", "add a shell command target to a targets file")
+	fmt.Fprintf(out, "    %-28s %s\n", "", "(auto-creates targs.go if no targets exist)")
 	fmt.Fprintf(out, "    %-28s %s\n", "--help", "Print help information")
 }
 
@@ -1950,35 +1950,216 @@ var _ = sh.Run
 }
 
 type aliasResult struct {
-	code string
-	err  error
+	message string
+	err     error
 }
 
 // handleAliasFlag checks for --alias and generates target code.
 // Returns nil if --alias was not specified.
 func handleAliasFlag(args []string) *aliasResult {
 	for i, arg := range args {
+		var name, command, targetFile string
+
 		if arg == "--alias" {
 			if i+2 >= len(args) {
-				return &aliasResult{err: fmt.Errorf("--alias requires two arguments: NAME \"COMMAND\"")}
+				return &aliasResult{err: fmt.Errorf("--alias requires at least two arguments: NAME \"COMMAND\" [FILE]")}
 			}
-			name := args[i+1]
-			command := args[i+2]
-			code, err := generateAlias(name, command)
-			return &aliasResult{code: code, err: err}
-		}
-		if strings.HasPrefix(arg, "--alias=") {
-			// --alias=name "command" format
-			name := strings.TrimPrefix(arg, "--alias=")
+			name = args[i+1]
+			command = args[i+2]
+			// Optional third argument for target file
+			if i+3 < len(args) && !strings.HasPrefix(args[i+3], "-") {
+				targetFile = args[i+3]
+			}
+		} else if strings.HasPrefix(arg, "--alias=") {
+			// --alias=name "command" [file] format
+			name = strings.TrimPrefix(arg, "--alias=")
 			if i+1 >= len(args) {
 				return &aliasResult{err: fmt.Errorf("--alias requires a command argument")}
 			}
-			command := args[i+1]
-			code, err := generateAlias(name, command)
-			return &aliasResult{code: code, err: err}
+			command = args[i+1]
+			if i+2 < len(args) && !strings.HasPrefix(args[i+2], "-") {
+				targetFile = args[i+2]
+			}
+		} else {
+			continue
 		}
+
+		msg, err := addAlias(name, command, targetFile)
+		return &aliasResult{message: msg, err: err}
 	}
 	return nil
+}
+
+// addAlias generates and appends alias code to the appropriate target file.
+func addAlias(name, command, targetFile string) (string, error) {
+	code, err := generateAlias(name, command)
+	if err != nil {
+		return "", err
+	}
+
+	// If target file specified, use it directly
+	if targetFile != "" {
+		if err := appendToFile(targetFile, code); err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("Added %s to %s", toExportedName(name), targetFile), nil
+	}
+
+	// Discover target files in current directory
+	targetFiles, err := findTargetFiles(".")
+	if err != nil {
+		return "", fmt.Errorf("discovering target files: %w", err)
+	}
+
+	switch len(targetFiles) {
+	case 0:
+		// No target files - create targs.go
+		targetFile = "targs.go"
+		if _, err := createTargetsFile(targetFile); err != nil {
+			return "", err
+		}
+		if err := appendToFile(targetFile, code); err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("Created %s and added %s", targetFile, toExportedName(name)), nil
+
+	case 1:
+		// One target file - ensure sh import and append
+		targetFile = targetFiles[0]
+		if err := ensureShImport(targetFile); err != nil {
+			return "", fmt.Errorf("ensuring sh import: %w", err)
+		}
+		if err := appendToFile(targetFile, code); err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("Added %s to %s", toExportedName(name), targetFile), nil
+
+	default:
+		// Multiple target files - require explicit file
+		return "", fmt.Errorf("multiple target files found (%s); specify which file: --alias %s %q <file>",
+			strings.Join(targetFiles, ", "), name, command)
+	}
+}
+
+// findTargetFiles finds all files with //go:build targ in the given directory.
+func findTargetFiles(dir string) ([]string, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+
+	var files []string
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".go") {
+			continue
+		}
+		path := filepath.Join(dir, entry.Name())
+		if hasTargBuildTag(path) {
+			files = append(files, entry.Name())
+		}
+	}
+	return files, nil
+}
+
+// hasTargBuildTag checks if a file has the //go:build targ tag.
+func hasTargBuildTag(path string) bool {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	content := string(data)
+	// Check for //go:build targ (with possible other tags)
+	for _, line := range strings.Split(content, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		if strings.HasPrefix(line, "//go:build") && strings.Contains(line, "targ") {
+			return true
+		}
+		// Stop at package declaration
+		if strings.HasPrefix(line, "package ") {
+			break
+		}
+	}
+	return false
+}
+
+// ensureShImport ensures the file imports github.com/toejough/targ/sh.
+func ensureShImport(path string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	content := string(data)
+
+	// Check if already imported
+	if strings.Contains(content, `"github.com/toejough/targ/sh"`) {
+		return nil
+	}
+
+	// Find the import block or single import
+	lines := strings.Split(content, "\n")
+	var result []string
+	importAdded := false
+
+	for i, line := range lines {
+		result = append(result, line)
+		trimmed := strings.TrimSpace(line)
+
+		// Handle import block: import (
+		if trimmed == "import (" && !importAdded {
+			// Add sh import after the opening paren
+			result = append(result, `	"github.com/toejough/targ/sh"`)
+			importAdded = true
+			continue
+		}
+
+		// Handle single import: import "..."
+		if strings.HasPrefix(trimmed, "import \"") && !importAdded {
+			// Convert to import block
+			result[len(result)-1] = "import ("
+			result = append(result, "\t"+strings.TrimPrefix(trimmed, "import "))
+			result = append(result, `	"github.com/toejough/targ/sh"`)
+			result = append(result, ")")
+			importAdded = true
+			continue
+		}
+
+		// If no imports yet and we hit package, add import after it
+		if strings.HasPrefix(trimmed, "package ") && !importAdded {
+			// Look ahead - if next non-empty line isn't import, add one
+			hasImport := false
+			for j := i + 1; j < len(lines); j++ {
+				nextTrimmed := strings.TrimSpace(lines[j])
+				if nextTrimmed == "" {
+					continue
+				}
+				if strings.HasPrefix(nextTrimmed, "import") {
+					hasImport = true
+				}
+				break
+			}
+			if !hasImport {
+				result = append(result, "")
+				result = append(result, `import "github.com/toejough/targ/sh"`)
+				importAdded = true
+			}
+		}
+	}
+
+	return os.WriteFile(path, []byte(strings.Join(result, "\n")), 0644)
+}
+
+// appendToFile appends content to a file.
+func appendToFile(path string, content string) error {
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0644)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	_, err = f.WriteString(content)
+	return err
 }
 
 // generateAlias creates Go code for a simple shell command target.

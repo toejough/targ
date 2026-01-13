@@ -18,7 +18,7 @@ Build CLIs and run build targets with minimal configuration. Inspired by Mage, g
 | Skip unchanged work | `file.Newer(inputs, outputs)` or `file.Checksum(...)` |
 | Watch for changes   | `file.Watch(ctx, patterns, opts, callback)`           |
 | Run deps once       | `targ.Deps(A, B, C)` or `targ.ParallelDeps(...)`      |
-| Scaffold a target   | `targ --alias tidy "go mod tidy" >> targets.go`       |
+| Scaffold a target   | `targ --alias tidy "go mod tidy"`                     |
 
 ## Installation
 
@@ -516,37 +516,22 @@ func (f *Filter) Run() error {
 | `--no-cache`                | Force rebuild of the build tool binary       |
 | `--keep`                    | Keep generated bootstrap file for inspection |
 | `--init [FILE]`             | Create a starter targets file (default: targs.go) |
-| `--alias NAME "COMMAND"`    | Generate Go code for a shell command target  |
+| `--alias NAME "CMD" [FILE]` | Add a shell command target (auto-creates file)    |
 | `--completion [bash\|zsh\|fish]` | Print shell completion script           |
 
 ### Quick Target Scaffolding
 
-Use `--init` to create a starter file, then `--alias` to add targets:
+Use `--alias` to add targets - it auto-creates `targs.go` if no target files exist:
 
 ```bash
-targ --init                                    # creates targs.go with build tag
-targ --alias tidy "go mod tidy" >> targs.go
-targ --alias lint "golangci-lint run" >> targs.go
+targ --alias tidy "go mod tidy"      # creates targs.go, adds Tidy
+targ --alias lint "golangci-lint run" # appends to targs.go
 ```
 
-This creates:
+If multiple target files exist, specify which one:
 
-```go
-//go:build targ
-
-package main
-
-import "github.com/toejough/targ/sh"
-
-// Tidy runs "go mod tidy".
-func Tidy() error {
-	return sh.Run("go", "mod", "tidy")
-}
-
-// Lint runs "golangci-lint run".
-func Lint() error {
-	return sh.Run("golangci-lint", "run")
-}
+```bash
+targ --alias test "go test ./..." build.go
 ```
 
 Kebab-case names are converted to PascalCase (`run-tests` → `RunTests`).
