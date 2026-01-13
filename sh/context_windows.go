@@ -7,6 +7,15 @@ import (
 	"os/exec"
 )
 
+// killProcessGroup kills the process on Windows.
+// Note: This may not kill child processes - Job Objects would be needed
+// for full process tree cleanup.
+func killProcessGroup(cmd *exec.Cmd) {
+	if cmd.Process != nil {
+		_ = cmd.Process.Kill()
+	}
+}
+
 // runWithContext runs a command with context cancellation support.
 // On Windows, this uses basic process termination.
 // Note: Child processes may not be terminated - for full process tree
@@ -35,13 +44,4 @@ func runWithContext(ctx context.Context, cmd *exec.Cmd) error {
 func setProcGroup(cmd *exec.Cmd) {
 	// Windows doesn't use process groups in the same way as Unix.
 	// Job Objects would be needed for full process tree management.
-}
-
-// killProcessGroup kills the process on Windows.
-// Note: This may not kill child processes - Job Objects would be needed
-// for full process tree cleanup.
-func killProcessGroup(cmd *exec.Cmd) {
-	if cmd.Process != nil {
-		_ = cmd.Process.Kill()
-	}
 }

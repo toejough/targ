@@ -5,16 +5,9 @@ import (
 	"github.com/toejough/targ"
 )
 
-// --- The Manifest ---
-// Define a single Root struct that contains the entire tree structure.
-// This gives you a "Table of Contents" for your CLI.
-type Root struct {
-	// Top-level commands
-	Build  *Build  `targ:"subcommand,desc=Build related commands"`
-	Deploy *Deploy `targ:"subcommand,desc=Deployment commands"`
-
-	// Global flags (optional)
-	Verbose bool `targ:"flag,global"`
+func main() {
+	// Run Targ with a single root; subcommands are optional.
+	targ.Run(Root{})
 }
 
 // --- Command Definitions ---
@@ -47,7 +40,14 @@ type Deploy struct {
 // Deploy the application to an environment.
 func (d *Deploy) Run() { fmt.Println("Deploying...") }
 
-func main() {
-	// Run Targ with a single root; subcommands are optional.
-	targ.Run(Root{})
+// --- The Manifest ---
+// Define a single Root struct that contains the entire tree structure.
+// This gives you a "Table of Contents" for your CLI.
+type Root struct {
+	// Top-level commands
+	Build  *Build  `targ:"subcommand,desc=Build related commands"`
+	Deploy *Deploy `targ:"subcommand,desc=Deployment commands"`
+
+	// Global flags (optional)
+	Verbose bool `targ:"flag,global"`
 }

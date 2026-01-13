@@ -7,18 +7,37 @@ package core
 // Most tests should be blackbox tests in the test/ directory.
 
 import (
+	"context"
 	"strings"
 	"testing"
 )
 
-// --- Parsing Edge Cases ---
-
-func TestParseNilPointer(t *testing.T) {
-	var cmd *MyCommandStruct
-	if _, err := parseStruct(cmd); err == nil {
-		t.Fatal("expected error for nil pointer target")
-	}
+type ConflictChild2 struct {
+	Flag string `targ:"flag"`
 }
+
+func (c *ConflictChild2) Run() {}
+
+// --- Flag Conflict Detection ---
+
+type ConflictRoot struct {
+	Flag string          `targ:"flag"`
+	Sub  *ConflictChild2 `targ:"subcommand"`
+}
+
+// --- Command Metadata ---
+
+type MetaOverrideCmd struct{}
+
+func (m MetaOverrideCmd) Description() string {
+	return "Custom description."
+}
+
+func (m *MetaOverrideCmd) Name() string {
+	return "CustomName"
+}
+
+func (m *MetaOverrideCmd) Run() {}
 
 type MyCommandStruct struct {
 	Name string
@@ -26,36 +45,11 @@ type MyCommandStruct struct {
 
 func (c *MyCommandStruct) Run() {}
 
-type UnexportedFlag struct {
-	hidden string `targ:"flag"`
-}
-
-func (c *UnexportedFlag) Run() {}
-
-func TestUnexportedFieldError(t *testing.T) {
-	cmdStruct := &UnexportedFlag{}
-	cmd, err := parseStruct(cmdStruct)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	// Error occurs at execution time, not parse time
-	if err := cmd.execute(nil, []string{}, RunOptions{}); err == nil {
-		t.Fatal("expected error for unexported tagged field")
-	}
-}
-
 type NonZeroRoot struct {
 	Name string `targ:"flag"`
 }
 
 func (n *NonZeroRoot) Run() {}
-
-func TestNonZeroRootErrors(t *testing.T) {
-	_, err := parseStruct(&NonZeroRoot{Name: "set"})
-	if err == nil {
-		t.Fatal("expected error for non-zero root value")
-	}
-}
 
 type RootWithPresetSub struct {
 	Sub *SubCmdInternal `targ:"subcommand"`
@@ -67,6 +61,71 @@ type SubCmdInternal struct{}
 
 func (s *SubCmdInternal) Run() {}
 
+// TestCmdStruct is used by run_function_test.go
+type TestCmdStruct struct {
+	Name   string
+	Called bool
+}
+
+func (c *TestCmdStruct) Run() {
+	c.Called = true
+}
+
+type UnexportedFlag struct {
+	hidden string `targ:"flag"` //nolint:unused // intentionally unexported for testing error handling
+}
+
+func (c *UnexportedFlag) Run() {}
+
+// --- camelToKebab ---
+
+func TestCamelToKebab(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"FooBar", "foo-bar"},
+		{"CI", "ci"},
+		{"CLI", "cli"},
+		{"APIServer", "api-server"},
+		{"FooAPI", "foo-api"},
+		{"getHTTPResponse", "get-http-response"},
+		{"HTTPSConnection", "https-connection"},
+		{"SimpleTest", "simple-test"},
+		{"ABC", "abc"},
+		{"ABCdef", "ab-cdef"},
+		{"Test", "test"},
+		{"test", "test"},
+		{"", ""},
+	}
+	for _, tt := range tests {
+		got := camelToKebab(tt.input)
+		if got != tt.want {
+			t.Errorf("camelToKebab(%q) = %q, want %q", tt.input, got, tt.want)
+		}
+	}
+}
+
+func TestCommandMetaOverrides(t *testing.T) {
+	node, err := parseStruct(&MetaOverrideCmd{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if node.Name != "custom-name" {
+		t.Fatalf("expected command name custom-name, got %q", node.Name)
+	}
+	if node.Description != "Custom description." {
+		t.Fatalf("expected description override, got %q", node.Description)
+	}
+}
+
+func TestNonZeroRootErrors(t *testing.T) {
+	_, err := parseStruct(&NonZeroRoot{Name: "set"})
+	if err == nil {
+		t.Fatal("expected error for non-zero root value")
+	}
+}
+
 func TestNonZeroSubcommandErrors(t *testing.T) {
 	_, err := parseStruct(&RootWithPresetSub{Sub: &SubCmdInternal{}})
 	if err == nil {
@@ -74,30 +133,23 @@ func TestNonZeroSubcommandErrors(t *testing.T) {
 	}
 }
 
-// --- Usage Line Formatting ---
+// --- Parsing Edge Cases ---
 
-func TestUsageLine_NoSubcommandWithRequiredPositional(t *testing.T) {
-	type MoveCmd struct {
-		File   string `targ:"flag,short=f"`
-		Status string `targ:"flag,required,short=s"`
-		ID     int    `targ:"positional,required"`
+func TestParseNilPointer(t *testing.T) {
+	var cmd *MyCommandStruct
+	if _, err := parseStruct(cmd); err == nil {
+		t.Fatal("expected error for nil pointer target")
 	}
-	cmd, err := parseStruct(&MoveCmd{})
+}
+
+func TestPersistentFlagConflicts(t *testing.T) {
+	root := &ConflictRoot{}
+	cmd, err := parseStruct(root)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	usage, err := buildUsageLine(cmd)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if strings.Contains(usage, "[subcommand]") {
-		t.Fatalf("did not expect subcommand in usage: %s", usage)
-	}
-	if !strings.Contains(usage, "{-s|--status}") {
-		t.Fatalf("expected status flag in usage: %s", usage)
-	}
-	if !strings.HasSuffix(usage, "ID") {
-		t.Fatalf("expected ID positional at end: %s", usage)
+	if err := cmd.execute(context.TODO(), []string{"sub", "--flag", "ok"}, RunOptions{}); err == nil {
+		t.Fatal("expected error for conflicting flag names")
 	}
 }
 
@@ -139,83 +191,42 @@ func TestPositionalEnumUsage(t *testing.T) {
 	}
 }
 
-// --- Command Metadata ---
-
-type MetaOverrideCmd struct{}
-
-func (m *MetaOverrideCmd) Run() {}
-
-func (m *MetaOverrideCmd) Name() string {
-	return "CustomName"
-}
-
-func (m MetaOverrideCmd) Description() string {
-	return "Custom description."
-}
-
-func TestCommandMetaOverrides(t *testing.T) {
-	node, err := parseStruct(&MetaOverrideCmd{})
+func TestUnexportedFieldError(t *testing.T) {
+	cmdStruct := &UnexportedFlag{}
+	cmd, err := parseStruct(cmdStruct)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if node.Name != "custom-name" {
-		t.Fatalf("expected command name custom-name, got %q", node.Name)
-	}
-	if node.Description != "Custom description." {
-		t.Fatalf("expected description override, got %q", node.Description)
+	// Error occurs at execution time, not parse time
+	if err := cmd.execute(context.TODO(), []string{}, RunOptions{}); err == nil {
+		t.Fatal("expected error for unexported tagged field")
 	}
 }
 
-// --- Flag Conflict Detection ---
+// --- Usage Line Formatting ---
 
-type ConflictRoot struct {
-	Flag string          `targ:"flag"`
-	Sub  *ConflictChild2 `targ:"subcommand"`
-}
-
-type ConflictChild2 struct {
-	Flag string `targ:"flag"`
-}
-
-func (c *ConflictChild2) Run() {}
-
-func TestPersistentFlagConflicts(t *testing.T) {
-	root := &ConflictRoot{}
-	cmd, err := parseStruct(root)
+func TestUsageLine_NoSubcommandWithRequiredPositional(t *testing.T) {
+	type MoveCmd struct {
+		File   string `targ:"flag,short=f"`
+		Status string `targ:"flag,required,short=s"`
+		ID     int    `targ:"positional,required"`
+	}
+	cmd, err := parseStruct(&MoveCmd{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if err := cmd.execute(nil, []string{"sub", "--flag", "ok"}, RunOptions{}); err == nil {
-		t.Fatal("expected error for conflicting flag names")
+	usage, err := buildUsageLine(cmd)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
-}
-
-// --- camelToKebab ---
-
-func TestCamelToKebab(t *testing.T) {
-	tests := []struct {
-		input string
-		want  string
-	}{
-		{"FooBar", "foo-bar"},
-		{"CI", "ci"},
-		{"CLI", "cli"},
-		{"APIServer", "api-server"},
-		{"FooAPI", "foo-api"},
-		{"getHTTPResponse", "get-http-response"},
-		{"HTTPSConnection", "https-connection"},
-		{"SimpleTest", "simple-test"},
-		{"ABC", "abc"},
-		{"ABCdef", "ab-cdef"},
-		{"Test", "test"},
-		{"test", "test"},
-		{"", ""},
+	if strings.Contains(usage, "[subcommand]") {
+		t.Fatalf("did not expect subcommand in usage: %s", usage)
 	}
-	for _, tt := range tests {
-		got := camelToKebab(tt.input)
-		if got != tt.want {
-			t.Errorf("camelToKebab(%q) = %q, want %q", tt.input, got, tt.want)
-		}
+	if !strings.Contains(usage, "{-s|--status}") {
+		t.Fatalf("expected status flag in usage: %s", usage)
+	}
+	if !strings.HasSuffix(usage, "ID") {
+		t.Fatalf("expected ID positional at end: %s", usage)
 	}
 }
 
@@ -224,14 +235,4 @@ func TestCamelToKebab(t *testing.T) {
 // parseCommand is a helper used by completion_test.go
 func parseCommand(f interface{}) (*commandNode, error) {
 	return parseStruct(f)
-}
-
-// TestCmdStruct is used by run_function_test.go
-type TestCmdStruct struct {
-	Name   string
-	Called bool
-}
-
-func (c *TestCmdStruct) Run() {
-	c.Called = true
 }

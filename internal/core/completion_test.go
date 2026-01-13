@@ -8,6 +8,22 @@ import (
 	"testing"
 )
 
+type CompletionDiscoverRoot struct{}
+
+func (c *CompletionDiscoverRoot) Name() string { return "discover" }
+
+func (c *CompletionDiscoverRoot) Run() {}
+
+type CompletionFirmwareRoot struct {
+	FlashOnly *CompletionFlashOnly `targ:"subcommand=flash-only"`
+}
+
+func (c *CompletionFirmwareRoot) Name() string { return "firmware" }
+
+type CompletionFlashOnly struct{}
+
+func (c *CompletionFlashOnly) Run() {}
+
 type EnumCmd struct {
 	Mode string `targ:"flag,enum=dev|prod,short=m"`
 	Kind string `targ:"flag,enum=fast|slow"`
@@ -45,6 +61,58 @@ func (c *PositionalCompletionCmd) TagOptions(field string, opts TagOptions) (Tag
 	return opts, nil
 }
 
+func TestCompletionSuggestsEnumValuesAfterFlag(t *testing.T) {
+	cmd, err := parseCommand(&EnumCmd{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	out := captureStdout(t, func() {
+		if err := doCompletion([]*commandNode{cmd}, "app --mode "); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	if !strings.Contains(out, "dev") || !strings.Contains(out, "prod") {
+		t.Fatalf("expected enum suggestions, got: %q", out)
+	}
+}
+
+func TestCompletionSuggestsPositionalValues(t *testing.T) {
+	cmd, err := parseCommand(&PositionalCompletionCmd{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	out := captureStdout(t, func() {
+		if err := doCompletion([]*commandNode{cmd}, "app --status cancelled "); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	if !strings.Contains(out, "40") || !strings.Contains(out, "41") {
+		t.Fatalf("expected positional suggestions, got: %q", out)
+	}
+}
+
+func TestCompletionSuggestsRootsAfterCommand(t *testing.T) {
+	firmware, err := parseCommand(&CompletionFirmwareRoot{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	discover, err := parseCommand(&CompletionDiscoverRoot{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	out := captureStdout(t, func() {
+		if err := doCompletion([]*commandNode{firmware, discover}, "app firmware flash-only d"); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	if !strings.Contains(out, "discover") {
+		t.Fatalf("expected discover suggestion, got: %q", out)
+	}
+}
+
 func TestEnumValuesForArg_LongFlag(t *testing.T) {
 	cmd, err := parseCommand(&EnumCmd{})
 	if err != nil {
@@ -67,6 +135,23 @@ func TestEnumValuesForArg_LongFlag(t *testing.T) {
 	}
 }
 
+func TestEnumValuesForArg_NoMatch(t *testing.T) {
+	cmd, err := parseCommand(&EnumCmd{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	chain, err := completionChain(cmd, []string{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if values, ok, err := enumValuesForArg(chain, []string{"--unknown"}, "", true); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	} else if ok {
+		t.Fatalf("expected no enum values, got %v", values)
+	}
+}
+
 func TestEnumValuesForArg_ShortFlag(t *testing.T) {
 	cmd, err := parseCommand(&EnumCmd{})
 	if err != nil {
@@ -86,23 +171,6 @@ func TestEnumValuesForArg_ShortFlag(t *testing.T) {
 	}
 	if len(values) != 2 || values[0] != "dev" || values[1] != "prod" {
 		t.Fatalf("unexpected values: %v", values)
-	}
-}
-
-func TestEnumValuesForArg_NoMatch(t *testing.T) {
-	cmd, err := parseCommand(&EnumCmd{})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	chain, err := completionChain(cmd, []string{})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if values, ok, err := enumValuesForArg(chain, []string{"--unknown"}, "", true); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	} else if ok {
-		t.Fatalf("expected no enum values, got %v", values)
 	}
 }
 
@@ -142,74 +210,6 @@ func TestPrintCompletionScriptPlaceholders(t *testing.T) {
 		if !strings.Contains(out, "demo") {
 			t.Fatalf("expected output to include binary name for %s", shell)
 		}
-	}
-}
-
-func TestCompletionSuggestsEnumValuesAfterFlag(t *testing.T) {
-	cmd, err := parseCommand(&EnumCmd{})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	out := captureStdout(t, func() {
-		if err := doCompletion([]*commandNode{cmd}, "app --mode "); err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-	})
-	if !strings.Contains(out, "dev") || !strings.Contains(out, "prod") {
-		t.Fatalf("expected enum suggestions, got: %q", out)
-	}
-}
-
-func TestCompletionSuggestsPositionalValues(t *testing.T) {
-	cmd, err := parseCommand(&PositionalCompletionCmd{})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	out := captureStdout(t, func() {
-		if err := doCompletion([]*commandNode{cmd}, "app --status cancelled "); err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-	})
-	if !strings.Contains(out, "40") || !strings.Contains(out, "41") {
-		t.Fatalf("expected positional suggestions, got: %q", out)
-	}
-}
-
-type CompletionFirmwareRoot struct {
-	FlashOnly *CompletionFlashOnly `targ:"subcommand=flash-only"`
-}
-
-func (c *CompletionFirmwareRoot) Name() string { return "firmware" }
-
-type CompletionFlashOnly struct{}
-
-func (c *CompletionFlashOnly) Run() {}
-
-type CompletionDiscoverRoot struct{}
-
-func (c *CompletionDiscoverRoot) Name() string { return "discover" }
-
-func (c *CompletionDiscoverRoot) Run() {}
-
-func TestCompletionSuggestsRootsAfterCommand(t *testing.T) {
-	firmware, err := parseCommand(&CompletionFirmwareRoot{})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	discover, err := parseCommand(&CompletionDiscoverRoot{})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	out := captureStdout(t, func() {
-		if err := doCompletion([]*commandNode{firmware, discover}, "app firmware flash-only d"); err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-	})
-	if !strings.Contains(out, "discover") {
-		t.Fatalf("expected discover suggestion, got: %q", out)
 	}
 }
 

@@ -21,10 +21,10 @@ type Deploy struct {
 	Prod    *ProdCmd    `targ:"subcommand"`
 }
 
-type StagingCmd struct{}
-
-func (s *StagingCmd) Run() { fmt.Println("Deploying to Staging") }
-
 type ProdCmd struct{}
 
 func (p *ProdCmd) Run() { fmt.Println("Deploying to Prod") }
+
+type StagingCmd struct{}
+
+func (s *StagingCmd) Run() { fmt.Println("Deploying to Staging") }

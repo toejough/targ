@@ -10,34 +10,17 @@ import (
 	"strings"
 )
 
-var (
-	stdout      io.Writer = os.Stdout
-	stderr      io.Writer = os.Stderr
-	stdin       io.Reader = os.Stdin
-	execCommand           = exec.Command
-)
-
-// Run executes a command streaming stdout/stderr.
-func Run(name string, args ...string) error {
-	cmd := execCommand(name, args...)
-	cmd.Stdout = stdout
-	cmd.Stderr = stderr
-	cmd.Stdin = stdin
-	setProcGroup(cmd)
-
-	if err := cmd.Start(); err != nil {
-		return err
+// ExeSuffix returns ".exe" on Windows, otherwise an empty string.
+func ExeSuffix() string {
+	if IsWindows() {
+		return ".exe"
 	}
-	registerProcess(cmd.Process)
-	err := cmd.Wait()
-	unregisterProcess(cmd.Process)
-	return err
+	return ""
 }
 
-// RunV executes a command and prints it first.
-func RunV(name string, args ...string) error {
-	fmt.Fprintln(stdout, "+", formatCommand(name, args))
-	return Run(name, args...)
+// IsWindows reports whether the current OS is Windows.
+func IsWindows() bool {
+	return runtime.GOOS == "windows"
 }
 
 // Output executes a command and returns combined output.
@@ -60,17 +43,27 @@ func Output(name string, args ...string) (string, error) {
 	return buf.String(), err
 }
 
-// IsWindows reports whether the current OS is Windows.
-func IsWindows() bool {
-	return runtime.GOOS == "windows"
+// Run executes a command streaming stdout/stderr.
+func Run(name string, args ...string) error {
+	cmd := execCommand(name, args...)
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
+	cmd.Stdin = stdin
+	setProcGroup(cmd)
+
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	registerProcess(cmd.Process)
+	err := cmd.Wait()
+	unregisterProcess(cmd.Process)
+	return err
 }
 
-// ExeSuffix returns ".exe" on Windows, otherwise an empty string.
-func ExeSuffix() string {
-	if IsWindows() {
-		return ".exe"
-	}
-	return ""
+// RunV executes a command and prints it first.
+func RunV(name string, args ...string) error {
+	_, _ = fmt.Fprintln(stdout, "+", formatCommand(name, args))
+	return Run(name, args...)
 }
 
 // WithExeSuffix appends the OS-specific executable suffix if missing.
@@ -83,6 +76,14 @@ func WithExeSuffix(name string) string {
 	}
 	return name + ".exe"
 }
+
+// unexported variables.
+var (
+	execCommand           = exec.Command
+	stderr      io.Writer = os.Stderr
+	stdin       io.Reader = os.Stdin
+	stdout      io.Writer = os.Stdout
+)
 
 func formatCommand(name string, args []string) string {
 	parts := make([]string, 0, 1+len(args))

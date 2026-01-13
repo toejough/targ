@@ -49,15 +49,6 @@ func Match(patterns ...string) ([]string, error) {
 	return matches, nil
 }
 
-func patternFS(pattern string) (fs.FS, string) {
-	if filepath.IsAbs(pattern) {
-		volume := filepath.VolumeName(pattern)
-		base := volume + string(filepath.Separator)
-		return os.DirFS(base), base
-	}
-	return os.DirFS("."), ""
-}
-
 func expandBraces(pattern string) ([]string, error) {
 	start := strings.Index(pattern, "{")
 	if start == -1 {
@@ -87,6 +78,15 @@ func expandBraces(pattern string) ([]string, error) {
 		}
 	}
 	return nil, fmt.Errorf("unmatched brace in pattern %q", pattern)
+}
+
+func patternFS(pattern string) (fs.FS, string) {
+	if filepath.IsAbs(pattern) {
+		volume := filepath.VolumeName(pattern)
+		base := volume + string(filepath.Separator)
+		return os.DirFS(base), base
+	}
+	return os.DirFS("."), ""
 }
 
 func splitBraceOptions(content string) []string {

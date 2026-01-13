@@ -2,7 +2,6 @@ package core
 
 import (
 	"context"
-	"flag"
 	"fmt"
 	"os"
 	"reflect"
@@ -11,6 +10,11 @@ import (
 	"strings"
 	"unicode"
 )
+
+type commandInstance struct {
+	node  *commandNode
+	value reflect.Value
+}
 
 type commandNode struct {
 	Name        string
@@ -21,276 +25,6 @@ type commandNode struct {
 	Subcommands map[string]*commandNode
 	RunMethod   reflect.Value
 	Description string
-}
-
-type commandInstance struct {
-	node  *commandNode
-	value reflect.Value
-}
-
-type flagSpec struct {
-	value          reflect.Value
-	name           string
-	short          string
-	usage          string
-	env            string
-	defaultValue   *string
-	required       bool
-	defaultApplied bool
-	envApplied     bool
-}
-
-// --- Parsing targets ---
-
-func parseTarget(t interface{}) (*commandNode, error) {
-	if t == nil {
-		return nil, fmt.Errorf("nil target")
-	}
-
-	v := reflect.ValueOf(t)
-	if v.Kind() == reflect.Func {
-		return parseFunc(v)
-	}
-
-	return parseStruct(t)
-}
-
-func parseFunc(v reflect.Value) (*commandNode, error) {
-	typ := v.Type()
-	if typ.Kind() != reflect.Func {
-		return nil, fmt.Errorf("expected func, got %v", typ.Kind())
-	}
-
-	if err := validateFuncType(typ); err != nil {
-		return nil, err
-	}
-
-	name := functionName(v)
-	if name == "" {
-		return nil, fmt.Errorf("unable to determine function name")
-	}
-
-	return &commandNode{
-		Name:        camelToKebab(name),
-		Func:        v,
-		Subcommands: make(map[string]*commandNode),
-	}, nil
-}
-
-func validateFuncType(typ reflect.Type) error {
-	if typ.NumIn() > 1 {
-		return fmt.Errorf("function command must be niladic or accept context")
-	}
-	if typ.NumIn() == 1 && !isContextType(typ.In(0)) {
-		return fmt.Errorf("function command must accept context.Context")
-	}
-	if typ.NumOut() == 0 {
-		return nil
-	}
-	if typ.NumOut() == 1 && isErrorType(typ.Out(0)) {
-		return nil
-	}
-	return fmt.Errorf("function command must return only error")
-}
-
-func isContextType(t reflect.Type) bool {
-	return t == reflect.TypeOf((*context.Context)(nil)).Elem()
-}
-
-func isErrorType(t reflect.Type) bool {
-	return t.Implements(reflect.TypeOf((*error)(nil)).Elem())
-}
-
-func functionName(v reflect.Value) string {
-	fn := runtime.FuncForPC(v.Pointer())
-	if fn == nil {
-		return ""
-	}
-
-	name := fn.Name()
-	if idx := strings.LastIndex(name, "/"); idx != -1 {
-		name = name[idx+1:]
-	}
-	if idx := strings.LastIndex(name, "."); idx != -1 {
-		name = name[idx+1:]
-	}
-	name = strings.TrimSuffix(name, "-fm")
-	return name
-}
-
-func parseStruct(t interface{}) (*commandNode, error) {
-	if t == nil {
-		return nil, fmt.Errorf("nil target")
-	}
-	v := reflect.ValueOf(t)
-	typ := v.Type()
-
-	// Handle pointer
-	if typ.Kind() == reflect.Ptr {
-		if v.IsNil() {
-			return nil, fmt.Errorf("nil pointer target")
-		}
-		typ = typ.Elem()
-		v = v.Elem()
-	}
-
-	if typ.Kind() != reflect.Struct {
-		return nil, fmt.Errorf("expected struct, got %v", typ.Kind())
-	}
-	for i := 0; i < typ.NumField(); i++ {
-		field := typ.Field(i)
-		opts, ok, err := tagOptionsForField(v, field)
-		if err != nil {
-			return nil, err
-		}
-		if !ok {
-			continue
-		}
-		fieldVal := v.Field(i)
-		if opts.Kind == TagKindSubcommand {
-			if fieldVal.Kind() == reflect.Func {
-				continue
-			}
-			if !fieldVal.IsZero() {
-				return nil, fmt.Errorf("command %s must not prefill subcommand %s; use default tags instead", typ.Name(), field.Name)
-			}
-			continue
-		}
-		if !fieldVal.IsZero() {
-			return nil, fmt.Errorf("command %s must be zero value; use default tags instead of prefilled fields", typ.Name())
-		}
-	}
-
-	name := camelToKebab(typ.Name())
-
-	node := &commandNode{
-		Name:        name,
-		Type:        typ,
-		Value:       v,
-		Subcommands: make(map[string]*commandNode),
-	}
-
-	// 1. Look for Run method on the *pointer* to the struct
-	// Check for Run method on Pointer type
-	ptrType := reflect.PtrTo(typ)
-	runMethod, hasRun := ptrType.MethodByName("Run")
-	if hasRun {
-		node.RunMethod = reflect.Value{} // Marker
-		// Extract description from doc string
-		doc := getMethodDoc(runMethod)
-		if doc != "" {
-			node.Description = strings.TrimSpace(doc)
-		}
-	}
-	if cmdName := getCommandName(v, typ); cmdName != "" {
-		node.Name = cmdName
-	}
-	if desc := getDescription(v, typ); desc != "" {
-		node.Description = desc
-	}
-
-	// 2. Look for fields with `targ:"subcommand"`
-	for i := 0; i < typ.NumField(); i++ {
-		field := typ.Field(i)
-		opts, ok, err := tagOptionsForField(v, field)
-		if err != nil {
-			return nil, err
-		}
-		if !ok || opts.Kind != TagKindSubcommand {
-			continue
-		}
-		{
-			// This field is a subcommand
-			// Recurse
-
-			fieldType := field.Type
-			if fieldType.Kind() == reflect.Ptr {
-				fieldType = fieldType.Elem()
-			}
-
-			var subNode *commandNode
-			if fieldType.Kind() == reflect.Func {
-				if err := validateFuncType(field.Type); err != nil {
-					return nil, err
-				}
-				subNode = &commandNode{
-					Func:        reflect.Zero(field.Type),
-					Subcommands: make(map[string]*commandNode),
-				}
-			} else {
-				// We need an instance of the field type to parse it.
-				zeroVal := reflect.New(fieldType).Interface() // This is *Struct
-				var err error
-				subNode, err = parseStruct(zeroVal)
-				if err != nil {
-					return nil, err
-				}
-			}
-			subNode.Parent = node
-
-			// Override name based on field or tag
-			// The node comes with a default name based on its Type, but the Field name usually takes precedence
-			// unless the tag explicitly sets a name.
-			subNode.Name = opts.Name
-
-			node.Subcommands[subNode.Name] = subNode
-		}
-	}
-
-	// 3. Look for legacy method-based subcommands (optional, keeping for compat if desired)
-	// For now, let's focus on the field based approach as requested.
-
-	return node, nil
-}
-
-// --- Command metadata helpers ---
-
-func getCommandName(v reflect.Value, typ reflect.Type) string {
-	name := callStringMethod(v, typ, "Name")
-	if name == "" {
-		return ""
-	}
-	return camelToKebab(name)
-}
-
-func getDescription(v reflect.Value, typ reflect.Type) string {
-	desc := callStringMethod(v, typ, "Description")
-	return strings.TrimSpace(desc)
-}
-
-func callStringMethod(v reflect.Value, typ reflect.Type, method string) string {
-	if m := methodValue(v, typ, method); m.IsValid() {
-		if m.Type().NumIn() == 0 && m.Type().NumOut() == 1 && m.Type().Out(0).Kind() == reflect.String {
-			out := m.Call(nil)
-			if len(out) == 1 {
-				if s, ok := out[0].Interface().(string); ok {
-					return strings.TrimSpace(s)
-				}
-			}
-		}
-	}
-	return ""
-}
-
-func methodValue(v reflect.Value, typ reflect.Type, method string) reflect.Value {
-	if v.IsValid() {
-		if m := v.MethodByName(method); m.IsValid() {
-			return m
-		}
-		if v.CanAddr() {
-			if m := v.Addr().MethodByName(method); m.IsValid() {
-				return m
-			}
-		}
-	}
-	ptr := reflect.New(typ)
-	if m := ptr.MethodByName(method); m.IsValid() {
-		return m
-	}
-	if m := ptr.Elem().MethodByName(method); m.IsValid() {
-		return m
-	}
-	return reflect.Value{}
 }
 
 // --- Execution ---
@@ -417,98 +151,179 @@ func (n *commandNode) executeWithParents(
 	return result.remaining, nil
 }
 
-func executeFunctionWithParents(
-	ctx context.Context,
-	args []string,
-	node *commandNode,
-	parents []commandInstance,
-	visited map[string]bool,
-	explicit bool,
-	opts RunOptions,
-) ([]string, error) {
-	specs, _, err := collectFlagSpecs(parents)
-	if err != nil {
-		return nil, err
-	}
-	result, err := parseCommandArgs(nil, reflect.Value{}, parents, args, visited, explicit, true, false)
-	if err != nil {
-		return nil, err
-	}
-	// In help-only mode, skip validation and execution
-	if opts.HelpOnly {
-		return result.remaining, nil
-	}
-	if err := applyDefaultsAndEnv(specs, visited); err != nil {
-		return nil, err
-	}
-	if err := checkRequiredFlags(specs, visited); err != nil {
-		return nil, err
-	}
-	if err := runPersistentHooks(ctx, parents, "PersistentBefore"); err != nil {
-		return nil, err
-	}
-	if err := callFunction(ctx, node.Func); err != nil {
-		return nil, err
-	}
-	if err := runPersistentHooks(ctx, reverseChain(parents), "PersistentAfter"); err != nil {
-		return nil, err
-	}
-	return result.remaining, nil
+type flagHelp struct {
+	Name        string
+	Short       string
+	Usage       string
+	Options     string
+	Placeholder string
+	Required    bool
+	Inherited   bool
 }
 
-func nodeInstance(node *commandNode) (reflect.Value, error) {
-	if node != nil && node.Value.IsValid() && node.Value.Kind() == reflect.Struct && node.Value.CanAddr() {
-		return node.Value, nil
-	}
-	if node != nil && node.Type != nil {
-		inst := reflect.New(node.Type).Elem()
-		if node.Value.IsValid() && node.Value.Kind() == reflect.Struct {
-			typ := node.Type
-			for i := 0; i < typ.NumField(); i++ {
-				field := typ.Field(i)
-				opts, ok, err := tagOptionsForField(node.Value, field)
-				if err != nil {
-					return reflect.Value{}, err
-				}
-				if ok && opts.Kind == TagKindSubcommand && field.Type.Kind() == reflect.Func {
-					inst.Field(i).Set(node.Value.Field(i))
-				}
-			}
-		}
-		return inst, nil
-	}
-	return reflect.Value{}, nil
+type flagSpec struct {
+	value          reflect.Value
+	name           string
+	short          string
+	usage          string
+	env            string
+	defaultValue   *string
+	required       bool
+	defaultApplied bool
+	envApplied     bool
 }
 
-func runPersistentHooks(ctx context.Context, chain []commandInstance, methodName string) error {
-	for _, inst := range chain {
-		if inst.node == nil || inst.node.Type == nil {
+type positionalHelp struct {
+	Name        string
+	Placeholder string
+	Required    bool
+}
+
+func applyDefaultsAndEnv(specs []*flagSpec, visited map[string]bool) error {
+	for _, spec := range specs {
+		if flagVisited(spec, visited) {
 			continue
 		}
-		if _, err := callMethod(ctx, inst.value, methodName); err != nil {
-			return err
+		if spec.env != "" {
+			if value := os.Getenv(spec.env); value != "" {
+				if err := setFieldFromString(spec.value, value); err != nil {
+					return fmt.Errorf("invalid value for env %s: %w", spec.env, err)
+				}
+				spec.envApplied = true
+				continue
+			}
+		}
+		if spec.defaultValue != nil {
+			if err := setFieldFromString(spec.value, *spec.defaultValue); err != nil {
+				return fmt.Errorf("invalid default for --%s: %w", spec.name, err)
+			}
+			spec.defaultApplied = true
 		}
 	}
 	return nil
 }
 
-func reverseChain(chain []commandInstance) []commandInstance {
-	if len(chain) == 0 {
-		return nil
+func applyTagOptionsOverride(inst reflect.Value, field reflect.StructField, opts TagOptions) (TagOptions, error) {
+	method := tagOptionsMethod(inst)
+	if !method.IsValid() {
+		return opts, nil
 	}
-	out := make([]commandInstance, len(chain))
-	for i := range chain {
-		out[i] = chain[len(chain)-1-i]
+	mtype := method.Type()
+	if mtype.NumIn() != 2 || mtype.NumOut() != 2 {
+		return opts, fmt.Errorf("TagOptions must accept (string, TagOptions) and return (TagOptions, error)")
 	}
-	return out
+	if mtype.In(0).Kind() != reflect.String || mtype.In(1) != reflect.TypeOf(TagOptions{}) {
+		return opts, fmt.Errorf("TagOptions must accept (string, TagOptions)")
+	}
+	if mtype.Out(0) != reflect.TypeOf(TagOptions{}) || !isErrorType(mtype.Out(1)) {
+		return opts, fmt.Errorf("TagOptions must return (TagOptions, error)")
+	}
+	results := method.Call([]reflect.Value{
+		reflect.ValueOf(field.Name),
+		reflect.ValueOf(opts),
+	})
+	if !results[1].IsNil() {
+		return opts, results[1].Interface().(error)
+	}
+	return results[0].Interface().(TagOptions), nil
 }
 
-func runCommand(ctx context.Context, node *commandNode, inst reflect.Value, args []string, posArgIdx int) error {
-	if node == nil {
+func assignSubcommandField(parent *commandNode, parentInst reflect.Value, subName string, sub *commandNode) error {
+	if parent == nil || parent.Type == nil {
 		return nil
 	}
-	_, err := callMethod(ctx, inst, "Run")
-	return err
+	typ := parent.Type
+	for i := 0; i < typ.NumField(); i++ {
+		field := typ.Field(i)
+		opts, ok, err := tagOptionsForField(parentInst, field)
+		if err != nil {
+			return err
+		}
+		if !ok || opts.Kind != TagKindSubcommand {
+			continue
+		}
+		if opts.Name != subName {
+			continue
+		}
+
+		fieldVal := parentInst.Field(i)
+		fieldType := field.Type
+		if fieldType.Kind() == reflect.Func {
+			if fieldVal.IsNil() {
+				return fmt.Errorf("subcommand %s is nil", subName)
+			}
+			sub.Func = fieldVal
+			return nil
+		}
+
+		if fieldType.Kind() == reflect.Ptr {
+			newInst := reflect.New(fieldType.Elem())
+			fieldVal.Set(newInst)
+			sub.Value = newInst.Elem()
+			return nil
+		}
+
+		if fieldType.Kind() == reflect.Struct {
+			newInst := reflect.New(fieldType).Elem()
+			fieldVal.Set(newInst)
+			sub.Value = newInst
+			return nil
+		}
+	}
+	return nil
+}
+
+// --- Help output ---
+
+func binaryName() string {
+	if name := os.Getenv("TARG_BIN_NAME"); name != "" {
+		return name
+	}
+	name := os.Args[0]
+	if idx := strings.LastIndex(name, "/"); idx != -1 {
+		name = name[idx+1:]
+	}
+	if idx := strings.LastIndex(name, "\\"); idx != -1 {
+		name = name[idx+1:]
+	}
+	return name
+}
+
+func buildUsageLine(node *commandNode) (string, error) {
+	parts := []string{node.Name}
+	flags, err := collectFlagHelpChain(node)
+	if err != nil {
+		return "", err
+	}
+	for _, item := range flags {
+		if item.Required {
+			parts = append(parts, formatFlagUsage(item))
+		} else {
+			parts = append(parts, fmt.Sprintf("[%s]", formatFlagUsage(item)))
+		}
+	}
+	if len(node.Subcommands) > 0 {
+		parts = append(parts, "[subcommand]")
+	}
+	positionals, err := collectPositionalHelp(node)
+	if err != nil {
+		return "", err
+	}
+	for _, item := range positionals {
+		name := item.Name
+		if item.Placeholder != "" {
+			name = item.Placeholder
+		}
+		if name == "" {
+			name = "ARG"
+		}
+		if item.Required {
+			parts = append(parts, name)
+		} else {
+			parts = append(parts, fmt.Sprintf("[%s]", name))
+		}
+	}
+	return strings.Join(parts, " "), nil
 }
 
 func callFunction(ctx context.Context, fn reflect.Value) error {
@@ -567,132 +382,37 @@ func callMethod(ctx context.Context, receiver reflect.Value, name string) (bool,
 	return true, nil
 }
 
-// --- Flag handling ---
-
-type dynamicFlagValue struct {
-	set    func(string) error
-	str    func() string
-	isBool bool
-}
-
-func (d *dynamicFlagValue) String() string {
-	if d.str == nil {
-		return ""
-	}
-	return d.str()
-}
-
-func (d *dynamicFlagValue) Set(value string) error {
-	if d.set == nil {
-		return fmt.Errorf("no setter defined")
-	}
-	return d.set(value)
-}
-
-func (d *dynamicFlagValue) IsBoolFlag() bool {
-	return d.isBool
-}
-
-func registerChainFlags(fs *flag.FlagSet, chain []commandInstance) ([]*flagSpec, map[string]bool, error) {
-	var specs []*flagSpec
-	longNames := map[string]bool{}
-	usedNames := map[string]bool{}
-
-	for _, inst := range chain {
-		if inst.node == nil || inst.node.Type == nil {
-			continue
-		}
-		typ := inst.node.Type
-		for i := 0; i < typ.NumField(); i++ {
-			field := typ.Field(i)
-			fieldVal := inst.value.Field(i)
-			spec, ok, err := flagSpecForField(inst.value, field, fieldVal)
-			if err != nil {
-				return nil, nil, err
-			}
-			if !ok {
-				continue
-			}
-			if usedNames[spec.name] {
-				return nil, nil, fmt.Errorf("flag %s already defined", spec.name)
-			}
-			usedNames[spec.name] = true
-			if spec.short != "" {
-				if usedNames[spec.short] {
-					return nil, nil, fmt.Errorf("flag %s already defined", spec.short)
+func callStringMethod(v reflect.Value, typ reflect.Type, method string) string {
+	if m := methodValue(v, typ, method); m.IsValid() {
+		if m.Type().NumIn() == 0 && m.Type().NumOut() == 1 && m.Type().Out(0).Kind() == reflect.String {
+			out := m.Call(nil)
+			if len(out) == 1 {
+				if s, ok := out[0].Interface().(string); ok {
+					return strings.TrimSpace(s)
 				}
-				usedNames[spec.short] = true
-			}
-			longNames[spec.name] = true
-			specs = append(specs, spec)
-
-			specLocal := spec
-			flagValue := &dynamicFlagValue{
-				set: func(value string) error {
-					return setFieldFromString(specLocal.value, value)
-				},
-				str: func() string {
-					return fmt.Sprint(specLocal.value.Interface())
-				},
-				isBool: specLocal.value.Kind() == reflect.Bool,
-			}
-			fs.Var(flagValue, spec.name, spec.usage)
-			if spec.short != "" {
-				fs.Var(flagValue, spec.short, spec.usage)
 			}
 		}
 	}
-	return specs, longNames, nil
+	return ""
 }
 
-func flagSpecForField(inst reflect.Value, field reflect.StructField, fieldVal reflect.Value) (*flagSpec, bool, error) {
-	opts, ok, err := tagOptionsForField(inst, field)
-	if err != nil {
-		return nil, false, err
-	}
-	if !ok {
-		return nil, false, nil
-	}
-	if !field.IsExported() {
-		return nil, false, fmt.Errorf("field %s must be exported", field.Name)
-	}
-	if opts.Kind != TagKindFlag {
-		return nil, false, nil
-	}
+// --- Utilities ---
 
-	return &flagSpec{
-		value:        fieldVal,
-		name:         opts.Name,
-		short:        opts.Short,
-		usage:        opts.Desc,
-		env:          opts.Env,
-		defaultValue: opts.Default,
-		required:     opts.Required,
-	}, true, nil
-}
-
-func applyDefaultsAndEnv(specs []*flagSpec, visited map[string]bool) error {
-	for _, spec := range specs {
-		if flagVisited(spec, visited) {
-			continue
-		}
-		if spec.env != "" {
-			if value := os.Getenv(spec.env); value != "" {
-				if err := setFieldFromString(spec.value, value); err != nil {
-					return fmt.Errorf("invalid value for env %s: %w", spec.env, err)
-				}
-				spec.envApplied = true
-				continue
+func camelToKebab(s string) string {
+	var result strings.Builder
+	runes := []rune(s)
+	for i, r := range runes {
+		if i > 0 && unicode.IsUpper(r) {
+			prev := runes[i-1]
+			// Insert hyphen if previous is lowercase (e.g., fooBar -> foo-bar)
+			// OR if we're at the start of a new word after an acronym (e.g., APIServer -> api-server)
+			if unicode.IsLower(prev) || (i+1 < len(runes) && unicode.IsLower(runes[i+1])) {
+				result.WriteRune('-')
 			}
 		}
-		if spec.defaultValue != nil {
-			if err := setFieldFromString(spec.value, *spec.defaultValue); err != nil {
-				return fmt.Errorf("invalid default for --%s: %w", spec.name, err)
-			}
-			spec.defaultApplied = true
-		}
+		result.WriteRune(unicode.ToLower(r))
 	}
-	return nil
+	return result.String()
 }
 
 func checkRequiredFlags(specs []*flagSpec, visited map[string]bool) error {
@@ -712,132 +432,139 @@ func checkRequiredFlags(specs []*flagSpec, visited map[string]bool) error {
 	return nil
 }
 
-func flagVisited(spec *flagSpec, visited map[string]bool) bool {
-	if visited[spec.name] {
-		return true
-	}
-	if spec.short != "" && visited[spec.short] {
-		return true
-	}
-	return false
-}
-
-func applyPositionals(inst reflect.Value, node *commandNode, args []string) (int, error) {
-	if node == nil || node.Type == nil {
-		if len(args) > 0 {
-			return 0, fmt.Errorf("unexpected argument: %s", args[0])
-		}
-		return 0, nil
+func collectFlagHelp(node *commandNode) ([]flagHelp, error) {
+	if node.Type == nil {
+		return nil, nil
 	}
 	typ := node.Type
-	posIndex := 0
-	optsInst := inst
+	inst := tagOptionsInstance(node)
+	var flags []flagHelp
 	for i := 0; i < typ.NumField(); i++ {
 		field := typ.Field(i)
-		opts, ok, err := tagOptionsForField(optsInst, field)
+		opts, ok, err := tagOptionsForField(inst, field)
 		if err != nil {
-			return posIndex, err
+			return nil, err
+		}
+		if !ok || opts.Kind != TagKindFlag {
+			continue
+		}
+		if !field.IsExported() {
+			return nil, fmt.Errorf("field %s must be exported", field.Name)
+		}
+
+		placeholder := opts.Placeholder
+		if opts.Enum != "" {
+			placeholder = fmt.Sprintf("{%s}", opts.Enum)
+		}
+		if placeholder == "" {
+			switch field.Type.Kind() {
+			case reflect.String:
+				placeholder = "<string>"
+			case reflect.Int:
+				placeholder = "<int>"
+			case reflect.Bool:
+				placeholder = "[flag]"
+			}
+		}
+
+		flags = append(flags, flagHelp{
+			Name:        opts.Name,
+			Short:       opts.Short,
+			Usage:       opts.Desc,
+			Options:     "",
+			Placeholder: placeholder,
+			Required:    opts.Required,
+		})
+	}
+	return flags, nil
+}
+
+func collectFlagHelpChain(node *commandNode) ([]flagHelp, error) {
+	chain := nodeChain(node)
+	var flags []flagHelp
+	for i, current := range chain {
+		inherited := i < len(chain)-1
+		items, err := collectFlagHelp(current)
+		if err != nil {
+			return nil, err
+		}
+		for _, item := range items {
+			item.Inherited = inherited
+			flags = append(flags, item)
+		}
+	}
+	return flags, nil
+}
+
+func collectPositionalHelp(node *commandNode) ([]positionalHelp, error) {
+	if node.Type == nil {
+		return nil, nil
+	}
+	typ := node.Type
+	inst := tagOptionsInstance(node)
+	var positionals []positionalHelp
+	for i := 0; i < typ.NumField(); i++ {
+		field := typ.Field(i)
+		opts, ok, err := tagOptionsForField(inst, field)
+		if err != nil {
+			return nil, err
 		}
 		if !ok || opts.Kind != TagKindPositional {
 			continue
 		}
 		if !field.IsExported() {
-			return posIndex, fmt.Errorf("field %s must be exported", field.Name)
+			return nil, fmt.Errorf("field %s must be exported", field.Name)
 		}
-		fieldVal := inst.Field(i)
-		displayName := opts.Name
-		if displayName == "" {
-			displayName = field.Name
+		placeholder := opts.Placeholder
+		if opts.Enum != "" {
+			placeholder = fmt.Sprintf("{%s}", opts.Enum)
 		}
-
-		if posIndex < len(args) {
-			if err := setFieldFromString(fieldVal, args[posIndex]); err != nil {
-				return posIndex, err
-			}
-			posIndex++
-			continue
-		}
-		if opts.Default != nil {
-			if err := setFieldFromString(fieldVal, *opts.Default); err != nil {
-				return posIndex, err
-			}
-			continue
-		}
-		if opts.Required {
-			return posIndex, fmt.Errorf("missing required positional %s", displayName)
-		}
+		positionals = append(positionals, positionalHelp{
+			Name:        opts.Name,
+			Placeholder: placeholder,
+			Required:    opts.Required,
+		})
 	}
-	if posIndex < len(args) {
-		return posIndex, fmt.Errorf("unexpected argument: %s", args[posIndex])
-	}
-	return posIndex, nil
+	return positionals, nil
 }
 
-func assignSubcommandField(parent *commandNode, parentInst reflect.Value, subName string, sub *commandNode) error {
-	if parent == nil || parent.Type == nil {
-		return nil
+func executeFunctionWithParents(
+	ctx context.Context,
+	args []string,
+	node *commandNode,
+	parents []commandInstance,
+	visited map[string]bool,
+	explicit bool,
+	opts RunOptions,
+) ([]string, error) {
+	specs, _, err := collectFlagSpecs(parents)
+	if err != nil {
+		return nil, err
 	}
-	typ := parent.Type
-	for i := 0; i < typ.NumField(); i++ {
-		field := typ.Field(i)
-		opts, ok, err := tagOptionsForField(parentInst, field)
-		if err != nil {
-			return err
-		}
-		if !ok || opts.Kind != TagKindSubcommand {
-			continue
-		}
-		if opts.Name != subName {
-			continue
-		}
-
-		fieldVal := parentInst.Field(i)
-		fieldType := field.Type
-		if fieldType.Kind() == reflect.Func {
-			if fieldVal.IsNil() {
-				return fmt.Errorf("subcommand %s is nil", subName)
-			}
-			sub.Func = fieldVal
-			return nil
-		}
-
-		if fieldType.Kind() == reflect.Ptr {
-			newInst := reflect.New(fieldType.Elem())
-			fieldVal.Set(newInst)
-			sub.Value = newInst.Elem()
-			return nil
-		}
-
-		if fieldType.Kind() == reflect.Struct {
-			newInst := reflect.New(fieldType).Elem()
-			fieldVal.Set(newInst)
-			sub.Value = newInst
-			return nil
-		}
+	result, err := parseCommandArgs(nil, reflect.Value{}, parents, args, visited, explicit, true, false)
+	if err != nil {
+		return nil, err
 	}
-	return nil
-}
-
-func validateLongFlagArgs(args []string, longNames map[string]bool) error {
-	for _, arg := range args {
-		if arg == "--" {
-			return nil
-		}
-		if !strings.HasPrefix(arg, "-") || strings.HasPrefix(arg, "--") || len(arg) <= 2 {
-			continue
-		}
-		name := strings.TrimPrefix(arg, "-")
-		if idx := strings.Index(name, "="); idx >= 0 {
-			name = name[:idx]
-		}
-		if len(name) <= 1 {
-			continue
-		}
-		if longNames[name] {
-			return fmt.Errorf("long flags must use --%s (got -%s)", name, name)
-		}
+	// In help-only mode, skip validation and execution
+	if opts.HelpOnly {
+		return result.remaining, nil
 	}
-	return nil
+	if err := applyDefaultsAndEnv(specs, visited); err != nil {
+		return nil, err
+	}
+	if err := checkRequiredFlags(specs, visited); err != nil {
+		return nil, err
+	}
+	if err := runPersistentHooks(ctx, parents, "PersistentBefore"); err != nil {
+		return nil, err
+	}
+	if err := callFunction(ctx, node.Func); err != nil {
+		return nil, err
+	}
+	if err := runPersistentHooks(ctx, reverseChain(parents), "PersistentAfter"); err != nil {
+		return nil, err
+	}
+	return result.remaining, nil
 }
 
 func expandShortFlagGroups(args []string, specs []*flagSpec) ([]string, error) {
@@ -905,6 +632,455 @@ func expandShortFlagGroups(args []string, specs []*flagSpec) ([]string, error) {
 	return expanded, nil
 }
 
+// --- Flag handling ---
+
+func flagSpecForField(inst reflect.Value, field reflect.StructField, fieldVal reflect.Value) (*flagSpec, bool, error) {
+	opts, ok, err := tagOptionsForField(inst, field)
+	if err != nil {
+		return nil, false, err
+	}
+	if !ok {
+		return nil, false, nil
+	}
+	if !field.IsExported() {
+		return nil, false, fmt.Errorf("field %s must be exported", field.Name)
+	}
+	if opts.Kind != TagKindFlag {
+		return nil, false, nil
+	}
+
+	return &flagSpec{
+		value:        fieldVal,
+		name:         opts.Name,
+		short:        opts.Short,
+		usage:        opts.Desc,
+		env:          opts.Env,
+		defaultValue: opts.Default,
+		required:     opts.Required,
+	}, true, nil
+}
+
+func flagVisited(spec *flagSpec, visited map[string]bool) bool {
+	if visited[spec.name] {
+		return true
+	}
+	if spec.short != "" && visited[spec.short] {
+		return true
+	}
+	return false
+}
+
+func formatFlagUsage(item flagHelp) string {
+	name := fmt.Sprintf("--%s", item.Name)
+	if item.Short != "" {
+		name = fmt.Sprintf("{-%s|--%s}", item.Short, item.Name)
+	}
+	if item.Placeholder != "" && item.Placeholder != "[flag]" {
+		name = fmt.Sprintf("%s %s", name, item.Placeholder)
+	}
+	return name
+}
+
+func functionName(v reflect.Value) string {
+	fn := runtime.FuncForPC(v.Pointer())
+	if fn == nil {
+		return ""
+	}
+
+	name := fn.Name()
+	if idx := strings.LastIndex(name, "/"); idx != -1 {
+		name = name[idx+1:]
+	}
+	if idx := strings.LastIndex(name, "."); idx != -1 {
+		name = name[idx+1:]
+	}
+	name = strings.TrimSuffix(name, "-fm")
+	return name
+}
+
+// --- Command metadata helpers ---
+
+func getCommandName(v reflect.Value, typ reflect.Type) string {
+	name := callStringMethod(v, typ, "Name")
+	if name == "" {
+		return ""
+	}
+	return camelToKebab(name)
+}
+
+func getDescription(v reflect.Value, typ reflect.Type) string {
+	desc := callStringMethod(v, typ, "Description")
+	return strings.TrimSpace(desc)
+}
+
+func isContextType(t reflect.Type) bool {
+	return t == reflect.TypeOf((*context.Context)(nil)).Elem()
+}
+
+func isErrorType(t reflect.Type) bool {
+	return t.Implements(reflect.TypeOf((*error)(nil)).Elem())
+}
+
+func methodValue(v reflect.Value, typ reflect.Type, method string) reflect.Value {
+	if v.IsValid() {
+		if m := v.MethodByName(method); m.IsValid() {
+			return m
+		}
+		if v.CanAddr() {
+			if m := v.Addr().MethodByName(method); m.IsValid() {
+				return m
+			}
+		}
+	}
+	ptr := reflect.New(typ)
+	if m := ptr.MethodByName(method); m.IsValid() {
+		return m
+	}
+	if m := ptr.Elem().MethodByName(method); m.IsValid() {
+		return m
+	}
+	return reflect.Value{}
+}
+
+func nodeChain(node *commandNode) []*commandNode {
+	if node == nil {
+		return nil
+	}
+	var chain []*commandNode
+	for current := node; current != nil; current = current.Parent {
+		chain = append(chain, current)
+	}
+	for i, j := 0, len(chain)-1; i < j; i, j = i+1, j-1 {
+		chain[i], chain[j] = chain[j], chain[i]
+	}
+	return chain
+}
+
+func nodeInstance(node *commandNode) (reflect.Value, error) {
+	if node != nil && node.Value.IsValid() && node.Value.Kind() == reflect.Struct && node.Value.CanAddr() {
+		return node.Value, nil
+	}
+	if node != nil && node.Type != nil {
+		inst := reflect.New(node.Type).Elem()
+		if node.Value.IsValid() && node.Value.Kind() == reflect.Struct {
+			typ := node.Type
+			for i := 0; i < typ.NumField(); i++ {
+				field := typ.Field(i)
+				opts, ok, err := tagOptionsForField(node.Value, field)
+				if err != nil {
+					return reflect.Value{}, err
+				}
+				if ok && opts.Kind == TagKindSubcommand && field.Type.Kind() == reflect.Func {
+					inst.Field(i).Set(node.Value.Field(i))
+				}
+			}
+		}
+		return inst, nil
+	}
+	return reflect.Value{}, nil
+}
+
+func parseFunc(v reflect.Value) (*commandNode, error) {
+	typ := v.Type()
+	if typ.Kind() != reflect.Func {
+		return nil, fmt.Errorf("expected func, got %v", typ.Kind())
+	}
+
+	if err := validateFuncType(typ); err != nil {
+		return nil, err
+	}
+
+	name := functionName(v)
+	if name == "" {
+		return nil, fmt.Errorf("unable to determine function name")
+	}
+
+	return &commandNode{
+		Name:        camelToKebab(name),
+		Func:        v,
+		Subcommands: make(map[string]*commandNode),
+	}, nil
+}
+
+func parseStruct(t interface{}) (*commandNode, error) {
+	if t == nil {
+		return nil, fmt.Errorf("nil target")
+	}
+	v := reflect.ValueOf(t)
+	typ := v.Type()
+
+	// Handle pointer
+	if typ.Kind() == reflect.Ptr {
+		if v.IsNil() {
+			return nil, fmt.Errorf("nil pointer target")
+		}
+		typ = typ.Elem()
+		v = v.Elem()
+	}
+
+	if typ.Kind() != reflect.Struct {
+		return nil, fmt.Errorf("expected struct, got %v", typ.Kind())
+	}
+	for i := 0; i < typ.NumField(); i++ {
+		field := typ.Field(i)
+		opts, ok, err := tagOptionsForField(v, field)
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			continue
+		}
+		fieldVal := v.Field(i)
+		if opts.Kind == TagKindSubcommand {
+			if fieldVal.Kind() == reflect.Func {
+				continue
+			}
+			if !fieldVal.IsZero() {
+				return nil, fmt.Errorf("command %s must not prefill subcommand %s; use default tags instead", typ.Name(), field.Name)
+			}
+			continue
+		}
+		if !fieldVal.IsZero() {
+			return nil, fmt.Errorf("command %s must be zero value; use default tags instead of prefilled fields", typ.Name())
+		}
+	}
+
+	name := camelToKebab(typ.Name())
+
+	node := &commandNode{
+		Name:        name,
+		Type:        typ,
+		Value:       v,
+		Subcommands: make(map[string]*commandNode),
+	}
+
+	// 1. Look for Run method on the *pointer* to the struct
+	// Check for Run method on Pointer type
+	ptrType := reflect.PointerTo(typ)
+	runMethod, hasRun := ptrType.MethodByName("Run")
+	if hasRun {
+		node.RunMethod = reflect.Value{} // Marker
+		// Extract description from doc string
+		doc := getMethodDoc(runMethod)
+		if doc != "" {
+			node.Description = strings.TrimSpace(doc)
+		}
+	}
+	if cmdName := getCommandName(v, typ); cmdName != "" {
+		node.Name = cmdName
+	}
+	if desc := getDescription(v, typ); desc != "" {
+		node.Description = desc
+	}
+
+	// 2. Look for fields with `targ:"subcommand"`
+	for i := 0; i < typ.NumField(); i++ {
+		field := typ.Field(i)
+		opts, ok, err := tagOptionsForField(v, field)
+		if err != nil {
+			return nil, err
+		}
+		if !ok || opts.Kind != TagKindSubcommand {
+			continue
+		}
+		{
+			// This field is a subcommand
+			// Recurse
+
+			fieldType := field.Type
+			if fieldType.Kind() == reflect.Ptr {
+				fieldType = fieldType.Elem()
+			}
+
+			var subNode *commandNode
+			if fieldType.Kind() == reflect.Func {
+				if err := validateFuncType(field.Type); err != nil {
+					return nil, err
+				}
+				subNode = &commandNode{
+					Func:        reflect.Zero(field.Type),
+					Subcommands: make(map[string]*commandNode),
+				}
+			} else {
+				// We need an instance of the field type to parse it.
+				zeroVal := reflect.New(fieldType).Interface() // This is *Struct
+				var err error
+				subNode, err = parseStruct(zeroVal)
+				if err != nil {
+					return nil, err
+				}
+			}
+			subNode.Parent = node
+
+			// Override name based on field or tag
+			// The node comes with a default name based on its Type, but the Field name usually takes precedence
+			// unless the tag explicitly sets a name.
+			subNode.Name = opts.Name
+
+			node.Subcommands[subNode.Name] = subNode
+		}
+	}
+
+	// 3. Look for legacy method-based subcommands (optional, keeping for compat if desired)
+	// For now, let's focus on the field based approach as requested.
+
+	return node, nil
+}
+
+// --- Parsing targets ---
+
+func parseTarget(t interface{}) (*commandNode, error) {
+	if t == nil {
+		return nil, fmt.Errorf("nil target")
+	}
+
+	v := reflect.ValueOf(t)
+	if v.Kind() == reflect.Func {
+		return parseFunc(v)
+	}
+
+	return parseStruct(t)
+}
+
+func printCommandHelp(node *commandNode) {
+	binName := binaryName()
+	if node.Type == nil {
+		fmt.Printf("Usage: %s %s\n\n", binName, node.Name)
+		if node.Description != "" {
+			fmt.Println(node.Description)
+		}
+		return
+	}
+
+	usageLine, err := buildUsageLine(node)
+	if err != nil {
+		fmt.Printf("Error: %v\n", err)
+		return
+	}
+	fmt.Printf("Usage: %s %s\n\n", binName, usageLine)
+
+	// Note: Description is populated by parseStruct via getMethodDoc.
+	// If it's empty here, doc parsing failed (e.g., file not found).
+
+	if node.Description != "" {
+		fmt.Println(node.Description)
+		fmt.Println()
+	}
+
+	if len(node.Subcommands) > 0 {
+		fmt.Println("Subcommands:")
+		for name, sub := range node.Subcommands {
+			fmt.Printf("  %-20s %s\n", name, sub.Description)
+		}
+		fmt.Println()
+	}
+
+	flags, err := collectFlagHelpChain(node)
+	if err != nil {
+		fmt.Printf("Error: %v\n", err)
+		return
+	}
+	if len(flags) > 0 {
+		fmt.Println("Flags:")
+		for _, item := range flags {
+			name := fmt.Sprintf("--%s", item.Name)
+			if item.Short != "" {
+				name = fmt.Sprintf("--%s, -%s", item.Name, item.Short)
+			}
+			if item.Placeholder != "" && item.Placeholder != "[flag]" {
+				name = fmt.Sprintf("%s %s", name, item.Placeholder)
+			}
+			usage := item.Usage
+			if item.Options != "" {
+				if usage == "" {
+					usage = fmt.Sprintf("options: %s", item.Options)
+				} else {
+					usage = fmt.Sprintf("%s (options: %s)", usage, item.Options)
+				}
+			}
+			fmt.Printf("  %-24s %s\n", name, usage)
+		}
+	}
+}
+
+func printCommandSummary(node *commandNode, indent string) {
+	fmt.Printf("%s%-20s %s\n", indent, node.Name, node.Description)
+
+	// Recursively print subcommands
+	// Sort subcommands by name for consistent output
+	subcommandNames := make([]string, 0, len(node.Subcommands))
+	for name := range node.Subcommands {
+		subcommandNames = append(subcommandNames, name)
+	}
+	sort.Strings(subcommandNames)
+
+	for _, name := range subcommandNames {
+		sub := node.Subcommands[name]
+		printCommandSummary(sub, indent+"  ")
+	}
+}
+
+func printTargOptions(opts RunOptions) {
+	var flags []string
+	if !opts.DisableCompletion {
+		flags = append(flags, "  --completion [bash|zsh|fish]")
+	}
+	if !opts.DisableHelp {
+		flags = append(flags, "  --help")
+	}
+	if !opts.DisableTimeout {
+		flags = append(flags, "  --timeout <duration>")
+	}
+	if len(flags) > 0 {
+		fmt.Println("\nTarg options:")
+		for _, f := range flags {
+			fmt.Println(f)
+		}
+	}
+}
+
+func printUsage(nodes []*commandNode, opts RunOptions) {
+	fmt.Printf("Usage: %s <command> [args]\n", binaryName())
+	fmt.Println("\nAvailable commands:")
+
+	for _, node := range nodes {
+		printCommandSummary(node, "  ")
+	}
+
+	printTargOptions(opts)
+}
+
+func reverseChain(chain []commandInstance) []commandInstance {
+	if len(chain) == 0 {
+		return nil
+	}
+	out := make([]commandInstance, len(chain))
+	for i := range chain {
+		out[i] = chain[len(chain)-1-i]
+	}
+	return out
+}
+
+func runCommand(ctx context.Context, node *commandNode, inst reflect.Value, args []string, posArgIdx int) error {
+	if node == nil {
+		return nil
+	}
+	_, err := callMethod(ctx, inst, "Run")
+	return err
+}
+
+func runPersistentHooks(ctx context.Context, chain []commandInstance, methodName string) error {
+	for _, inst := range chain {
+		if inst.node == nil || inst.node.Type == nil {
+			continue
+		}
+		if _, err := callMethod(ctx, inst.value, methodName); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // --- Tag options ---
 
 func tagOptionsForField(inst reflect.Value, field reflect.StructField) (TagOptions, bool, error) {
@@ -964,31 +1140,6 @@ func tagOptionsForField(inst reflect.Value, field reflect.StructField) (TagOptio
 	return overridden, true, nil
 }
 
-func applyTagOptionsOverride(inst reflect.Value, field reflect.StructField, opts TagOptions) (TagOptions, error) {
-	method := tagOptionsMethod(inst)
-	if !method.IsValid() {
-		return opts, nil
-	}
-	mtype := method.Type()
-	if mtype.NumIn() != 2 || mtype.NumOut() != 2 {
-		return opts, fmt.Errorf("TagOptions must accept (string, TagOptions) and return (TagOptions, error)")
-	}
-	if mtype.In(0).Kind() != reflect.String || mtype.In(1) != reflect.TypeOf(TagOptions{}) {
-		return opts, fmt.Errorf("TagOptions must accept (string, TagOptions)")
-	}
-	if mtype.Out(0) != reflect.TypeOf(TagOptions{}) || !isErrorType(mtype.Out(1)) {
-		return opts, fmt.Errorf("TagOptions must return (TagOptions, error)")
-	}
-	results := method.Call([]reflect.Value{
-		reflect.ValueOf(field.Name),
-		reflect.ValueOf(opts),
-	})
-	if !results[1].IsNil() {
-		return opts, results[1].Interface().(error)
-	}
-	return results[0].Interface().(TagOptions), nil
-}
-
 func tagOptionsInstance(node *commandNode) reflect.Value {
 	if node == nil {
 		return reflect.Value{}
@@ -1015,326 +1166,40 @@ func tagOptionsMethod(inst reflect.Value) reflect.Value {
 	return target.MethodByName("TagOptions")
 }
 
-// --- Help output ---
-
-func binaryName() string {
-	if name := os.Getenv("TARG_BIN_NAME"); name != "" {
-		return name
+func validateFuncType(typ reflect.Type) error {
+	if typ.NumIn() > 1 {
+		return fmt.Errorf("function command must be niladic or accept context")
 	}
-	name := os.Args[0]
-	if idx := strings.LastIndex(name, "/"); idx != -1 {
-		name = name[idx+1:]
+	if typ.NumIn() == 1 && !isContextType(typ.In(0)) {
+		return fmt.Errorf("function command must accept context.Context")
 	}
-	if idx := strings.LastIndex(name, "\\"); idx != -1 {
-		name = name[idx+1:]
-	}
-	return name
-}
-
-func printUsage(nodes []*commandNode, opts RunOptions) {
-	fmt.Printf("Usage: %s <command> [args]\n", binaryName())
-	fmt.Println("\nAvailable commands:")
-
-	for _, node := range nodes {
-		printCommandSummary(node, "  ")
-	}
-
-	printTargOptions(opts)
-}
-
-func printCommandSummary(node *commandNode, indent string) {
-	fmt.Printf("%s%-20s %s\n", indent, node.Name, node.Description)
-
-	// Recursively print subcommands
-	// Sort subcommands by name for consistent output
-	subcommandNames := make([]string, 0, len(node.Subcommands))
-	for name := range node.Subcommands {
-		subcommandNames = append(subcommandNames, name)
-	}
-	sort.Strings(subcommandNames)
-
-	for _, name := range subcommandNames {
-		sub := node.Subcommands[name]
-		printCommandSummary(sub, indent+"  ")
-	}
-}
-
-func printCommandHelp(node *commandNode) {
-	binName := binaryName()
-	if node.Type == nil {
-		fmt.Printf("Usage: %s %s\n\n", binName, node.Name)
-		if node.Description != "" {
-			fmt.Println(node.Description)
-		}
-		return
-	}
-
-	usageLine, err := buildUsageLine(node)
-	if err != nil {
-		fmt.Printf("Error: %v\n", err)
-		return
-	}
-	fmt.Printf("Usage: %s %s\n\n", binName, usageLine)
-
-	// If description is empty, try to fetch it if we haven't already
-	if node.Description == "" && node.RunMethod.IsValid() {
-		// Wait, we only have RunMethod marker if parsing succeeded.
-		// But getting doc requires the Run method to be available.
-		// node.Value might be the struct value.
-		// Let's try to get the method from Type or Value.
-		// Actually parseStruct already calls getMethodDoc.
-		// If it's empty, maybe it failed to parse the file.
-	}
-
-	if node.Description != "" {
-		fmt.Println(node.Description)
-		fmt.Println()
-	}
-
-	if len(node.Subcommands) > 0 {
-		fmt.Println("Subcommands:")
-		for name, sub := range node.Subcommands {
-			fmt.Printf("  %-20s %s\n", name, sub.Description)
-		}
-		fmt.Println()
-	}
-
-	flags, err := collectFlagHelpChain(node)
-	if err != nil {
-		fmt.Printf("Error: %v\n", err)
-		return
-	}
-	if len(flags) > 0 {
-		fmt.Println("Flags:")
-		for _, item := range flags {
-			name := fmt.Sprintf("--%s", item.Name)
-			if item.Short != "" {
-				name = fmt.Sprintf("--%s, -%s", item.Name, item.Short)
-			}
-			if item.Placeholder != "" && item.Placeholder != "[flag]" {
-				name = fmt.Sprintf("%s %s", name, item.Placeholder)
-			}
-			usage := item.Usage
-			if item.Options != "" {
-				if usage == "" {
-					usage = fmt.Sprintf("options: %s", item.Options)
-				} else {
-					usage = fmt.Sprintf("%s (options: %s)", usage, item.Options)
-				}
-			}
-			fmt.Printf("  %-24s %s\n", name, usage)
-		}
-	}
-}
-
-func printTargOptions(opts RunOptions) {
-	var flags []string
-	if !opts.DisableCompletion {
-		flags = append(flags, "  --completion [bash|zsh|fish]")
-	}
-	if !opts.DisableHelp {
-		flags = append(flags, "  --help")
-	}
-	if !opts.DisableTimeout {
-		flags = append(flags, "  --timeout <duration>")
-	}
-	if len(flags) > 0 {
-		fmt.Println("\nTarg options:")
-		for _, f := range flags {
-			fmt.Println(f)
-		}
-	}
-}
-
-func buildUsageLine(node *commandNode) (string, error) {
-	parts := []string{node.Name}
-	flags, err := collectFlagHelpChain(node)
-	if err != nil {
-		return "", err
-	}
-	for _, item := range flags {
-		if item.Required {
-			parts = append(parts, formatFlagUsage(item))
-		} else {
-			parts = append(parts, fmt.Sprintf("[%s]", formatFlagUsage(item)))
-		}
-	}
-	if len(node.Subcommands) > 0 {
-		parts = append(parts, "[subcommand]")
-	}
-	positionals, err := collectPositionalHelp(node)
-	if err != nil {
-		return "", err
-	}
-	for _, item := range positionals {
-		name := item.Name
-		if item.Placeholder != "" {
-			name = item.Placeholder
-		}
-		if name == "" {
-			name = "ARG"
-		}
-		if item.Required {
-			parts = append(parts, name)
-		} else {
-			parts = append(parts, fmt.Sprintf("[%s]", name))
-		}
-	}
-	return strings.Join(parts, " "), nil
-}
-
-func formatFlagUsage(item flagHelp) string {
-	name := fmt.Sprintf("--%s", item.Name)
-	if item.Short != "" {
-		name = fmt.Sprintf("{-%s|--%s}", item.Short, item.Name)
-	}
-	if item.Placeholder != "" && item.Placeholder != "[flag]" {
-		name = fmt.Sprintf("%s %s", name, item.Placeholder)
-	}
-	return name
-}
-
-type flagHelp struct {
-	Name        string
-	Short       string
-	Usage       string
-	Options     string
-	Placeholder string
-	Required    bool
-	Inherited   bool
-}
-
-func collectFlagHelp(node *commandNode) ([]flagHelp, error) {
-	if node.Type == nil {
-		return nil, nil
-	}
-	typ := node.Type
-	inst := tagOptionsInstance(node)
-	var flags []flagHelp
-	for i := 0; i < typ.NumField(); i++ {
-		field := typ.Field(i)
-		opts, ok, err := tagOptionsForField(inst, field)
-		if err != nil {
-			return nil, err
-		}
-		if !ok || opts.Kind != TagKindFlag {
-			continue
-		}
-		if !field.IsExported() {
-			return nil, fmt.Errorf("field %s must be exported", field.Name)
-		}
-
-		placeholder := opts.Placeholder
-		if opts.Enum != "" {
-			placeholder = fmt.Sprintf("{%s}", opts.Enum)
-		}
-		if placeholder == "" {
-			switch field.Type.Kind() {
-			case reflect.String:
-				placeholder = "<string>"
-			case reflect.Int:
-				placeholder = "<int>"
-			case reflect.Bool:
-				placeholder = "[flag]"
-			}
-		}
-
-		flags = append(flags, flagHelp{
-			Name:        opts.Name,
-			Short:       opts.Short,
-			Usage:       opts.Desc,
-			Options:     "",
-			Placeholder: placeholder,
-			Required:    opts.Required,
-		})
-	}
-	return flags, nil
-}
-
-func collectFlagHelpChain(node *commandNode) ([]flagHelp, error) {
-	chain := nodeChain(node)
-	var flags []flagHelp
-	for i, current := range chain {
-		inherited := i < len(chain)-1
-		items, err := collectFlagHelp(current)
-		if err != nil {
-			return nil, err
-		}
-		for _, item := range items {
-			item.Inherited = inherited
-			flags = append(flags, item)
-		}
-	}
-	return flags, nil
-}
-
-type positionalHelp struct {
-	Name        string
-	Placeholder string
-	Required    bool
-}
-
-func collectPositionalHelp(node *commandNode) ([]positionalHelp, error) {
-	if node.Type == nil {
-		return nil, nil
-	}
-	typ := node.Type
-	inst := tagOptionsInstance(node)
-	var positionals []positionalHelp
-	for i := 0; i < typ.NumField(); i++ {
-		field := typ.Field(i)
-		opts, ok, err := tagOptionsForField(inst, field)
-		if err != nil {
-			return nil, err
-		}
-		if !ok || opts.Kind != TagKindPositional {
-			continue
-		}
-		if !field.IsExported() {
-			return nil, fmt.Errorf("field %s must be exported", field.Name)
-		}
-		placeholder := opts.Placeholder
-		if opts.Enum != "" {
-			placeholder = fmt.Sprintf("{%s}", opts.Enum)
-		}
-		positionals = append(positionals, positionalHelp{
-			Name:        opts.Name,
-			Placeholder: placeholder,
-			Required:    opts.Required,
-		})
-	}
-	return positionals, nil
-}
-
-func nodeChain(node *commandNode) []*commandNode {
-	if node == nil {
+	if typ.NumOut() == 0 {
 		return nil
 	}
-	var chain []*commandNode
-	for current := node; current != nil; current = current.Parent {
-		chain = append(chain, current)
+	if typ.NumOut() == 1 && isErrorType(typ.Out(0)) {
+		return nil
 	}
-	for i, j := 0, len(chain)-1; i < j; i, j = i+1, j-1 {
-		chain[i], chain[j] = chain[j], chain[i]
-	}
-	return chain
+	return fmt.Errorf("function command must return only error")
 }
 
-// --- Utilities ---
-
-func camelToKebab(s string) string {
-	var result strings.Builder
-	runes := []rune(s)
-	for i, r := range runes {
-		if i > 0 && unicode.IsUpper(r) {
-			prev := runes[i-1]
-			// Insert hyphen if previous is lowercase (e.g., fooBar -> foo-bar)
-			// OR if we're at the start of a new word after an acronym (e.g., APIServer -> api-server)
-			if unicode.IsLower(prev) || (i+1 < len(runes) && unicode.IsLower(runes[i+1])) {
-				result.WriteRune('-')
-			}
+func validateLongFlagArgs(args []string, longNames map[string]bool) error {
+	for _, arg := range args {
+		if arg == "--" {
+			return nil
 		}
-		result.WriteRune(unicode.ToLower(r))
+		if !strings.HasPrefix(arg, "-") || strings.HasPrefix(arg, "--") || len(arg) <= 2 {
+			continue
+		}
+		name := strings.TrimPrefix(arg, "-")
+		if idx := strings.Index(name, "="); idx >= 0 {
+			name = name[:idx]
+		}
+		if len(name) <= 1 {
+			continue
+		}
+		if longNames[name] {
+			return fmt.Errorf("long flags must use --%s (got -%s)", name, name)
+		}
 	}
-	return result.String()
+	return nil
 }

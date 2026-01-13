@@ -7,6 +7,12 @@ import (
 	"time"
 )
 
+func TestNewerRequiresInputs(t *testing.T) {
+	if _, err := Newer(nil, nil); err == nil {
+		t.Fatal("expected error for empty inputs")
+	}
+}
+
 func TestNewerWithCacheTracksChanges(t *testing.T) {
 	cacheDir := t.TempDir()
 	t.Setenv("XDG_CACHE_HOME", cacheDir)
@@ -99,11 +105,5 @@ func TestNewerWithOutputs(t *testing.T) {
 	}
 	if !changed {
 		t.Fatal("expected change when input newer")
-	}
-}
-
-func TestNewerRequiresInputs(t *testing.T) {
-	if _, err := Newer(nil, nil); err == nil {
-		t.Fatal("expected error for empty inputs")
 	}
 }

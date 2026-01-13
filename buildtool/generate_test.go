@@ -92,80 +92,6 @@ func (c *DeployCommand) Description() string {
 	}
 }
 
-func TestGenerateFunctionWrappers_SkipsSubcommandFunctions(t *testing.T) {
-	fsMock := MockFileSystem(t)
-	done := make(chan struct{})
-	var (
-		path string
-		err  error
-	)
-
-	go func() {
-		path, err = GenerateFunctionWrappers(fsMock.Mock, GenerateOptions{
-			Dir:        "/root",
-			BuildTag:   "targ",
-			OnlyTagged: true,
-		})
-		close(done)
-	}()
-
-	fsMock.Method.ReadDir.ExpectCalledWithExactly("/root").InjectReturnValues([]fs.DirEntry{
-		fakeDirEntry{name: "cmd.go", dir: false},
-	}, nil)
-	fsMock.Method.ReadFile.ExpectCalledWithExactly("/root/cmd.go").InjectReturnValues([]byte(`//go:build targ
-
-package build
-
-type Root struct {
-	Build func() `+"`targ:\"subcommand\"`"+`
-}
-
-func Build() {}
-`), nil)
-
-	<-done
-
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if path != "" {
-		t.Fatalf("expected no generated file, got %q", path)
-	}
-}
-
-func TestGenerateFunctionWrappers_ErrorsOnNameCollision(t *testing.T) {
-	fsMock := MockFileSystem(t)
-	done := make(chan struct{})
-	var err error
-
-	go func() {
-		_, err = GenerateFunctionWrappers(fsMock.Mock, GenerateOptions{
-			Dir:        "/root",
-			BuildTag:   "targ",
-			OnlyTagged: true,
-		})
-		close(done)
-	}()
-
-	fsMock.Method.ReadDir.ExpectCalledWithExactly("/root").InjectReturnValues([]fs.DirEntry{
-		fakeDirEntry{name: "cmd.go", dir: false},
-	}, nil)
-	fsMock.Method.ReadFile.ExpectCalledWithExactly("/root/cmd.go").InjectReturnValues([]byte(`//go:build targ
-
-package build
-
-type BuildCommand struct{}
-
-func Build() {}
-`), nil)
-
-	<-done
-
-	if err == nil {
-		t.Fatal("expected name collision error")
-	}
-}
-
 func TestGenerateFunctionWrappers_ContextRun(t *testing.T) {
 	fsMock := MockFileSystem(t)
 	done := make(chan struct{})
@@ -232,5 +158,79 @@ func (c *RunCommand) Description() string {
 	}
 	if path != "/root/generated_targ_build.go" {
 		t.Fatalf("expected generated file path, got %q", path)
+	}
+}
+
+func TestGenerateFunctionWrappers_ErrorsOnNameCollision(t *testing.T) {
+	fsMock := MockFileSystem(t)
+	done := make(chan struct{})
+	var err error
+
+	go func() {
+		_, err = GenerateFunctionWrappers(fsMock.Mock, GenerateOptions{
+			Dir:        "/root",
+			BuildTag:   "targ",
+			OnlyTagged: true,
+		})
+		close(done)
+	}()
+
+	fsMock.Method.ReadDir.ExpectCalledWithExactly("/root").InjectReturnValues([]fs.DirEntry{
+		fakeDirEntry{name: "cmd.go", dir: false},
+	}, nil)
+	fsMock.Method.ReadFile.ExpectCalledWithExactly("/root/cmd.go").InjectReturnValues([]byte(`//go:build targ
+
+package build
+
+type BuildCommand struct{}
+
+func Build() {}
+`), nil)
+
+	<-done
+
+	if err == nil {
+		t.Fatal("expected name collision error")
+	}
+}
+
+func TestGenerateFunctionWrappers_SkipsSubcommandFunctions(t *testing.T) {
+	fsMock := MockFileSystem(t)
+	done := make(chan struct{})
+	var (
+		path string
+		err  error
+	)
+
+	go func() {
+		path, err = GenerateFunctionWrappers(fsMock.Mock, GenerateOptions{
+			Dir:        "/root",
+			BuildTag:   "targ",
+			OnlyTagged: true,
+		})
+		close(done)
+	}()
+
+	fsMock.Method.ReadDir.ExpectCalledWithExactly("/root").InjectReturnValues([]fs.DirEntry{
+		fakeDirEntry{name: "cmd.go", dir: false},
+	}, nil)
+	fsMock.Method.ReadFile.ExpectCalledWithExactly("/root/cmd.go").InjectReturnValues([]byte(`//go:build targ
+
+package build
+
+type Root struct {
+	Build func() `+"`targ:\"subcommand\"`"+`
+}
+
+func Build() {}
+`), nil)
+
+	<-done
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if path != "" {
+		t.Fatalf("expected no generated file, got %q", path)
 	}
 }

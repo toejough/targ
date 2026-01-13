@@ -8,41 +8,6 @@ import (
 	"sync"
 )
 
-// safeBuffer is a thread-safe buffer for capturing concurrent writes.
-type safeBuffer struct {
-	mu  sync.Mutex
-	buf bytes.Buffer
-}
-
-func (b *safeBuffer) Write(p []byte) (n int, err error) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return b.buf.Write(p)
-}
-
-func (b *safeBuffer) String() string {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return b.buf.String()
-}
-
-// RunContext executes a command with context support.
-// When ctx is cancelled, the process and all its children are killed.
-func RunContext(ctx context.Context, name string, args ...string) error {
-	cmd := exec.Command(name, args...)
-	cmd.Stdout = stdout
-	cmd.Stderr = stderr
-	cmd.Stdin = stdin
-	return runWithContext(ctx, cmd)
-}
-
-// RunContextV executes a command, prints it first, with context support.
-// When ctx is cancelled, the process and all its children are killed.
-func RunContextV(ctx context.Context, name string, args ...string) error {
-	fmt.Fprintln(stdout, "+", formatCommand(name, args))
-	return RunContext(ctx, name, args...)
-}
-
 // OutputContext executes a command and returns combined output, with context support.
 // When ctx is cancelled, the process and all its children are killed.
 func OutputContext(ctx context.Context, name string, args ...string) (string, error) {
@@ -74,4 +39,39 @@ func OutputContext(ctx context.Context, name string, args ...string) (string, er
 		<-done
 		return buf.String(), ctx.Err()
 	}
+}
+
+// RunContext executes a command with context support.
+// When ctx is cancelled, the process and all its children are killed.
+func RunContext(ctx context.Context, name string, args ...string) error {
+	cmd := exec.Command(name, args...)
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
+	cmd.Stdin = stdin
+	return runWithContext(ctx, cmd)
+}
+
+// RunContextV executes a command, prints it first, with context support.
+// When ctx is cancelled, the process and all its children are killed.
+func RunContextV(ctx context.Context, name string, args ...string) error {
+	_, _ = fmt.Fprintln(stdout, "+", formatCommand(name, args))
+	return RunContext(ctx, name, args...)
+}
+
+// safeBuffer is a thread-safe buffer for capturing concurrent writes.
+type safeBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *safeBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
+func (b *safeBuffer) Write(p []byte) (n int, err error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
 }

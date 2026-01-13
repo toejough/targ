@@ -5,6 +5,20 @@ import (
 	"github.com/toejough/targ"
 )
 
+func main() {
+	targ.Run(Greet{}, Math{})
+}
+
+type AddCmd struct {
+	A int `targ:"positional"`
+	B int `targ:"positional"`
+}
+
+// Add two numbers.
+func (a *AddCmd) Run() {
+	fmt.Printf("%d + %d = %d\n", a.A, a.B, a.A+a.B)
+}
+
 type Greet struct {
 	Name string `targ:"required,desc=Name of the person to greet"`
 	Age  int    `targ:"flag,name=age,desc=Age of the person"`
@@ -27,16 +41,6 @@ func (m *Math) Run() {
 	fmt.Printf("example with just calling `math`!\n")
 }
 
-type AddCmd struct {
-	A int `targ:"positional"`
-	B int `targ:"positional"`
-}
-
-// Add two numbers.
-func (a *AddCmd) Run() {
-	fmt.Printf("%d + %d = %d\n", a.A, a.B, a.A+a.B)
-}
-
 // Example of a subcommand named "run"
 // Usage: math run
 type RunCmd struct{}
@@ -44,8 +48,4 @@ type RunCmd struct{}
 // Execute the run command.
 func (r *RunCmd) Run() {
 	fmt.Println("Math run command executed")
-}
-
-func main() {
-	targ.Run(Greet{}, Math{})
 }

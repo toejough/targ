@@ -16,6 +16,34 @@ import (
 	"unicode"
 )
 
+// Exported constants.
+const (
+	CommandFunc   CommandKind = "func"
+	CommandStruct CommandKind = "struct"
+)
+
+// Exported variables.
+var (
+	ErrNoTaggedFiles = errors.New("no tagged files found")
+)
+
+type CommandInfo struct {
+	Name         string
+	Kind         CommandKind
+	File         string
+	Description  string
+	UsesContext  bool
+	ReturnsError bool
+}
+
+type CommandKind string
+
+type FileInfo struct {
+	Path     string
+	Base     string
+	Commands []CommandInfo
+}
+
 type FileSystem interface {
 	ReadDir(name string) ([]fs.DirEntry, error)
 	ReadFile(name string) ([]byte, error)
@@ -41,6 +69,14 @@ type Options struct {
 	BuildTag string
 }
 
+type PackageInfo struct {
+	Dir      string
+	Package  string
+	Doc      string
+	Commands []CommandInfo
+	Files    []FileInfo
+}
+
 type TaggedDir struct {
 	Path  string
 	Depth int
@@ -50,51 +86,6 @@ type TaggedFile struct {
 	Path    string
 	Content []byte
 }
-
-type PackageInfo struct {
-	Dir      string
-	Package  string
-	Doc      string
-	Commands []CommandInfo
-	Files    []FileInfo
-}
-
-type CommandKind string
-
-const (
-	CommandStruct CommandKind = "struct"
-	CommandFunc   CommandKind = "func"
-)
-
-type CommandInfo struct {
-	Name         string
-	Kind         CommandKind
-	File         string
-	Description  string
-	UsesContext  bool
-	ReturnsError bool
-}
-
-type FileInfo struct {
-	Path     string
-	Base     string
-	Commands []CommandInfo
-}
-
-type taggedFile struct {
-	Path    string
-	Content []byte
-}
-
-type taggedDir struct {
-	Path  string
-	Depth int
-	Files []taggedFile
-}
-
-var (
-	ErrNoTaggedFiles = errors.New("no tagged files found")
-)
 
 func Discover(fs FileSystem, opts Options) ([]PackageInfo, error) {
 	startDir := opts.StartDir
@@ -160,13 +151,143 @@ func TaggedFiles(fs FileSystem, opts Options) ([]TaggedFile, error) {
 	var files []TaggedFile
 	for _, dir := range dirs {
 		for _, file := range dir.Files {
-			files = append(files, TaggedFile{
-				Path:    file.Path,
-				Content: file.Content,
-			})
+			files = append(files, TaggedFile(file))
 		}
 	}
 	return files, nil
+}
+
+type reflectTag string
+
+func (tag reflectTag) Get(key string) string {
+	value := string(tag)
+	for value != "" {
+		i := strings.Index(value, ":")
+		if i < 0 {
+			break
+		}
+		name := strings.TrimSpace(value[:i])
+		value = strings.TrimSpace(value[i+1:])
+		if !strings.HasPrefix(value, "\"") {
+			break
+		}
+		value = value[1:]
+		j := strings.Index(value, "\"")
+		if j < 0 {
+			break
+		}
+		quoted := value[:j]
+		value = strings.TrimSpace(value[j+1:])
+		if name == key {
+			return quoted
+		}
+	}
+	return ""
+}
+
+type taggedDir struct {
+	Path  string
+	Depth int
+	Files []taggedFile
+}
+
+type taggedFile struct {
+	Path    string
+	Content []byte
+}
+
+func camelToKebab(s string) string {
+	var result strings.Builder
+	runes := []rune(s)
+	for i, r := range runes {
+		if i > 0 && unicode.IsUpper(r) {
+			prev := runes[i-1]
+			// Insert hyphen if previous is lowercase (e.g., fooBar -> foo-bar)
+			// OR if we're at the start of a new word after an acronym (e.g., APIServer -> api-server)
+			if unicode.IsLower(prev) || (i+1 < len(runes) && unicode.IsLower(runes[i+1])) {
+				result.WriteRune('-')
+			}
+		}
+		result.WriteRune(unicode.ToLower(r))
+	}
+	return result.String()
+}
+
+func contextImportInfo(imports []*ast.ImportSpec) (map[string]bool, bool) {
+	aliases := map[string]bool{}
+	dotImport := false
+	for _, spec := range imports {
+		path, err := strconv.Unquote(spec.Path.Value)
+		if err != nil || path != "context" {
+			continue
+		}
+		if spec.Name != nil {
+			if spec.Name.Name == "." {
+				dotImport = true
+				continue
+			}
+			if spec.Name.Name == "_" {
+				continue
+			}
+			aliases[spec.Name.Name] = true
+			continue
+		}
+		aliases["context"] = true
+	}
+	return aliases, dotImport
+}
+
+func descriptionMethodValue(node *ast.FuncDecl) (string, bool) {
+	if node.Name.Name != "Description" || node.Recv == nil {
+		return "", false
+	}
+	if node.Type.Params != nil && len(node.Type.Params.List) > 0 {
+		return "", false
+	}
+	if node.Type.Results == nil || len(node.Type.Results.List) != 1 {
+		return "", false
+	}
+	if !isStringExpr(node.Type.Results.List[0].Type) {
+		return "", false
+	}
+	return returnStringLiteral(node.Body)
+}
+
+func fieldTypeName(expr ast.Expr) string {
+	switch t := expr.(type) {
+	case *ast.Ident:
+		return t.Name
+	case *ast.StarExpr:
+		if ident, ok := t.X.(*ast.Ident); ok {
+			return ident.Name
+		}
+	}
+	return ""
+}
+
+func filterCommands(candidates map[string]bool, subcommandNames map[string]bool) []string {
+	var result []string
+	for name := range candidates {
+		cmd := camelToKebab(name)
+		if !subcommandNames[cmd] {
+			result = append(result, name)
+		}
+	}
+	sort.Strings(result)
+	return result
+}
+
+func filterStructs(candidates map[string]bool, subcommandTypes map[string]bool, structHasRun map[string]bool, structHasSubcommands map[string]bool) []string {
+	var result []string
+	for name := range candidates {
+		if !subcommandTypes[name] {
+			if structHasRun[name] || structHasSubcommands[name] {
+				result = append(result, name)
+			}
+		}
+	}
+	sort.Strings(result)
+	return result
 }
 
 func findTaggedDirs(fs FileSystem, startDir string, tag string) ([]taggedDir, error) {
@@ -237,6 +358,38 @@ func findTaggedDirs(fs FileSystem, startDir string, tag string) ([]taggedDir, er
 	return results, nil
 }
 
+func funcParamIsContext(expr ast.Expr, ctxAliases map[string]bool, ctxDotImport bool) bool {
+	switch t := expr.(type) {
+	case *ast.SelectorExpr:
+		if ident, ok := t.X.(*ast.Ident); ok && t.Sel != nil && t.Sel.Name == "Context" {
+			return ctxAliases[ident.Name]
+		}
+	case *ast.Ident:
+		if ctxDotImport && t.Name == "Context" {
+			return true
+		}
+	}
+	return false
+}
+
+func functionDocValue(node *ast.FuncDecl) (string, bool) {
+	if node.Doc == nil {
+		return "", false
+	}
+	text := strings.TrimSpace(node.Doc.Text())
+	if text == "" {
+		return "", false
+	}
+	return text, true
+}
+
+func functionUsesContext(fnType *ast.FuncType, ctxAliases map[string]bool, ctxDotImport bool) bool {
+	if fnType.Params == nil || len(fnType.Params.List) != 1 {
+		return false
+	}
+	return funcParamIsContext(fnType.Params.List[0].Type, ctxAliases, ctxDotImport)
+}
+
 func hasBuildTag(content []byte, tag string) bool {
 	lines := strings.Split(string(content), "\n")
 	for _, line := range lines {
@@ -257,6 +410,16 @@ func hasBuildTag(content []byte, tag string) bool {
 		}
 	}
 	return false
+}
+
+func isErrorExpr(expr ast.Expr) bool {
+	ident, ok := expr.(*ast.Ident)
+	return ok && ident.Name == "error"
+}
+
+func isStringExpr(expr ast.Expr) bool {
+	ident, ok := expr.(*ast.Ident)
+	return ok && ident.Name == "string"
 }
 
 func parsePackageInfo(dir taggedDir) (PackageInfo, error) {
@@ -437,150 +600,11 @@ func parsePackageInfo(dir taggedDir) (PackageInfo, error) {
 	}, nil
 }
 
-func descriptionMethodValue(node *ast.FuncDecl) (string, bool) {
-	if node.Name.Name != "Description" || node.Recv == nil {
-		return "", false
+func receiverTypeName(recv *ast.FieldList) string {
+	if recv == nil || len(recv.List) == 0 {
+		return ""
 	}
-	if node.Type.Params != nil && len(node.Type.Params.List) > 0 {
-		return "", false
-	}
-	if node.Type.Results == nil || len(node.Type.Results.List) != 1 {
-		return "", false
-	}
-	if !isStringExpr(node.Type.Results.List[0].Type) {
-		return "", false
-	}
-	return returnStringLiteral(node.Body)
-}
-
-func functionDocValue(node *ast.FuncDecl) (string, bool) {
-	if node.Doc == nil {
-		return "", false
-	}
-	text := strings.TrimSpace(node.Doc.Text())
-	if text == "" {
-		return "", false
-	}
-	return text, true
-}
-
-func isStringExpr(expr ast.Expr) bool {
-	ident, ok := expr.(*ast.Ident)
-	return ok && ident.Name == "string"
-}
-
-func returnStringLiteral(body *ast.BlockStmt) (string, bool) {
-	if body == nil || len(body.List) != 1 {
-		return "", false
-	}
-	ret, ok := body.List[0].(*ast.ReturnStmt)
-	if !ok || len(ret.Results) != 1 {
-		return "", false
-	}
-	lit, ok := ret.Results[0].(*ast.BasicLit)
-	if !ok || lit.Kind != token.STRING {
-		return "", false
-	}
-	value, err := strconv.Unquote(lit.Value)
-	if err != nil {
-		return "", false
-	}
-	return strings.TrimSpace(value), true
-}
-
-func validateFunctionSignature(fnType *ast.FuncType, ctxAliases map[string]bool, ctxDotImport bool) error {
-	paramCount := 0
-	if fnType.Params != nil {
-		paramCount = len(fnType.Params.List)
-	}
-	if paramCount > 1 {
-		return fmt.Errorf("must be niladic or accept context")
-	}
-	if paramCount == 1 && !funcParamIsContext(fnType.Params.List[0].Type, ctxAliases, ctxDotImport) {
-		return fmt.Errorf("must accept context.Context")
-	}
-	if fnType.Results == nil || len(fnType.Results.List) == 0 {
-		return nil
-	}
-	if len(fnType.Results.List) == 1 && isErrorExpr(fnType.Results.List[0].Type) {
-		return nil
-	}
-	return fmt.Errorf("must return only error")
-}
-
-func functionUsesContext(fnType *ast.FuncType, ctxAliases map[string]bool, ctxDotImport bool) bool {
-	if fnType.Params == nil || len(fnType.Params.List) != 1 {
-		return false
-	}
-	return funcParamIsContext(fnType.Params.List[0].Type, ctxAliases, ctxDotImport)
-}
-
-func contextImportInfo(imports []*ast.ImportSpec) (map[string]bool, bool) {
-	aliases := map[string]bool{}
-	dotImport := false
-	for _, spec := range imports {
-		path, err := strconv.Unquote(spec.Path.Value)
-		if err != nil || path != "context" {
-			continue
-		}
-		if spec.Name != nil {
-			if spec.Name.Name == "." {
-				dotImport = true
-				continue
-			}
-			if spec.Name.Name == "_" {
-				continue
-			}
-			aliases[spec.Name.Name] = true
-			continue
-		}
-		aliases["context"] = true
-	}
-	return aliases, dotImport
-}
-
-func funcParamIsContext(expr ast.Expr, ctxAliases map[string]bool, ctxDotImport bool) bool {
-	switch t := expr.(type) {
-	case *ast.SelectorExpr:
-		if ident, ok := t.X.(*ast.Ident); ok && t.Sel != nil && t.Sel.Name == "Context" {
-			return ctxAliases[ident.Name]
-		}
-	case *ast.Ident:
-		if ctxDotImport && t.Name == "Context" {
-			return true
-		}
-	}
-	return false
-}
-
-func isErrorExpr(expr ast.Expr) bool {
-	ident, ok := expr.(*ast.Ident)
-	return ok && ident.Name == "error"
-}
-
-func filterCommands(candidates map[string]bool, subcommandNames map[string]bool) []string {
-	var result []string
-	for name := range candidates {
-		cmd := camelToKebab(name)
-		if !subcommandNames[cmd] {
-			result = append(result, name)
-		}
-	}
-	sort.Strings(result)
-	return result
-}
-
-func filterStructs(candidates map[string]bool, subcommandTypes map[string]bool, structHasRun map[string]bool, structHasSubcommands map[string]bool) []string {
-	var result []string
-	for name := range candidates {
-		if !subcommandTypes[name] {
-			if structHasRun[name] || structHasSubcommands[name] {
-				result = append(result, name)
-			}
-		}
-	}
-	sort.Strings(result)
-	return result
+	return fieldTypeName(recv.List[0].Type)
 }
 
 func recordSubcommandRefs(
@@ -623,70 +647,45 @@ func recordSubcommandRefs(
 	return hasSubcommand
 }
 
-func fieldTypeName(expr ast.Expr) string {
-	switch t := expr.(type) {
-	case *ast.Ident:
-		return t.Name
-	case *ast.StarExpr:
-		if ident, ok := t.X.(*ast.Ident); ok {
-			return ident.Name
-		}
-	}
-	return ""
-}
-
-func receiverTypeName(recv *ast.FieldList) string {
-	if recv == nil || len(recv.List) == 0 {
-		return ""
-	}
-	return fieldTypeName(recv.List[0].Type)
-}
-
-func camelToKebab(s string) string {
-	var result strings.Builder
-	runes := []rune(s)
-	for i, r := range runes {
-		if i > 0 && unicode.IsUpper(r) {
-			prev := runes[i-1]
-			// Insert hyphen if previous is lowercase (e.g., fooBar -> foo-bar)
-			// OR if we're at the start of a new word after an acronym (e.g., APIServer -> api-server)
-			if unicode.IsLower(prev) || (i+1 < len(runes) && unicode.IsLower(runes[i+1])) {
-				result.WriteRune('-')
-			}
-		}
-		result.WriteRune(unicode.ToLower(r))
-	}
-	return result.String()
-}
-
 func reflectStructTag(tag string) reflectTag {
 	return reflectTag(tag)
 }
 
-type reflectTag string
-
-func (tag reflectTag) Get(key string) string {
-	value := string(tag)
-	for value != "" {
-		i := strings.Index(value, ":")
-		if i < 0 {
-			break
-		}
-		name := strings.TrimSpace(value[:i])
-		value = strings.TrimSpace(value[i+1:])
-		if !strings.HasPrefix(value, "\"") {
-			break
-		}
-		value = value[1:]
-		j := strings.Index(value, "\"")
-		if j < 0 {
-			break
-		}
-		quoted := value[:j]
-		value = strings.TrimSpace(value[j+1:])
-		if name == key {
-			return quoted
-		}
+func returnStringLiteral(body *ast.BlockStmt) (string, bool) {
+	if body == nil || len(body.List) != 1 {
+		return "", false
 	}
-	return ""
+	ret, ok := body.List[0].(*ast.ReturnStmt)
+	if !ok || len(ret.Results) != 1 {
+		return "", false
+	}
+	lit, ok := ret.Results[0].(*ast.BasicLit)
+	if !ok || lit.Kind != token.STRING {
+		return "", false
+	}
+	value, err := strconv.Unquote(lit.Value)
+	if err != nil {
+		return "", false
+	}
+	return strings.TrimSpace(value), true
+}
+
+func validateFunctionSignature(fnType *ast.FuncType, ctxAliases map[string]bool, ctxDotImport bool) error {
+	paramCount := 0
+	if fnType.Params != nil {
+		paramCount = len(fnType.Params.List)
+	}
+	if paramCount > 1 {
+		return fmt.Errorf("must be niladic or accept context")
+	}
+	if paramCount == 1 && !funcParamIsContext(fnType.Params.List[0].Type, ctxAliases, ctxDotImport) {
+		return fmt.Errorf("must accept context.Context")
+	}
+	if fnType.Results == nil || len(fnType.Results.List) == 0 {
+		return nil
+	}
+	if len(fnType.Results.List) == 1 && isErrorExpr(fnType.Results.List[0].Type) {
+		return nil
+	}
+	return fmt.Errorf("must return only error")
 }

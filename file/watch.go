@@ -62,26 +62,6 @@ type fileSnapshot struct {
 	List  []string
 }
 
-func snapshot(patterns []string) (*fileSnapshot, error) {
-	matches, err := Match(patterns...)
-	if err != nil {
-		return nil, err
-	}
-	files := make(map[string]int64, len(matches))
-	for _, path := range matches {
-		info, err := os.Stat(path)
-		if err != nil {
-			return nil, err
-		}
-		files[path] = info.ModTime().UnixNano()
-	}
-	sort.Strings(matches)
-	return &fileSnapshot{
-		Files: files,
-		List:  matches,
-	}, nil
-}
-
 func diffSnapshot(prev *fileSnapshot, next *fileSnapshot) *ChangeSet {
 	added := []string{}
 	removed := []string{}
@@ -113,4 +93,24 @@ func diffSnapshot(prev *fileSnapshot, next *fileSnapshot) *ChangeSet {
 		Removed:  removed,
 		Modified: modified,
 	}
+}
+
+func snapshot(patterns []string) (*fileSnapshot, error) {
+	matches, err := Match(patterns...)
+	if err != nil {
+		return nil, err
+	}
+	files := make(map[string]int64, len(matches))
+	for _, path := range matches {
+		info, err := os.Stat(path)
+		if err != nil {
+			return nil, err
+		}
+		files[path] = info.ModTime().UnixNano()
+	}
+	sort.Strings(matches)
+	return &fileSnapshot{
+		Files: files,
+		List:  matches,
+	}, nil
 }

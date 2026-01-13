@@ -13,16 +13,11 @@ import (
 
 // gitHubIssue represents an issue from GitHub.
 type gitHubIssue struct {
-	Number int      `json:"number"`
-	Title  string   `json:"title"`
-	State  string   `json:"state"` // "open" or "closed"
-	Body   string   `json:"body"`
-	Labels []label  `json:"labels"`
-}
-
-// label represents a GitHub label.
-type label struct {
-	Name string `json:"name"`
+	Number int     `json:"number"`
+	Title  string  `json:"title"`
+	State  string  `json:"state"` // "open" or "closed"
+	Body   string  `json:"body"`
+	Labels []label `json:"labels"`
 }
 
 // gitHubUpdates holds optional updates for a GitHub issue.
@@ -31,23 +26,18 @@ type gitHubUpdates struct {
 	Body  *string
 }
 
-// listGitHubIssues fetches all issues from the current repo via gh CLI.
-func listGitHubIssues(state string) ([]gitHubIssue, error) {
-	args := []string{"issue", "list", "--json", "number,title,state,body,labels", "--limit", "100"}
-	if state != "" && state != "all" {
-		args = append(args, "--state", state)
-	} else {
-		args = append(args, "--state", "all")
-	}
-	out, err := sh.Output("gh", args...)
+// label represents a GitHub label.
+type label struct {
+	Name string `json:"name"`
+}
+
+// closeGitHubIssue closes a GitHub issue.
+func closeGitHubIssue(number int) error {
+	_, err := sh.Output("gh", "issue", "close", strconv.Itoa(number))
 	if err != nil {
-		return nil, fmt.Errorf("gh issue list failed: %w", err)
+		return fmt.Errorf("gh issue close failed: %w", err)
 	}
-	var issues []gitHubIssue
-	if err := json.Unmarshal([]byte(out), &issues); err != nil {
-		return nil, fmt.Errorf("parsing gh output: %w", err)
-	}
-	return issues, nil
+	return nil
 }
 
 // createGitHubIssue creates a new issue on GitHub and returns its number.
@@ -74,41 +64,41 @@ func createGitHubIssue(title, body string) (int, error) {
 	return num, nil
 }
 
-// updateGitHubIssue updates an existing GitHub issue.
-func updateGitHubIssue(number int, updates gitHubUpdates) error {
-	args := []string{"issue", "edit", strconv.Itoa(number)}
-	if updates.Title != nil {
-		args = append(args, "--title", *updates.Title)
+// formatIssueID formats an issue ID with its source prefix.
+func formatIssueID(source string, number int) string {
+	if source == "github" {
+		return fmt.Sprintf("gh#%d", number)
 	}
-	if updates.Body != nil {
-		args = append(args, "--body", *updates.Body)
-	}
-	if len(args) == 3 {
-		return fmt.Errorf("no updates provided")
-	}
-	_, err := sh.Output("gh", args...)
-	if err != nil {
-		return fmt.Errorf("gh issue edit failed: %w", err)
-	}
-	return nil
+	return fmt.Sprintf("#%d", number)
 }
 
-// closeGitHubIssue closes a GitHub issue.
-func closeGitHubIssue(number int) error {
-	_, err := sh.Output("gh", "issue", "close", strconv.Itoa(number))
-	if err != nil {
-		return fmt.Errorf("gh issue close failed: %w", err)
+// ghStateToStatus maps GitHub state to local status.
+func ghStateToStatus(state string) string {
+	switch strings.ToLower(state) {
+	case "closed":
+		return "done"
+	default:
+		return "backlog"
 	}
-	return nil
 }
 
-// reopenGitHubIssue reopens a closed GitHub issue.
-func reopenGitHubIssue(number int) error {
-	_, err := sh.Output("gh", "issue", "reopen", strconv.Itoa(number))
-	if err != nil {
-		return fmt.Errorf("gh issue reopen failed: %w", err)
+// listGitHubIssues fetches all issues from the current repo via gh CLI.
+func listGitHubIssues(state string) ([]gitHubIssue, error) {
+	args := []string{"issue", "list", "--json", "number,title,state,body,labels", "--limit", "100"}
+	if state != "" && state != "all" {
+		args = append(args, "--state", state)
+	} else {
+		args = append(args, "--state", "all")
 	}
-	return nil
+	out, err := sh.Output("gh", args...)
+	if err != nil {
+		return nil, fmt.Errorf("gh issue list failed: %w", err)
+	}
+	var issues []gitHubIssue
+	if err := json.Unmarshal([]byte(out), &issues); err != nil {
+		return nil, fmt.Errorf("parsing gh output: %w", err)
+	}
+	return issues, nil
 }
 
 // parseIssueID parses an issue ID string and returns the source and number.
@@ -141,20 +131,30 @@ func parseIssueID(id string) (source string, number int, err error) {
 	return "local", num, nil
 }
 
-// formatIssueID formats an issue ID with its source prefix.
-func formatIssueID(source string, number int) string {
-	if source == "github" {
-		return fmt.Sprintf("gh#%d", number)
+// reopenGitHubIssue reopens a closed GitHub issue.
+func reopenGitHubIssue(number int) error {
+	_, err := sh.Output("gh", "issue", "reopen", strconv.Itoa(number))
+	if err != nil {
+		return fmt.Errorf("gh issue reopen failed: %w", err)
 	}
-	return fmt.Sprintf("#%d", number)
+	return nil
 }
 
-// ghStateToStatus maps GitHub state to local status.
-func ghStateToStatus(state string) string {
-	switch strings.ToLower(state) {
-	case "closed":
-		return "done"
-	default:
-		return "backlog"
+// updateGitHubIssue updates an existing GitHub issue.
+func updateGitHubIssue(number int, updates gitHubUpdates) error {
+	args := []string{"issue", "edit", strconv.Itoa(number)}
+	if updates.Title != nil {
+		args = append(args, "--title", *updates.Title)
 	}
+	if updates.Body != nil {
+		args = append(args, "--body", *updates.Body)
+	}
+	if len(args) == 3 {
+		return fmt.Errorf("no updates provided")
+	}
+	_, err := sh.Output("gh", args...)
+	if err != nil {
+		return fmt.Errorf("gh issue edit failed: %w", err)
+	}
+	return nil
 }

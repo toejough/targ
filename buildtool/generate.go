@@ -20,13 +20,6 @@ type GenerateOptions struct {
 	OnlyTagged bool
 }
 
-type functionDoc struct {
-	Name         string
-	Description  string
-	ReturnsError bool
-	UsesContext  bool
-}
-
 func GenerateFunctionWrappers(filesystem FileSystem, opts GenerateOptions) (string, error) {
 	dir := opts.Dir
 	if dir == "" {
@@ -242,6 +235,13 @@ func GenerateFunctionWrappers(filesystem FileSystem, opts GenerateOptions) (stri
 	}
 
 	return filename, nil
+}
+
+type functionDoc struct {
+	Name         string
+	Description  string
+	ReturnsError bool
+	UsesContext  bool
 }
 
 func functionReturnsError(fnType *ast.FuncType) bool {

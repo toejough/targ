@@ -46,7 +46,7 @@ func TestWatchDetectsAddModifyRemove(t *testing.T) {
 	modified := false
 	removed := false
 	timeout := time.After(800 * time.Millisecond)
-	for !(added && modified && removed) {
+	for !added || !modified || !removed {
 		select {
 		case set := <-changesCh:
 			if len(set.Added) > 0 {

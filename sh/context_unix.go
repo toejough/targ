@@ -8,6 +8,14 @@ import (
 	"syscall"
 )
 
+// killProcessGroup kills the process and all its children.
+func killProcessGroup(cmd *exec.Cmd) {
+	if cmd.Process != nil {
+		// Kill the entire process group (negative PID)
+		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+	}
+}
+
 // runWithContext runs a command with context cancellation support.
 // On Unix, it uses process groups to kill the entire process tree.
 func runWithContext(ctx context.Context, cmd *exec.Cmd) error {
@@ -35,12 +43,4 @@ func runWithContext(ctx context.Context, cmd *exec.Cmd) error {
 // setProcGroup configures the command to run in its own process group.
 func setProcGroup(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-}
-
-// killProcessGroup kills the process and all its children.
-func killProcessGroup(cmd *exec.Cmd) {
-	if cmd.Process != nil {
-		// Kill the entire process group (negative PID)
-		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-	}
 }

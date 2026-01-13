@@ -11,38 +11,6 @@ import (
 	"testing"
 )
 
-func TestNormalizeStatus(t *testing.T) {
-	cases := map[string]string{
-		"backlog":     "backlog",
-		"Done":        "done",
-		"in-progress": "in progress",
-		"in_progress": "in progress",
-		"inprogress":  "in progress",
-		" review ":    "review",
-	}
-	for input, want := range cases {
-		if got := normalizeStatus(input); got != want {
-			t.Fatalf("normalizeStatus(%q) = %q, want %q", input, got, want)
-		}
-	}
-}
-
-func TestNormalizePriority(t *testing.T) {
-	cases := map[string]string{
-		"low":    "Low",
-		"LOW":    "Low",
-		"Medium": "Medium",
-		"high":   "High",
-		"":       "",
-		"custom": "custom",
-	}
-	for input, want := range cases {
-		if got := normalizePriority(input); got != want {
-			t.Fatalf("normalizePriority(%q) = %q, want %q", input, got, want)
-		}
-	}
-}
-
 func TestListOutputsHeaderAndColumns(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "issues.md")
@@ -90,6 +58,38 @@ func TestListOutputsHeaderAndColumns(t *testing.T) {
 	}
 	if !strings.Contains(lines[2], "2\tdone\tSecond") {
 		t.Fatalf("unexpected row: %q", lines[2])
+	}
+}
+
+func TestNormalizePriority(t *testing.T) {
+	cases := map[string]string{
+		"low":    "Low",
+		"LOW":    "Low",
+		"Medium": "Medium",
+		"high":   "High",
+		"":       "",
+		"custom": "custom",
+	}
+	for input, want := range cases {
+		if got := normalizePriority(input); got != want {
+			t.Fatalf("normalizePriority(%q) = %q, want %q", input, got, want)
+		}
+	}
+}
+
+func TestNormalizeStatus(t *testing.T) {
+	cases := map[string]string{
+		"backlog":     "backlog",
+		"Done":        "done",
+		"in-progress": "in progress",
+		"in_progress": "in progress",
+		"inprogress":  "in progress",
+		" review ":    "review",
+	}
+	for input, want := range cases {
+		if got := normalizeStatus(input); got != want {
+			t.Fatalf("normalizeStatus(%q) = %q, want %q", input, got, want)
+		}
 	}
 }
 

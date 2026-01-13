@@ -8,15 +8,15 @@ import (
 	"github.com/toejough/targ/sh"
 )
 
-// Test runs all tests with coverage.
-type Test struct{}
+// All runs tests, lint, and order check.
+type All struct{}
 
-func (t *Test) Description() string {
-	return "Run all tests with coverage"
+func (a *All) Description() string {
+	return "Run tests, lint, and order check"
 }
 
-func (t *Test) Run() error {
-	return sh.RunV("go", "test", "-coverprofile=coverage.out", "./...")
+func (a *All) Run() error {
+	return targ.Deps(&Test{}, &Lint{}, &Order{})
 }
 
 // Coverage displays the coverage report.
@@ -46,24 +46,24 @@ func (l *Lint) Run() error {
 	return sh.RunV("golangci-lint", "run")
 }
 
-// Order checks declaration ordering with go-reorder.
+// Order fixes declaration ordering with go-reorder.
 type Order struct{}
 
 func (o *Order) Description() string {
-	return "Check declaration ordering"
+	return "Fix declaration ordering"
 }
 
 func (o *Order) Run() error {
-	return sh.RunV("go-reorder", "-c", ".")
+	return sh.RunV("go-reorder", "-w", ".")
 }
 
-// All runs tests, lint, and order check.
-type All struct{}
+// Test runs all tests with coverage.
+type Test struct{}
 
-func (a *All) Description() string {
-	return "Run tests, lint, and order check"
+func (t *Test) Description() string {
+	return "Run all tests with coverage"
 }
 
-func (a *All) Run() error {
-	return targ.Deps(&Test{}, &Lint{}, &Order{})
+func (t *Test) Run() error {
+	return sh.RunV("go", "test", "-coverprofile=coverage.out", "./...")
 }

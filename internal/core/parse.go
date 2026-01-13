@@ -2,232 +2,22 @@ package core
 
 import (
 	"encoding"
-	"errors"
-	"flag"
 	"fmt"
 	"reflect"
 	"strconv"
 	"strings"
 )
 
-// --- Value parsing ---
-
+// unexported variables.
 var (
-	textUnmarshalerType = reflect.TypeOf((*encoding.TextUnmarshaler)(nil)).Elem()
 	stringSetterType    = reflect.TypeOf((*interface{ Set(string) error })(nil)).Elem()
+	textUnmarshalerType = reflect.TypeOf((*encoding.TextUnmarshaler)(nil)).Elem()
 )
 
-type stringFlagValue struct {
-	set func(string) error
-	str func() string
-}
-
-func (s *stringFlagValue) String() string {
-	if s.str == nil {
-		return ""
-	}
-	return s.str()
-}
-
-func (s *stringFlagValue) Set(value string) error {
-	if s.set == nil {
-		return errors.New("no setter defined")
-	}
-	return s.set(value)
-}
-
-func customSetter(fieldVal reflect.Value) (func(string) error, bool) {
-	if fieldVal.CanAddr() {
-		ptr := fieldVal.Addr()
-		if ptr.Type().Implements(textUnmarshalerType) {
-			return func(value string) error {
-				return ptr.Interface().(encoding.TextUnmarshaler).UnmarshalText([]byte(value))
-			}, true
-		}
-		if ptr.Type().Implements(stringSetterType) {
-			return func(value string) error {
-				return ptr.Interface().(interface{ Set(string) error }).Set(value)
-			}, true
-		}
-	}
-
-	fieldType := fieldVal.Type()
-	if fieldType.Implements(textUnmarshalerType) {
-		return func(value string) error {
-			next := reflect.New(fieldType).Elem()
-			if err := next.Interface().(encoding.TextUnmarshaler).UnmarshalText([]byte(value)); err != nil {
-				return err
-			}
-			fieldVal.Set(next)
-			return nil
-		}, true
-	}
-	if fieldType.Implements(stringSetterType) {
-		return func(value string) error {
-			next := reflect.New(fieldType).Elem()
-			if err := next.Interface().(interface{ Set(string) error }).Set(value); err != nil {
-				return err
-			}
-			fieldVal.Set(next)
-			return nil
-		}, true
-	}
-
-	return nil, false
-}
-
-func setFieldFromString(fieldVal reflect.Value, value string) error {
-	return setFieldWithPosition(fieldVal, value, nil)
-}
-
-// setFieldWithPosition sets a field value, optionally tracking position for Interleaved slices.
-// If pos is non-nil and the field is []Interleaved[T], the position is used and incremented.
-func setFieldWithPosition(fieldVal reflect.Value, value string, pos *int) error {
-	if setter, ok := customSetter(fieldVal); ok {
-		if pos != nil {
-			*pos++
-		}
-		return setter(value)
-	}
-
-	switch fieldVal.Kind() {
-	case reflect.String:
-		fieldVal.SetString(value)
-	case reflect.Int:
-		parsed, err := strconv.ParseInt(value, 10, 64)
-		if err != nil {
-			return err
-		}
-		fieldVal.SetInt(parsed)
-	case reflect.Bool:
-		parsed, err := strconv.ParseBool(value)
-		if err != nil {
-			return err
-		}
-		fieldVal.SetBool(parsed)
-	case reflect.Slice:
-		elemType := fieldVal.Type().Elem()
-		if isInterleavedType(elemType) && pos != nil {
-			// Create Interleaved[T] with position
-			elem := reflect.New(elemType).Elem()
-			valueField := elem.FieldByName("Value")
-			posField := elem.FieldByName("Position")
-			if err := setFieldWithPosition(valueField, value, nil); err != nil {
-				return err
-			}
-			posField.SetInt(int64(*pos))
-			*pos++
-			fieldVal.Set(reflect.Append(fieldVal, elem))
-		} else {
-			elem := reflect.New(elemType).Elem()
-			if err := setFieldWithPosition(elem, value, pos); err != nil {
-				return err
-			}
-			fieldVal.Set(reflect.Append(fieldVal, elem))
-		}
-	case reflect.Map:
-		// Initialize map if nil
-		if fieldVal.IsNil() {
-			fieldVal.Set(reflect.MakeMap(fieldVal.Type()))
-		}
-		// Parse key=value
-		parts := strings.SplitN(value, "=", 2)
-		if len(parts) != 2 {
-			return fmt.Errorf("invalid map value %q, expected key=value", value)
-		}
-		keyVal := reflect.New(fieldVal.Type().Key()).Elem()
-		valVal := reflect.New(fieldVal.Type().Elem()).Elem()
-		if err := setFieldWithPosition(keyVal, parts[0], nil); err != nil {
-			return err
-		}
-		if err := setFieldWithPosition(valVal, parts[1], nil); err != nil {
-			return err
-		}
-		fieldVal.SetMapIndex(keyVal, valVal)
-	default:
-		return fmt.Errorf("unsupported value type %s", fieldVal.Type())
-	}
-
-	if pos != nil && fieldVal.Kind() != reflect.Slice {
-		*pos++
-	}
-
-	return nil
-}
-
-// isInterleavedType checks if a type is Interleaved[T] by looking for Value and Position fields.
-func isInterleavedType(t reflect.Type) bool {
-	if t.Kind() != reflect.Struct {
-		return false
-	}
-	// Check for our Interleaved struct signature: Value field and Position int field
-	valueField, hasValue := t.FieldByName("Value")
-	posField, hasPos := t.FieldByName("Position")
-	if !hasValue || !hasPos {
-		return false
-	}
-	// Position must be int
-	if posField.Type.Kind() != reflect.Int {
-		return false
-	}
-	// Value field exists (any type is fine)
-	_ = valueField
-	return true
-}
-
-func fieldSupportsTextUnmarshal(fieldType reflect.Type) bool {
-	if fieldType.Implements(textUnmarshalerType) {
-		return true
-	}
-	if fieldType.Kind() != reflect.Ptr {
-		return reflect.PointerTo(fieldType).Implements(textUnmarshalerType)
-	}
-	return false
-}
-
-func fieldSupportsStringSetter(fieldType reflect.Type) bool {
-	if fieldType.Implements(stringSetterType) {
-		return true
-	}
-	if fieldType.Kind() != reflect.Ptr {
-		return reflect.PointerTo(fieldType).Implements(stringSetterType)
-	}
-	return false
-}
-
-func registerHelpFlag(fs *flag.FlagSet, fieldType reflect.Type, name string, shortName string, usage string) {
-	switch fieldType.Kind() {
-	case reflect.String:
-		fs.StringVar(new(string), name, "", usage)
-		if shortName != "" {
-			fs.StringVar(new(string), shortName, "", usage)
-		}
-	case reflect.Int:
-		fs.IntVar(new(int), name, 0, usage)
-		if shortName != "" {
-			fs.IntVar(new(int), shortName, 0, usage)
-		}
-	case reflect.Bool:
-		fs.BoolVar(new(bool), name, false, usage)
-		if shortName != "" {
-			fs.BoolVar(new(bool), shortName, false, usage)
-		}
-	default:
-		if fieldSupportsTextUnmarshal(fieldType) || fieldSupportsStringSetter(fieldType) {
-			value := &stringFlagValue{
-				set: func(string) error { return nil },
-				str: func() string { return "" },
-			}
-			fs.Var(value, name, usage)
-			if shortName != "" {
-				fs.Var(value, shortName, usage)
-			}
-		}
-	}
-}
-
-func normalizedDescription(desc string) string {
-	return strings.TrimSpace(desc)
+type parseResult struct {
+	remaining           []string
+	subcommand          *commandNode
+	positionalsComplete bool
 }
 
 // --- Argument parsing ---
@@ -237,12 +27,6 @@ type positionalSpec struct {
 	value    reflect.Value
 	opts     TagOptions
 	variadic bool
-}
-
-type parseResult struct {
-	remaining           []string
-	subcommand          *commandNode
-	positionalsComplete bool
 }
 
 func collectFlagSpecs(chain []commandInstance) ([]*flagSpec, map[string]bool, error) {
@@ -309,6 +93,73 @@ func collectPositionalSpecs(node *commandNode, inst reflect.Value) ([]positional
 		})
 	}
 	return specs, nil
+}
+
+func customSetter(fieldVal reflect.Value) (func(string) error, bool) {
+	if fieldVal.CanAddr() {
+		ptr := fieldVal.Addr()
+		if ptr.Type().Implements(textUnmarshalerType) {
+			return func(value string) error {
+				return ptr.Interface().(encoding.TextUnmarshaler).UnmarshalText([]byte(value))
+			}, true
+		}
+		if ptr.Type().Implements(stringSetterType) {
+			return func(value string) error {
+				return ptr.Interface().(interface{ Set(string) error }).Set(value)
+			}, true
+		}
+	}
+
+	fieldType := fieldVal.Type()
+	if fieldType.Implements(textUnmarshalerType) {
+		return func(value string) error {
+			next := reflect.New(fieldType).Elem()
+			if err := next.Interface().(encoding.TextUnmarshaler).UnmarshalText([]byte(value)); err != nil {
+				return err
+			}
+			fieldVal.Set(next)
+			return nil
+		}, true
+	}
+	if fieldType.Implements(stringSetterType) {
+		return func(value string) error {
+			next := reflect.New(fieldType).Elem()
+			if err := next.Interface().(interface{ Set(string) error }).Set(value); err != nil {
+				return err
+			}
+			fieldVal.Set(next)
+			return nil
+		}, true
+	}
+
+	return nil, false
+}
+
+// isInterleavedType checks if a type is Interleaved[T] by looking for Value and Position fields.
+func isInterleavedType(t reflect.Type) bool {
+	if t.Kind() != reflect.Struct {
+		return false
+	}
+	// Check for our Interleaved struct signature: Value field and Position int field
+	valueField, hasValue := t.FieldByName("Value")
+	posField, hasPos := t.FieldByName("Position")
+	if !hasValue || !hasPos {
+		return false
+	}
+	// Position must be int
+	if posField.Type.Kind() != reflect.Int {
+		return false
+	}
+	// Value field exists (any type is fine)
+	_ = valueField
+	return true
+}
+
+func markFlagVisited(visited map[string]bool, spec *flagSpec) {
+	visited[spec.name] = true
+	if spec.short != "" {
+		visited[spec.short] = true
+	}
 }
 
 func parseCommandArgs(
@@ -446,18 +297,6 @@ func parseCommandArgsWithPosition(
 	return parseResult{positionalsComplete: complete}, nil
 }
 
-func parseFlagArg(
-	arg string,
-	args []string,
-	index int,
-	specByLong map[string]*flagSpec,
-	specByShort map[string]*flagSpec,
-	visited map[string]bool,
-	allowIncomplete bool,
-) (int, error) {
-	return parseFlagArgWithPosition(arg, args, index, specByLong, specByShort, visited, allowIncomplete, nil)
-}
-
 func parseFlagArgWithPosition(
 	arg string,
 	args []string,
@@ -507,10 +346,6 @@ func parseFlagArgWithPosition(
 	return parseFlagValueWithPosition(spec, args, index, visited, allowIncomplete, argPosition)
 }
 
-func parseFlagValue(spec *flagSpec, args []string, index int, visited map[string]bool, allowIncomplete bool) (int, error) {
-	return parseFlagValueWithPosition(spec, args, index, visited, allowIncomplete, nil)
-}
-
 func parseFlagValueWithPosition(spec *flagSpec, args []string, index int, visited map[string]bool, allowIncomplete bool, argPosition *int) (int, error) {
 	if spec.value.Kind() == reflect.Bool {
 		spec.value.SetBool(true)
@@ -555,9 +390,81 @@ func parseFlagValueWithPosition(spec *flagSpec, args []string, index int, visite
 	return 1, nil
 }
 
-func markFlagVisited(visited map[string]bool, spec *flagSpec) {
-	visited[spec.name] = true
-	if spec.short != "" {
-		visited[spec.short] = true
+func setFieldFromString(fieldVal reflect.Value, value string) error {
+	return setFieldWithPosition(fieldVal, value, nil)
+}
+
+// setFieldWithPosition sets a field value, optionally tracking position for Interleaved slices.
+// If pos is non-nil and the field is []Interleaved[T], the position is used and incremented.
+func setFieldWithPosition(fieldVal reflect.Value, value string, pos *int) error {
+	if setter, ok := customSetter(fieldVal); ok {
+		if pos != nil {
+			*pos++
+		}
+		return setter(value)
 	}
+
+	switch fieldVal.Kind() {
+	case reflect.String:
+		fieldVal.SetString(value)
+	case reflect.Int:
+		parsed, err := strconv.ParseInt(value, 10, 64)
+		if err != nil {
+			return err
+		}
+		fieldVal.SetInt(parsed)
+	case reflect.Bool:
+		parsed, err := strconv.ParseBool(value)
+		if err != nil {
+			return err
+		}
+		fieldVal.SetBool(parsed)
+	case reflect.Slice:
+		elemType := fieldVal.Type().Elem()
+		if isInterleavedType(elemType) && pos != nil {
+			// Create Interleaved[T] with position
+			elem := reflect.New(elemType).Elem()
+			valueField := elem.FieldByName("Value")
+			posField := elem.FieldByName("Position")
+			if err := setFieldWithPosition(valueField, value, nil); err != nil {
+				return err
+			}
+			posField.SetInt(int64(*pos))
+			*pos++
+			fieldVal.Set(reflect.Append(fieldVal, elem))
+		} else {
+			elem := reflect.New(elemType).Elem()
+			if err := setFieldWithPosition(elem, value, pos); err != nil {
+				return err
+			}
+			fieldVal.Set(reflect.Append(fieldVal, elem))
+		}
+	case reflect.Map:
+		// Initialize map if nil
+		if fieldVal.IsNil() {
+			fieldVal.Set(reflect.MakeMap(fieldVal.Type()))
+		}
+		// Parse key=value
+		parts := strings.SplitN(value, "=", 2)
+		if len(parts) != 2 {
+			return fmt.Errorf("invalid map value %q, expected key=value", value)
+		}
+		keyVal := reflect.New(fieldVal.Type().Key()).Elem()
+		valVal := reflect.New(fieldVal.Type().Elem()).Elem()
+		if err := setFieldWithPosition(keyVal, parts[0], nil); err != nil {
+			return err
+		}
+		if err := setFieldWithPosition(valVal, parts[1], nil); err != nil {
+			return err
+		}
+		fieldVal.SetMapIndex(keyVal, valVal)
+	default:
+		return fmt.Errorf("unsupported value type %s", fieldVal.Type())
+	}
+
+	if pos != nil && fieldVal.Kind() != reflect.Slice {
+		*pos++
+	}
+
+	return nil
 }

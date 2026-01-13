@@ -10,10 +10,11 @@ import (
 	"sync"
 )
 
+// unexported variables.
 var (
+	cacheLock sync.Mutex
 	fileCache = make(map[string]*ast.File)
 	fset      = token.NewFileSet()
-	cacheLock sync.Mutex
 )
 
 // getMethodDoc extracts the documentation comment for a method.

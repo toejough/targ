@@ -11,31 +11,6 @@ import (
 	"time"
 )
 
-type runEnv interface {
-	Args() []string
-	Printf(format string, args ...any)
-	Println(args ...any)
-	Exit(code int)
-}
-
-type osRunEnv struct{}
-
-func (osRunEnv) Args() []string {
-	return os.Args
-}
-
-func (osRunEnv) Printf(format string, args ...any) {
-	fmt.Printf(format, args...)
-}
-
-func (osRunEnv) Println(args ...any) {
-	fmt.Println(args...)
-}
-
-func (osRunEnv) Exit(code int) {
-	os.Exit(code)
-}
-
 // ExitError is returned when a command exits with a non-zero code.
 type ExitError struct {
 	Code int
@@ -45,41 +20,14 @@ func (e ExitError) Error() string {
 	return fmt.Sprintf("exit code %d", e.Code)
 }
 
-// executeEnv captures args and errors for testing.
-type executeEnv struct {
-	args   []string
-	output strings.Builder
-}
-
-func (e *executeEnv) Args() []string {
-	return e.args
-}
-
-func (e *executeEnv) Printf(format string, args ...any) {
-	fmt.Fprintf(&e.output, format, args...)
-}
-
-func (e *executeEnv) Println(args ...any) {
-	fmt.Fprintln(&e.output, args...)
-}
-
-func (e *executeEnv) Exit(code int) {
-	// No-op: error is returned via RunWithEnv
-}
-
-// Output returns the captured output from command execution.
-func (e *executeEnv) Output() string {
-	return e.output.String()
+// NewExecuteEnv returns a runEnv that captures output for testing.
+func NewExecuteEnv(args []string) *executeEnv {
+	return &executeEnv{args: args}
 }
 
 // NewOsEnv returns a runEnv that uses os.Args and real stdout/exit.
 func NewOsEnv() runEnv {
 	return osRunEnv{}
-}
-
-// NewExecuteEnv returns a runEnv that captures output for testing.
-func NewExecuteEnv(args []string) *executeEnv {
-	return &executeEnv{args: args}
 }
 
 // RunWithEnv executes commands with a custom environment.
@@ -260,6 +208,87 @@ func RunWithEnv(env runEnv, opts RunOptions, targets ...interface{}) error {
 	})
 }
 
+// executeEnv captures args and errors for testing.
+type executeEnv struct {
+	args   []string
+	output strings.Builder
+}
+
+func (e *executeEnv) Args() []string {
+	return e.args
+}
+
+func (e *executeEnv) Exit(code int) {
+	// No-op: error is returned via RunWithEnv
+}
+
+// Output returns the captured output from command execution.
+func (e *executeEnv) Output() string {
+	return e.output.String()
+}
+
+func (e *executeEnv) Printf(format string, args ...any) {
+	fmt.Fprintf(&e.output, format, args...)
+}
+
+func (e *executeEnv) Println(args ...any) {
+	fmt.Fprintln(&e.output, args...)
+}
+
+// listCommandInfo represents a command in the __list output.
+type listCommandInfo struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+}
+
+// listOutput is the JSON structure returned by the __list command.
+type listOutput struct {
+	Commands []listCommandInfo `json:"commands"`
+}
+
+type osRunEnv struct{}
+
+func (osRunEnv) Args() []string {
+	return os.Args
+}
+
+func (osRunEnv) Exit(code int) {
+	os.Exit(code)
+}
+
+func (osRunEnv) Printf(format string, args ...any) {
+	fmt.Printf(format, args...)
+}
+
+func (osRunEnv) Println(args ...any) {
+	fmt.Println(args...)
+}
+
+type runEnv interface {
+	Args() []string
+	Printf(format string, args ...any)
+	Println(args ...any)
+	Exit(code int)
+}
+
+// collectCommands recursively collects command info from a node and its subcommands.
+func collectCommands(node *commandNode, prefix string, commands *[]listCommandInfo) {
+	name := node.Name
+	if prefix != "" {
+		name = prefix + " " + name
+	}
+
+	*commands = append(*commands, listCommandInfo{
+		Name:        name,
+		Description: node.Description,
+	})
+
+	// Recursively collect subcommands
+	for _, sub := range node.Subcommands {
+		collectCommands(sub, name, commands)
+	}
+}
+
 func detectShell() string {
 	shell := strings.TrimSpace(os.Getenv("SHELL"))
 	if shell == "" {
@@ -278,6 +307,37 @@ func detectShell() string {
 	default:
 		return ""
 	}
+}
+
+// doList outputs JSON with command names and descriptions.
+func doList(roots []*commandNode) error {
+	output := listOutput{
+		Commands: make([]listCommandInfo, 0),
+	}
+
+	for _, node := range roots {
+		collectCommands(node, "", &output.Commands)
+	}
+
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	return enc.Encode(output)
+}
+
+// extractHelpFlag checks if -h or --help is in args and returns remaining args.
+func extractHelpFlag(args []string) (bool, []string) {
+	var result []string
+	helpFound := false
+
+	for _, arg := range args {
+		if arg == "-h" || arg == "--help" {
+			helpFound = true
+			continue
+		}
+		result = append(result, arg)
+	}
+
+	return helpFound, result
 }
 
 // extractTimeout looks for --timeout flag and returns the duration and remaining args.
@@ -319,64 +379,4 @@ func extractTimeout(args []string) (time.Duration, []string, error) {
 	}
 
 	return timeout, result, nil
-}
-
-// extractHelpFlag checks if -h or --help is in args and returns remaining args.
-func extractHelpFlag(args []string) (bool, []string) {
-	var result []string
-	helpFound := false
-
-	for _, arg := range args {
-		if arg == "-h" || arg == "--help" {
-			helpFound = true
-			continue
-		}
-		result = append(result, arg)
-	}
-
-	return helpFound, result
-}
-
-// listCommandInfo represents a command in the __list output.
-type listCommandInfo struct {
-	Name        string `json:"name"`
-	Description string `json:"description"`
-}
-
-// listOutput is the JSON structure returned by the __list command.
-type listOutput struct {
-	Commands []listCommandInfo `json:"commands"`
-}
-
-// doList outputs JSON with command names and descriptions.
-func doList(roots []*commandNode) error {
-	output := listOutput{
-		Commands: make([]listCommandInfo, 0),
-	}
-
-	for _, node := range roots {
-		collectCommands(node, "", &output.Commands)
-	}
-
-	enc := json.NewEncoder(os.Stdout)
-	enc.SetIndent("", "  ")
-	return enc.Encode(output)
-}
-
-// collectCommands recursively collects command info from a node and its subcommands.
-func collectCommands(node *commandNode, prefix string, commands *[]listCommandInfo) {
-	name := node.Name
-	if prefix != "" {
-		name = prefix + " " + name
-	}
-
-	*commands = append(*commands, listCommandInfo{
-		Name:        name,
-		Description: node.Description,
-	})
-
-	// Recursively collect subcommands
-	for _, sub := range node.Subcommands {
-		collectCommands(sub, name, commands)
-	}
 }

@@ -6,6 +6,116 @@ import (
 	"strings"
 )
 
+// PrintCompletionScript prints a shell completion script for the given shell.
+func PrintCompletionScript(shell string, binName string) error {
+	switch shell {
+	case "bash":
+		fmt.Printf(_bashCompletion, binName, binName, binName, binName)
+	case "zsh":
+		fmt.Printf(_zshCompletion, binName, binName, binName, binName, binName)
+	case "fish":
+		fmt.Printf(_fishCompletion, binName, binName, binName, binName)
+	default:
+		return fmt.Errorf("unsupported shell: %s", shell)
+	}
+	return nil
+}
+
+// unexported variables.
+var (
+	_bashCompletion = `
+_%s_completion() {
+    local request="${COMP_LINE}"
+    local completions
+    completions=$(%s __complete "$request")
+    
+    COMPREPLY=( $(compgen -W "$completions" -- "${COMP_WORDS[COMP_CWORD]}") )
+}
+complete -F _%s_completion %s
+`
+	_fishCompletion = `
+function __%s_complete
+    set -l request (commandline -cp)
+    %s __complete "$request"
+end
+complete -c %s -a "(__%s_complete)" -f
+`
+	_zshCompletion = `
+#compdef %s
+
+_%s_completion() {
+    local request="${words[*]}"
+    local completions
+    completions=("${(@f)$(%s __complete "$request")}")
+    
+    compadd -a completions
+}
+compdef _%s_completion %s
+`
+)
+
+type completionFlagSpec struct {
+	TakesValue bool
+	Variadic   bool
+}
+
+type positionalField struct {
+	Field reflect.StructField
+	Opts  TagOptions
+}
+
+func completionChain(node *commandNode, args []string) ([]commandInstance, error) {
+	if node == nil {
+		return nil, nil
+	}
+	chain, _, err := completionParse(node, args, true)
+	return chain, err
+}
+
+func completionFlagSpecs(chain []commandInstance) (map[string]completionFlagSpec, error) {
+	specs := map[string]completionFlagSpec{}
+	for _, current := range chain {
+		if current.node == nil || current.node.Type == nil {
+			continue
+		}
+		inst := current.value
+		for i := 0; i < current.node.Type.NumField(); i++ {
+			field := current.node.Type.Field(i)
+			opts, ok, err := tagOptionsForField(inst, field)
+			if err != nil {
+				return nil, err
+			}
+			if !ok || opts.Kind != TagKindFlag {
+				continue
+			}
+			takesValue := field.Type.Kind() != reflect.Bool
+			variadic := field.Type.Kind() == reflect.Slice
+			specs["--"+opts.Name] = completionFlagSpec{TakesValue: takesValue, Variadic: variadic}
+			if opts.Short != "" {
+				specs["-"+opts.Short] = completionFlagSpec{TakesValue: takesValue, Variadic: variadic}
+			}
+		}
+	}
+	return specs, nil
+}
+
+func completionParse(node *commandNode, args []string, explicit bool) ([]commandInstance, parseResult, error) {
+	chainNodes := nodeChain(node)
+	chain := make([]commandInstance, 0, len(chainNodes))
+	for _, current := range chainNodes {
+		inst, err := nodeInstance(current)
+		if err != nil {
+			return nil, parseResult{}, err
+		}
+		chain = append(chain, commandInstance{node: current, value: inst})
+	}
+	if len(chain) == 0 {
+		return nil, parseResult{}, nil
+	}
+	result, err := parseCommandArgs(node, chain[len(chain)-1].value, chain, args, map[string]bool{}, explicit, false, true)
+	return chain, result, err
+}
+
 func doCompletion(roots []*commandNode, commandLine string) error {
 	// 1. Tokenize the command line
 	// The commandLine includes the binary name. e.g. "myapp build -t"
@@ -30,9 +140,8 @@ func doCompletion(roots []*commandNode, commandLine string) error {
 
 	// Skip targ-level flags (--no-cache, --keep, --timeout, --completion, --help)
 	processedArgs = skipTargFlags(processedArgs)
-	if !isNewArg && len(parts) > 0 && !strings.HasPrefix(prefix, "-") {
-		// prefix might have been a targ flag value, recalculate after skipping
-	}
+	// Note: prefix might have been a targ flag value, but we handle this
+	// by recalculating context from processedArgs below.
 
 	// Resolve current command context.
 	var currentNode *commandNode
@@ -203,110 +312,6 @@ maybeSuggestRoots:
 	return nil
 }
 
-func tokenizeCommandLine(commandLine string) ([]string, bool) {
-	var parts []string
-	var current strings.Builder
-	inSingle := false
-	inDouble := false
-	escaped := false
-	isNewArg := false
-
-	for i := 0; i < len(commandLine); i++ {
-		ch := commandLine[i]
-		if escaped {
-			current.WriteByte(ch)
-			escaped = false
-			isNewArg = false
-			continue
-		}
-		if ch == '\\' && !inSingle {
-			escaped = true
-			isNewArg = false
-			continue
-		}
-		if ch == '\'' && !inDouble {
-			inSingle = !inSingle
-			isNewArg = false
-			continue
-		}
-		if ch == '"' && !inSingle {
-			inDouble = !inDouble
-			isNewArg = false
-			continue
-		}
-		if (ch == ' ' || ch == '\t' || ch == '\n') && !inSingle && !inDouble {
-			if current.Len() > 0 {
-				parts = append(parts, current.String())
-				current.Reset()
-			}
-			isNewArg = true
-			continue
-		}
-		current.WriteByte(ch)
-		isNewArg = false
-	}
-
-	if escaped {
-		current.WriteByte('\\')
-	}
-	if current.Len() > 0 {
-		parts = append(parts, current.String())
-	}
-	if inSingle || inDouble {
-		isNewArg = false
-	}
-	return parts, isNewArg
-}
-
-func suggestFlags(chain []commandInstance, prefix string, includeCompletion bool) error {
-	if len(chain) == 0 {
-		return nil
-	}
-
-	seen := map[string]bool{}
-	for _, current := range chain {
-		if current.node == nil || current.node.Type == nil {
-			continue
-		}
-		inst := current.value
-		typ := current.node.Type
-		for i := 0; i < typ.NumField(); i++ {
-			field := typ.Field(i)
-			opts, ok, err := tagOptionsForField(inst, field)
-			if err != nil {
-				return err
-			}
-			if !ok || opts.Kind != TagKindFlag {
-				continue
-			}
-
-			name := opts.Name
-			shortName := opts.Short
-
-			longFlag := "--" + name
-			if strings.HasPrefix(longFlag, prefix) && !seen[longFlag] {
-				fmt.Println(longFlag)
-				seen[longFlag] = true
-			}
-			if shortName != "" {
-				shortFlag := "-" + shortName
-				if strings.HasPrefix(shortFlag, prefix) && !seen[shortFlag] {
-					fmt.Println(shortFlag)
-					seen[shortFlag] = true
-				}
-			}
-		}
-	}
-
-	if includeCompletion {
-		comp := "--completion"
-		if strings.HasPrefix(comp, prefix) {
-			fmt.Println(comp)
-		}
-	}
-	return nil
-}
-
 func enumValuesForArg(chain []commandInstance, args []string, prefix string, isNewArg bool) ([]string, bool, error) {
 	enumByFlag := map[string][]string{}
 	for _, current := range chain {
@@ -370,38 +375,6 @@ func enumValuesForArg(chain []commandInstance, args []string, prefix string, isN
 	return nil, false, nil
 }
 
-type completionFlagSpec struct {
-	TakesValue bool
-	Variadic   bool
-}
-
-func completionFlagSpecs(chain []commandInstance) (map[string]completionFlagSpec, error) {
-	specs := map[string]completionFlagSpec{}
-	for _, current := range chain {
-		if current.node == nil || current.node.Type == nil {
-			continue
-		}
-		inst := current.value
-		for i := 0; i < current.node.Type.NumField(); i++ {
-			field := current.node.Type.Field(i)
-			opts, ok, err := tagOptionsForField(inst, field)
-			if err != nil {
-				return nil, err
-			}
-			if !ok || opts.Kind != TagKindFlag {
-				continue
-			}
-			takesValue := field.Type.Kind() != reflect.Bool
-			variadic := field.Type.Kind() == reflect.Slice
-			specs["--"+opts.Name] = completionFlagSpec{TakesValue: takesValue, Variadic: variadic}
-			if opts.Short != "" {
-				specs["-"+opts.Short] = completionFlagSpec{TakesValue: takesValue, Variadic: variadic}
-			}
-		}
-	}
-	return specs, nil
-}
-
 func expectingFlagValue(args []string, specs map[string]completionFlagSpec) bool {
 	if len(args) == 0 {
 		return false
@@ -440,9 +413,13 @@ func expectingFlagValue(args []string, specs map[string]completionFlagSpec) bool
 	return false
 }
 
-type positionalField struct {
-	Field reflect.StructField
-	Opts  TagOptions
+func findCompletionRoot(roots []*commandNode, name string) *commandNode {
+	for _, root := range roots {
+		if strings.EqualFold(root.Name, name) {
+			return root
+		}
+	}
+	return nil
 }
 
 func positionalFields(node *commandNode, inst reflect.Value) ([]positionalField, error) {
@@ -539,88 +516,6 @@ func positionalIndex(node *commandNode, args []string, chain []commandInstance) 
 	return count, nil
 }
 
-func completionChain(node *commandNode, args []string) ([]commandInstance, error) {
-	if node == nil {
-		return nil, nil
-	}
-	chain, _, err := completionParse(node, args, true)
-	return chain, err
-}
-
-func completionParse(node *commandNode, args []string, explicit bool) ([]commandInstance, parseResult, error) {
-	chainNodes := nodeChain(node)
-	chain := make([]commandInstance, 0, len(chainNodes))
-	for _, current := range chainNodes {
-		inst, err := nodeInstance(current)
-		if err != nil {
-			return nil, parseResult{}, err
-		}
-		chain = append(chain, commandInstance{node: current, value: inst})
-	}
-	if len(chain) == 0 {
-		return nil, parseResult{}, nil
-	}
-	result, err := parseCommandArgs(node, chain[len(chain)-1].value, chain, args, map[string]bool{}, explicit, false, true)
-	return chain, result, err
-}
-
-func findCompletionRoot(roots []*commandNode, name string) *commandNode {
-	for _, root := range roots {
-		if strings.EqualFold(root.Name, name) {
-			return root
-		}
-	}
-	return nil
-}
-
-// PrintCompletionScript prints a shell completion script for the given shell.
-func PrintCompletionScript(shell string, binName string) error {
-	switch shell {
-	case "bash":
-		fmt.Printf(_bashCompletion, binName, binName, binName, binName)
-	case "zsh":
-		fmt.Printf(_zshCompletion, binName, binName, binName, binName, binName)
-	case "fish":
-		fmt.Printf(_fishCompletion, binName, binName, binName, binName)
-	default:
-		return fmt.Errorf("unsupported shell: %s", shell)
-	}
-	return nil
-}
-
-// Simplified templates
-var _bashCompletion = `
-_%s_completion() {
-    local request="${COMP_LINE}"
-    local completions
-    completions=$(%s __complete "$request")
-    
-    COMPREPLY=( $(compgen -W "$completions" -- "${COMP_WORDS[COMP_CWORD]}") )
-}
-complete -F _%s_completion %s
-`
-
-var _zshCompletion = `
-#compdef %s
-
-_%s_completion() {
-    local request="${words[*]}"
-    local completions
-    completions=("${(@f)$(%s __complete "$request")}")
-    
-    compadd -a completions
-}
-compdef _%s_completion %s
-`
-
-var _fishCompletion = `
-function __%s_complete
-    set -l request (commandline -cp)
-    %s __complete "$request"
-end
-complete -c %s -a "(__%s_complete)" -f
-`
-
 // skipTargFlags removes targ-level flags from the args for completion purposes.
 // These flags are handled by the outer targ binary, not the bootstrap.
 func skipTargFlags(args []string) []string {
@@ -647,4 +542,108 @@ func skipTargFlags(args []string) []string {
 		result = append(result, arg)
 	}
 	return result
+}
+
+func suggestFlags(chain []commandInstance, prefix string, includeCompletion bool) error {
+	if len(chain) == 0 {
+		return nil
+	}
+
+	seen := map[string]bool{}
+	for _, current := range chain {
+		if current.node == nil || current.node.Type == nil {
+			continue
+		}
+		inst := current.value
+		typ := current.node.Type
+		for i := 0; i < typ.NumField(); i++ {
+			field := typ.Field(i)
+			opts, ok, err := tagOptionsForField(inst, field)
+			if err != nil {
+				return err
+			}
+			if !ok || opts.Kind != TagKindFlag {
+				continue
+			}
+
+			name := opts.Name
+			shortName := opts.Short
+
+			longFlag := "--" + name
+			if strings.HasPrefix(longFlag, prefix) && !seen[longFlag] {
+				fmt.Println(longFlag)
+				seen[longFlag] = true
+			}
+			if shortName != "" {
+				shortFlag := "-" + shortName
+				if strings.HasPrefix(shortFlag, prefix) && !seen[shortFlag] {
+					fmt.Println(shortFlag)
+					seen[shortFlag] = true
+				}
+			}
+		}
+	}
+
+	if includeCompletion {
+		comp := "--completion"
+		if strings.HasPrefix(comp, prefix) {
+			fmt.Println(comp)
+		}
+	}
+	return nil
+}
+
+func tokenizeCommandLine(commandLine string) ([]string, bool) {
+	var parts []string
+	var current strings.Builder
+	inSingle := false
+	inDouble := false
+	escaped := false
+	isNewArg := false
+
+	for i := 0; i < len(commandLine); i++ {
+		ch := commandLine[i]
+		if escaped {
+			current.WriteByte(ch)
+			escaped = false
+			isNewArg = false
+			continue
+		}
+		if ch == '\\' && !inSingle {
+			escaped = true
+			isNewArg = false
+			continue
+		}
+		if ch == '\'' && !inDouble {
+			inSingle = !inSingle
+			isNewArg = false
+			continue
+		}
+		if ch == '"' && !inSingle {
+			inDouble = !inDouble
+			isNewArg = false
+			continue
+		}
+		if (ch == ' ' || ch == '\t' || ch == '\n') && !inSingle && !inDouble {
+			if current.Len() > 0 {
+				parts = append(parts, current.String())
+				current.Reset()
+			}
+			isNewArg = true
+			continue
+		}
+		current.WriteByte(ch)
+		isNewArg = false
+	}
+
+	if escaped {
+		current.WriteByte('\\')
+	}
+	if current.Len() > 0 {
+		parts = append(parts, current.String())
+	}
+	if inSingle || inDouble {
+		isNewArg = false
+	}
+	return parts, isNewArg
 }
