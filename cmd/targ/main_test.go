@@ -18,6 +18,7 @@ func TestBuildBootstrapData_Namespaces(t *testing.T) {
 		{
 			Dir:     "/repo/tools/issues",
 			Package: "issues",
+			Files:   []buildtool.FileInfo{{Path: "/repo/tools/issues/issues.go"}},
 			Commands: []buildtool.CommandInfo{
 				{Name: "List", Kind: buildtool.CommandStruct, File: "/repo/tools/issues/issues.go"},
 			},
@@ -25,6 +26,7 @@ func TestBuildBootstrapData_Namespaces(t *testing.T) {
 		{
 			Dir:     "/repo/tools/other",
 			Package: "other",
+			Files:   []buildtool.FileInfo{{Path: "/repo/tools/other/foo.go"}, {Path: "/repo/tools/other/bar.go"}},
 			Commands: []buildtool.CommandInfo{
 				{Name: "Thing", Kind: buildtool.CommandStruct, File: "/repo/tools/other/foo.go"},
 				{Name: "Ship", Kind: buildtool.CommandStruct, File: "/repo/tools/other/bar.go"},
@@ -32,7 +34,15 @@ func TestBuildBootstrapData_Namespaces(t *testing.T) {
 		},
 	}
 
-	data, err := buildBootstrapData(infos, "/repo", "/repo", "example.com/proj")
+	// Compute collapsed paths for the test files
+	var filePaths []string
+	for _, info := range infos {
+		for _, cmd := range info.Commands {
+			filePaths = append(filePaths, cmd.File)
+		}
+	}
+	collapsedPaths, _ := namespacePaths(filePaths, "/repo")
+	data, err := buildBootstrapData(infos, "/repo", "/repo", "example.com/proj", collapsedPaths, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -60,6 +70,7 @@ func TestBuildBootstrapData_RootCommands(t *testing.T) {
 		{
 			Dir:     "/repo/app",
 			Package: "app",
+			Files:   []buildtool.FileInfo{{Path: "/repo/app/tasks.go"}},
 			Commands: []buildtool.CommandInfo{
 				{Name: "Build", Kind: buildtool.CommandStruct, File: "/repo/app/tasks.go"},
 				{Name: "Lint", Kind: buildtool.CommandFunc, File: "/repo/app/tasks.go"},
@@ -67,7 +78,9 @@ func TestBuildBootstrapData_RootCommands(t *testing.T) {
 		},
 	}
 
-	data, err := buildBootstrapData(infos, "/repo/app", "/repo", "example.com/proj")
+	// Compute collapsed paths for the test files
+	collapsedPaths, _ := namespacePaths([]string{"/repo/app/tasks.go"}, "/repo/app")
+	data, err := buildBootstrapData(infos, "/repo/app", "/repo", "example.com/proj", collapsedPaths, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

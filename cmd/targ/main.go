@@ -211,45 +211,40 @@ func main() {
 		return
 	}
 
-	// Single module case - use existing logic
-	// Determine the target directory (where the target files are)
-	packageDir := startDir
-	if len(infos) == 1 && infos[0].Package == "main" {
-		packageDir = infos[0].Dir
-	}
-
-	// Find module by walking up from the first target file
-	var firstTargetFile string
+	// Single module case
+	// Collect file paths and compute collapsed namespace paths
+	var filePaths []string
 	for _, info := range infos {
-		if len(info.Files) > 0 {
-			firstTargetFile = info.Files[0].Path
-			break
+		for _, f := range info.Files {
+			filePaths = append(filePaths, f.Path)
 		}
 	}
-	if firstTargetFile == "" {
+	if len(filePaths) == 0 {
 		_, _ = fmt.Fprintf(errOut, "Error: no target files found\n")
 		exit(1)
 	}
 
-	importRoot, modulePath, moduleFound, err := findModuleForPath(firstTargetFile)
+	collapsedPaths, err := namespacePaths(filePaths, startDir)
+	if err != nil {
+		_, _ = fmt.Fprintf(errOut, "Error computing namespace paths: %v\n", err)
+		exit(1)
+	}
+
+	// Find module root for imports and cache key
+	importRoot, modulePath, moduleFound, err := findModuleForPath(filePaths[0])
 	if err != nil {
 		_, _ = fmt.Fprintf(errOut, "Error checking for module: %v\n", err)
 		exit(1)
 	}
-	dep := resolveTargDependency()
-	moduleRoot := importRoot
 	if !moduleFound {
-		// No go.mod found - create a minimal fallback module in cache
 		importRoot = startDir
 		modulePath = "targ.local"
-		moduleRoot, err = ensureFallbackModuleRoot(startDir, modulePath, dep)
-		if err != nil {
-			_, _ = fmt.Fprintf(errOut, "Error preparing fallback module: %v\n", err)
-			exit(1)
-		}
 	}
 
-	data, err := buildBootstrapData(infos, packageDir, importRoot, modulePath)
+	// Only use isolation when package main targ files coexist with library files
+	useIsolation := needsIsolation(infos)
+
+	data, err := buildBootstrapData(infos, startDir, importRoot, modulePath, collapsedPaths, useIsolation)
 	if err != nil {
 		_, _ = fmt.Fprintf(errOut, "Error preparing bootstrap: %v\n", err)
 		exit(1)
@@ -276,7 +271,11 @@ func main() {
 		exit(1)
 	}
 	cacheInputs := append(taggedFiles, moduleFiles...)
-	cacheKey, err := computeCacheKey(modulePath, importRoot, "targ", buf.Bytes(), cacheInputs)
+	cacheModulePath := modulePath
+	if useIsolation {
+		cacheModulePath = "targ.build.local"
+	}
+	cacheKey, err := computeCacheKey(cacheModulePath, importRoot, "targ", buf.Bytes(), cacheInputs)
 	if err != nil {
 		_, _ = fmt.Fprintf(errOut, "Error computing cache key: %v\n", err)
 		exit(1)
@@ -336,30 +335,42 @@ func main() {
 		defer func() { _ = cleanupTemp() }()
 	}
 
-	// Create isolated build directory to avoid module conflicts
-	// This ensures imports resolve to the module cache, not local files
-	isolatedDir, cleanupIsolated, err := createIsolatedBuildDir(infos, generatedWrappers, tempFile, moduleRoot, dep, keepBootstrap)
-	if err != nil {
-		_, _ = fmt.Fprintf(errOut, "Error creating isolated build directory: %v\n", err)
-		exit(1)
-	}
-	if !keepBootstrap {
-		defer cleanupIsolated()
+	var buildDir string
+	var cleanupBuildDir func()
+	if useIsolation {
+		// Create isolated build directory to avoid module conflicts
+		buildDir, cleanupBuildDir, err = createIsolatedBuildDir(infos, collapsedPaths, generatedWrappers, tempFile, startDir, keepBootstrap)
+		if err != nil {
+			_, _ = fmt.Fprintf(errOut, "Error creating isolated build directory: %v\n", err)
+			exit(1)
+		}
+		if !keepBootstrap {
+			defer cleanupBuildDir()
+		}
+
+		// Run go mod tidy to ensure dependencies are resolved
+		tidyCmd := exec.Command("go", "mod", "tidy")
+		tidyCmd.Dir = buildDir
+		tidyCmd.Stdout = io.Discard
+		tidyCmd.Stderr = io.Discard
+		_ = tidyCmd.Run() // Ignore errors - build will catch any real issues
+	} else {
+		// Build in module root - no isolation needed
+		buildDir = importRoot
 	}
 
-	// Run go mod tidy to ensure dependencies are resolved
-	tidyCmd := exec.Command("go", "mod", "tidy")
-	tidyCmd.Dir = isolatedDir
-	tidyCmd.Stdout = io.Discard
-	tidyCmd.Stderr = io.Discard
-	_ = tidyCmd.Run() // Ignore errors - build will catch any real issues
-
-	buildArgs := []string{"build", "-tags", "targ", "-o", binaryPath, "."}
+	var buildArgs []string
+	if useIsolation {
+		buildArgs = []string{"build", "-tags", "targ", "-o", binaryPath, "."}
+	} else {
+		// For non-isolated build, explicitly list the bootstrap file
+		buildArgs = []string{"build", "-tags", "targ", "-o", binaryPath, tempFile}
+	}
 	buildCmd := exec.Command("go", buildArgs...)
 	var buildOutput bytes.Buffer
 	buildCmd.Stdout = io.Discard
 	buildCmd.Stderr = &buildOutput
-	buildCmd.Dir = isolatedDir
+	buildCmd.Dir = buildDir
 	if err := buildCmd.Run(); err != nil {
 		if !keepBootstrap {
 			_ = cleanupTemp()
@@ -677,6 +688,8 @@ func buildBootstrapData(
 	startDir string,
 	moduleRoot string,
 	modulePath string,
+	collapsedPaths map[string][]string,
+	useIsolation bool,
 ) (bootstrapData, error) {
 	absStart, err := filepath.Abs(startDir)
 	if err != nil {
@@ -694,22 +707,40 @@ func buildBootstrapData(
 			return bootstrapData{}, fmt.Errorf("no commands found in package %s", info.Package)
 		}
 
-		local := sameDir(absStart, info.Dir)
+		var local bool
+		var importPath string
+
+		if useIsolation {
+			// In isolated mode, "local" means empty collapsed path (at root of temp dir)
+			var pkgCollapsedPath []string
+			if len(info.Files) > 0 {
+				pkgCollapsedPath = collapsedPaths[info.Files[0].Path]
+			}
+			local = len(pkgCollapsedPath) == 0
+			if !local {
+				importPath = "targ.build.local/" + strings.Join(pkgCollapsedPath, "/")
+			}
+		} else {
+			// In non-isolated mode, "local" means same directory as startDir
+			local = sameDir(absStart, info.Dir)
+			if !local {
+				rel, relErr := filepath.Rel(moduleRoot, info.Dir)
+				if relErr != nil {
+					return bootstrapData{}, relErr
+				}
+				importPath = modulePath
+				if rel != "." {
+					importPath = modulePath + "/" + filepath.ToSlash(rel)
+				}
+			}
+		}
+
 		if info.Package == "main" && !local {
 			return bootstrapData{}, fmt.Errorf("cannot import package main at %s; run targ from that directory or use a non-main package", info.Dir)
 		}
-		importPath := ""
 		importName := ""
 		prefix := ""
 		if !local {
-			rel, err := filepath.Rel(moduleRoot, info.Dir)
-			if err != nil {
-				return bootstrapData{}, err
-			}
-			importPath = modulePath
-			if rel != "." {
-				importPath = modulePath + "/" + filepath.ToSlash(rel)
-			}
 			importName = uniqueImportName(info.Package, usedImports)
 			prefix = importName + "."
 			imports = append(imports, bootstrapImport{
@@ -839,8 +870,23 @@ func buildModuleBinary(
 		packageDir = mt.Packages[0].Dir
 	}
 
+	// Collect file paths and compute collapsed namespace paths
+	var filePaths []string
+	for _, pkg := range mt.Packages {
+		for _, f := range pkg.Files {
+			filePaths = append(filePaths, f.Path)
+		}
+	}
+	collapsedPaths, err := namespacePaths(filePaths, startDir)
+	if err != nil {
+		return reg, fmt.Errorf("computing namespace paths: %w", err)
+	}
+
+	// Check if isolation is needed for this module
+	useIsolation := needsIsolation(mt.Packages)
+
 	// Build bootstrap data
-	data, err := buildBootstrapData(mt.Packages, packageDir, importRoot, mt.ModulePath)
+	data, err := buildBootstrapData(mt.Packages, startDir, importRoot, mt.ModulePath, collapsedPaths, useIsolation)
 	if err != nil {
 		return reg, fmt.Errorf("preparing bootstrap: %w", err)
 	}
@@ -1283,18 +1329,16 @@ func computeCacheKey(modulePath string, moduleRoot string, buildTag string, boot
 	return fmt.Sprintf("%x", hasher.Sum(nil)), nil
 }
 
-// createIsolatedBuildDir creates a temporary directory with copies of tagged files
-// and module files. This isolates the build from the source module, ensuring
-// imports resolve to the module cache rather than local files.
-//
-// The directory structure is preserved relative to moduleRoot, so multi-package
-// targets maintain their import paths.
+// createIsolatedBuildDir creates a temporary directory with copies of tagged files.
+// This isolates the build from the source module, avoiding package conflicts when
+// targ-tagged files coexist with library files in the same directory.
+// Files are organized using the collapsed namespace structure (same as subcommand hierarchy).
 func createIsolatedBuildDir(
 	infos []buildtool.PackageInfo,
+	collapsedPaths map[string][]string,
 	wrappers []string,
 	bootstrapFile string,
-	moduleRoot string,
-	dep targDependency,
+	startDir string,
 	keep bool,
 ) (string, func(), error) {
 	// Create temp directory outside any Go module
@@ -1309,7 +1353,7 @@ func createIsolatedBuildDir(
 		}
 	}
 
-	// Copy tagged source files, preserving directory structure
+	// Copy ALL targ files to isolated directory with collapsed structure
 	// Strip the build tag so files compile without -tags targ
 	for _, info := range infos {
 		for _, f := range info.Files {
@@ -1318,21 +1362,20 @@ func createIsolatedBuildDir(
 				cleanup()
 				return "", nil, fmt.Errorf("reading %s: %w", f.Path, err)
 			}
-			// Strip the //go:build targ line so files compile normally
 			content := stripBuildTag(string(data))
 
-			// Compute relative path from moduleRoot
-			relPath, err := filepath.Rel(moduleRoot, f.Path)
-			if err != nil {
-				// Fallback to just the filename if relative path fails
-				relPath = filepath.Base(f.Path)
+			// Determine target directory from collapsed path
+			collapsedPath := collapsedPaths[f.Path]
+			targetDir := tmpDir
+			if len(collapsedPath) > 0 {
+				targetDir = filepath.Join(tmpDir, filepath.Join(collapsedPath...))
 			}
-			dst := filepath.Join(tmpDir, relPath)
-			// Create parent directories
-			if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
+			if err := os.MkdirAll(targetDir, 0755); err != nil {
 				cleanup()
-				return "", nil, fmt.Errorf("creating dir for %s: %w", dst, err)
+				return "", nil, fmt.Errorf("creating dir %s: %w", targetDir, err)
 			}
+
+			dst := filepath.Join(targetDir, filepath.Base(f.Path))
 			if err := os.WriteFile(dst, []byte(content), 0644); err != nil {
 				cleanup()
 				return "", nil, fmt.Errorf("writing %s: %w", dst, err)
@@ -1340,7 +1383,7 @@ func createIsolatedBuildDir(
 		}
 	}
 
-	// Copy generated wrapper files (always at root - they're package main)
+	// Copy generated wrapper files to root (they're package main for bootstrap)
 	for _, wrapper := range wrappers {
 		data, err := os.ReadFile(wrapper)
 		if err != nil {
@@ -1354,7 +1397,7 @@ func createIsolatedBuildDir(
 		}
 	}
 
-	// Copy bootstrap file (at root - package main)
+	// Copy bootstrap file to root
 	bootstrapData, err := os.ReadFile(bootstrapFile)
 	if err != nil {
 		cleanup()
@@ -1366,46 +1409,13 @@ func createIsolatedBuildDir(
 		return "", nil, fmt.Errorf("writing bootstrap: %w", err)
 	}
 
-	// Create a synthetic go.mod for the isolated build
-	// We use a unique module path to avoid self-reference when building
-	// targets within a module that imports itself (like targ's own dev/ targets)
-	goModContent := createIsolatedGoMod(dep)
-	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte(goModContent), 0644); err != nil {
+	// Setup go.mod by copying from project and replacing module name
+	if err := setupIsolatedGoMod(tmpDir, startDir); err != nil {
 		cleanup()
-		return "", nil, fmt.Errorf("writing go.mod: %w", err)
+		return "", nil, fmt.Errorf("setting up go.mod: %w", err)
 	}
-	// Don't copy go.sum - go mod tidy will create it
 
 	return tmpDir, cleanup, nil
-}
-
-// createIsolatedGoMod creates a go.mod for the isolated build directory.
-// Uses a unique synthetic module path to avoid import cycles when building
-// targets that are part of a module that imports itself.
-func createIsolatedGoMod(dep targDependency) string {
-	if dep.ModulePath == "" {
-		dep.ModulePath = "github.com/toejough/targ"
-	}
-
-	var lines []string
-	// Synthetic module path - won't conflict with any real module
-	lines = append(lines, "module targ.build.local")
-	lines = append(lines, "")
-	lines = append(lines, "go 1.21")
-
-	// Add targ as a dependency
-	if dep.Version != "" {
-		lines = append(lines, "", fmt.Sprintf("require %s %s", dep.ModulePath, dep.Version))
-	} else {
-		lines = append(lines, "", fmt.Sprintf("require %s v0.0.0-00010101000000-000000000000", dep.ModulePath))
-	}
-
-	// Add replace if needed (for development builds)
-	if dep.ReplaceDir != "" {
-		lines = append(lines, "", fmt.Sprintf("replace %s => %s", dep.ModulePath, dep.ReplaceDir))
-	}
-
-	return strings.Join(lines, "\n") + "\n"
 }
 
 // createTargetsFile creates a starter targets file with the build tag.
@@ -1909,6 +1919,32 @@ func handleInitFlag(args []string) *initResult {
 	return nil
 }
 
+// hasNonTargGoFiles returns true if the directory contains Go files without the targ build tag.
+func hasNonTargGoFiles(dir string) bool {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		// Skip generated files
+		if strings.HasPrefix(name, "generated_targ_") {
+			continue
+		}
+		path := filepath.Join(dir, name)
+		if !hasTargBuildTag(path) {
+			return true
+		}
+	}
+	return false
+}
+
 // hasTargBuildTag checks if a file has the //go:build targ tag.
 func hasTargBuildTag(path string) bool {
 	data, err := os.ReadFile(path)
@@ -2024,6 +2060,23 @@ func namespacePaths(files []string, root string) (map[string][]string, error) {
 		trimmed[file] = append([]string(nil), parts[len(common):]...)
 	}
 	return compressNamespacePaths(trimmed), nil
+}
+
+// needsIsolation returns true if the build contains package main targ files
+// that coexist with non-targ library files in the same directory.
+// This is the only case where isolation is required to avoid package conflicts.
+func needsIsolation(infos []buildtool.PackageInfo) bool {
+	for _, info := range infos {
+		// Only package main can conflict with library files
+		if info.Package != "main" {
+			continue
+		}
+		// Check if there are non-targ Go files in this directory
+		if hasNonTargGoFiles(info.Dir) {
+			return true
+		}
+	}
+	return false
 }
 
 func parseHelpRequest(args []string) (bool, bool) {
@@ -2260,6 +2313,19 @@ func queryModuleCommands(binaryPath string) ([]commandInfo, error) {
 	return result.Commands, nil
 }
 
+// replaceModuleName replaces the module declaration in go.mod content.
+func replaceModuleName(content, newName string) string {
+	lines := strings.Split(content, "\n")
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "module ") {
+			lines[i] = "module " + newName
+			break
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
 func resolveTargDependency() targDependency {
 	dep := targDependency{
 		ModulePath: "github.com/toejough/targ",
@@ -2319,6 +2385,56 @@ func segmentToIdent(segment string) string {
 		return "Node" + ident
 	}
 	return ident
+}
+
+// setupIsolatedGoMod sets up the go.mod for the isolated build directory.
+// It walks up from startDir to find the nearest go.mod, copies it with the
+// module name replaced to targ.build.local, and copies go.sum if present.
+func setupIsolatedGoMod(tmpDir, startDir string) error {
+	// Walk up to find go.mod
+	goModPath := ""
+	current := startDir
+	for {
+		candidate := filepath.Join(current, "go.mod")
+		if _, err := os.Stat(candidate); err == nil {
+			goModPath = candidate
+			break
+		}
+		parent := filepath.Dir(current)
+		if parent == current {
+			break
+		}
+		current = parent
+	}
+
+	destPath := filepath.Join(tmpDir, "go.mod")
+	if goModPath != "" {
+		// Copy existing go.mod and replace module name
+		content, err := os.ReadFile(goModPath)
+		if err != nil {
+			return fmt.Errorf("reading go.mod: %w", err)
+		}
+		newContent := replaceModuleName(string(content), "targ.build.local")
+		if err := os.WriteFile(destPath, []byte(newContent), 0644); err != nil {
+			return fmt.Errorf("writing go.mod: %w", err)
+		}
+
+		// Also copy go.sum if exists
+		sumPath := filepath.Join(filepath.Dir(goModPath), "go.sum")
+		if sumContent, err := os.ReadFile(sumPath); err == nil {
+			if err := os.WriteFile(filepath.Join(tmpDir, "go.sum"), sumContent, 0644); err != nil {
+				return fmt.Errorf("writing go.sum: %w", err)
+			}
+		}
+	} else {
+		// Create minimal go.mod
+		content := "module targ.build.local\n\ngo 1.21\n"
+		if err := os.WriteFile(destPath, []byte(content), 0644); err != nil {
+			return fmt.Errorf("writing go.mod: %w", err)
+		}
+	}
+
+	return nil
 }
 
 func singlePackageBanner(info buildtool.PackageInfo) string {

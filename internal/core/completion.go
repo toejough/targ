@@ -223,6 +223,11 @@ func doCompletion(roots []*commandNode, commandLine string) error {
 
 	// Now we are at currentNode, and we need to suggest based on prefix
 
+	// 0. For single root at root level, suggest the root command name itself
+	if singleRoot && atRoot && strings.HasPrefix(currentNode.Name, prefix) {
+		fmt.Println(currentNode.Name)
+	}
+
 	// 1. Suggest Subcommands (children)
 	for name := range currentNode.Subcommands {
 		if strings.HasPrefix(name, prefix) {
