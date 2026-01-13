@@ -95,6 +95,16 @@ type listOutput struct {
 }
 
 func main() {
+	// Handle --alias early, before flag parsing
+	if aliasResult := handleAliasFlag(os.Args[1:]); aliasResult != nil {
+		if aliasResult.err != nil {
+			fmt.Fprintln(os.Stderr, aliasResult.err)
+			os.Exit(1)
+		}
+		fmt.Println(aliasResult.code)
+		return
+	}
+
 	var noCache bool
 	var keepBootstrap bool
 	var helpFlag bool
@@ -822,6 +832,8 @@ func printBuildToolUsage(out io.Writer) {
 	fmt.Fprintf(out, "    %-28s %s\n", "--completion {bash|zsh|fish}", "print completion script for specified shell. Uses the current shell if none is")
 	fmt.Fprintf(out, "    %-28s %s\n", "", "specified. The output should be eval'd/sourced in the shell to enable completions.")
 	fmt.Fprintf(out, "    %-28s %s\n", "", "(e.g. 'targ --completion fish | source')")
+	fmt.Fprintf(out, "    %-28s %s\n", "--alias NAME \"COMMAND\"", "generate Go code for a simple shell command target")
+	fmt.Fprintf(out, "    %-28s %s\n", "", "(e.g. 'targ --alias tidy \"go mod tidy\" >> targets.go')")
 	fmt.Fprintf(out, "    %-28s %s\n", "--help", "Print help information")
 }
 
@@ -1871,6 +1883,144 @@ func dispatchCompletion(registry []moduleRegistry, args []string) error {
 	}
 
 	return nil
+}
+
+type aliasResult struct {
+	code string
+	err  error
+}
+
+// handleAliasFlag checks for --alias and generates target code.
+// Returns nil if --alias was not specified.
+func handleAliasFlag(args []string) *aliasResult {
+	for i, arg := range args {
+		if arg == "--alias" {
+			if i+2 >= len(args) {
+				return &aliasResult{err: fmt.Errorf("--alias requires two arguments: NAME \"COMMAND\"")}
+			}
+			name := args[i+1]
+			command := args[i+2]
+			code, err := generateAlias(name, command)
+			return &aliasResult{code: code, err: err}
+		}
+		if strings.HasPrefix(arg, "--alias=") {
+			// --alias=name "command" format
+			name := strings.TrimPrefix(arg, "--alias=")
+			if i+1 >= len(args) {
+				return &aliasResult{err: fmt.Errorf("--alias requires a command argument")}
+			}
+			command := args[i+1]
+			code, err := generateAlias(name, command)
+			return &aliasResult{code: code, err: err}
+		}
+	}
+	return nil
+}
+
+// generateAlias creates Go code for a simple shell command target.
+func generateAlias(name string, command string) (string, error) {
+	if name == "" {
+		return "", fmt.Errorf("alias name cannot be empty")
+	}
+
+	// Convert name to exported Go function name
+	funcName := toExportedName(name)
+
+	// Parse command into parts
+	parts, err := parseShellCommand(command)
+	if err != nil {
+		return "", fmt.Errorf("parsing command: %w", err)
+	}
+	if len(parts) == 0 {
+		return "", fmt.Errorf("command cannot be empty")
+	}
+
+	// Build sh.Run arguments
+	var argsStr string
+	for i, part := range parts {
+		if i > 0 {
+			argsStr += ", "
+		}
+		argsStr += strconv.Quote(part)
+	}
+
+	// Generate the code
+	code := fmt.Sprintf(`// %s runs %q.
+func %s() error {
+	return sh.Run(%s)
+}
+`, funcName, command, funcName, argsStr)
+
+	return code, nil
+}
+
+// toExportedName converts a name like "tidy" or "run-tests" to "Tidy" or "RunTests".
+func toExportedName(name string) string {
+	var result strings.Builder
+	capitalizeNext := true
+	for _, r := range name {
+		if r == '-' || r == '_' {
+			capitalizeNext = true
+			continue
+		}
+		if capitalizeNext {
+			result.WriteRune(unicode.ToUpper(r))
+			capitalizeNext = false
+		} else {
+			result.WriteRune(r)
+		}
+	}
+	return result.String()
+}
+
+// parseShellCommand splits a shell command string into parts.
+// Handles quoted strings.
+func parseShellCommand(cmd string) ([]string, error) {
+	var parts []string
+	var current strings.Builder
+	inQuote := rune(0)
+	escaped := false
+
+	for _, r := range cmd {
+		if escaped {
+			current.WriteRune(r)
+			escaped = false
+			continue
+		}
+		if r == '\\' {
+			escaped = true
+			continue
+		}
+		if inQuote != 0 {
+			if r == inQuote {
+				inQuote = 0
+			} else {
+				current.WriteRune(r)
+			}
+			continue
+		}
+		if r == '"' || r == '\'' {
+			inQuote = r
+			continue
+		}
+		if r == ' ' || r == '\t' {
+			if current.Len() > 0 {
+				parts = append(parts, current.String())
+				current.Reset()
+			}
+			continue
+		}
+		current.WriteRune(r)
+	}
+
+	if inQuote != 0 {
+		return nil, fmt.Errorf("unclosed quote")
+	}
+	if current.Len() > 0 {
+		parts = append(parts, current.String())
+	}
+
+	return parts, nil
 }
 
 const bootstrapTemplate = `
