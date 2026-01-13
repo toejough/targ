@@ -3,3 +3,4 @@
 .DS_Store
 .crush/
 coverage.out
+.claude/settings.local.json
