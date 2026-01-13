@@ -154,6 +154,17 @@ func doCompletion(roots []*commandNode, commandLine string) error {
 		currentNode = roots[0]
 	} else {
 		if len(processedArgs) == 0 {
+			// If prefix starts with -, suggest global flags
+			if strings.HasPrefix(prefix, "-") {
+				globalOpts := []string{"--help", "--timeout", "--completion"}
+				for _, opt := range globalOpts {
+					if strings.HasPrefix(opt, prefix) {
+						fmt.Println(opt)
+					}
+				}
+				return nil
+			}
+			// Otherwise suggest root command names
 			for _, r := range roots {
 				if strings.HasPrefix(r.Name, prefix) {
 					fmt.Println(r.Name)
@@ -589,10 +600,16 @@ func suggestFlags(chain []commandInstance, prefix string, includeCompletion bool
 		}
 	}
 
+	// Suggest targ global options
+	// --help and --timeout are valid for all commands
+	// --completion is only valid at root (to print completion script)
+	globalOpts := []string{"--help", "--timeout"}
 	if includeCompletion {
-		comp := "--completion"
-		if strings.HasPrefix(comp, prefix) {
-			fmt.Println(comp)
+		globalOpts = append(globalOpts, "--completion")
+	}
+	for _, opt := range globalOpts {
+		if strings.HasPrefix(opt, prefix) && !seen[opt] {
+			fmt.Println(opt)
 		}
 	}
 	return nil
