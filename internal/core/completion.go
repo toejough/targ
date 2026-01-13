@@ -540,7 +540,7 @@ func positionalIndex(node *commandNode, args []string, chain []commandInstance) 
 // These are handled by the targ binary, not the bootstrap commands.
 var (
 	// targRootOnlyFlags are flags only valid at root level (before any command).
-	targRootOnlyFlags = []string{"--no-cache", "--keep", "--completion"}
+	targRootOnlyFlags = []string{"--no-cache", "--keep", "--completion", "--init", "--alias"}
 
 	// targGlobalFlags are flags valid at any command level.
 	targGlobalFlags = []string{"--help", "--timeout"}
@@ -557,6 +557,13 @@ var (
 		"--keep":     true,
 		"--help":     true,
 		"-h":         true,
+		"--init":     true, // can also use --init=FILE syntax
+	}
+
+	// targExitEarlyFlags cause targ to exit without running commands.
+	// Everything after these flags is consumed by them.
+	targExitEarlyFlags = map[string]bool{
+		"--alias": true, // takes NAME "CMD" [FILE]
 	}
 )
 
@@ -570,29 +577,44 @@ func skipTargFlags(args []string) []string {
 			skip = false
 			continue
 		}
-		// Check flags that take a value
+		// Exit-early flags consume all remaining args
+		if targExitEarlyFlags[arg] || hasExitEarlyFlagPrefix(arg) {
+			break
+		}
+		// Flags that take a value - skip flag and next arg
 		if targFlagsWithValues[arg] {
 			skip = true
 			continue
 		}
-		// Check flags with = syntax
-		isValueFlag := false
-		for flag := range targFlagsWithValues {
-			if strings.HasPrefix(arg, flag+"=") {
-				isValueFlag = true
-				break
-			}
-		}
-		if isValueFlag {
+		// Flags with --flag=value syntax
+		if hasFlagValuePrefix(arg, targFlagsWithValues) {
 			continue
 		}
-		// Check boolean flags
-		if targBooleanFlags[arg] {
+		// Boolean flags (may also have --flag=value syntax for some like --init)
+		if targBooleanFlags[arg] || hasFlagValuePrefix(arg, targBooleanFlags) {
 			continue
 		}
 		result = append(result, arg)
 	}
 	return result
+}
+
+func hasExitEarlyFlagPrefix(arg string) bool {
+	for flag := range targExitEarlyFlags {
+		if strings.HasPrefix(arg, flag+"=") {
+			return true
+		}
+	}
+	return false
+}
+
+func hasFlagValuePrefix(arg string, flags map[string]bool) bool {
+	for flag := range flags {
+		if strings.HasPrefix(arg, flag+"=") {
+			return true
+		}
+	}
+	return false
 }
 
 func suggestFlags(chain []commandInstance, prefix string, atRoot bool) error {
