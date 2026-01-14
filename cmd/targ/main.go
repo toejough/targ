@@ -2303,11 +2303,15 @@ func printCommandSummaries(out io.Writer, summaries []commandSummary) {
 	if maxLen < 10 {
 		maxLen = 10
 	}
-	format := fmt.Sprintf("    %%-%ds %%s\n", maxLen+2)
+	indent := strings.Repeat(" ", 4+maxLen+2) // 4 leading spaces + name width + 2 padding
 
 	for _, summary := range summaries {
 		if summary.Description != "" {
-			_, _ = fmt.Fprintf(out, format, summary.Name, summary.Description)
+			lines := strings.Split(summary.Description, "\n")
+			_, _ = fmt.Fprintf(out, "    %-*s %s\n", maxLen+2, summary.Name, lines[0])
+			for _, line := range lines[1:] {
+				_, _ = fmt.Fprintf(out, "%s%s\n", indent, line)
+			}
 		} else {
 			_, _ = fmt.Fprintf(out, "    %s\n", summary.Name)
 		}
@@ -2348,10 +2352,14 @@ func printMultiModuleHelp(registry []moduleRegistry) {
 	if maxLen < 10 {
 		maxLen = 10
 	}
-	format := fmt.Sprintf("    %%-%ds %%s\n", maxLen+2)
+	indent := strings.Repeat(" ", 4+maxLen+2) // 4 leading spaces + name width + 2 padding
 
 	for _, cmd := range allCmds {
-		fmt.Printf(format, cmd.name, cmd.description)
+		lines := strings.Split(cmd.description, "\n")
+		fmt.Printf("    %-*s %s\n", maxLen+2, cmd.name, lines[0])
+		for _, line := range lines[1:] {
+			fmt.Printf("%s%s\n", indent, line)
+		}
 	}
 
 	fmt.Println()
