@@ -246,8 +246,8 @@ func main() {
 		modulePath = "targ.local"
 	}
 
-	// Only use isolation when package main targ files coexist with library files
-	useIsolation := needsIsolation(infos)
+	// Use isolation when package main files can't be imported directly
+	useIsolation := needsIsolation(infos, startDir)
 
 	data, err := buildBootstrapData(infos, startDir, importRoot, modulePath, collapsedPaths, useIsolation)
 	if err != nil {
@@ -888,7 +888,7 @@ func buildModuleBinary(
 	}
 
 	// Check if isolation is needed for this module
-	useIsolation := needsIsolation(mt.Packages)
+	useIsolation := needsIsolation(mt.Packages, startDir)
 
 	// Build bootstrap data
 	data, err := buildBootstrapData(mt.Packages, startDir, importRoot, mt.ModulePath, collapsedPaths, useIsolation)
@@ -2067,14 +2067,21 @@ func namespacePaths(files []string, root string) (map[string][]string, error) {
 	return compressNamespacePaths(trimmed), nil
 }
 
-// needsIsolation returns true if the build contains package main targ files
-// that coexist with non-targ library files in the same directory.
-// This is the only case where isolation is required to avoid package conflicts.
-func needsIsolation(infos []buildtool.PackageInfo) bool {
+// needsIsolation returns true if:
+// 1. Package main targ files coexist with non-targ library files (package conflict)
+// 2. Package main targ files are in a different directory than startDir (can't import package main)
+func needsIsolation(infos []buildtool.PackageInfo, startDir string) bool {
+	absStart, err := filepath.Abs(startDir)
+	if err != nil {
+		absStart = startDir
+	}
 	for _, info := range infos {
-		// Only package main can conflict with library files
 		if info.Package != "main" {
 			continue
+		}
+		// Can't import package main from another directory
+		if !sameDir(absStart, info.Dir) {
+			return true
 		}
 		// Check if there are non-targ Go files in this directory
 		if hasNonTargGoFiles(info.Dir) {
