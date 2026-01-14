@@ -2303,7 +2303,8 @@ func printCommandSummaries(out io.Writer, summaries []commandSummary) {
 	if maxLen < 10 {
 		maxLen = 10
 	}
-	indent := strings.Repeat(" ", 4+maxLen+2) // 4 leading spaces + name width + 2 padding
+	// Indent for continuation lines: 4 leading + name width + 2 padding + 1 space + 2 extra
+	indent := strings.Repeat(" ", 4+maxLen+2+1+2)
 
 	for _, summary := range summaries {
 		if summary.Description != "" {
@@ -2352,7 +2353,8 @@ func printMultiModuleHelp(registry []moduleRegistry) {
 	if maxLen < 10 {
 		maxLen = 10
 	}
-	indent := strings.Repeat(" ", 4+maxLen+2) // 4 leading spaces + name width + 2 padding
+	// Indent for continuation lines: 4 leading + name width + 2 padding + 1 space + 2 extra
+	indent := strings.Repeat(" ", 4+maxLen+2+1+2)
 
 	for _, cmd := range allCmds {
 		lines := strings.Split(cmd.description, "\n")
