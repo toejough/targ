@@ -2293,9 +2293,21 @@ func printCommandSummaries(out io.Writer, summaries []commandSummary) {
 		_, _ = fmt.Fprintln(out, "    (none)")
 		return
 	}
+	// Find max name length for alignment
+	maxLen := 0
+	for _, summary := range summaries {
+		if len(summary.Name) > maxLen {
+			maxLen = len(summary.Name)
+		}
+	}
+	if maxLen < 10 {
+		maxLen = 10
+	}
+	format := fmt.Sprintf("    %%-%ds %%s\n", maxLen+2)
+
 	for _, summary := range summaries {
 		if summary.Description != "" {
-			_, _ = fmt.Fprintf(out, "    %-10s %s\n", summary.Name, summary.Description)
+			_, _ = fmt.Fprintf(out, format, summary.Name, summary.Description)
 		} else {
 			_, _ = fmt.Fprintf(out, "    %s\n", summary.Name)
 		}
@@ -2325,8 +2337,21 @@ func printMultiModuleHelp(registry []moduleRegistry) {
 		return allCmds[i].name < allCmds[j].name
 	})
 
+	// Find max command name length for alignment
+	maxLen := 0
 	for _, cmd := range allCmds {
-		fmt.Printf("    %-20s %s\n", cmd.name, cmd.description)
+		if len(cmd.name) > maxLen {
+			maxLen = len(cmd.name)
+		}
+	}
+	// Ensure minimum width and add padding
+	if maxLen < 10 {
+		maxLen = 10
+	}
+	format := fmt.Sprintf("    %%-%ds %%s\n", maxLen+2)
+
+	for _, cmd := range allCmds {
+		fmt.Printf(format, cmd.name, cmd.description)
 	}
 
 	fmt.Println()
