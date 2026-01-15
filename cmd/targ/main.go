@@ -1670,12 +1670,16 @@ func ensureShImport(path string) error {
 
 	content := string(data)
 
-	// Check if already imported
 	if strings.Contains(content, `"github.com/toejough/targ/sh"`) {
 		return nil
 	}
 
-	// Find the import block or single import
+	result := addShImportToContent(content)
+
+	return os.WriteFile(path, []byte(result), 0o644)
+}
+
+func addShImportToContent(content string) string {
 	lines := strings.Split(content, "\n")
 
 	var result []string
@@ -1684,56 +1688,81 @@ func ensureShImport(path string) error {
 
 	for i, line := range lines {
 		result = append(result, line)
+
+		if importAdded {
+			continue
+		}
+
 		trimmed := strings.TrimSpace(line)
-
-		// Handle import block: import (
-		if trimmed == "import (" && !importAdded {
-			// Add sh import after the opening paren
-			result = append(result, `	"github.com/toejough/targ/sh"`)
+		if added := tryAddImportBlock(trimmed, &result); added {
 			importAdded = true
 
 			continue
 		}
 
-		// Handle single import: import "..."
-		if strings.HasPrefix(trimmed, "import \"") && !importAdded {
-			// Convert to import block
-			result[len(result)-1] = "import ("
-			result = append(result, "\t"+strings.TrimPrefix(trimmed, "import "))
-			result = append(result, `	"github.com/toejough/targ/sh"`)
-			result = append(result, ")")
+		if added := tryConvertSingleImport(trimmed, &result); added {
 			importAdded = true
 
 			continue
 		}
 
-		// If no imports yet and we hit package, add import after it
-		if strings.HasPrefix(trimmed, "package ") && !importAdded {
-			// Look ahead - if next non-empty line isn't import, add one
-			hasImport := false
-
-			for j := i + 1; j < len(lines); j++ {
-				nextTrimmed := strings.TrimSpace(lines[j])
-				if nextTrimmed == "" {
-					continue
-				}
-
-				if strings.HasPrefix(nextTrimmed, "import") {
-					hasImport = true
-				}
-
-				break
-			}
-
-			if !hasImport {
-				result = append(result, "")
-				result = append(result, `import "github.com/toejough/targ/sh"`)
-				importAdded = true
-			}
+		if added := tryAddAfterPackage(trimmed, lines, i, &result); added {
+			importAdded = true
 		}
 	}
 
-	return os.WriteFile(path, []byte(strings.Join(result, "\n")), 0o644)
+	return strings.Join(result, "\n")
+}
+
+func tryAddImportBlock(trimmed string, result *[]string) bool {
+	if trimmed != "import (" {
+		return false
+	}
+
+	*result = append(*result, `	"github.com/toejough/targ/sh"`)
+
+	return true
+}
+
+func tryConvertSingleImport(trimmed string, result *[]string) bool {
+	if !strings.HasPrefix(trimmed, "import \"") {
+		return false
+	}
+
+	(*result)[len(*result)-1] = "import ("
+	*result = append(*result, "\t"+strings.TrimPrefix(trimmed, "import "))
+	*result = append(*result, `	"github.com/toejough/targ/sh"`)
+	*result = append(*result, ")")
+
+	return true
+}
+
+func tryAddAfterPackage(trimmed string, lines []string, index int, result *[]string) bool {
+	if !strings.HasPrefix(trimmed, "package ") {
+		return false
+	}
+
+	if hasImportAhead(lines, index) {
+		return false
+	}
+
+	*result = append(*result, "")
+	*result = append(*result, `import "github.com/toejough/targ/sh"`)
+
+	return true
+}
+
+func hasImportAhead(lines []string, index int) bool {
+	for j := index + 1; j < len(lines); j++ {
+		nextTrimmed := strings.TrimSpace(lines[j])
+		if nextTrimmed == "" {
+			continue
+		}
+
+		return strings.HasPrefix(nextTrimmed, "import")
+	}
+
+	return false
 }
 
 // extractLeadingCompletion extracts --completion from args before any command.
@@ -2224,65 +2253,85 @@ func parseModulePath(content string) string {
 
 // parseShellCommand splits a shell command string into parts.
 // Handles quoted strings.
-func parseShellCommand(cmd string) ([]string, error) {
-	var (
-		parts   []string
-		current strings.Builder
-	)
+type shellCommandParser struct {
+	parts   []string
+	current strings.Builder
+	inQuote rune
+	escaped bool
+}
 
-	inQuote := rune(0)
-	escaped := false
+func parseShellCommand(cmd string) ([]string, error) {
+	p := &shellCommandParser{}
 
 	for _, r := range cmd {
-		if escaped {
-			current.WriteRune(r)
-
-			escaped = false
-
-			continue
-		}
-
-		if r == '\\' {
-			escaped = true
-			continue
-		}
-
-		if inQuote != 0 {
-			if r == inQuote {
-				inQuote = 0
-			} else {
-				current.WriteRune(r)
-			}
-
-			continue
-		}
-
-		if r == '"' || r == '\'' {
-			inQuote = r
-			continue
-		}
-
-		if r == ' ' || r == '\t' {
-			if current.Len() > 0 {
-				parts = append(parts, current.String())
-				current.Reset()
-			}
-
-			continue
-		}
-
-		current.WriteRune(r)
+		p.processRune(r)
 	}
 
-	if inQuote != 0 {
+	return p.finalize()
+}
+
+func (p *shellCommandParser) processRune(r rune) {
+	if p.escaped {
+		p.current.WriteRune(r)
+		p.escaped = false
+
+		return
+	}
+
+	if r == '\\' {
+		p.escaped = true
+
+		return
+	}
+
+	if p.inQuote != 0 {
+		p.handleQuotedChar(r)
+
+		return
+	}
+
+	p.handleUnquotedChar(r)
+}
+
+func (p *shellCommandParser) handleQuotedChar(r rune) {
+	if r == p.inQuote {
+		p.inQuote = 0
+	} else {
+		p.current.WriteRune(r)
+	}
+}
+
+func (p *shellCommandParser) handleUnquotedChar(r rune) {
+	if r == '"' || r == '\'' {
+		p.inQuote = r
+
+		return
+	}
+
+	if r == ' ' || r == '\t' {
+		p.flushCurrent()
+
+		return
+	}
+
+	p.current.WriteRune(r)
+}
+
+func (p *shellCommandParser) flushCurrent() {
+	if p.current.Len() > 0 {
+		p.parts = append(p.parts, p.current.String())
+		p.current.Reset()
+	}
+}
+
+func (p *shellCommandParser) finalize() ([]string, error) {
+	if p.inQuote != 0 {
 		return nil, errors.New("unclosed quote")
 	}
 
-	if current.Len() > 0 {
-		parts = append(parts, current.String())
-	}
+	p.flushCurrent()
 
-	return parts, nil
+	return p.parts, nil
 }
 
 func printBuildToolHelp(out io.Writer, startDir string) error {
