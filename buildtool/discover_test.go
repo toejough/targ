@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestDiscover_AllowsContextFunctions(t *testing.T) {
@@ -1245,13 +1246,25 @@ type fakeDirEntry struct {
 	dir  bool
 }
 
-func (f fakeDirEntry) Info() (fs.FileInfo, error) { return nil, nil }
+func (f fakeDirEntry) Info() (fs.FileInfo, error) { return fakeFileInfo(f), nil }
 
 func (f fakeDirEntry) IsDir() bool { return f.dir }
 
 func (f fakeDirEntry) Name() string { return f.name }
 
 func (f fakeDirEntry) Type() fs.FileMode { return 0 }
+
+type fakeFileInfo struct {
+	name string
+	dir  bool
+}
+
+func (f fakeFileInfo) Name() string       { return f.name }
+func (f fakeFileInfo) Size() int64        { return 0 }
+func (f fakeFileInfo) Mode() fs.FileMode  { return 0 }
+func (f fakeFileInfo) ModTime() time.Time { return time.Time{} }
+func (f fakeFileInfo) IsDir() bool        { return f.dir }
+func (f fakeFileInfo) Sys() any           { return nil }
 
 func commandNamesByKind(info PackageInfo, kind CommandKind) []string {
 	var names []string

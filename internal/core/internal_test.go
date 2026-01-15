@@ -79,7 +79,7 @@ func (f *FlagParseCmd) Run() {}
 
 type MetaOverrideCmd struct{}
 
-func (m MetaOverrideCmd) Description() string {
+func (m *MetaOverrideCmd) Description() string {
 	return "Custom description."
 }
 
