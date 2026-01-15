@@ -990,6 +990,116 @@ func assignNamespaceNames(root *namespaceNode, gen *nameGenerator) {
 	walk(root)
 }
 
+type bootstrapBuilder struct {
+	absStart     string
+	moduleRoot   string
+	modulePath   string
+	imports      []bootstrapImport
+	usedImports  map[string]bool
+	fileCommands map[string][]bootstrapCommand
+	funcWrappers []bootstrapFuncWrapper
+	usesContext  bool
+	wrapperNames *nameGenerator
+}
+
+func newBootstrapBuilder(absStart, moduleRoot, modulePath string) *bootstrapBuilder {
+	return &bootstrapBuilder{
+		absStart:     absStart,
+		moduleRoot:   moduleRoot,
+		modulePath:   modulePath,
+		imports:      []bootstrapImport{{Path: "github.com/toejough/targ"}},
+		usedImports:  map[string]bool{"github.com/toejough/targ": true},
+		fileCommands: make(map[string][]bootstrapCommand),
+		wrapperNames: &nameGenerator{},
+	}
+}
+
+func (b *bootstrapBuilder) processPackage(info buildtool.PackageInfo) error {
+	if len(info.Commands) == 0 {
+		return fmt.Errorf("no commands found in package %s", info.Package)
+	}
+
+	local := sameDir(b.absStart, info.Dir)
+	prefix := b.setupImport(info, local)
+
+	for _, cmd := range info.Commands {
+		if err := b.processCommand(info.Package, cmd, prefix); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (b *bootstrapBuilder) setupImport(info buildtool.PackageInfo, local bool) string {
+	if local {
+		return ""
+	}
+
+	importPath := b.computeImportPath(info.Dir)
+	importName := uniqueImportName(info.Package, b.usedImports)
+
+	b.imports = append(b.imports, bootstrapImport{
+		Path:  importPath,
+		Alias: importName,
+	})
+
+	return importName + "."
+}
+
+func (b *bootstrapBuilder) computeImportPath(dir string) string {
+	rel, err := filepath.Rel(b.moduleRoot, dir)
+	if err != nil || rel == "." {
+		return b.modulePath
+	}
+
+	return b.modulePath + "/" + filepath.ToSlash(rel)
+}
+
+func (b *bootstrapBuilder) processCommand(pkgName string, cmd buildtool.CommandInfo, prefix string) error {
+	switch cmd.Kind {
+	case buildtool.CommandStruct:
+		b.addStructCommand(cmd, prefix)
+	case buildtool.CommandFunc:
+		b.addFuncCommand(pkgName, cmd, prefix)
+	default:
+		return fmt.Errorf("unknown command kind for %s", cmd.Name)
+	}
+
+	return nil
+}
+
+func (b *bootstrapBuilder) addStructCommand(cmd buildtool.CommandInfo, prefix string) {
+	b.fileCommands[cmd.File] = append(b.fileCommands[cmd.File], bootstrapCommand{
+		Name:      cmd.Name,
+		TypeExpr:  "*" + prefix + cmd.Name,
+		ValueExpr: "&" + prefix + cmd.Name + "{}",
+	})
+}
+
+func (b *bootstrapBuilder) addFuncCommand(pkgName string, cmd buildtool.CommandInfo, prefix string) {
+	base := segmentToIdent(pkgName) + segmentToIdent(cmd.Name) + "Func"
+	typeName := b.wrapperNames.uniqueTypeName(base)
+
+	b.funcWrappers = append(b.funcWrappers, bootstrapFuncWrapper{
+		TypeName:     typeName,
+		Name:         cmd.Name,
+		FuncExpr:     prefix + cmd.Name,
+		UsesContext:  cmd.UsesContext,
+		ReturnsError: cmd.ReturnsError,
+	})
+
+	if cmd.UsesContext {
+		b.usesContext = true
+	}
+
+	b.fileCommands[cmd.File] = append(b.fileCommands[cmd.File], bootstrapCommand{
+		Name:      cmd.Name,
+		TypeExpr:  "*" + typeName,
+		ValueExpr: "&" + typeName + "{}",
+	})
+}
+
 func buildBootstrapData(
 	infos []buildtool.PackageInfo,
 	startDir string,
@@ -1002,91 +1112,19 @@ func buildBootstrapData(
 		return bootstrapData{}, err
 	}
 
-	imports := []bootstrapImport{{Path: "github.com/toejough/targ"}}
-	usedImports := map[string]bool{"github.com/toejough/targ": true}
-	fileCommands := make(map[string][]bootstrapCommand)
-
-	var funcWrappers []bootstrapFuncWrapper
-
-	usesContext := false
-	wrapperNames := &nameGenerator{}
+	builder := newBootstrapBuilder(absStart, moduleRoot, modulePath)
 
 	for _, info := range infos {
-		if len(info.Commands) == 0 {
-			return bootstrapData{}, fmt.Errorf("no commands found in package %s", info.Package)
-		}
-
-		// "local" means same directory as startDir (functions can be called directly)
-		local := sameDir(absStart, info.Dir)
-
-		var importPath string
-
-		if !local {
-			rel, relErr := filepath.Rel(moduleRoot, info.Dir)
-			if relErr != nil {
-				return bootstrapData{}, relErr
-			}
-
-			importPath = modulePath
-			if rel != "." {
-				importPath = modulePath + "/" + filepath.ToSlash(rel)
-			}
-		}
-
-		prefix := ""
-
-		if !local {
-			importName := uniqueImportName(info.Package, usedImports)
-			prefix = importName + "."
-			imports = append(imports, bootstrapImport{
-				Path:  importPath,
-				Alias: importName,
-			})
-		}
-
-		for _, cmd := range info.Commands {
-			switch cmd.Kind {
-			case buildtool.CommandStruct:
-				fileCommands[cmd.File] = append(fileCommands[cmd.File], bootstrapCommand{
-					Name:      cmd.Name,
-					TypeExpr:  "*" + prefix + cmd.Name,
-					ValueExpr: "&" + prefix + cmd.Name + "{}",
-				})
-			case buildtool.CommandFunc:
-				base := segmentToIdent(info.Package) + segmentToIdent(cmd.Name) + "Func"
-				typeName := wrapperNames.uniqueTypeName(base)
-
-				funcWrappers = append(funcWrappers, bootstrapFuncWrapper{
-					TypeName:     typeName,
-					Name:         cmd.Name,
-					FuncExpr:     prefix + cmd.Name,
-					UsesContext:  cmd.UsesContext,
-					ReturnsError: cmd.ReturnsError,
-				})
-				if cmd.UsesContext {
-					usesContext = true
-				}
-
-				fileCommands[cmd.File] = append(fileCommands[cmd.File], bootstrapCommand{
-					Name:      cmd.Name,
-					TypeExpr:  "*" + typeName,
-					ValueExpr: "&" + typeName + "{}",
-				})
-			default:
-				return bootstrapData{}, fmt.Errorf("unknown command kind for %s", cmd.Name)
-			}
+		if err := builder.processPackage(info); err != nil {
+			return bootstrapData{}, err
 		}
 	}
 
-	filePaths := make([]string, 0, len(fileCommands))
-	for path := range fileCommands {
-		sort.Slice(fileCommands[path], func(i, j int) bool {
-			return fileCommands[path][i].Name < fileCommands[path][j].Name
-		})
-		filePaths = append(filePaths, path)
-	}
+	return builder.buildResult(startDir, infos)
+}
 
-	sort.Strings(filePaths)
+func (b *bootstrapBuilder) buildResult(startDir string, infos []buildtool.PackageInfo) (bootstrapData, error) {
+	filePaths := b.sortedFilePaths()
 
 	paths, err := namespacePaths(filePaths, startDir)
 	if err != nil {
@@ -1096,8 +1134,49 @@ func buildBootstrapData(
 	tree := buildNamespaceTree(paths)
 	assignNamespaceNames(tree, &nameGenerator{})
 
-	var nodes []bootstrapNode
+	rootExprs := b.collectRootExprs(filePaths, paths, tree)
 
+	var nodes []bootstrapNode
+	if err := collectNamespaceNodes(tree, b.fileCommands, &nodes); err != nil {
+		return bootstrapData{}, err
+	}
+
+	bannerLit := ""
+	if len(infos) == 1 {
+		bannerLit = strconv.Quote(singlePackageBanner(infos[0]))
+	}
+
+	return bootstrapData{
+		AllowDefault: false,
+		BannerLit:    bannerLit,
+		Imports:      b.imports,
+		RootExprs:    rootExprs,
+		Nodes:        nodes,
+		FuncWrappers: b.funcWrappers,
+		UsesContext:  b.usesContext,
+	}, nil
+}
+
+func (b *bootstrapBuilder) sortedFilePaths() []string {
+	filePaths := make([]string, 0, len(b.fileCommands))
+
+	for path := range b.fileCommands {
+		sort.Slice(b.fileCommands[path], func(i, j int) bool {
+			return b.fileCommands[path][i].Name < b.fileCommands[path][j].Name
+		})
+		filePaths = append(filePaths, path)
+	}
+
+	sort.Strings(filePaths)
+
+	return filePaths
+}
+
+func (b *bootstrapBuilder) collectRootExprs(
+	filePaths []string,
+	paths map[string][]string,
+	tree *namespaceNode,
+) []string {
 	rootExprs := make([]string, 0)
 
 	for _, path := range filePaths {
@@ -1105,7 +1184,7 @@ func buildBootstrapData(
 			continue
 		}
 
-		for _, cmd := range fileCommands[path] {
+		for _, cmd := range b.fileCommands[path] {
 			rootExprs = append(rootExprs, cmd.ValueExpr)
 		}
 	}
@@ -1118,32 +1197,12 @@ func buildBootstrapData(
 	sort.Strings(rootNames)
 
 	for _, name := range rootNames {
-		child := tree.Children[name]
-		if child != nil {
+		if child := tree.Children[name]; child != nil {
 			rootExprs = append(rootExprs, child.VarName)
 		}
 	}
 
-	if err := collectNamespaceNodes(tree, fileCommands, &nodes); err != nil {
-		return bootstrapData{}, err
-	}
-
-	allowDefault := false
-
-	bannerLit := ""
-	if len(infos) == 1 {
-		bannerLit = strconv.Quote(singlePackageBanner(infos[0]))
-	}
-
-	return bootstrapData{
-		AllowDefault: allowDefault,
-		BannerLit:    bannerLit,
-		Imports:      imports,
-		RootExprs:    rootExprs,
-		Nodes:        nodes,
-		FuncWrappers: funcWrappers,
-		UsesContext:  usesContext,
-	}, nil
+	return rootExprs
 }
 
 func buildCommandFields(
@@ -1183,31 +1242,125 @@ func buildModuleBinary(
 		ModulePath: mt.ModulePath,
 	}
 
-	// Validate no package main in targ files
+	if err := validateNoPackageMain(mt); err != nil {
+		return reg, err
+	}
+
+	buildCtx, err := prepareBuildContext(mt, startDir, dep)
+	if err != nil {
+		return reg, err
+	}
+
+	bootstrap, err := generateModuleBootstrap(mt, startDir, buildCtx.importRoot)
+	if err != nil {
+		return reg, err
+	}
+
+	binaryPath, err := setupBinaryPath(buildCtx.importRoot, mt.ModulePath, bootstrap)
+	if err != nil {
+		return reg, err
+	}
+
+	reg.BinaryPath = binaryPath
+
+	if !noCache {
+		if cmds, ok := tryCachedBinary(binaryPath); ok {
+			reg.Commands = cmds
+			return reg, nil
+		}
+	}
+
+	cmds, err := buildAndQueryBinary(buildCtx, mt, dep, binaryPath, bootstrap, keepBootstrap, errOut)
+	if err != nil {
+		return reg, err
+	}
+
+	reg.Commands = cmds
+
+	return reg, nil
+}
+
+// validateNoPackageMain ensures no targ files use package main.
+func validateNoPackageMain(mt moduleTargets) error {
 	for _, pkg := range mt.Packages {
 		if pkg.Package == "main" {
-			return reg, fmt.Errorf(
+			return fmt.Errorf(
 				"targ files cannot use 'package main' (found in %s); use a named package instead",
 				pkg.Dir,
 			)
 		}
 	}
 
-	// Determine if using fallback module
-	usingFallback := mt.ModulePath == "targ.local"
-	buildRoot := mt.ModuleRoot
-	importRoot := mt.ModuleRoot
+	return nil
+}
 
-	if usingFallback {
+type buildContext struct {
+	usingFallback bool
+	buildRoot     string
+	importRoot    string
+}
+
+// prepareBuildContext determines build roots and handles fallback module setup.
+func prepareBuildContext(mt moduleTargets, startDir string, dep targDependency) (buildContext, error) {
+	ctx := buildContext{
+		usingFallback: mt.ModulePath == "targ.local",
+		buildRoot:     mt.ModuleRoot,
+		importRoot:    mt.ModuleRoot,
+	}
+
+	if ctx.usingFallback {
 		var err error
 
-		buildRoot, err = ensureFallbackModuleRoot(startDir, mt.ModulePath, dep)
+		ctx.buildRoot, err = ensureFallbackModuleRoot(startDir, mt.ModulePath, dep)
 		if err != nil {
-			return reg, fmt.Errorf("preparing fallback module: %w", err)
+			return ctx, fmt.Errorf("preparing fallback module: %w", err)
 		}
 	}
 
-	// Collect file paths and compute collapsed namespace paths
+	return ctx, nil
+}
+
+type moduleBootstrap struct {
+	code      []byte
+	cacheKey  string
+	filePaths []string
+}
+
+// generateModuleBootstrap creates bootstrap code and computes cache key.
+func generateModuleBootstrap(mt moduleTargets, startDir, importRoot string) (moduleBootstrap, error) {
+	filePaths := collectPackageFilePaths(mt)
+
+	collapsedPaths, err := namespacePaths(filePaths, startDir)
+	if err != nil {
+		return moduleBootstrap{}, fmt.Errorf("computing namespace paths: %w", err)
+	}
+
+	data, err := buildBootstrapData(mt.Packages, startDir, importRoot, mt.ModulePath, collapsedPaths)
+	if err != nil {
+		return moduleBootstrap{}, fmt.Errorf("preparing bootstrap: %w", err)
+	}
+
+	tmpl := template.Must(template.New("main").Parse(bootstrapTemplate))
+
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, data); err != nil {
+		return moduleBootstrap{}, fmt.Errorf("generating code: %w", err)
+	}
+
+	cacheKey, err := computeModuleCacheKey(mt, importRoot, buf.Bytes())
+	if err != nil {
+		return moduleBootstrap{}, err
+	}
+
+	return moduleBootstrap{
+		code:      buf.Bytes(),
+		cacheKey:  cacheKey,
+		filePaths: filePaths,
+	}, nil
+}
+
+// collectPackageFilePaths extracts all file paths from module packages.
+func collectPackageFilePaths(mt moduleTargets) []string {
 	var filePaths []string
 
 	for _, pkg := range mt.Packages {
@@ -1216,102 +1369,109 @@ func buildModuleBinary(
 		}
 	}
 
-	collapsedPaths, err := namespacePaths(filePaths, startDir)
-	if err != nil {
-		return reg, fmt.Errorf("computing namespace paths: %w", err)
-	}
+	return filePaths
+}
 
-	// Build bootstrap data
-	data, err := buildBootstrapData(
-		mt.Packages,
-		startDir,
-		importRoot,
-		mt.ModulePath,
-		collapsedPaths,
-	)
-	if err != nil {
-		return reg, fmt.Errorf("preparing bootstrap: %w", err)
-	}
-
-	// Generate bootstrap code
-	tmpl := template.Must(template.New("main").Parse(bootstrapTemplate))
-
-	var buf bytes.Buffer
-	if err := tmpl.Execute(&buf, data); err != nil {
-		return reg, fmt.Errorf("generating code: %w", err)
-	}
-
-	// Compute cache key for this module
+// computeModuleCacheKey computes the cache key for a module build.
+func computeModuleCacheKey(mt moduleTargets, importRoot string, bootstrap []byte) (string, error) {
 	taggedFiles, err := collectModuleTaggedFiles(mt)
 	if err != nil {
-		return reg, fmt.Errorf("gathering tagged files: %w", err)
+		return "", fmt.Errorf("gathering tagged files: %w", err)
 	}
 
 	moduleFiles, err := collectModuleFiles(importRoot)
 	if err != nil {
-		return reg, fmt.Errorf("gathering module files: %w", err)
+		return "", fmt.Errorf("gathering module files: %w", err)
 	}
 
 	cacheInputs := slices.Concat(taggedFiles, moduleFiles)
 
-	cacheKey, err := computeCacheKey(mt.ModulePath, importRoot, "targ", buf.Bytes(), cacheInputs)
+	cacheKey, err := computeCacheKey(mt.ModulePath, importRoot, "targ", bootstrap, cacheInputs)
 	if err != nil {
-		return reg, fmt.Errorf("computing cache key: %w", err)
+		return "", fmt.Errorf("computing cache key: %w", err)
 	}
 
-	// Determine build directories
-	bootstrapDir := filepath.Join(projectCacheDir(importRoot), "tmp")
-	if usingFallback {
-		bootstrapDir = filepath.Join(buildRoot, "tmp")
+	return cacheKey, nil
+}
+
+// setupBinaryPath creates cache directory and returns binary path.
+func setupBinaryPath(importRoot, modulePath string, bootstrap moduleBootstrap) (string, error) {
+	projCache := projectCacheDir(importRoot)
+	cacheDir := filepath.Join(projCache, "bin")
+
+	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
+		return "", fmt.Errorf("creating cache directory: %w", err)
 	}
 
-	// Write bootstrap file
-	tempFile, cleanupTemp, err := writeBootstrapFile(bootstrapDir, buf.Bytes(), keepBootstrap)
+	return filepath.Join(cacheDir, "targ_"+bootstrap.cacheKey), nil
+}
+
+// tryCachedBinary checks if a cached binary exists and queries its commands.
+func tryCachedBinary(binaryPath string) ([]commandInfo, bool) {
+	info, err := os.Stat(binaryPath)
+	if err != nil || !info.Mode().IsRegular() || info.Mode()&0o111 == 0 {
+		return nil, false
+	}
+
+	cmds, err := queryModuleCommands(binaryPath)
 	if err != nil {
-		return reg, fmt.Errorf("writing bootstrap file: %w", err)
+		return nil, false
+	}
+
+	return cmds, true
+}
+
+// buildAndQueryBinary builds the binary and queries its commands.
+func buildAndQueryBinary(
+	ctx buildContext,
+	mt moduleTargets,
+	dep targDependency,
+	binaryPath string,
+	bootstrap moduleBootstrap,
+	keepBootstrap bool,
+	errOut io.Writer,
+) ([]commandInfo, error) {
+	bootstrapDir := filepath.Join(projectCacheDir(ctx.importRoot), "tmp")
+	if ctx.usingFallback {
+		bootstrapDir = filepath.Join(ctx.buildRoot, "tmp")
+	}
+
+	tempFile, cleanupTemp, err := writeBootstrapFile(bootstrapDir, bootstrap.code, keepBootstrap)
+	if err != nil {
+		return nil, fmt.Errorf("writing bootstrap file: %w", err)
 	}
 
 	if !keepBootstrap {
 		defer func() { _ = cleanupTemp() }()
 	}
 
-	// Determine binary path
-	projCache := projectCacheDir(importRoot)
+	ensureTargDependency(dep, ctx.importRoot)
 
-	cacheDir := filepath.Join(projCache, "bin")
-	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
-		return reg, fmt.Errorf("creating cache directory: %w", err)
+	if err := runGoBuild(ctx, binaryPath, tempFile, errOut); err != nil {
+		return nil, err
 	}
 
-	binaryPath := filepath.Join(cacheDir, "targ_"+cacheKey)
-	reg.BinaryPath = binaryPath
-
-	// Check cache
-	if !noCache {
-		if info, err := os.Stat(binaryPath); err == nil && info.Mode().IsRegular() &&
-			info.Mode()&0o111 != 0 {
-			// Binary exists, query commands
-			cmds, err := queryModuleCommands(binaryPath)
-			if err != nil {
-				return reg, fmt.Errorf("querying commands: %w", err)
-			}
-
-			reg.Commands = cmds
-
-			return reg, nil
-		}
+	cmds, err := queryModuleCommands(binaryPath)
+	if err != nil {
+		return nil, fmt.Errorf("querying commands: %w", err)
 	}
 
-	// Ensure targ dependency is available (bootstrap imports it even if targets don't)
+	return cmds, nil
+}
+
+// ensureTargDependency runs go get to ensure targ dependency is available.
+func ensureTargDependency(dep targDependency, importRoot string) {
 	getCmd := exec.Command("go", "get", dep.ModulePath)
 	getCmd.Dir = importRoot
 	getCmd.Stdout = io.Discard
 	getCmd.Stderr = io.Discard
-	_ = getCmd.Run() // Ignore errors - the build will fail if there's a real issue
+	_ = getCmd.Run()
+}
 
-	// Build the binary
+// runGoBuild executes the go build command.
+func runGoBuild(ctx buildContext, binaryPath, tempFile string, errOut io.Writer) error {
 	buildArgs := []string{"build", "-tags", "targ", "-o", binaryPath}
-	if usingFallback {
+	if ctx.usingFallback {
 		buildArgs = append(buildArgs, "-mod=mod")
 	}
 
@@ -1324,10 +1484,10 @@ func buildModuleBinary(
 	buildCmd.Stdout = io.Discard
 	buildCmd.Stderr = &buildOutput
 
-	if usingFallback {
-		buildCmd.Dir = buildRoot
+	if ctx.usingFallback {
+		buildCmd.Dir = ctx.buildRoot
 	} else {
-		buildCmd.Dir = importRoot
+		buildCmd.Dir = ctx.importRoot
 	}
 
 	if err := buildCmd.Run(); err != nil {
@@ -1335,18 +1495,10 @@ func buildModuleBinary(
 			_, _ = fmt.Fprint(errOut, buildOutput.String())
 		}
 
-		return reg, fmt.Errorf("building command: %w", err)
+		return fmt.Errorf("building command: %w", err)
 	}
 
-	// Query commands from the newly built binary
-	cmds, err := queryModuleCommands(binaryPath)
-	if err != nil {
-		return reg, fmt.Errorf("querying commands: %w", err)
-	}
-
-	reg.Commands = cmds
-
-	return reg, nil
+	return nil
 }
 
 // buildMultiModuleBinaries builds a binary for each module group and returns the registry.

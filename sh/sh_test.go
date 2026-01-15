@@ -35,44 +35,75 @@ func TestHelperProcess(t *testing.T) {
 		return
 	}
 
-	args := os.Args
-	sep := 0
-
-	for i, arg := range args {
-		if arg == "--" {
-			sep = i
-			break
-		}
-	}
-
-	if sep == 0 || sep+1 >= len(args) {
+	cmd, cmdArgs := parseHelperArgs()
+	if cmd == "" {
 		os.Exit(2)
 	}
 
-	cmd := args[sep+1]
+	runHelperCommand(cmd, cmdArgs)
+}
+
+// parseHelperArgs extracts the command and args from test helper invocation.
+func parseHelperArgs() (string, []string) {
+	sep := findArgSeparator(os.Args)
+	if sep == 0 || sep+1 >= len(os.Args) {
+		return "", nil
+	}
+
+	return os.Args[sep+1], os.Args[sep+2:]
+}
+
+// findArgSeparator finds the position of "--" separator in args.
+func findArgSeparator(args []string) int {
+	for i, arg := range args {
+		if arg == "--" {
+			return i
+		}
+	}
+
+	return 0
+}
+
+// runHelperCommand executes the appropriate helper command.
+func runHelperCommand(cmd string, args []string) {
 	switch cmd {
 	case "echo":
-		if sep+2 < len(args) {
-			_, _ = os.Stdout.WriteString(args[sep+2])
-		}
-
-		os.Exit(0)
+		helperEcho(args)
 	case "combined":
-		_, _ = os.Stdout.WriteString("stdout\n")
-		_, _ = os.Stderr.WriteString("stderr\n")
-
-		os.Exit(0)
+		helperCombined()
 	case "fail":
-		_, _ = os.Stderr.WriteString("fail\n")
-
-		os.Exit(1)
+		helperFail()
 	case "sleep":
-		// Sleep for a long time (used for cancellation tests)
-		time.Sleep(10 * time.Second)
-		os.Exit(0)
+		helperSleep()
 	default:
 		os.Exit(0)
 	}
+}
+
+func helperEcho(args []string) {
+	if len(args) > 0 {
+		_, _ = os.Stdout.WriteString(args[0])
+	}
+
+	os.Exit(0)
+}
+
+func helperCombined() {
+	_, _ = os.Stdout.WriteString("stdout\n")
+	_, _ = os.Stderr.WriteString("stderr\n")
+
+	os.Exit(0)
+}
+
+func helperFail() {
+	_, _ = os.Stderr.WriteString("fail\n")
+
+	os.Exit(1)
+}
+
+func helperSleep() {
+	time.Sleep(10 * time.Second)
+	os.Exit(0)
 }
 
 func TestIsWindows(t *testing.T) {
