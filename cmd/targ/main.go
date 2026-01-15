@@ -1308,73 +1308,105 @@ func collectNamespaceNodes(
 	fileCommands map[string][]bootstrapCommand,
 	out *[]bootstrapNode,
 ) error {
-	var walk func(node *namespaceNode) error
+	return walkNamespaceTree(root, root, fileCommands, out)
+}
 
-	walk = func(node *namespaceNode) error {
-		names := make([]string, 0, len(node.Children))
-		for name := range node.Children {
-			names = append(names, name)
+func walkNamespaceTree(
+	node, root *namespaceNode,
+	fileCommands map[string][]bootstrapCommand,
+	out *[]bootstrapNode,
+) error {
+	names := sortedChildNames(node)
+
+	for _, name := range names {
+		if err := walkNamespaceTree(node.Children[name], root, fileCommands, out); err != nil {
+			return err
 		}
+	}
 
-		sort.Strings(names)
-
-		for _, name := range names {
-			err := walk(node.Children[name])
-			if err != nil {
-				return err
-			}
-		}
-
-		if node == root {
-			return nil
-		}
-
-		fields := make([]bootstrapField, 0, len(node.Children))
-		usedNames := map[string]bool{}
-
-		for _, name := range names {
-			child := node.Children[name]
-
-			fieldName := segmentToIdent(child.Name)
-			if usedNames[fieldName] {
-				return fmt.Errorf("duplicate namespace field %q under %q", fieldName, node.Name)
-			}
-
-			usedNames[fieldName] = true
-			fields = append(fields, bootstrapField{
-				Name:     fieldName,
-				TypeExpr: "*" + child.TypeName,
-				TagLit:   subcommandTag(fieldName, child.Name),
-			})
-		}
-
-		if node.File != "" {
-			commands := fileCommands[node.File]
-			for _, cmd := range commands {
-				if usedNames[cmd.Name] {
-					return fmt.Errorf("duplicate command name %q under %q", cmd.Name, node.Name)
-				}
-
-				usedNames[cmd.Name] = true
-				fields = append(fields, bootstrapField{
-					Name:     cmd.Name,
-					TypeExpr: cmd.TypeExpr,
-					TagLit:   `targ:"subcommand"`,
-				})
-			}
-		}
-
-		*out = append(*out, bootstrapNode{
-			Name:     node.Name,
-			TypeName: node.TypeName,
-			VarName:  node.VarName,
-			Fields:   fields,
-		})
-
+	if node == root {
 		return nil
 	}
 
-	return walk(root)
+	fields, err := buildNamespaceFields(node, names, fileCommands)
+	if err != nil {
+		return err
+	}
+
+	*out = append(*out, bootstrapNode{
+		Name:     node.Name,
+		TypeName: node.TypeName,
+		VarName:  node.VarName,
+		Fields:   fields,
+	})
+
+	return nil
+}
+
+func sortedChildNames(node *namespaceNode) []string {
+	names := make([]string, 0, len(node.Children))
+	for name := range node.Children {
+		names = append(names, name)
+	}
+
+	sort.Strings(names)
+
+	return names
+}
+
+func buildNamespaceFields(
+	node *namespaceNode,
+	names []string,
+	fileCommands map[string][]bootstrapCommand,
+) ([]bootstrapField, error) {
+	fields := make([]bootstrapField, 0, len(node.Children))
+	usedNames := map[string]bool{}
+
+	for _, name := range names {
+		child := node.Children[name]
+		fieldName := segmentToIdent(child.Name)
+
+		if usedNames[fieldName] {
+			return nil, fmt.Errorf("duplicate namespace field %q under %q", fieldName, node.Name)
+		}
+
+		usedNames[fieldName] = true
+		fields = append(fields, bootstrapField{
+			Name:     fieldName,
+			TypeExpr: "*" + child.TypeName,
+			TagLit:   subcommandTag(fieldName, child.Name),
+		})
+	}
+
+	if node.File != "" {
+		cmdFields, err := buildCommandFields(node, fileCommands[node.File], usedNames)
+		if err != nil {
+			return nil, err
+		}
+
+		fields = append(fields, cmdFields...)
+	}
+
+	return fields, nil
+}
+
+func buildCommandFields(node *namespaceNode, commands []bootstrapCommand, usedNames map[string]bool) ([]bootstrapField, error) {
+	fields := make([]bootstrapField, 0, len(commands))
+
+	for _, cmd := range commands {
+		if usedNames[cmd.Name] {
+			return nil, fmt.Errorf("duplicate command name %q under %q", cmd.Name, node.Name)
+		}
+
+		usedNames[cmd.Name] = true
+		fields = append(fields, bootstrapField{
+			Name:     cmd.Name,
+			TypeExpr: cmd.TypeExpr,
+			TagLit:   `targ:"subcommand"`,
+		})
+	}
+
+	return fields, nil
 }
 
 func commandSummariesFromCommands(commands []buildtool.CommandInfo) []commandSummary {
