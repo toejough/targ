@@ -1137,6 +1137,93 @@ func TestFlagDefaultPlaceholder(t *testing.T) {
 	}
 }
 
+func TestSliceFlagParsing(t *testing.T) {
+	g := NewWithT(t)
+
+	type SliceCmd struct {
+		Files []string `targ:"flag"`
+	}
+
+	// Test with multiple values
+	cmd := &SliceCmd{}
+	node, err := parseStruct(cmd)
+	g.Expect(err).NotTo(HaveOccurred())
+	if node == nil {
+		t.Fatal("node should not be nil when err is nil")
+	}
+
+	err = node.execute(context.TODO(), []string{"--files", "a.txt", "b.txt", "c.txt"}, RunOptions{})
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(cmd.Files).To(Equal([]string{"a.txt", "b.txt", "c.txt"}))
+}
+
+func TestSliceFlagMissingValue(t *testing.T) {
+	g := NewWithT(t)
+
+	type SliceCmd struct {
+		Files []string `targ:"flag"`
+	}
+
+	// Test with no values after flag (error case)
+	node, err := parseStruct(&SliceCmd{})
+	g.Expect(err).NotTo(HaveOccurred())
+	if node == nil {
+		t.Fatal("node should not be nil when err is nil")
+	}
+
+	err = node.execute(context.TODO(), []string{"--files"}, RunOptions{})
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("flag needs an argument"))
+}
+
+func TestSliceFlagStopsAtFlag(t *testing.T) {
+	g := NewWithT(t)
+
+	type SliceCmd struct {
+		Files   []string `targ:"flag"`
+		Verbose bool     `targ:"flag,short=v"`
+	}
+
+	// Test that slice parsing stops at another flag
+	cmd := &SliceCmd{}
+	node, err := parseStruct(cmd)
+	g.Expect(err).NotTo(HaveOccurred())
+	if node == nil {
+		t.Fatal("node should not be nil when err is nil")
+	}
+
+	err = node.execute(context.TODO(), []string{"--files", "a.txt", "b.txt", "-v"}, RunOptions{})
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(cmd.Files).To(Equal([]string{"a.txt", "b.txt"}))
+	g.Expect(cmd.Verbose).To(BeTrue())
+}
+
+func TestSliceFlagStopsAtDoubleDash(t *testing.T) {
+	g := NewWithT(t)
+
+	type SliceCmd struct {
+		Files []string `targ:"flag"`
+		Arg   string   `targ:"positional"`
+	}
+
+	// Test that slice parsing stops at --
+	cmd := &SliceCmd{}
+	node, err := parseStruct(cmd)
+	g.Expect(err).NotTo(HaveOccurred())
+	if node == nil {
+		t.Fatal("node should not be nil when err is nil")
+	}
+
+	err = node.execute(
+		context.TODO(),
+		[]string{"--files", "a.txt", "--", "positional-arg"},
+		RunOptions{},
+	)
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(cmd.Files).To(Equal([]string{"a.txt"}))
+	g.Expect(cmd.Arg).To(Equal("positional-arg"))
+}
+
 func TestPositionalIndex_BoolFlagNoConsume(t *testing.T) {
 	g := NewWithT(t)
 
