@@ -104,6 +104,7 @@ func setFutureTime(t *testing.T, path string, offset time.Duration) {
 	t.Helper()
 
 	future := time.Now().Add(offset)
+
 	err := os.Chtimes(path, future, future)
 	if err != nil {
 		t.Fatalf("unexpected error setting time on %s: %v", path, err)

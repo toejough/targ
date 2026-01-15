@@ -61,6 +61,30 @@ func addressableCustomSetter(fieldVal reflect.Value) (func(string) error, bool) 
 	return nil, false
 }
 
+// appendInterleavedElement appends an Interleaved[T] element with position tracking.
+func appendInterleavedElement(
+	fieldVal reflect.Value,
+	elemType reflect.Type,
+	value string,
+	pos *int,
+) error {
+	elem := reflect.New(elemType).Elem()
+	valueField := elem.FieldByName("Value")
+	posField := elem.FieldByName("Position")
+
+	err := setFieldWithPosition(valueField, value, nil)
+	if err != nil {
+		return err
+	}
+
+	posField.SetInt(int64(*pos))
+	*pos++
+
+	fieldVal.Set(reflect.Append(fieldVal, elem))
+
+	return nil
+}
+
 func collectFieldFlagSpec(
 	inst commandInstance,
 	field reflect.StructField,
@@ -552,6 +576,38 @@ func registerFlagName(spec *flagSpec, usedNames map[string]bool) error {
 	return nil
 }
 
+// setBoolField parses and sets a boolean field.
+func setBoolField(fieldVal reflect.Value, value string) error {
+	parsed, err := strconv.ParseBool(value)
+	if err != nil {
+		return err
+	}
+
+	fieldVal.SetBool(parsed)
+
+	return nil
+}
+
+// setFieldByKind handles the type-specific field setting logic.
+func setFieldByKind(fieldVal reflect.Value, value string, pos *int) error {
+	switch fieldVal.Kind() {
+	case reflect.String:
+		fieldVal.SetString(value)
+	case reflect.Int:
+		return setIntField(fieldVal, value)
+	case reflect.Bool:
+		return setBoolField(fieldVal, value)
+	case reflect.Slice:
+		return setSliceField(fieldVal, value, pos)
+	case reflect.Map:
+		return setMapField(fieldVal, value)
+	default:
+		return fmt.Errorf("unsupported value type %s", fieldVal.Type())
+	}
+
+	return nil
+}
+
 func setFieldFromString(fieldVal reflect.Value, value string) error {
 	return setFieldWithPosition(fieldVal, value, nil)
 }
@@ -567,82 +623,73 @@ func setFieldWithPosition(fieldVal reflect.Value, value string, pos *int) error 
 		return setter(value)
 	}
 
-	switch fieldVal.Kind() {
-	case reflect.String:
-		fieldVal.SetString(value)
-	case reflect.Int:
-		parsed, err := strconv.ParseInt(value, 10, 64)
-		if err != nil {
-			return err
-		}
-
-		fieldVal.SetInt(parsed)
-	case reflect.Bool:
-		parsed, err := strconv.ParseBool(value)
-		if err != nil {
-			return err
-		}
-
-		fieldVal.SetBool(parsed)
-	case reflect.Slice:
-		elemType := fieldVal.Type().Elem()
-		if isInterleavedType(elemType) && pos != nil {
-			// Create Interleaved[T] with position
-			elem := reflect.New(elemType).Elem()
-			valueField := elem.FieldByName("Value")
-			posField := elem.FieldByName("Position")
-
-			err := setFieldWithPosition(valueField, value, nil)
-			if err != nil {
-				return err
-			}
-
-			posField.SetInt(int64(*pos))
-			*pos++
-
-			fieldVal.Set(reflect.Append(fieldVal, elem))
-		} else {
-			elem := reflect.New(elemType).Elem()
-
-			err := setFieldWithPosition(elem, value, pos)
-			if err != nil {
-				return err
-			}
-
-			fieldVal.Set(reflect.Append(fieldVal, elem))
-		}
-	case reflect.Map:
-		// Initialize map if nil
-		if fieldVal.IsNil() {
-			fieldVal.Set(reflect.MakeMap(fieldVal.Type()))
-		}
-		// Parse key=value
-		parts := strings.SplitN(value, "=", 2)
-		if len(parts) != 2 {
-			return fmt.Errorf("invalid map value %q, expected key=value", value)
-		}
-
-		keyVal := reflect.New(fieldVal.Type().Key()).Elem()
-		valVal := reflect.New(fieldVal.Type().Elem()).Elem()
-
-		err := setFieldWithPosition(keyVal, parts[0], nil)
-		if err != nil {
-			return err
-		}
-
-		err = setFieldWithPosition(valVal, parts[1], nil)
-		if err != nil {
-			return err
-		}
-
-		fieldVal.SetMapIndex(keyVal, valVal)
-	default:
-		return fmt.Errorf("unsupported value type %s", fieldVal.Type())
+	err := setFieldByKind(fieldVal, value, pos)
+	if err != nil {
+		return err
 	}
 
 	if pos != nil && fieldVal.Kind() != reflect.Slice {
 		*pos++
 	}
+
+	return nil
+}
+
+// setIntField parses and sets an integer field.
+func setIntField(fieldVal reflect.Value, value string) error {
+	parsed, err := strconv.ParseInt(value, 10, 64)
+	if err != nil {
+		return err
+	}
+
+	fieldVal.SetInt(parsed)
+
+	return nil
+}
+
+// setMapField parses a key=value pair and sets it in a map field.
+func setMapField(fieldVal reflect.Value, value string) error {
+	if fieldVal.IsNil() {
+		fieldVal.Set(reflect.MakeMap(fieldVal.Type()))
+	}
+
+	parts := strings.SplitN(value, "=", 2)
+	if len(parts) != 2 {
+		return fmt.Errorf("invalid map value %q, expected key=value", value)
+	}
+
+	keyVal := reflect.New(fieldVal.Type().Key()).Elem()
+	valVal := reflect.New(fieldVal.Type().Elem()).Elem()
+
+	err := setFieldWithPosition(keyVal, parts[0], nil)
+	if err != nil {
+		return err
+	}
+
+	if err = setFieldWithPosition(valVal, parts[1], nil); err != nil {
+		return err
+	}
+
+	fieldVal.SetMapIndex(keyVal, valVal)
+
+	return nil
+}
+
+// setSliceField appends a value to a slice field, handling interleaved types.
+func setSliceField(fieldVal reflect.Value, value string, pos *int) error {
+	elemType := fieldVal.Type().Elem()
+	if isInterleavedType(elemType) && pos != nil {
+		return appendInterleavedElement(fieldVal, elemType, value, pos)
+	}
+
+	elem := reflect.New(elemType).Elem()
+
+	err := setFieldWithPosition(elem, value, pos)
+	if err != nil {
+		return err
+	}
+
+	fieldVal.Set(reflect.Append(fieldVal, elem))
 
 	return nil
 }
