@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -36,6 +37,7 @@ func RunWithEnv(env runEnv, opts RunOptions, targets ...any) error {
 	if _, ok := env.(osRunEnv); ok {
 		rootCtx, cancel := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 		defer cancel()
+
 		ctx = rootCtx
 	}
 
@@ -47,10 +49,13 @@ func RunWithEnv(env runEnv, opts RunOptions, targets ...any) error {
 			env.Printf("Error: %v\n", err)
 			return ExitError{Code: 1}
 		}
+
 		args = remaining
+
 		if timeout > 0 {
 			timeoutCtx, cancel := context.WithTimeout(ctx, timeout)
 			defer cancel()
+
 			ctx = timeoutCtx
 		}
 	}
@@ -65,12 +70,14 @@ func RunWithEnv(env runEnv, opts RunOptions, targets ...any) error {
 
 	return withDepTracker(ctx, func() error {
 		roots := []*commandNode{}
+
 		for _, t := range targets {
 			node, err := parseTarget(t)
 			if err != nil {
 				env.Printf("Error parsing target: %v\n", err)
 				continue
 			}
+
 			roots = append(roots, node)
 		}
 
@@ -80,16 +87,21 @@ func RunWithEnv(env runEnv, opts RunOptions, targets ...any) error {
 		}
 
 		singleRoot := len(roots) == 1
+
 		hasDefault := singleRoot && opts.AllowDefault
 		if len(args) < 2 {
 			if hasDefault {
-				if err := roots[0].execute(ctx, nil, opts); err != nil {
+				err := roots[0].execute(ctx, nil, opts)
+				if err != nil {
 					env.Printf("Error: %v\n", err)
 					return ExitError{Code: 1}
 				}
+
 				return nil
 			}
+
 			printUsage(roots, opts)
+
 			return nil
 		}
 
@@ -99,19 +111,23 @@ func RunWithEnv(env runEnv, opts RunOptions, targets ...any) error {
 		if rest[0] == "__complete" {
 			// usage: __complete "entire command line"
 			if len(rest) > 1 {
-				if err := doCompletion(roots, rest[1]); err != nil {
+				err := doCompletion(roots, rest[1])
+				if err != nil {
 					env.Printf("Error: %v\n", err)
 				}
 			}
+
 			return nil
 		}
 
 		// Check for list command request (Hidden command for multi-module support)
 		if rest[0] == "__list" {
-			if err := doList(roots); err != nil {
+			err := doList(roots)
+			if err != nil {
 				env.Printf("Error: %v\n", err)
 				return ExitError{Code: 1}
 			}
+
 			return nil
 		}
 
@@ -123,6 +139,7 @@ func RunWithEnv(env runEnv, opts RunOptions, targets ...any) error {
 			} else {
 				printUsage(roots, opts)
 			}
+
 			return nil
 		}
 
@@ -133,26 +150,36 @@ func RunWithEnv(env runEnv, opts RunOptions, targets ...any) error {
 				if len(rest) > 1 && !strings.HasPrefix(rest[1], "-") {
 					shell = rest[1]
 				}
+
 				if shell == "" {
 					shell = detectShell()
 				}
+
 				if shell == "" {
 					env.Println("Usage: --completion [bash|zsh|fish]")
 					env.Println("Could not detect shell. Please specify one.")
+
 					return ExitError{Code: 1}
 				}
-				if err := PrintCompletionScript(shell, binaryName()); err != nil {
+
+				err := PrintCompletionScript(shell, binaryName())
+				if err != nil {
 					env.Printf("Error: %v\n", err)
 					return ExitError{Code: 1}
 				}
+
 				return nil
 			}
+
 			if after, ok := strings.CutPrefix(rest[0], "--completion="); ok {
 				shell := after
-				if err := PrintCompletionScript(shell, binaryName()); err != nil {
+
+				err := PrintCompletionScript(shell, binaryName())
+				if err != nil {
 					env.Printf("Error: %v\n", err)
 					return ExitError{Code: 1}
 				}
+
 				return nil
 			}
 		}
@@ -163,8 +190,10 @@ func RunWithEnv(env runEnv, opts RunOptions, targets ...any) error {
 					env.Printf("Error: %v\n", err)
 					return ExitError{Code: 1}
 				}
+
 				return nil
 			}
+
 			remaining := rest
 			for len(remaining) > 0 {
 				next, err := roots[0].executeWithParents(
@@ -179,18 +208,22 @@ func RunWithEnv(env runEnv, opts RunOptions, targets ...any) error {
 					env.Printf("Error: %v\n", err)
 					return ExitError{Code: 1}
 				}
+
 				if len(next) == len(remaining) {
 					env.Printf("Unknown command: %s\n", remaining[0])
 					return ExitError{Code: 1}
 				}
+
 				remaining = next
 			}
+
 			return nil
 		}
 
 		remaining := rest
 		for len(remaining) > 0 {
 			var matched *commandNode
+
 			for _, root := range roots {
 				if strings.EqualFold(root.Name, remaining[0]) {
 					matched = root
@@ -201,6 +234,7 @@ func RunWithEnv(env runEnv, opts RunOptions, targets ...any) error {
 			if matched == nil {
 				env.Printf("Unknown command: %s\n", remaining[0])
 				printUsage(roots, opts)
+
 				return ExitError{Code: 1}
 			}
 
@@ -216,8 +250,10 @@ func RunWithEnv(env runEnv, opts RunOptions, targets ...any) error {
 				env.Printf("Error: %v\n", err)
 				return ExitError{Code: 1}
 			}
+
 			remaining = next
 		}
+
 		return nil
 	})
 }
@@ -232,8 +268,8 @@ func (e *executeEnv) Args() []string {
 	return e.args
 }
 
-func (e *executeEnv) Exit(code int) {
-	// No-op: error is returned via RunWithEnv
+func (e *executeEnv) Exit(_ int) {
+	_ = 0 // No-op stub for coverage
 }
 
 // Output returns the captured output from command execution.
@@ -308,13 +344,16 @@ func detectShell() string {
 	if shell == "" {
 		return ""
 	}
+
 	base := shell
 	if idx := strings.LastIndex(base, "/"); idx != -1 {
 		base = base[idx+1:]
 	}
+
 	if idx := strings.LastIndex(base, "\\"); idx != -1 {
 		base = base[idx+1:]
 	}
+
 	switch base {
 	case "bash", "zsh", "fish":
 		return base
@@ -335,12 +374,14 @@ func doList(roots []*commandNode) error {
 
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
+
 	return enc.Encode(output)
 }
 
 // extractHelpFlag checks if -h or --help is in args and returns remaining args.
 func extractHelpFlag(args []string) (bool, []string) {
 	var result []string
+
 	helpFound := false
 
 	for _, arg := range args {
@@ -348,6 +389,7 @@ func extractHelpFlag(args []string) (bool, []string) {
 			helpFound = true
 			continue
 		}
+
 		result = append(result, arg)
 	}
 
@@ -356,8 +398,11 @@ func extractHelpFlag(args []string) (bool, []string) {
 
 // extractTimeout looks for --timeout flag and returns the duration and remaining args.
 func extractTimeout(args []string) (time.Duration, []string, error) {
-	var result []string
-	var timeout time.Duration
+	var (
+		result  []string
+		timeout time.Duration
+	)
+
 	skip := false
 
 	for i, arg := range args {
@@ -368,24 +413,30 @@ func extractTimeout(args []string) (time.Duration, []string, error) {
 
 		if arg == "--timeout" {
 			if i+1 >= len(args) {
-				return 0, nil, fmt.Errorf("--timeout requires a duration value (e.g., 10m, 1h)")
+				return 0, nil, errors.New("--timeout requires a duration value (e.g., 10m, 1h)")
 			}
+
 			d, err := time.ParseDuration(args[i+1])
 			if err != nil {
 				return 0, nil, fmt.Errorf("invalid timeout duration %q: %w", args[i+1], err)
 			}
+
 			timeout = d
 			skip = true
+
 			continue
 		}
 
 		if after, ok := strings.CutPrefix(arg, "--timeout="); ok {
 			val := after
+
 			d, err := time.ParseDuration(val)
 			if err != nil {
 				return 0, nil, fmt.Errorf("invalid timeout duration %q: %w", val, err)
 			}
+
 			timeout = d
+
 			continue
 		}
 

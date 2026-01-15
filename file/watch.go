@@ -2,7 +2,7 @@ package file
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"os"
 	"sort"
 	"time"
@@ -28,12 +28,14 @@ func Watch(
 	fn func(ChangeSet) error,
 ) error {
 	if len(patterns) == 0 {
-		return fmt.Errorf("no patterns provided")
+		return errors.New("no patterns provided")
 	}
+
 	interval := opts.Interval
 	if interval == 0 {
 		interval = 250 * time.Millisecond
 	}
+
 	prev, err := snapshot(patterns)
 	if err != nil {
 		return err
@@ -51,11 +53,14 @@ func Watch(
 			if err != nil {
 				return err
 			}
+
 			changes := diffSnapshot(prev, next)
 			if changes != nil {
-				if err := fn(*changes); err != nil {
+				err := fn(*changes)
+				if err != nil {
 					return err
 				}
+
 				prev = next
 			}
 		}
@@ -77,10 +82,12 @@ func diffSnapshot(prev, next *fileSnapshot) *ChangeSet {
 			added = append(added, path)
 			continue
 		}
+
 		if prev.Files[path] != next.Files[path] {
 			modified = append(modified, path)
 		}
 	}
+
 	for _, path := range prev.List {
 		if _, ok := next.Files[path]; !ok {
 			removed = append(removed, path)
@@ -90,9 +97,11 @@ func diffSnapshot(prev, next *fileSnapshot) *ChangeSet {
 	if len(added) == 0 && len(removed) == 0 && len(modified) == 0 {
 		return nil
 	}
+
 	sort.Strings(added)
 	sort.Strings(removed)
 	sort.Strings(modified)
+
 	return &ChangeSet{
 		Added:    added,
 		Removed:  removed,
@@ -105,15 +114,19 @@ func snapshot(patterns []string) (*fileSnapshot, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	files := make(map[string]int64, len(matches))
 	for _, path := range matches {
 		info, err := os.Stat(path)
 		if err != nil {
 			return nil, err
 		}
+
 		files[path] = info.ModTime().UnixNano()
 	}
+
 	sort.Strings(matches)
+
 	return &fileSnapshot{
 		Files: files,
 		List:  matches,

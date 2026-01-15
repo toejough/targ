@@ -16,6 +16,7 @@ func OutputContext(ctx context.Context, name string, args ...string) (string, er
 
 	// Capture combined output
 	var buf safeBuffer
+
 	cmd.Stdout = &buf
 	cmd.Stderr = &buf
 
@@ -23,7 +24,8 @@ func OutputContext(ctx context.Context, name string, args ...string) (string, er
 
 	setProcGroup(cmd)
 
-	if err := cmd.Start(); err != nil {
+	err := cmd.Start()
+	if err != nil {
 		return "", err
 	}
 
@@ -37,6 +39,7 @@ func OutputContext(ctx context.Context, name string, args ...string) (string, er
 	case <-ctx.Done():
 		killProcessGroup(cmd)
 		<-done
+
 		return buf.String(), ctx.Err()
 	}
 }
@@ -48,6 +51,7 @@ func RunContext(ctx context.Context, name string, args ...string) error {
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 	cmd.Stdin = stdin
+
 	return runWithContext(ctx, cmd)
 }
 
@@ -67,11 +71,13 @@ type safeBuffer struct {
 func (b *safeBuffer) String() string {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+
 	return b.buf.String()
 }
 
 func (b *safeBuffer) Write(p []byte) (n int, err error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+
 	return b.buf.Write(p)
 }

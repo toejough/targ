@@ -8,6 +8,7 @@ import (
 func TestGenerateFunctionWrappers_BuildTagAndDescriptions(t *testing.T) {
 	fsMock := MockFileSystem(t)
 	done := make(chan struct{})
+
 	var (
 		path string
 		err  error
@@ -19,6 +20,7 @@ func TestGenerateFunctionWrappers_BuildTagAndDescriptions(t *testing.T) {
 			BuildTag:   "targ",
 			OnlyTagged: true,
 		})
+
 		close(done)
 	}()
 
@@ -89,6 +91,7 @@ func (c *DeployCommand) Description() string {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+
 	if path != "/root/generated_targ_build.go" {
 		t.Fatalf("expected generated file path, got %q", path)
 	}
@@ -97,6 +100,7 @@ func (c *DeployCommand) Description() string {
 func TestGenerateFunctionWrappers_ContextRun(t *testing.T) {
 	fsMock := MockFileSystem(t)
 	done := make(chan struct{})
+
 	var (
 		path string
 		err  error
@@ -108,6 +112,7 @@ func TestGenerateFunctionWrappers_ContextRun(t *testing.T) {
 			BuildTag:   "targ",
 			OnlyTagged: true,
 		})
+
 		close(done)
 	}()
 
@@ -159,6 +164,7 @@ func (c *RunCommand) Description() string {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+
 	if path != "/root/generated_targ_build.go" {
 		t.Fatalf("expected generated file path, got %q", path)
 	}
@@ -167,6 +173,7 @@ func (c *RunCommand) Description() string {
 func TestGenerateFunctionWrappers_ErrorsOnNameCollision(t *testing.T) {
 	fsMock := MockFileSystem(t)
 	done := make(chan struct{})
+
 	var err error
 
 	go func() {
@@ -175,6 +182,7 @@ func TestGenerateFunctionWrappers_ErrorsOnNameCollision(t *testing.T) {
 			BuildTag:   "targ",
 			OnlyTagged: true,
 		})
+
 		close(done)
 	}()
 
@@ -201,6 +209,7 @@ func Build() {}
 func TestGenerateFunctionWrappers_SkipsSubcommandFunctions(t *testing.T) {
 	fsMock := MockFileSystem(t)
 	done := make(chan struct{})
+
 	var (
 		path string
 		err  error
@@ -212,6 +221,7 @@ func TestGenerateFunctionWrappers_SkipsSubcommandFunctions(t *testing.T) {
 			BuildTag:   "targ",
 			OnlyTagged: true,
 		})
+
 		close(done)
 	}()
 
@@ -235,6 +245,7 @@ func Build() {}
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+
 	if path != "" {
 		t.Fatalf("expected no generated file, got %q", path)
 	}

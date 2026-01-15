@@ -9,6 +9,7 @@ func TestSelectTaggedDirs_ReturnsAllDirs(t *testing.T) {
 	fsMock := MockFileSystem(t)
 	opts := Options{StartDir: "/root"}
 	done := make(chan struct{})
+
 	var (
 		dirs []TaggedDir
 		err  error
@@ -16,6 +17,7 @@ func TestSelectTaggedDirs_ReturnsAllDirs(t *testing.T) {
 
 	go func() {
 		dirs, err = SelectTaggedDirs(fsMock.Mock, opts)
+
 		close(done)
 	}()
 
@@ -49,6 +51,7 @@ func Hi() {}
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+
 	if len(dirs) != 2 {
 		t.Fatalf("expected 2 tagged dirs, got %d", len(dirs))
 	}

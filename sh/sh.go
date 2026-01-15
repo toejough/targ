@@ -15,6 +15,7 @@ func ExeSuffix() string {
 	if IsWindows() {
 		return ".exe"
 	}
+
 	return ""
 }
 
@@ -31,15 +32,18 @@ func Output(name string, args ...string) (string, error) {
 
 	// Use Start/Wait instead of CombinedOutput so we can register the process
 	var buf safeBuffer
+
 	cmd.Stdout = &buf
 	cmd.Stderr = &buf
 
 	if err := cmd.Start(); err != nil {
 		return "", err
 	}
+
 	registerProcess(cmd.Process)
 	err := cmd.Wait()
 	unregisterProcess(cmd.Process)
+
 	return buf.String(), err
 }
 
@@ -54,9 +58,11 @@ func Run(name string, args ...string) error {
 	if err := cmd.Start(); err != nil {
 		return err
 	}
+
 	registerProcess(cmd.Process)
 	err := cmd.Wait()
 	unregisterProcess(cmd.Process)
+
 	return err
 }
 
@@ -71,9 +77,11 @@ func WithExeSuffix(name string) string {
 	if !IsWindows() {
 		return name
 	}
+
 	if strings.HasSuffix(strings.ToLower(name), ".exe") {
 		return name
 	}
+
 	return name + ".exe"
 }
 
@@ -87,10 +95,12 @@ var (
 
 func formatCommand(name string, args []string) string {
 	parts := make([]string, 0, 1+len(args))
+
 	parts = append(parts, quoteArg(name))
 	for _, arg := range args {
 		parts = append(parts, quoteArg(arg))
 	}
+
 	return strings.Join(parts, " ")
 }
 
@@ -98,8 +108,10 @@ func quoteArg(value string) string {
 	if value == "" {
 		return `""`
 	}
+
 	if strings.ContainsAny(value, " \t\n\"") {
 		return strconv.Quote(value)
 	}
+
 	return value
 }

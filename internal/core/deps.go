@@ -2,7 +2,7 @@ package core
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"reflect"
 	"sync"
 )
@@ -25,15 +25,21 @@ func ContinueOnError() DepsOption { return continueOnErrorOpt{} }
 //	targ.Deps(A, B, targ.Parallel(), targ.WithContext(ctx))
 func Deps(args ...any) error {
 	depsMu.Lock()
+
 	tracker := currentDeps
+
 	depsMu.Unlock()
+
 	if tracker == nil {
-		return fmt.Errorf("Deps must be called during targ.Run")
+		return errors.New("Deps must be called during targ.Run")
 	}
 
 	// Separate options from targets
-	var cfg depsConfig
-	var targets []any
+	var (
+		cfg     depsConfig
+		targets []any
+	)
+
 	for _, arg := range args {
 		if opt, ok := arg.(DepsOption); ok {
 			opt.applyDeps(&cfg)
@@ -51,6 +57,7 @@ func Deps(args ...any) error {
 	if cfg.parallel {
 		return parallelRun(tracker, ctx, targets, cfg.continueOnError)
 	}
+
 	return serialRun(tracker, ctx, targets, cfg.continueOnError)
 }
 
@@ -63,6 +70,7 @@ func Parallel() DepsOption { return parallelOpt{} }
 func ResetDeps() {
 	depsMu.Lock()
 	defer depsMu.Unlock()
+
 	if currentDeps != nil {
 		currentDeps.done = make(map[depKey]error)
 	}
@@ -100,6 +108,7 @@ func (d *depTracker) execute(ctx context.Context, target any) error {
 	if err != nil {
 		return err
 	}
+
 	return node.execute(ctx, nil, RunOptions{})
 }
 
@@ -110,17 +119,22 @@ func (d *depTracker) run(ctx context.Context, target any) error {
 	}
 
 	d.mu.Lock()
+
 	if existing, ok := d.done[key]; ok {
 		d.mu.Unlock()
 		return existing
 	}
+
 	if ch, ok := d.inFlight[key]; ok {
 		d.mu.Unlock()
 		<-ch
+
 		d.mu.Lock()
 		defer d.mu.Unlock()
+
 		return d.done[key]
 	}
+
 	ch := make(chan struct{})
 	d.inFlight[key] = ch
 	d.mu.Unlock()
@@ -132,6 +146,7 @@ func (d *depTracker) run(ctx context.Context, target any) error {
 	delete(d.inFlight, key)
 	close(ch)
 	d.mu.Unlock()
+
 	return err
 }
 
@@ -151,20 +166,21 @@ func (o withContextOpt) applyDeps(c *depsConfig) { c.ctx = o.ctx }
 
 func depKeyFor(target any) (depKey, error) {
 	if target == nil {
-		return depKey{}, fmt.Errorf("dependency target cannot be nil")
+		return depKey{}, errors.New("dependency target cannot be nil")
 	}
+
 	v := reflect.ValueOf(target)
 	switch v.Kind() {
 	case reflect.Func:
 		return depKey{kind: "func", id: v.Pointer(), typName: v.Type().String()}, nil
 	case reflect.Ptr:
 		if v.IsNil() {
-			return depKey{}, fmt.Errorf("dependency target cannot be nil")
+			return depKey{}, errors.New("dependency target cannot be nil")
 		}
 		// Include type name to distinguish zero-sized structs with same address
 		return depKey{kind: "ptr", id: v.Pointer(), typName: v.Type().String()}, nil
 	default:
-		return depKey{}, fmt.Errorf("dependency target must be func or pointer to struct")
+		return depKey{}, errors.New("dependency target must be func or pointer to struct")
 	}
 }
 
@@ -188,6 +204,7 @@ func parallelRun(
 
 	// For fail-fast, create a cancellable context
 	runCtx := ctx
+
 	var cancel context.CancelFunc
 	if !continueOnError {
 		runCtx, cancel = context.WithCancel(ctx)
@@ -195,6 +212,7 @@ func parallelRun(
 	}
 
 	var wg sync.WaitGroup
+
 	errCh := make(chan error, len(targets))
 
 	for _, target := range targets {
@@ -202,6 +220,7 @@ func parallelRun(
 			err := tracker.run(runCtx, target)
 			if err != nil {
 				errCh <- err
+
 				if !continueOnError && cancel != nil {
 					cancel() // cancel siblings on first error
 				}
@@ -216,6 +235,7 @@ func parallelRun(
 	for err := range errCh {
 		return err
 	}
+
 	return nil
 }
 
@@ -226,6 +246,7 @@ func serialRun(
 	continueOnError bool,
 ) error {
 	var firstErr error
+
 	for _, target := range targets {
 		// Check for cancellation before each target
 		select {
@@ -233,32 +254,43 @@ func serialRun(
 			if firstErr != nil {
 				return firstErr
 			}
+
 			return ctx.Err()
 		default:
 		}
 
-		if err := tracker.run(ctx, target); err != nil {
+		err := tracker.run(ctx, target)
+		if err != nil {
 			if !continueOnError {
 				return err
 			}
+
 			if firstErr == nil {
 				firstErr = err
 			}
 		}
 	}
+
 	return firstErr
 }
 
 func withDepTracker(ctx context.Context, fn func() error) error {
 	tracker := newDepTracker(ctx)
+
 	depsMu.Lock()
+
 	prev := currentDeps
 	currentDeps = tracker
+
 	depsMu.Unlock()
+
 	defer func() {
 		depsMu.Lock()
+
 		currentDeps = prev
+
 		depsMu.Unlock()
 	}()
+
 	return fn()
 }

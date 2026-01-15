@@ -93,25 +93,6 @@ func TestNormalizeStatus(t *testing.T) {
 	}
 }
 
-func captureStdout(t *testing.T, fn func()) string {
-	t.Helper()
-	orig := os.Stdout
-	r, w, err := os.Pipe()
-	if err != nil {
-		t.Fatalf("unexpected pipe error: %v", err)
-	}
-	os.Stdout = w
-	fn()
-	_ = w.Close()
-	os.Stdout = orig
-	var buf bytes.Buffer
-	if _, err := io.Copy(&buf, r); err != nil {
-		t.Fatalf("unexpected stdout copy error: %v", err)
-	}
-	_ = r.Close()
-	return buf.String()
-}
-
 // Tests for issue file parsing (moved from internal/issuefile).
 
 func TestParseAndUpdateStatus(t *testing.T) {
@@ -196,6 +177,25 @@ func TestUpdateSectionField(t *testing.T) {
 	if got := testSectionValue(lines, "Details"); got != "Steps" {
 		t.Fatalf("expected inserted details, got %q", got)
 	}
+}
+
+func captureStdout(t *testing.T, fn func()) string {
+	t.Helper()
+	orig := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("unexpected pipe error: %v", err)
+	}
+	os.Stdout = w
+	fn()
+	_ = w.Close()
+	os.Stdout = orig
+	var buf bytes.Buffer
+	if _, err := io.Copy(&buf, r); err != nil {
+		t.Fatalf("unexpected stdout copy error: %v", err)
+	}
+	_ = r.Close()
+	return buf.String()
 }
 
 func testSectionValue(lines []string, field string) string {

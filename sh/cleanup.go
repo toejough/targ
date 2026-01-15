@@ -16,12 +16,14 @@ func EnableCleanup() {
 	if cleanupEnabled {
 		return
 	}
+
 	cleanupEnabled = true
 
 	if !signalInstalled {
 		signalInstalled = true
 		sigCh := make(chan os.Signal, 1)
 		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+
 		go func() {
 			<-sigCh
 			killAllProcesses()
@@ -41,10 +43,12 @@ var (
 // killAllProcesses kills all tracked processes.
 func killAllProcesses() {
 	cleanupMu.Lock()
+
 	procs := make([]*os.Process, 0, len(runningProcs))
 	for p := range runningProcs {
 		procs = append(procs, p)
 	}
+
 	cleanupMu.Unlock()
 
 	for _, p := range procs {
@@ -56,6 +60,7 @@ func killAllProcesses() {
 func registerProcess(p *os.Process) {
 	cleanupMu.Lock()
 	defer cleanupMu.Unlock()
+
 	if cleanupEnabled {
 		runningProcs[p] = struct{}{}
 	}
@@ -65,5 +70,6 @@ func registerProcess(p *os.Process) {
 func unregisterProcess(p *os.Process) {
 	cleanupMu.Lock()
 	defer cleanupMu.Unlock()
+
 	delete(runningProcs, p)
 }

@@ -4,7 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"fmt"
+	"errors"
 	"os"
 	"path/filepath"
 	"sort"
@@ -15,11 +15,13 @@ import (
 // whether the input match set or file modtimes changed since the last run.
 func Newer(inputs, outputs []string) (bool, error) {
 	if len(inputs) == 0 {
-		return false, fmt.Errorf("no input patterns provided")
+		return false, errors.New("no input patterns provided")
 	}
+
 	if len(outputs) > 0 {
 		return newerWithOutputs(inputs, outputs)
 	}
+
 	return newerWithCache(inputs)
 }
 
@@ -34,19 +36,23 @@ func cacheEqual(a, b *newerCache) bool {
 	if len(a.Matches) != len(b.Matches) {
 		return false
 	}
+
 	for i := range a.Matches {
 		if a.Matches[i] != b.Matches[i] {
 			return false
 		}
 	}
+
 	if len(a.Files) != len(b.Files) {
 		return false
 	}
+
 	for path, mod := range a.Files {
 		if b.Files[path] != mod {
 			return false
 		}
 	}
+
 	return true
 }
 
@@ -55,11 +61,14 @@ func cacheFilePath(cwd, pattern string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+
 	encoded := hashString(cwd + "::" + pattern)
+
 	dir := filepath.Join(cacheDir, "targ", "newer")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", err
 	}
+
 	return filepath.Join(dir, encoded+".json"), nil
 }
 
@@ -73,24 +82,31 @@ func newerWithCache(inputs []string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
+
 	changed := false
+
 	for _, pattern := range inputs {
 		cachePath, err := cacheFilePath(cwd, pattern)
 		if err != nil {
 			return false, err
 		}
+
 		prev, _ := readCache(cachePath)
+
 		next, err := snapshotPattern(cwd, pattern)
 		if err != nil {
 			return false, err
 		}
+
 		if prev == nil || !cacheEqual(prev, next) {
 			changed = true
 		}
+
 		if err := writeCache(cachePath, next); err != nil {
 			return false, err
 		}
 	}
+
 	return changed, nil
 }
 
@@ -99,35 +115,44 @@ func newerWithOutputs(inputs, outputs []string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
+
 	outMatches, err := Match(outputs...)
 	if err != nil {
 		return false, err
 	}
+
 	if len(outMatches) == 0 {
 		return true, nil
 	}
+
 	latestInput := time.Time{}
+
 	for _, path := range inMatches {
 		info, err := os.Stat(path)
 		if err != nil {
 			return true, nil
 		}
+
 		if info.ModTime().After(latestInput) {
 			latestInput = info.ModTime()
 		}
 	}
+
 	if latestInput.IsZero() {
 		return true, nil
 	}
+
 	for _, path := range outMatches {
 		info, err := os.Stat(path)
 		if err != nil {
 			return true, nil
 		}
+
 		if info.ModTime().Before(latestInput) {
 			return true, nil
 		}
 	}
+
 	return false, nil
 }
 
@@ -136,10 +161,12 @@ func readCache(path string) (*newerCache, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	var cache newerCache
 	if err := json.Unmarshal(data, &cache); err != nil {
 		return nil, err
 	}
+
 	return &cache, nil
 }
 
@@ -148,15 +175,19 @@ func snapshotPattern(cwd, pattern string) (*newerCache, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	files := make(map[string]int64, len(matches))
 	for _, path := range matches {
 		info, err := os.Stat(path)
 		if err != nil {
 			return nil, err
 		}
+
 		files[path] = info.ModTime().UnixNano()
 	}
+
 	sort.Strings(matches)
+
 	return &newerCache{
 		Pattern: pattern,
 		CWD:     cwd,
@@ -170,5 +201,6 @@ func writeCache(path string, cache *newerCache) error {
 	if err != nil {
 		return err
 	}
+
 	return os.WriteFile(path, data, 0o644)
 }

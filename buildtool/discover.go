@@ -92,6 +92,7 @@ func Discover(fs FileSystem, opts Options) ([]PackageInfo, error) {
 	if startDir == "" {
 		startDir = "."
 	}
+
 	tag := opts.BuildTag
 	if tag == "" {
 		tag = "targ"
@@ -101,12 +102,15 @@ func Discover(fs FileSystem, opts Options) ([]PackageInfo, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	var infos []PackageInfo
+
 	for _, dir := range dirs {
 		info, err := parsePackageInfo(dir)
 		if err != nil {
 			return nil, err
 		}
+
 		infos = append(infos, info)
 	}
 
@@ -118,6 +122,7 @@ func SelectTaggedDirs(fs FileSystem, opts Options) ([]TaggedDir, error) {
 	if startDir == "" {
 		startDir = "."
 	}
+
 	tag := opts.BuildTag
 	if tag == "" {
 		tag = "targ"
@@ -127,10 +132,12 @@ func SelectTaggedDirs(fs FileSystem, opts Options) ([]TaggedDir, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	paths := make([]TaggedDir, 0, len(dirs))
 	for _, dir := range dirs {
 		paths = append(paths, TaggedDir{Path: dir.Path, Depth: dir.Depth})
 	}
+
 	return paths, nil
 }
 
@@ -139,6 +146,7 @@ func TaggedFiles(fs FileSystem, opts Options) ([]TaggedFile, error) {
 	if startDir == "" {
 		startDir = "."
 	}
+
 	tag := opts.BuildTag
 	if tag == "" {
 		tag = "targ"
@@ -148,12 +156,15 @@ func TaggedFiles(fs FileSystem, opts Options) ([]TaggedFile, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	var files []TaggedFile
+
 	for _, dir := range dirs {
 		for _, file := range dir.Files {
 			files = append(files, TaggedFile(file))
 		}
 	}
+
 	return files, nil
 }
 
@@ -166,22 +177,29 @@ func (tag reflectTag) Get(key string) string {
 		if i < 0 {
 			break
 		}
+
 		name := strings.TrimSpace(value[:i])
+
 		value = strings.TrimSpace(value[i+1:])
 		if !strings.HasPrefix(value, "\"") {
 			break
 		}
+
 		value = value[1:]
+
 		j := strings.Index(value, "\"")
 		if j < 0 {
 			break
 		}
+
 		quoted := value[:j]
 		value = strings.TrimSpace(value[j+1:])
+
 		if name == key {
 			return quoted
 		}
 	}
+
 	return ""
 }
 
@@ -198,6 +216,7 @@ type taggedFile struct {
 
 func camelToKebab(s string) string {
 	var result strings.Builder
+
 	runes := []rune(s)
 	for i, r := range runes {
 		if i > 0 && unicode.IsUpper(r) {
@@ -208,32 +227,41 @@ func camelToKebab(s string) string {
 				result.WriteRune('-')
 			}
 		}
+
 		result.WriteRune(unicode.ToLower(r))
 	}
+
 	return result.String()
 }
 
 func contextImportInfo(imports []*ast.ImportSpec) (map[string]bool, bool) {
 	aliases := map[string]bool{}
 	dotImport := false
+
 	for _, spec := range imports {
 		path, err := strconv.Unquote(spec.Path.Value)
 		if err != nil || path != "context" {
 			continue
 		}
+
 		if spec.Name != nil {
 			if spec.Name.Name == "." {
 				dotImport = true
 				continue
 			}
+
 			if spec.Name.Name == "_" {
 				continue
 			}
+
 			aliases[spec.Name.Name] = true
+
 			continue
 		}
+
 		aliases["context"] = true
 	}
+
 	return aliases, dotImport
 }
 
@@ -241,15 +269,19 @@ func descriptionMethodValue(node *ast.FuncDecl) (string, bool) {
 	if node.Name.Name != "Description" || node.Recv == nil {
 		return "", false
 	}
+
 	if node.Type.Params != nil && len(node.Type.Params.List) > 0 {
 		return "", false
 	}
+
 	if node.Type.Results == nil || len(node.Type.Results.List) != 1 {
 		return "", false
 	}
+
 	if !isStringExpr(node.Type.Results.List[0].Type) {
 		return "", false
 	}
+
 	return returnStringLiteral(node.Body)
 }
 
@@ -262,18 +294,22 @@ func fieldTypeName(expr ast.Expr) string {
 			return ident.Name
 		}
 	}
+
 	return ""
 }
 
 func filterCommands(candidates, subcommandNames map[string]bool) []string {
 	var result []string
+
 	for name := range candidates {
 		cmd := camelToKebab(name)
 		if !subcommandNames[cmd] {
 			result = append(result, name)
 		}
 	}
+
 	sort.Strings(result)
+
 	return result
 }
 
@@ -281,6 +317,7 @@ func filterStructs(
 	candidates, subcommandTypes, structHasRun, structHasSubcommands map[string]bool,
 ) []string {
 	var result []string
+
 	for name := range candidates {
 		if !subcommandTypes[name] {
 			if structHasRun[name] || structHasSubcommands[name] {
@@ -288,7 +325,9 @@ func filterStructs(
 			}
 		}
 	}
+
 	sort.Strings(result)
+
 	return result
 }
 
@@ -299,6 +338,7 @@ func findTaggedDirs(fs FileSystem, startDir, tag string) ([]taggedDir, error) {
 	}
 
 	queue := []dirEntry{{path: startDir, depth: 0}}
+
 	var results []taggedDir
 
 	for len(queue) > 0 {
@@ -315,23 +355,29 @@ func findTaggedDirs(fs FileSystem, startDir, tag string) ([]taggedDir, error) {
 		})
 
 		var tagged []taggedFile
+
 		for _, entry := range entries {
 			name := entry.Name()
+
 			fullPath := filepath.Join(current.path, name)
 			if entry.IsDir() {
 				if name == ".git" || name == "vendor" {
 					continue
 				}
+
 				queue = append(queue, dirEntry{path: fullPath, depth: current.depth + 1})
+
 				continue
 			}
 
 			if !strings.HasSuffix(name, ".go") {
 				continue
 			}
+
 			if strings.HasSuffix(name, "_test.go") {
 				continue
 			}
+
 			if strings.HasPrefix(name, "generated_targ_") {
 				continue
 			}
@@ -340,6 +386,7 @@ func findTaggedDirs(fs FileSystem, startDir, tag string) ([]taggedDir, error) {
 			if err != nil {
 				return nil, err
 			}
+
 			if hasBuildTag(content, tag) {
 				tagged = append(tagged, taggedFile{
 					Path:    fullPath,
@@ -371,6 +418,7 @@ func funcParamIsContext(expr ast.Expr, ctxAliases map[string]bool, ctxDotImport 
 			return true
 		}
 	}
+
 	return false
 }
 
@@ -378,10 +426,12 @@ func functionDocValue(node *ast.FuncDecl) (string, bool) {
 	if node.Doc == nil {
 		return "", false
 	}
+
 	text := strings.TrimSpace(node.Doc.Text())
 	if text == "" {
 		return "", false
 	}
+
 	return text, true
 }
 
@@ -389,6 +439,7 @@ func functionUsesContext(fnType *ast.FuncType, ctxAliases map[string]bool, ctxDo
 	if fnType.Params == nil || len(fnType.Params.List) != 1 {
 		return false
 	}
+
 	return funcParamIsContext(fnType.Params.List[0].Type, ctxAliases, ctxDotImport)
 }
 
@@ -399,18 +450,23 @@ func hasBuildTag(content []byte, tag string) bool {
 		if line == "" {
 			continue
 		}
+
 		if !strings.HasPrefix(line, "//") {
 			return false
 		}
+
 		if after, ok := strings.CutPrefix(line, "//go:build"); ok {
 			exprText := strings.TrimSpace(after)
+
 			expr, err := constraint.Parse(exprText)
 			if err != nil {
 				return exprText == tag
 			}
+
 			return expr.Eval(func(t string) bool { return t == tag })
 		}
 	}
+
 	return false
 }
 
@@ -440,6 +496,7 @@ func parsePackageInfo(dir taggedDir) (PackageInfo, error) {
 	funcReturnsError := make(map[string]bool)
 	subcommandNames := make(map[string]bool)
 	subcommandTypes := make(map[string]bool)
+
 	var mainFiles []string
 
 	for _, file := range dir.Files {
@@ -447,6 +504,7 @@ func parsePackageInfo(dir taggedDir) (PackageInfo, error) {
 		if err != nil {
 			return PackageInfo{}, err
 		}
+
 		if packageName == "" {
 			packageName = parsed.Name.Name
 			if parsed.Doc != nil {
@@ -465,11 +523,14 @@ func parsePackageInfo(dir taggedDir) (PackageInfo, error) {
 					if !ok || !typeSpec.Name.IsExported() {
 						continue
 					}
+
 					structType, ok := typeSpec.Type.(*ast.StructType)
 					if !ok {
 						continue
 					}
+
 					structs[typeSpec.Name.Name] = true
+
 					structFiles[typeSpec.Name.Name] = file.Path
 					if recordSubcommandRefs(structType, subcommandNames, subcommandTypes) {
 						structHasSubcommands[typeSpec.Name.Name] = true
@@ -482,26 +543,34 @@ func parsePackageInfo(dir taggedDir) (PackageInfo, error) {
 							structDescriptions[recvName] = desc
 						}
 					}
+
 					if node.Name.Name == "Run" {
 						if recvName := receiverTypeName(node.Recv); recvName != "" {
 							structHasRun[recvName] = true
 						}
 					}
+
 					continue
 				}
+
 				if node.Name.Name == "main" {
 					mainFiles = append(mainFiles, file.Path)
 					continue
 				}
+
 				if !node.Name.IsExported() {
 					continue
 				}
-				if err := validateFunctionSignature(node.Type, ctxAliases, ctxDotImport); err != nil {
-					return PackageInfo{}, fmt.Errorf("function %s %v", node.Name.Name, err)
+
+				err := validateFunctionSignature(node.Type, ctxAliases, ctxDotImport)
+				if err != nil {
+					return PackageInfo{}, fmt.Errorf("function %s %w", node.Name.Name, err)
 				}
+
 				funcs[node.Name.Name] = true
 				funcFiles[node.Name.Name] = file.Path
 				funcUsesContext[node.Name.Name] = functionUsesContext(node.Type, ctxAliases, ctxDotImport)
+
 				funcReturnsError[node.Name.Name] = functionReturnsError(node.Type)
 				if desc, ok := functionDocValue(node); ok {
 					funcDescriptions[node.Name.Name] = desc
@@ -509,8 +578,10 @@ func parsePackageInfo(dir taggedDir) (PackageInfo, error) {
 			}
 		}
 	}
+
 	if len(mainFiles) > 0 {
 		sort.Strings(mainFiles)
+
 		return PackageInfo{}, fmt.Errorf(
 			"tagged files must not declare main(): %s",
 			strings.Join(mainFiles, ", "),
@@ -522,6 +593,7 @@ func parsePackageInfo(dir taggedDir) (PackageInfo, error) {
 
 	if len(structList) > 0 && len(funcList) > 0 {
 		wrapped := make(map[string]bool)
+
 		for _, name := range structList {
 			if before, ok := strings.CutSuffix(name, "Command"); ok {
 				base := before
@@ -530,6 +602,7 @@ func parsePackageInfo(dir taggedDir) (PackageInfo, error) {
 				}
 			}
 		}
+
 		if len(wrapped) > 0 {
 			filtered := make([]string, 0, len(funcList))
 			for _, name := range funcList {
@@ -537,15 +610,18 @@ func parsePackageInfo(dir taggedDir) (PackageInfo, error) {
 					filtered = append(filtered, name)
 				}
 			}
+
 			funcList = filtered
 		}
 	}
 
 	seen := make(map[string]string)
+
 	for _, name := range structList {
 		cmd := camelToKebab(name)
 		seen[cmd] = name
 	}
+
 	for _, name := range funcList {
 		cmd := camelToKebab(name)
 		if other, ok := seen[cmd]; ok {
@@ -560,6 +636,7 @@ func parsePackageInfo(dir taggedDir) (PackageInfo, error) {
 
 	commands := make([]CommandInfo, 0, len(structList)+len(funcList))
 	fileCommands := make(map[string][]CommandInfo)
+
 	for _, name := range structList {
 		cmd := CommandInfo{
 			Name:        name,
@@ -570,6 +647,7 @@ func parsePackageInfo(dir taggedDir) (PackageInfo, error) {
 		commands = append(commands, cmd)
 		fileCommands[cmd.File] = append(fileCommands[cmd.File], cmd)
 	}
+
 	for _, name := range funcList {
 		cmd := CommandInfo{
 			Name:         name,
@@ -582,6 +660,7 @@ func parsePackageInfo(dir taggedDir) (PackageInfo, error) {
 		commands = append(commands, cmd)
 		fileCommands[cmd.File] = append(fileCommands[cmd.File], cmd)
 	}
+
 	sort.Slice(commands, func(i, j int) bool {
 		return commands[i].Name < commands[j].Name
 	})
@@ -597,6 +676,7 @@ func parsePackageInfo(dir taggedDir) (PackageInfo, error) {
 			Commands: cmds,
 		})
 	}
+
 	sort.Slice(files, func(i, j int) bool {
 		return files[i].Path < files[j].Path
 	})
@@ -614,6 +694,7 @@ func receiverTypeName(recv *ast.FieldList) string {
 	if recv == nil || len(recv.List) == 0 {
 		return ""
 	}
+
 	return fieldTypeName(recv.List[0].Type)
 }
 
@@ -623,18 +704,23 @@ func recordSubcommandRefs(
 	subcommandTypes map[string]bool,
 ) bool {
 	hasSubcommand := false
+
 	for _, field := range structType.Fields.List {
 		if field.Tag == nil {
 			continue
 		}
+
 		tagValue := strings.Trim(field.Tag.Value, "`")
 		tag := reflectStructTag(tagValue)
+
 		targTag := tag.Get("targ")
 		if !strings.Contains(targTag, "subcommand") {
 			continue
 		}
+
 		hasSubcommand = true
 		nameOverride := ""
+
 		parts := strings.SplitSeq(targTag, ",")
 		for p := range parts {
 			p = strings.TrimSpace(p)
@@ -644,6 +730,7 @@ func recordSubcommandRefs(
 				nameOverride = after
 			}
 		}
+
 		if nameOverride != "" {
 			subcommandNames[nameOverride] = true
 		} else if len(field.Names) > 0 {
@@ -654,6 +741,7 @@ func recordSubcommandRefs(
 			subcommandTypes[typeName] = true
 		}
 	}
+
 	return hasSubcommand
 }
 
@@ -665,18 +753,22 @@ func returnStringLiteral(body *ast.BlockStmt) (string, bool) {
 	if body == nil || len(body.List) != 1 {
 		return "", false
 	}
+
 	ret, ok := body.List[0].(*ast.ReturnStmt)
 	if !ok || len(ret.Results) != 1 {
 		return "", false
 	}
+
 	lit, ok := ret.Results[0].(*ast.BasicLit)
 	if !ok || lit.Kind != token.STRING {
 		return "", false
 	}
+
 	value, err := strconv.Unquote(lit.Value)
 	if err != nil {
 		return "", false
 	}
+
 	return strings.TrimSpace(value), true
 }
 
@@ -689,18 +781,23 @@ func validateFunctionSignature(
 	if fnType.Params != nil {
 		paramCount = len(fnType.Params.List)
 	}
+
 	if paramCount > 1 {
-		return fmt.Errorf("must be niladic or accept context")
+		return errors.New("must be niladic or accept context")
 	}
+
 	if paramCount == 1 &&
 		!funcParamIsContext(fnType.Params.List[0].Type, ctxAliases, ctxDotImport) {
-		return fmt.Errorf("must accept context.Context")
+		return errors.New("must accept context.Context")
 	}
+
 	if fnType.Results == nil || len(fnType.Results.List) == 0 {
 		return nil
 	}
+
 	if len(fnType.Results.List) == 1 && isErrorExpr(fnType.Results.List[0].Type) {
 		return nil
 	}
-	return fmt.Errorf("must return only error")
+
+	return errors.New("must return only error")
 }

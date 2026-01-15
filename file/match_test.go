@@ -9,6 +9,7 @@ import (
 
 func TestMatchBraceAndGlob(t *testing.T) {
 	dir := t.TempDir()
+
 	files := []string{
 		filepath.Join(dir, "a.txt"),
 		filepath.Join(dir, "b.txt"),
@@ -18,8 +19,10 @@ func TestMatchBraceAndGlob(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(dir, "dir"), 0o755); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+
 	for _, path := range files {
-		if err := os.WriteFile(path, []byte("x"), 0o644); err != nil {
+		err := os.WriteFile(path, []byte("x"), 0o644)
+		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 	}

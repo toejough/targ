@@ -2,6 +2,7 @@ package targ
 
 import (
 	"context"
+	"errors"
 	"os"
 	"reflect"
 	"strings"
@@ -71,12 +72,14 @@ func DetectRootCommands(candidates ...any) []any {
 		if t.Kind() == reflect.Ptr {
 			t = t.Elem()
 		}
+
 		if t.Kind() != reflect.Struct {
 			continue
 		}
 
 		for i := 0; i < t.NumField(); i++ {
 			field := t.Field(i)
+
 			tag := field.Tag.Get("targ")
 			if strings.Contains(tag, "subcommand") {
 				// This field type is a subcommand
@@ -84,6 +87,7 @@ func DetectRootCommands(candidates ...any) []any {
 				if subType.Kind() == reflect.Ptr {
 					subType = subType.Elem()
 				}
+
 				subcommandTypes[subType] = true
 			}
 		}
@@ -91,8 +95,10 @@ func DetectRootCommands(candidates ...any) []any {
 
 	// 2. Filter candidates
 	var roots []any
+
 	for _, c := range candidates {
 		v := reflect.ValueOf(c)
+
 		t := v.Type()
 		if t.Kind() == reflect.Ptr {
 			t = t.Elem()
@@ -121,6 +127,7 @@ func ExecuteWithOptions(
 ) (ExecuteResult, error) {
 	env := core.NewExecuteEnv(args)
 	err := core.RunWithEnv(env, opts, targets...)
+
 	return ExecuteResult{Output: env.Output()}, err
 }
 
@@ -150,9 +157,11 @@ func Run(targets ...any) {
 func RunWithOptions(opts RunOptions, targets ...any) {
 	err := core.RunWithEnv(core.NewOsEnv(), opts, targets...)
 	if err != nil {
-		if exitErr, ok := err.(ExitError); ok {
+		var exitErr ExitError
+		if errors.As(err, &exitErr) {
 			os.Exit(exitErr.Code)
 		}
+
 		os.Exit(1)
 	}
 }

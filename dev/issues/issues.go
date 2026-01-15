@@ -357,47 +357,13 @@ func (c *Validate) Run() error {
 	return nil
 }
 
-func loadIssues(path string) (*issueFile, []issue, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, nil, err
-	}
-	file, err := parseIssueFile(string(data))
-	if err != nil {
-		return nil, nil, err
-	}
-	return file, file.issues, nil
-}
-
-func normalizePriority(priority string) string {
-	normalized := strings.ToLower(strings.TrimSpace(priority))
-	switch normalized {
-	case "high":
-		return "High"
-	case "medium":
-		return "Medium"
-	case "low":
-		return "Low"
-	default:
-		return priority
-	}
-}
-
-func normalizeStatus(status string) string {
-	normalized := strings.ToLower(strings.TrimSpace(status))
-	switch normalized {
-	case "in-progress", "in_progress", "inprogress":
-		return "in progress"
-	default:
-		return normalized
-	}
-}
-
-func writeIssues(path string, lines []string) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-		return err
-	}
-	return os.WriteFile(path, []byte(strings.Join(lines, "\n")), 0644)
+type issue struct {
+	Number  int
+	Title   string
+	Section string
+	Status  string
+	Start   int
+	End     int
 }
 
 // Issue file parsing and manipulation types/functions.
@@ -475,15 +441,6 @@ func (f *issueFile) updateIssue(number int, updates issueUpdates) (issue, error)
 	return *iss, nil
 }
 
-type issue struct {
-	Number  int
-	Title   string
-	Section string
-	Status  string
-	Start   int
-	End     int
-}
-
 type issueUpdates struct {
 	Status      *string
 	Description *string
@@ -492,10 +449,87 @@ type issueUpdates struct {
 	Details     *string
 }
 
+func insertAfter(lines []string, idx int, insert []string) []string {
+	if idx < 0 {
+		return append(insert, lines...)
+	}
+	if idx >= len(lines)-1 {
+		return append(lines, insert...)
+	}
+	out := make([]string, 0, len(lines)+len(insert))
+	out = append(out, lines[:idx+1]...)
+	out = append(out, insert...)
+	out = append(out, lines[idx+1:]...)
+	return out
+}
+
+func insertIndex(lines []string, section string) int {
+	switch section {
+	case "backlog":
+		for i, line := range lines {
+			if strings.HasPrefix(line, "## Done") {
+				return i
+			}
+		}
+		return len(lines)
+	case "done":
+		return len(lines)
+	default:
+		return -1
+	}
+}
+
 func issueBlockLines(lines []string, iss issue) []string {
 	block := make([]string, iss.End-iss.Start)
 	copy(block, lines[iss.Start:iss.End])
 	return block
+}
+
+func loadIssues(path string) (*issueFile, []issue, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, nil, err
+	}
+	file, err := parseIssueFile(string(data))
+	if err != nil {
+		return nil, nil, err
+	}
+	return file, file.issues, nil
+}
+
+func normalizePriority(priority string) string {
+	normalized := strings.ToLower(strings.TrimSpace(priority))
+	switch normalized {
+	case "high":
+		return "High"
+	case "medium":
+		return "Medium"
+	case "low":
+		return "Low"
+	default:
+		return priority
+	}
+}
+
+func normalizeStatus(status string) string {
+	normalized := strings.ToLower(strings.TrimSpace(status))
+	switch normalized {
+	case "in-progress", "in_progress", "inprogress":
+		return "in progress"
+	default:
+		return normalized
+	}
+}
+
+func parseHeader(line string) (int, string) {
+	header := strings.TrimSpace(strings.TrimPrefix(line, "### "))
+	parts := strings.SplitN(header, ".", 2)
+	if len(parts) < 2 {
+		return 0, header
+	}
+	number, _ := strconv.Atoi(strings.TrimSpace(parts[0]))
+	title := strings.TrimSpace(parts[1])
+	return number, title
 }
 
 func parseIssueFile(content string) (*issueFile, error) {
@@ -546,22 +580,18 @@ func parseIssueFile(content string) (*issueFile, error) {
 	return file, nil
 }
 
-func updateSectionField(lines []string, field string, value string) []string {
-	header := fmt.Sprintf("**%s**", field)
+func parseStatus(lines []string) string {
 	for i := 0; i < len(lines); i++ {
-		if strings.TrimSpace(lines[i]) == header {
+		if strings.TrimSpace(lines[i]) == "**Status**" {
 			for j := i + 1; j < len(lines); j++ {
 				if strings.TrimSpace(lines[j]) == "" {
 					continue
 				}
-				lines[j] = value
-				return lines
+				return strings.TrimSpace(lines[j])
 			}
-			insert := []string{header, value, ""}
-			return insertAfter(lines, i-1, insert)
 		}
 	}
-	return append(lines, "", header, value)
+	return ""
 }
 
 func updateIssueStatus(lines []string, status string) []string {
@@ -590,57 +620,27 @@ func updateIssueStatus(lines []string, status string) []string {
 	return lines
 }
 
-func insertAfter(lines []string, idx int, insert []string) []string {
-	if idx < 0 {
-		return append(insert, lines...)
-	}
-	if idx >= len(lines)-1 {
-		return append(lines, insert...)
-	}
-	out := make([]string, 0, len(lines)+len(insert))
-	out = append(out, lines[:idx+1]...)
-	out = append(out, insert...)
-	out = append(out, lines[idx+1:]...)
-	return out
-}
-
-func insertIndex(lines []string, section string) int {
-	switch section {
-	case "backlog":
-		for i, line := range lines {
-			if strings.HasPrefix(line, "## Done") {
-				return i
-			}
-		}
-		return len(lines)
-	case "done":
-		return len(lines)
-	default:
-		return -1
-	}
-}
-
-func parseHeader(line string) (int, string) {
-	header := strings.TrimSpace(strings.TrimPrefix(line, "### "))
-	parts := strings.SplitN(header, ".", 2)
-	if len(parts) < 2 {
-		return 0, header
-	}
-	number, _ := strconv.Atoi(strings.TrimSpace(parts[0]))
-	title := strings.TrimSpace(parts[1])
-	return number, title
-}
-
-func parseStatus(lines []string) string {
+func updateSectionField(lines []string, field string, value string) []string {
+	header := fmt.Sprintf("**%s**", field)
 	for i := 0; i < len(lines); i++ {
-		if strings.TrimSpace(lines[i]) == "**Status**" {
+		if strings.TrimSpace(lines[i]) == header {
 			for j := i + 1; j < len(lines); j++ {
 				if strings.TrimSpace(lines[j]) == "" {
 					continue
 				}
-				return strings.TrimSpace(lines[j])
+				lines[j] = value
+				return lines
 			}
+			insert := []string{header, value, ""}
+			return insertAfter(lines, i-1, insert)
 		}
 	}
-	return ""
+	return append(lines, "", header, value)
+}
+
+func writeIssues(path string, lines []string) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return err
+	}
+	return os.WriteFile(path, []byte(strings.Join(lines, "\n")), 0644)
 }

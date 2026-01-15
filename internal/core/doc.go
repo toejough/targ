@@ -20,10 +20,12 @@ var (
 // getMethodDoc extracts the documentation comment for a method.
 func getMethodDoc(method reflect.Method) string {
 	pc := method.Func.Pointer()
+
 	fn := runtime.FuncForPC(pc)
 	if fn == nil {
 		return ""
 	}
+
 	file, _ := fn.FileLine(pc)
 
 	// Skip if not a user file (e.g. stdlib or generated wrapper)
@@ -45,6 +47,7 @@ func getMethodDoc(method reflect.Method) string {
 	if recvType.Kind() == reflect.Ptr {
 		recvType = recvType.Elem()
 	}
+
 	recvName := recvType.Name()
 
 	ast.Inspect(f, func(n ast.Node) bool {
@@ -71,6 +74,7 @@ func getMethodDoc(method reflect.Method) string {
 				}
 			}
 		}
+
 		return true
 	})
 
@@ -92,5 +96,6 @@ func getParsedFile(path string) (*ast.File, error) {
 	}
 
 	fileCache[path] = f
+
 	return f, nil
 }

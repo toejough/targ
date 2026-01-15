@@ -1,6 +1,7 @@
 package file
 
 import (
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -14,30 +15,38 @@ import (
 // Match expands one or more patterns using fish-style globs (including ** and {a,b}).
 func Match(patterns ...string) ([]string, error) {
 	if len(patterns) == 0 {
-		return nil, fmt.Errorf("no patterns provided")
+		return nil, errors.New("no patterns provided")
 	}
+
 	seen := make(map[string]bool)
+
 	var matches []string
+
 	for _, pattern := range patterns {
 		pattern = filepath.Clean(pattern)
 		fs, base := patternFS(pattern)
+
 		expanded, err := expandBraces(pattern)
 		if err != nil {
 			return nil, err
 		}
+
 		for _, exp := range expanded {
 			if base != "" {
 				exp = filepath.Clean(strings.TrimPrefix(exp, base))
 			}
+
 			list, err := doublestar.Glob(fs, exp)
 			if err != nil {
 				return nil, err
 			}
+
 			for _, match := range list {
 				path := match
 				if base != "" {
 					path = filepath.Join(base, match)
 				}
+
 				if !seen[path] {
 					seen[path] = true
 					matches = append(matches, path)
@@ -45,7 +54,9 @@ func Match(patterns ...string) ([]string, error) {
 			}
 		}
 	}
+
 	sort.Strings(matches)
+
 	return matches, nil
 }
 
@@ -54,7 +65,9 @@ func expandBraces(pattern string) ([]string, error) {
 	if start == -1 {
 		return []string{pattern}, nil
 	}
+
 	depth := 0
+
 	for i := start; i < len(pattern); i++ {
 		switch pattern[i] {
 		case '{':
@@ -65,18 +78,23 @@ func expandBraces(pattern string) ([]string, error) {
 				before := pattern[:start]
 				after := pattern[i+1:]
 				parts := splitBraceOptions(pattern[start+1 : i])
+
 				var result []string
+
 				for _, part := range parts {
 					expanded, err := expandBraces(before + part + after)
 					if err != nil {
 						return nil, err
 					}
+
 					result = append(result, expanded...)
 				}
+
 				return result, nil
 			}
 		}
 	}
+
 	return nil, fmt.Errorf("unmatched brace in pattern %q", pattern)
 }
 
@@ -84,16 +102,20 @@ func patternFS(pattern string) (fs.FS, string) {
 	if filepath.IsAbs(pattern) {
 		volume := filepath.VolumeName(pattern)
 		base := volume + string(filepath.Separator)
+
 		return os.DirFS(base), base
 	}
+
 	return os.DirFS("."), ""
 }
 
 func splitBraceOptions(content string) []string {
 	var parts []string
+
 	depth := 0
 	start := 0
-	for i := 0; i < len(content); i++ {
+
+	for i := range len(content) {
 		switch content[i] {
 		case '{':
 			depth++
@@ -108,6 +130,8 @@ func splitBraceOptions(content string) []string {
 			}
 		}
 	}
+
 	parts = append(parts, content[start:])
+
 	return parts
 }

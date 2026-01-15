@@ -2,6 +2,7 @@ package file
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -19,6 +20,7 @@ func TestWatchDetectsAddModifyRemove(t *testing.T) {
 	done := make(chan error, 1)
 
 	interval := 20 * time.Millisecond
+
 	go func() {
 		err := Watch(
 			ctx,
@@ -35,15 +37,23 @@ func TestWatchDetectsAddModifyRemove(t *testing.T) {
 	time.Sleep(2 * interval)
 
 	file := filepath.Join(dir, "a.txt")
-	if err := os.WriteFile(file, []byte("one"), 0o644); err != nil {
+
+	err := os.WriteFile(file, []byte("one"), 0o644)
+	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+
 	time.Sleep(40 * time.Millisecond)
-	if err := os.WriteFile(file, []byte("two"), 0o644); err != nil {
+
+	err = os.WriteFile(file, []byte("two"), 0o644)
+	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+
 	time.Sleep(40 * time.Millisecond)
-	if err := os.Remove(file); err != nil {
+
+	err = os.Remove(file)
+	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -51,15 +61,18 @@ func TestWatchDetectsAddModifyRemove(t *testing.T) {
 	modified := false
 	removed := false
 	timeout := time.After(800 * time.Millisecond)
+
 	for !added || !modified || !removed {
 		select {
 		case set := <-changesCh:
 			if len(set.Added) > 0 {
 				added = true
 			}
+
 			if len(set.Modified) > 0 {
 				modified = true
 			}
+
 			if len(set.Removed) > 0 {
 				removed = true
 			}
@@ -68,8 +81,12 @@ func TestWatchDetectsAddModifyRemove(t *testing.T) {
 			t.Fatalf("watch timed out (added=%v modified=%v removed=%v)", added, modified, removed)
 		}
 	}
+
 	cancel()
-	if err := <-done; err != nil && err != context.Canceled {
+
+	err = <-done
+
+	if err != nil && !errors.Is(err, context.Canceled) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }

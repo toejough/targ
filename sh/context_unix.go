@@ -21,11 +21,13 @@ func killProcessGroup(cmd *exec.Cmd) {
 func runWithContext(ctx context.Context, cmd *exec.Cmd) error {
 	setProcGroup(cmd)
 
-	if err := cmd.Start(); err != nil {
+	err := cmd.Start()
+	if err != nil {
 		return err
 	}
 
 	done := make(chan error, 1)
+
 	go func() {
 		done <- cmd.Wait()
 	}()
@@ -36,6 +38,7 @@ func runWithContext(ctx context.Context, cmd *exec.Cmd) error {
 	case <-ctx.Done():
 		killProcessGroup(cmd)
 		<-done
+
 		return ctx.Err()
 	}
 }
