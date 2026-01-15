@@ -498,36 +498,46 @@ func expectingFlagValue(args []string, specs map[string]completionFlagSpec) bool
 	}
 
 	if strings.HasPrefix(last, "--") {
-		if strings.Contains(last, "=") {
-			return false
-		}
+		return expectingLongFlagValue(last, specs)
+	}
 
-		if spec, ok := specs[last]; ok && spec.TakesValue {
-			return true
-		}
+	if strings.HasPrefix(last, "-") {
+		return expectingShortFlagValue(last, specs)
+	}
 
+	return false
+}
+
+func expectingLongFlagValue(flag string, specs map[string]completionFlagSpec) bool {
+	if strings.Contains(flag, "=") {
 		return false
 	}
 
-	if strings.HasPrefix(last, "-") && len(last) == 2 {
-		if spec, ok := specs[last]; ok && spec.TakesValue {
-			return true
-		}
+	spec, ok := specs[flag]
 
-		return false
+	return ok && spec.TakesValue
+}
+
+func expectingShortFlagValue(flag string, specs map[string]completionFlagSpec) bool {
+	if len(flag) == 2 {
+		spec, ok := specs[flag]
+
+		return ok && spec.TakesValue
 	}
 
-	if strings.HasPrefix(last, "-") && len(last) > 2 {
-		group := strings.TrimPrefix(last, "-")
-		for i, ch := range group {
-			spec, ok := specs["-"+string(ch)]
-			if !ok {
-				continue
-			}
+	return expectingGroupedShortFlagValue(flag, specs)
+}
 
-			if spec.TakesValue {
-				return i == len(group)-1
-			}
+func expectingGroupedShortFlagValue(flag string, specs map[string]completionFlagSpec) bool {
+	group := strings.TrimPrefix(flag, "-")
+	for i, ch := range group {
+		spec, ok := specs["-"+string(ch)]
+		if !ok {
+			continue
+		}
+
+		if spec.TakesValue {
+			return i == len(group)-1
 		}
 	}
 
@@ -784,76 +794,98 @@ func suggestFlags(chain []commandInstance, prefix string, atRoot bool) error {
 	return nil
 }
 
+type cmdLineTokenizer struct {
+	parts    []string
+	current  strings.Builder
+	inSingle bool
+	inDouble bool
+	escaped  bool
+	isNewArg bool
+}
+
 func tokenizeCommandLine(commandLine string) ([]string, bool) {
-	var (
-		parts   []string
-		current strings.Builder
-	)
+	t := &cmdLineTokenizer{}
+	t.tokenize(commandLine)
 
-	inSingle := false
-	inDouble := false
-	escaped := false
-	isNewArg := false
+	return t.parts, t.isNewArg
+}
 
+func (t *cmdLineTokenizer) tokenize(commandLine string) {
 	for i := range len(commandLine) {
-		ch := commandLine[i]
-		if escaped {
-			current.WriteByte(ch)
-
-			escaped = false
-			isNewArg = false
-
-			continue
-		}
-
-		if ch == '\\' && !inSingle {
-			escaped = true
-			isNewArg = false
-
-			continue
-		}
-
-		if ch == '\'' && !inDouble {
-			inSingle = !inSingle
-			isNewArg = false
-
-			continue
-		}
-
-		if ch == '"' && !inSingle {
-			inDouble = !inDouble
-			isNewArg = false
-
-			continue
-		}
-
-		if (ch == ' ' || ch == '\t' || ch == '\n') && !inSingle && !inDouble {
-			if current.Len() > 0 {
-				parts = append(parts, current.String())
-				current.Reset()
-			}
-
-			isNewArg = true
-
-			continue
-		}
-
-		current.WriteByte(ch)
-
-		isNewArg = false
+		t.processChar(commandLine[i])
 	}
 
-	if escaped {
-		current.WriteByte('\\')
+	t.finalize()
+}
+
+func (t *cmdLineTokenizer) processChar(ch byte) {
+	if t.escaped {
+		t.current.WriteByte(ch)
+		t.escaped = false
+		t.isNewArg = false
+
+		return
 	}
 
-	if current.Len() > 0 {
-		parts = append(parts, current.String())
+	if t.handleSpecialChar(ch) {
+		return
 	}
 
-	if inSingle || inDouble {
-		isNewArg = false
+	t.current.WriteByte(ch)
+	t.isNewArg = false
+}
+
+func (t *cmdLineTokenizer) handleSpecialChar(ch byte) bool {
+	if ch == '\\' && !t.inSingle {
+		t.escaped = true
+		t.isNewArg = false
+
+		return true
 	}
 
-	return parts, isNewArg
+	if ch == '\'' && !t.inDouble {
+		t.inSingle = !t.inSingle
+		t.isNewArg = false
+
+		return true
+	}
+
+	if ch == '"' && !t.inSingle {
+		t.inDouble = !t.inDouble
+		t.isNewArg = false
+
+		return true
+	}
+
+	if isWhitespace(ch) && !t.inSingle && !t.inDouble {
+		t.flushCurrent()
+		t.isNewArg = true
+
+		return true
+	}
+
+	return false
+}
+
+func (t *cmdLineTokenizer) flushCurrent() {
+	if t.current.Len() > 0 {
+		t.parts = append(t.parts, t.current.String())
+		t.current.Reset()
+	}
+}
+
+func (t *cmdLineTokenizer) finalize() {
+	if t.escaped {
+		t.current.WriteByte('\\')
+	}
+
+	t.flushCurrent()
+
+	if t.inSingle || t.inDouble {
+		t.isNewArg = false
+	}
+}
+
+func isWhitespace(ch byte) bool {
+	return ch == ' ' || ch == '\t' || ch == '\n'
 }
