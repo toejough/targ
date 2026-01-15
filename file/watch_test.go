@@ -22,71 +22,66 @@ func TestWatchDetectsAddModifyRemove(t *testing.T) {
 	interval := 20 * time.Millisecond
 
 	go func() {
-		err := Watch(
-			ctx,
-			[]string{pattern},
-			WatchOptions{Interval: interval},
-			func(set ChangeSet) error {
-				changesCh <- set
-				return nil
-			},
-		)
-		done <- err
+		done <- Watch(ctx, []string{pattern}, WatchOptions{Interval: interval}, func(set ChangeSet) error {
+			changesCh <- set
+			return nil
+		})
 	}()
 
 	time.Sleep(2 * interval)
 
 	file := filepath.Join(dir, "a.txt")
 
-	err := os.WriteFile(file, []byte("one"), 0o644)
-	if err != nil {
+	performFileOperations(t, file)
+	waitForAllChanges(t, changesCh, cancel)
+
+	cancel()
+
+	err := <-done
+	if err != nil && !errors.Is(err, context.Canceled) {
 		t.Fatalf("unexpected error: %v", err)
 	}
+}
 
+// performFileOperations creates, modifies, and removes a test file.
+func performFileOperations(t *testing.T, file string) {
+	t.Helper()
+
+	requireNoError(t, os.WriteFile(file, []byte("one"), 0o644))
 	time.Sleep(40 * time.Millisecond)
 
-	err = os.WriteFile(file, []byte("two"), 0o644)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
+	requireNoError(t, os.WriteFile(file, []byte("two"), 0o644))
 	time.Sleep(40 * time.Millisecond)
 
-	err = os.Remove(file)
+	requireNoError(t, os.Remove(file))
+}
+
+// requireNoError fails the test if err is not nil.
+func requireNoError(t *testing.T, err error) {
+	t.Helper()
+
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+}
 
-	added := false
-	modified := false
-	removed := false
+// waitForAllChanges waits until Added, Modified, and Removed events are seen.
+func waitForAllChanges(t *testing.T, changesCh <-chan ChangeSet, cancel context.CancelFunc) {
+	t.Helper()
+
+	var added, modified, removed bool
+
 	timeout := time.After(800 * time.Millisecond)
 
 	for !added || !modified || !removed {
 		select {
 		case set := <-changesCh:
-			if len(set.Added) > 0 {
-				added = true
-			}
-
-			if len(set.Modified) > 0 {
-				modified = true
-			}
-
-			if len(set.Removed) > 0 {
-				removed = true
-			}
+			added = added || len(set.Added) > 0
+			modified = modified || len(set.Modified) > 0
+			removed = removed || len(set.Removed) > 0
 		case <-timeout:
 			cancel()
 			t.Fatalf("watch timed out (added=%v modified=%v removed=%v)", added, modified, removed)
 		}
-	}
-
-	cancel()
-
-	err = <-done
-
-	if err != nil && !errors.Is(err, context.Canceled) {
-		t.Fatalf("unexpected error: %v", err)
 	}
 }
