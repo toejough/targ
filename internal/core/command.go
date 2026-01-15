@@ -733,79 +733,91 @@ func expandShortFlagGroups(args []string, specs []*flagSpec) ([]string, error) {
 		return args, nil
 	}
 
-	shortInfo := map[string]bool{}
-
-	longInfo := map[string]bool{}
-	for _, spec := range specs {
-		longInfo[spec.name] = true
-		if spec.short == "" {
-			continue
-		}
-
-		shortInfo[spec.short] = spec.value.Kind() == reflect.Bool
-	}
+	shortInfo, longInfo := buildFlagMaps(specs)
 
 	var expanded []string
 
 	for _, arg := range args {
-		if arg == "--" {
-			expanded = append(expanded, arg)
-			continue
-		}
-
-		if strings.HasPrefix(arg, "--") || len(arg) <= 2 || !strings.HasPrefix(arg, "-") {
-			expanded = append(expanded, arg)
-			continue
-		}
-
-		if strings.Contains(arg, "=") {
+		if skipShortExpansion(arg, longInfo) {
 			expanded = append(expanded, arg)
 			continue
 		}
 
 		group := strings.TrimPrefix(arg, "-")
-		if len(group) <= 1 {
-			expanded = append(expanded, arg)
-			continue
+
+		expandedFlags, err := expandFlagGroup(arg, group, shortInfo)
+		if err != nil {
+			return nil, err
 		}
 
-		if longInfo[group] {
-			expanded = append(expanded, arg)
-			continue
+		expanded = append(expanded, expandedFlags...)
+	}
+
+	return expanded, nil
+}
+
+func buildFlagMaps(specs []*flagSpec) (shortInfo map[string]bool, longInfo map[string]bool) {
+	shortInfo = map[string]bool{}
+	longInfo = map[string]bool{}
+
+	for _, spec := range specs {
+		longInfo[spec.name] = true
+		if spec.short != "" {
+			shortInfo[spec.short] = spec.value.Kind() == reflect.Bool
+		}
+	}
+
+	return shortInfo, longInfo
+}
+
+func skipShortExpansion(arg string, longInfo map[string]bool) bool {
+	if arg == "--" || strings.HasPrefix(arg, "--") {
+		return true
+	}
+
+	if len(arg) <= 2 || !strings.HasPrefix(arg, "-") {
+		return true
+	}
+
+	if strings.Contains(arg, "=") {
+		return true
+	}
+
+	group := strings.TrimPrefix(arg, "-")
+
+	return len(group) <= 1 || longInfo[group]
+}
+
+func expandFlagGroup(arg, group string, shortInfo map[string]bool) ([]string, error) {
+	allBool := true
+	unknown := false
+
+	for _, ch := range group {
+		isBool, ok := shortInfo[string(ch)]
+		if !ok {
+			unknown = true
+
+			break
 		}
 
-		allBool := true
-		unknown := false
+		if !isBool {
+			allBool = false
 
-		for _, ch := range group {
-			name := string(ch)
-
-			isBool, ok := shortInfo[name]
-			if !ok {
-				unknown = true
-				allBool = false
-
-				break
-			}
-
-			if !isBool {
-				allBool = false
-				break
-			}
+			break
 		}
+	}
 
-		if unknown {
-			expanded = append(expanded, arg)
-			continue
-		}
+	if unknown {
+		return []string{arg}, nil
+	}
 
-		if !allBool {
-			return nil, fmt.Errorf("short flag group %q must contain only boolean flags", arg)
-		}
+	if !allBool {
+		return nil, fmt.Errorf("short flag group %q must contain only boolean flags", arg)
+	}
 
-		for _, ch := range group {
-			expanded = append(expanded, "-"+string(ch))
-		}
+	expanded := make([]string, 0, len(group))
+	for _, ch := range group {
+		expanded = append(expanded, "-"+string(ch))
 	}
 
 	return expanded, nil
@@ -1178,12 +1190,7 @@ func parseTarget(t any) (*commandNode, error) {
 func printCommandHelp(node *commandNode) {
 	binName := binaryName()
 	if node.Type == nil {
-		fmt.Printf("Usage: %s %s\n\n", binName, node.Name)
-
-		if node.Description != "" {
-			fmt.Println(node.Description)
-		}
-
+		printSimpleHelp(binName, node)
 		return
 	}
 
@@ -1195,23 +1202,8 @@ func printCommandHelp(node *commandNode) {
 
 	fmt.Printf("Usage: %s %s\n\n", binName, usageLine)
 
-	// Note: Description is populated by parseStruct via getMethodDoc.
-	// If it's empty here, doc parsing failed (e.g., file not found).
-
-	if node.Description != "" {
-		fmt.Println(node.Description)
-		fmt.Println()
-	}
-
-	if len(node.Subcommands) > 0 {
-		fmt.Println("Subcommands:")
-
-		for name, sub := range node.Subcommands {
-			fmt.Printf("  %-20s %s\n", name, sub.Description)
-		}
-
-		fmt.Println()
-	}
+	printDescription(node.Description)
+	printSubcommands(node.Subcommands)
 
 	flags, err := collectFlagHelpChain(node)
 	if err != nil {
@@ -1219,31 +1211,62 @@ func printCommandHelp(node *commandNode) {
 		return
 	}
 
-	if len(flags) > 0 {
-		fmt.Println("Flags:")
+	printFlags(flags)
+}
 
-		for _, item := range flags {
-			name := "--" + item.Name
-			if item.Short != "" {
-				name = fmt.Sprintf("--%s, -%s", item.Name, item.Short)
-			}
+func printSimpleHelp(binName string, node *commandNode) {
+	fmt.Printf("Usage: %s %s\n\n", binName, node.Name)
 
-			if item.Placeholder != "" && item.Placeholder != "[flag]" {
-				name = fmt.Sprintf("%s %s", name, item.Placeholder)
-			}
-
-			usage := item.Usage
-			if item.Options != "" {
-				if usage == "" {
-					usage = "options: " + item.Options
-				} else {
-					usage = fmt.Sprintf("%s (options: %s)", usage, item.Options)
-				}
-			}
-
-			fmt.Printf("  %-24s %s\n", name, usage)
-		}
+	if node.Description != "" {
+		fmt.Println(node.Description)
 	}
+}
+
+func printDescription(desc string) {
+	if desc != "" {
+		fmt.Println(desc)
+		fmt.Println()
+	}
+}
+
+func printSubcommands(subs map[string]*commandNode) {
+	if len(subs) == 0 {
+		return
+	}
+
+	fmt.Println("Subcommands:")
+
+	for name, sub := range subs {
+		fmt.Printf("  %-20s %s\n", name, sub.Description)
+	}
+
+	fmt.Println()
+}
+
+func printFlags(flags []flagHelp) {
+	if len(flags) == 0 {
+		return
+	}
+
+	fmt.Println("Flags:")
+
+	for _, item := range flags {
+		name := formatFlagName(item)
+		fmt.Printf("  %-24s %s\n", name, item.Usage)
+	}
+}
+
+func formatFlagName(item flagHelp) string {
+	name := "--" + item.Name
+	if item.Short != "" {
+		name = fmt.Sprintf("--%s, -%s", item.Name, item.Short)
+	}
+
+	if item.Placeholder != "" && item.Placeholder != "[flag]" {
+		name = fmt.Sprintf("%s %s", name, item.Placeholder)
+	}
+
+	return name
 }
 
 func printCommandSummary(node *commandNode, indent string) {
