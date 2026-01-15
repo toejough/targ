@@ -77,6 +77,91 @@ compdef _%s_completion %s
 	targRootOnlyFlags = []string{"--no-cache", "--keep", "--completion", "--init", "--alias"}
 )
 
+type cmdLineTokenizer struct {
+	parts    []string
+	current  strings.Builder
+	inSingle bool
+	inDouble bool
+	escaped  bool
+	isNewArg bool
+}
+
+func (t *cmdLineTokenizer) finalize() {
+	if t.escaped {
+		t.current.WriteByte('\\')
+	}
+
+	t.flushCurrent()
+
+	if t.inSingle || t.inDouble {
+		t.isNewArg = false
+	}
+}
+
+func (t *cmdLineTokenizer) flushCurrent() {
+	if t.current.Len() > 0 {
+		t.parts = append(t.parts, t.current.String())
+		t.current.Reset()
+	}
+}
+
+func (t *cmdLineTokenizer) handleSpecialChar(ch byte) bool {
+	if ch == '\\' && !t.inSingle {
+		t.escaped = true
+		t.isNewArg = false
+
+		return true
+	}
+
+	if ch == '\'' && !t.inDouble {
+		t.inSingle = !t.inSingle
+		t.isNewArg = false
+
+		return true
+	}
+
+	if ch == '"' && !t.inSingle {
+		t.inDouble = !t.inDouble
+		t.isNewArg = false
+
+		return true
+	}
+
+	if isWhitespace(ch) && !t.inSingle && !t.inDouble {
+		t.flushCurrent()
+		t.isNewArg = true
+
+		return true
+	}
+
+	return false
+}
+
+func (t *cmdLineTokenizer) processChar(ch byte) {
+	if t.escaped {
+		t.current.WriteByte(ch)
+		t.escaped = false
+		t.isNewArg = false
+
+		return
+	}
+
+	if t.handleSpecialChar(ch) {
+		return
+	}
+
+	t.current.WriteByte(ch)
+	t.isNewArg = false
+}
+
+func (t *cmdLineTokenizer) tokenize(commandLine string) {
+	for i := range len(commandLine) {
+		t.processChar(commandLine[i])
+	}
+
+	t.finalize()
+}
+
 type completionFlagSpec struct {
 	TakesValue bool
 	Variadic   bool
@@ -508,6 +593,22 @@ func expectingFlagValue(args []string, specs map[string]completionFlagSpec) bool
 	return false
 }
 
+func expectingGroupedShortFlagValue(flag string, specs map[string]completionFlagSpec) bool {
+	group := strings.TrimPrefix(flag, "-")
+	for i, ch := range group {
+		spec, ok := specs["-"+string(ch)]
+		if !ok {
+			continue
+		}
+
+		if spec.TakesValue {
+			return i == len(group)-1
+		}
+	}
+
+	return false
+}
+
 func expectingLongFlagValue(flag string, specs map[string]completionFlagSpec) bool {
 	if strings.Contains(flag, "=") {
 		return false
@@ -526,22 +627,6 @@ func expectingShortFlagValue(flag string, specs map[string]completionFlagSpec) b
 	}
 
 	return expectingGroupedShortFlagValue(flag, specs)
-}
-
-func expectingGroupedShortFlagValue(flag string, specs map[string]completionFlagSpec) bool {
-	group := strings.TrimPrefix(flag, "-")
-	for i, ch := range group {
-		spec, ok := specs["-"+string(ch)]
-		if !ok {
-			continue
-		}
-
-		if spec.TakesValue {
-			return i == len(group)-1
-		}
-	}
-
-	return false
 }
 
 func findCompletionRoot(roots []*commandNode, name string) *commandNode {
@@ -572,6 +657,10 @@ func hasFlagValuePrefix(arg string, flags map[string]bool) bool {
 	}
 
 	return false
+}
+
+func isWhitespace(ch byte) bool {
+	return ch == ' ' || ch == '\t' || ch == '\n'
 }
 
 func positionalFields(node *commandNode, inst reflect.Value) ([]positionalField, error) {
@@ -794,98 +883,9 @@ func suggestFlags(chain []commandInstance, prefix string, atRoot bool) error {
 	return nil
 }
 
-type cmdLineTokenizer struct {
-	parts    []string
-	current  strings.Builder
-	inSingle bool
-	inDouble bool
-	escaped  bool
-	isNewArg bool
-}
-
 func tokenizeCommandLine(commandLine string) ([]string, bool) {
 	t := &cmdLineTokenizer{}
 	t.tokenize(commandLine)
 
 	return t.parts, t.isNewArg
-}
-
-func (t *cmdLineTokenizer) tokenize(commandLine string) {
-	for i := range len(commandLine) {
-		t.processChar(commandLine[i])
-	}
-
-	t.finalize()
-}
-
-func (t *cmdLineTokenizer) processChar(ch byte) {
-	if t.escaped {
-		t.current.WriteByte(ch)
-		t.escaped = false
-		t.isNewArg = false
-
-		return
-	}
-
-	if t.handleSpecialChar(ch) {
-		return
-	}
-
-	t.current.WriteByte(ch)
-	t.isNewArg = false
-}
-
-func (t *cmdLineTokenizer) handleSpecialChar(ch byte) bool {
-	if ch == '\\' && !t.inSingle {
-		t.escaped = true
-		t.isNewArg = false
-
-		return true
-	}
-
-	if ch == '\'' && !t.inDouble {
-		t.inSingle = !t.inSingle
-		t.isNewArg = false
-
-		return true
-	}
-
-	if ch == '"' && !t.inSingle {
-		t.inDouble = !t.inDouble
-		t.isNewArg = false
-
-		return true
-	}
-
-	if isWhitespace(ch) && !t.inSingle && !t.inDouble {
-		t.flushCurrent()
-		t.isNewArg = true
-
-		return true
-	}
-
-	return false
-}
-
-func (t *cmdLineTokenizer) flushCurrent() {
-	if t.current.Len() > 0 {
-		t.parts = append(t.parts, t.current.String())
-		t.current.Reset()
-	}
-}
-
-func (t *cmdLineTokenizer) finalize() {
-	if t.escaped {
-		t.current.WriteByte('\\')
-	}
-
-	t.flushCurrent()
-
-	if t.inSingle || t.inDouble {
-		t.isNewArg = false
-	}
-}
-
-func isWhitespace(ch byte) bool {
-	return ch == ' ' || ch == '\t' || ch == '\n'
 }

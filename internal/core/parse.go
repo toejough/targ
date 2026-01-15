@@ -30,6 +30,59 @@ type positionalSpec struct {
 	variadic bool
 }
 
+func addressableCustomSetter(fieldVal reflect.Value) (func(string) error, bool) {
+	if !fieldVal.CanAddr() {
+		return nil, false
+	}
+
+	ptr := fieldVal.Addr()
+	if ptr.Type().Implements(textUnmarshalerType) {
+		return func(value string) error {
+			u, ok := ptr.Interface().(encoding.TextUnmarshaler)
+			if !ok {
+				return errors.New("type assertion to TextUnmarshaler failed")
+			}
+
+			return u.UnmarshalText([]byte(value))
+		}, true
+	}
+
+	if ptr.Type().Implements(stringSetterType) {
+		return func(value string) error {
+			s, ok := ptr.Interface().(interface{ Set(s string) error })
+			if !ok {
+				return errors.New("type assertion to Set(string) error failed")
+			}
+
+			return s.Set(value)
+		}, true
+	}
+
+	return nil, false
+}
+
+func collectFieldFlagSpec(
+	inst commandInstance,
+	field reflect.StructField,
+	fieldVal reflect.Value,
+	usedNames map[string]bool,
+) (*flagSpec, error) {
+	spec, ok, err := flagSpecForField(inst.value, field, fieldVal)
+	if err != nil {
+		return nil, err
+	}
+
+	if !ok || spec == nil {
+		return nil, nil
+	}
+
+	if err := registerFlagName(spec, usedNames); err != nil {
+		return nil, err
+	}
+
+	return spec, nil
+}
+
 func collectFlagSpecs(chain []commandInstance) ([]*flagSpec, map[string]bool, error) {
 	var specs []*flagSpec
 
@@ -74,46 +127,6 @@ func collectInstanceFlagSpecs(
 	}
 
 	return specs, nil
-}
-
-func collectFieldFlagSpec(
-	inst commandInstance,
-	field reflect.StructField,
-	fieldVal reflect.Value,
-	usedNames map[string]bool,
-) (*flagSpec, error) {
-	spec, ok, err := flagSpecForField(inst.value, field, fieldVal)
-	if err != nil {
-		return nil, err
-	}
-
-	if !ok || spec == nil {
-		return nil, nil
-	}
-
-	if err := registerFlagName(spec, usedNames); err != nil {
-		return nil, err
-	}
-
-	return spec, nil
-}
-
-func registerFlagName(spec *flagSpec, usedNames map[string]bool) error {
-	if usedNames[spec.name] {
-		return fmt.Errorf("flag %s already defined", spec.name)
-	}
-
-	usedNames[spec.name] = true
-
-	if spec.short != "" {
-		if usedNames[spec.short] {
-			return fmt.Errorf("flag %s already defined", spec.short)
-		}
-
-		usedNames[spec.short] = true
-	}
-
-	return nil
 }
 
 func collectPositionalSpecs(node *commandNode, inst reflect.Value) ([]positionalSpec, error) {
@@ -161,82 +174,6 @@ func customSetter(fieldVal reflect.Value) (func(string) error, bool) {
 	return valueTypeCustomSetter(fieldVal)
 }
 
-func addressableCustomSetter(fieldVal reflect.Value) (func(string) error, bool) {
-	if !fieldVal.CanAddr() {
-		return nil, false
-	}
-
-	ptr := fieldVal.Addr()
-	if ptr.Type().Implements(textUnmarshalerType) {
-		return func(value string) error {
-			u, ok := ptr.Interface().(encoding.TextUnmarshaler)
-			if !ok {
-				return errors.New("type assertion to TextUnmarshaler failed")
-			}
-
-			return u.UnmarshalText([]byte(value))
-		}, true
-	}
-
-	if ptr.Type().Implements(stringSetterType) {
-		return func(value string) error {
-			s, ok := ptr.Interface().(interface{ Set(s string) error })
-			if !ok {
-				return errors.New("type assertion to Set(string) error failed")
-			}
-
-			return s.Set(value)
-		}, true
-	}
-
-	return nil, false
-}
-
-func valueTypeCustomSetter(fieldVal reflect.Value) (func(string) error, bool) {
-	fieldType := fieldVal.Type()
-	if fieldType.Implements(textUnmarshalerType) {
-		return func(value string) error {
-			next := reflect.New(fieldType).Elem()
-
-			u, ok := next.Interface().(encoding.TextUnmarshaler)
-			if !ok {
-				return errors.New("type assertion to TextUnmarshaler failed")
-			}
-
-			err := u.UnmarshalText([]byte(value))
-			if err != nil {
-				return err
-			}
-
-			fieldVal.Set(next)
-
-			return nil
-		}, true
-	}
-
-	if fieldType.Implements(stringSetterType) {
-		return func(value string) error {
-			next := reflect.New(fieldType).Elem()
-
-			s, ok := next.Interface().(interface{ Set(s string) error })
-			if !ok {
-				return errors.New("type assertion to Set(string) error failed")
-			}
-
-			err := s.Set(value)
-			if err != nil {
-				return err
-			}
-
-			fieldVal.Set(next)
-
-			return nil
-		}, true
-	}
-
-	return nil, false
-}
-
 // isInterleavedType checks if a type is Interleaved[T] by looking for Value and Position fields.
 func isInterleavedType(t reflect.Type) bool {
 	if t.Kind() != reflect.Struct {
@@ -264,6 +201,16 @@ func markFlagVisited(visited map[string]bool, spec *flagSpec) {
 	if spec.short != "" {
 		visited[spec.short] = true
 	}
+}
+
+func parseBoolFlagValue(spec *flagSpec, argPosition *int) (int, error) {
+	spec.value.SetBool(true)
+
+	if argPosition != nil {
+		*argPosition++
+	}
+
+	return 0, nil
 }
 
 func parseCommandArgs(
@@ -525,14 +472,32 @@ func parseFlagValueWithPosition(
 	return parseSingleFlagValue(spec, args, index, allowIncomplete, argPosition)
 }
 
-func parseBoolFlagValue(spec *flagSpec, argPosition *int) (int, error) {
-	spec.value.SetBool(true)
+func parseSingleFlagValue(
+	spec *flagSpec,
+	args []string,
+	index int,
+	allowIncomplete bool,
+	argPosition *int,
+) (int, error) {
+	if index+1 >= len(args) {
+		if allowIncomplete {
+			return 0, nil
+		}
 
-	if argPosition != nil {
-		*argPosition++
+		return 0, fmt.Errorf("flag needs an argument: --%s", spec.name)
 	}
 
-	return 0, nil
+	next := args[index+1]
+	if next == "--" || strings.HasPrefix(next, "-") {
+		return 0, fmt.Errorf("flag needs an argument: --%s", spec.name)
+	}
+
+	err := setFieldWithPosition(spec.value, next, argPosition)
+	if err != nil {
+		return 0, err
+	}
+
+	return 1, nil
 }
 
 func parseSliceFlagValue(
@@ -569,32 +534,22 @@ func parseSliceFlagValue(
 	return count, nil
 }
 
-func parseSingleFlagValue(
-	spec *flagSpec,
-	args []string,
-	index int,
-	allowIncomplete bool,
-	argPosition *int,
-) (int, error) {
-	if index+1 >= len(args) {
-		if allowIncomplete {
-			return 0, nil
+func registerFlagName(spec *flagSpec, usedNames map[string]bool) error {
+	if usedNames[spec.name] {
+		return fmt.Errorf("flag %s already defined", spec.name)
+	}
+
+	usedNames[spec.name] = true
+
+	if spec.short != "" {
+		if usedNames[spec.short] {
+			return fmt.Errorf("flag %s already defined", spec.short)
 		}
 
-		return 0, fmt.Errorf("flag needs an argument: --%s", spec.name)
+		usedNames[spec.short] = true
 	}
 
-	next := args[index+1]
-	if next == "--" || strings.HasPrefix(next, "-") {
-		return 0, fmt.Errorf("flag needs an argument: --%s", spec.name)
-	}
-
-	err := setFieldWithPosition(spec.value, next, argPosition)
-	if err != nil {
-		return 0, err
-	}
-
-	return 1, nil
+	return nil
 }
 
 func setFieldFromString(fieldVal reflect.Value, value string) error {
@@ -690,4 +645,49 @@ func setFieldWithPosition(fieldVal reflect.Value, value string, pos *int) error 
 	}
 
 	return nil
+}
+
+func valueTypeCustomSetter(fieldVal reflect.Value) (func(string) error, bool) {
+	fieldType := fieldVal.Type()
+	if fieldType.Implements(textUnmarshalerType) {
+		return func(value string) error {
+			next := reflect.New(fieldType).Elem()
+
+			u, ok := next.Interface().(encoding.TextUnmarshaler)
+			if !ok {
+				return errors.New("type assertion to TextUnmarshaler failed")
+			}
+
+			err := u.UnmarshalText([]byte(value))
+			if err != nil {
+				return err
+			}
+
+			fieldVal.Set(next)
+
+			return nil
+		}, true
+	}
+
+	if fieldType.Implements(stringSetterType) {
+		return func(value string) error {
+			next := reflect.New(fieldType).Elem()
+
+			s, ok := next.Interface().(interface{ Set(s string) error })
+			if !ok {
+				return errors.New("type assertion to Set(string) error failed")
+			}
+
+			err := s.Set(value)
+			if err != nil {
+				return err
+			}
+
+			fieldVal.Set(next)
+
+			return nil
+		}, true
+	}
+
+	return nil, false
 }

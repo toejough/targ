@@ -153,21 +153,9 @@ func (c *TestCmdStruct) Run() {
 	c.Called = true
 }
 
-type UnexportedFlag struct {
-	hidden string `targ:"flag"` //nolint:unused // intentionally unexported for testing error handling
-}
+type TooManyInputsMethod struct{}
 
-func (c *UnexportedFlag) Run() {}
-
-func InvalidParamFunc(n int) {}
-
-func InvalidReturnFunc() int {
-	return 42
-}
-
-func TooManyReturnsFunc() (int, error) {
-	return 42, nil
-}
+func (t *TooManyInputsMethod) Run(ctx context.Context, extra int) {}
 
 type TooManyReturnsMethod struct{}
 
@@ -175,13 +163,21 @@ func (t *TooManyReturnsMethod) Run() (int, error) {
 	return 42, nil
 }
 
-type TooManyInputsMethod struct{}
+type UnexportedFlag struct {
+	hidden string `targ:"flag"` //nolint:unused // intentionally unexported for testing error handling
+}
 
-func (t *TooManyInputsMethod) Run(ctx context.Context, extra int) {}
+func (c *UnexportedFlag) Run() {}
 
 type WrongInputTypeMethod struct{}
 
 func (w *WrongInputTypeMethod) Run(notContext int) {}
+
+func InvalidParamFunc(n int) {}
+
+func InvalidReturnFunc() int {
+	return 42
+}
 
 // --- parseFunc tests ---
 
@@ -677,6 +673,55 @@ func TestExecuteEnv_ExitIsNoOp(t *testing.T) {
 	env.Exit(0)
 }
 
+func TestExecute_MethodTooManyInputs(t *testing.T) {
+	g := NewWithT(t)
+
+	cmd := &TooManyInputsMethod{}
+	node, err := parseStruct(cmd)
+	g.Expect(err).NotTo(HaveOccurred())
+
+	if node == nil {
+		t.Fatal("node should not be nil when err is nil")
+	}
+
+	err = node.execute(context.TODO(), []string{}, RunOptions{})
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("accept context.Context or no args"))
+}
+
+func TestExecute_MethodTooManyReturns(t *testing.T) {
+	g := NewWithT(t)
+
+	// Struct with Run method returning multiple values
+	cmd := &TooManyReturnsMethod{}
+	node, err := parseStruct(cmd)
+	g.Expect(err).NotTo(HaveOccurred())
+
+	if node == nil {
+		t.Fatal("node should not be nil when err is nil")
+	}
+
+	err = node.execute(context.TODO(), []string{}, RunOptions{})
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("return only error"))
+}
+
+func TestExecute_MethodWrongInputType(t *testing.T) {
+	g := NewWithT(t)
+
+	cmd := &WrongInputTypeMethod{}
+	node, err := parseStruct(cmd)
+	g.Expect(err).NotTo(HaveOccurred())
+
+	if node == nil {
+		t.Fatal("node should not be nil when err is nil")
+	}
+
+	err = node.execute(context.TODO(), []string{}, RunOptions{})
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("accept context.Context"))
+}
+
 // --- ExitError tests ---
 
 func TestExitError_Error(t *testing.T) {
@@ -709,6 +754,17 @@ func TestExpectingFlagValue_EmptyArgs(t *testing.T) {
 	g.Expect(expectingFlagValue([]string{}, specs)).To(BeFalse())
 }
 
+func TestExpectingFlagValue_FlagGroupAllBool(t *testing.T) {
+	g := NewWithT(t)
+
+	specs := map[string]completionFlagSpec{
+		"-v": {TakesValue: false},
+		"-d": {TakesValue: false},
+	}
+	// -vd where all flags are bools
+	g.Expect(expectingFlagValue([]string{"-vd"}, specs)).To(BeFalse())
+}
+
 func TestExpectingFlagValue_FlagGroupLastTakesValue(t *testing.T) {
 	g := NewWithT(t)
 
@@ -729,17 +785,6 @@ func TestExpectingFlagValue_FlagGroupMiddleTakesValue(t *testing.T) {
 	}
 	// -nv where n takes value but is not last
 	g.Expect(expectingFlagValue([]string{"-nv"}, specs)).To(BeFalse())
-}
-
-func TestExpectingFlagValue_FlagGroupAllBool(t *testing.T) {
-	g := NewWithT(t)
-
-	specs := map[string]completionFlagSpec{
-		"-v": {TakesValue: false},
-		"-d": {TakesValue: false},
-	}
-	// -vd where all flags are bools
-	g.Expect(expectingFlagValue([]string{"-vd"}, specs)).To(BeFalse())
 }
 
 func TestExpectingFlagValue_FlagGroupUnknownFlag(t *testing.T) {
@@ -890,6 +935,48 @@ func TestExtractTimeout_WithSeparateValue(t *testing.T) {
 	g.Expect(remaining).To(Equal([]string{"cmd", "arg1"}))
 }
 
+func TestFlagDefaultPlaceholder(t *testing.T) {
+	// Test type that hits default case (not string, int, or bool)
+	type DefaultFlag struct {
+		Rate float64 `targ:"flag"`
+	}
+
+	cmd, err := parseStruct(&DefaultFlag{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	usage, err := buildUsageLine(cmd)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Default placeholder is empty string, so flag name should appear without placeholder
+	if !strings.Contains(usage, "--rate") {
+		t.Fatalf("expected flag in usage: %s", usage)
+	}
+}
+
+func TestFlagEnumUsage(t *testing.T) {
+	type EnumFlag struct {
+		Mode string `targ:"flag,enum=dev|prod|test"`
+	}
+
+	cmd, err := parseStruct(&EnumFlag{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	usage, err := buildUsageLine(cmd)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !strings.Contains(usage, "{dev|prod|test}") {
+		t.Fatalf("expected enum flag placeholder, got: %s", usage)
+	}
+}
+
 func TestFlagParsing_IntFlagEqualsFormat(t *testing.T) {
 	g := NewWithT(t)
 
@@ -1032,31 +1119,6 @@ func TestParseTarget_InvalidFunctionReturn(t *testing.T) {
 	g.Expect(err.Error()).To(ContainSubstring("return only error"))
 }
 
-func TestParseTarget_TooManyReturns(t *testing.T) {
-	g := NewWithT(t)
-
-	// Function returning multiple values
-	_, err := parseTarget(TooManyReturnsFunc)
-	g.Expect(err).To(HaveOccurred())
-	g.Expect(err.Error()).To(ContainSubstring("return only error"))
-}
-
-func TestExecute_MethodTooManyReturns(t *testing.T) {
-	g := NewWithT(t)
-
-	// Struct with Run method returning multiple values
-	cmd := &TooManyReturnsMethod{}
-	node, err := parseStruct(cmd)
-	g.Expect(err).NotTo(HaveOccurred())
-	if node == nil {
-		t.Fatal("node should not be nil when err is nil")
-	}
-
-	err = node.execute(context.TODO(), []string{}, RunOptions{})
-	g.Expect(err).To(HaveOccurred())
-	g.Expect(err.Error()).To(ContainSubstring("return only error"))
-}
-
 func TestParseTarget_InvalidFunctionSignature(t *testing.T) {
 	g := NewWithT(t)
 
@@ -1066,34 +1128,13 @@ func TestParseTarget_InvalidFunctionSignature(t *testing.T) {
 	g.Expect(err.Error()).To(ContainSubstring("niladic or accept context"))
 }
 
-func TestExecute_MethodTooManyInputs(t *testing.T) {
+func TestParseTarget_TooManyReturns(t *testing.T) {
 	g := NewWithT(t)
 
-	cmd := &TooManyInputsMethod{}
-	node, err := parseStruct(cmd)
-	g.Expect(err).NotTo(HaveOccurred())
-	if node == nil {
-		t.Fatal("node should not be nil when err is nil")
-	}
-
-	err = node.execute(context.TODO(), []string{}, RunOptions{})
+	// Function returning multiple values
+	_, err := parseTarget(TooManyReturnsFunc)
 	g.Expect(err).To(HaveOccurred())
-	g.Expect(err.Error()).To(ContainSubstring("accept context.Context or no args"))
-}
-
-func TestExecute_MethodWrongInputType(t *testing.T) {
-	g := NewWithT(t)
-
-	cmd := &WrongInputTypeMethod{}
-	node, err := parseStruct(cmd)
-	g.Expect(err).NotTo(HaveOccurred())
-	if node == nil {
-		t.Fatal("node should not be nil when err is nil")
-	}
-
-	err = node.execute(context.TODO(), []string{}, RunOptions{})
-	g.Expect(err).To(HaveOccurred())
-	g.Expect(err.Error()).To(ContainSubstring("accept context.Context"))
+	g.Expect(err.Error()).To(ContainSubstring("return only error"))
 }
 
 func TestPersistentFlagConflicts(t *testing.T) {
@@ -1152,135 +1193,6 @@ func TestPositionalEnumUsage(t *testing.T) {
 	if !strings.Contains(usage, "{dev|prod}") {
 		t.Fatalf("expected enum positional placeholder, got: %s", usage)
 	}
-}
-
-func TestFlagEnumUsage(t *testing.T) {
-	type EnumFlag struct {
-		Mode string `targ:"flag,enum=dev|prod|test"`
-	}
-
-	cmd, err := parseStruct(&EnumFlag{})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	usage, err := buildUsageLine(cmd)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if !strings.Contains(usage, "{dev|prod|test}") {
-		t.Fatalf("expected enum flag placeholder, got: %s", usage)
-	}
-}
-
-func TestFlagDefaultPlaceholder(t *testing.T) {
-	// Test type that hits default case (not string, int, or bool)
-	type DefaultFlag struct {
-		Rate float64 `targ:"flag"`
-	}
-
-	cmd, err := parseStruct(&DefaultFlag{})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	usage, err := buildUsageLine(cmd)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	// Default placeholder is empty string, so flag name should appear without placeholder
-	if !strings.Contains(usage, "--rate") {
-		t.Fatalf("expected flag in usage: %s", usage)
-	}
-}
-
-func TestSliceFlagParsing(t *testing.T) {
-	g := NewWithT(t)
-
-	type SliceCmd struct {
-		Files []string `targ:"flag"`
-	}
-
-	// Test with multiple values
-	cmd := &SliceCmd{}
-	node, err := parseStruct(cmd)
-	g.Expect(err).NotTo(HaveOccurred())
-	if node == nil {
-		t.Fatal("node should not be nil when err is nil")
-	}
-
-	err = node.execute(context.TODO(), []string{"--files", "a.txt", "b.txt", "c.txt"}, RunOptions{})
-	g.Expect(err).NotTo(HaveOccurred())
-	g.Expect(cmd.Files).To(Equal([]string{"a.txt", "b.txt", "c.txt"}))
-}
-
-func TestSliceFlagMissingValue(t *testing.T) {
-	g := NewWithT(t)
-
-	type SliceCmd struct {
-		Files []string `targ:"flag"`
-	}
-
-	// Test with no values after flag (error case)
-	node, err := parseStruct(&SliceCmd{})
-	g.Expect(err).NotTo(HaveOccurred())
-	if node == nil {
-		t.Fatal("node should not be nil when err is nil")
-	}
-
-	err = node.execute(context.TODO(), []string{"--files"}, RunOptions{})
-	g.Expect(err).To(HaveOccurred())
-	g.Expect(err.Error()).To(ContainSubstring("flag needs an argument"))
-}
-
-func TestSliceFlagStopsAtFlag(t *testing.T) {
-	g := NewWithT(t)
-
-	type SliceCmd struct {
-		Files   []string `targ:"flag"`
-		Verbose bool     `targ:"flag,short=v"`
-	}
-
-	// Test that slice parsing stops at another flag
-	cmd := &SliceCmd{}
-	node, err := parseStruct(cmd)
-	g.Expect(err).NotTo(HaveOccurred())
-	if node == nil {
-		t.Fatal("node should not be nil when err is nil")
-	}
-
-	err = node.execute(context.TODO(), []string{"--files", "a.txt", "b.txt", "-v"}, RunOptions{})
-	g.Expect(err).NotTo(HaveOccurred())
-	g.Expect(cmd.Files).To(Equal([]string{"a.txt", "b.txt"}))
-	g.Expect(cmd.Verbose).To(BeTrue())
-}
-
-func TestSliceFlagStopsAtDoubleDash(t *testing.T) {
-	g := NewWithT(t)
-
-	type SliceCmd struct {
-		Files []string `targ:"flag"`
-		Arg   string   `targ:"positional"`
-	}
-
-	// Test that slice parsing stops at --
-	cmd := &SliceCmd{}
-	node, err := parseStruct(cmd)
-	g.Expect(err).NotTo(HaveOccurred())
-	if node == nil {
-		t.Fatal("node should not be nil when err is nil")
-	}
-
-	err = node.execute(
-		context.TODO(),
-		[]string{"--files", "a.txt", "--", "positional-arg"},
-		RunOptions{},
-	)
-	g.Expect(err).NotTo(HaveOccurred())
-	g.Expect(cmd.Files).To(Equal([]string{"a.txt"}))
-	g.Expect(cmd.Arg).To(Equal("positional-arg"))
 }
 
 func TestPositionalIndex_BoolFlagNoConsume(t *testing.T) {
@@ -1802,6 +1714,97 @@ func TestSkipTargFlags_WithTimeoutEquals(t *testing.T) {
 	g.Expect(result).To(Equal([]string{"build"}))
 }
 
+func TestSliceFlagMissingValue(t *testing.T) {
+	g := NewWithT(t)
+
+	type SliceCmd struct {
+		Files []string `targ:"flag"`
+	}
+
+	// Test with no values after flag (error case)
+	node, err := parseStruct(&SliceCmd{})
+	g.Expect(err).NotTo(HaveOccurred())
+
+	if node == nil {
+		t.Fatal("node should not be nil when err is nil")
+	}
+
+	err = node.execute(context.TODO(), []string{"--files"}, RunOptions{})
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("flag needs an argument"))
+}
+
+func TestSliceFlagParsing(t *testing.T) {
+	g := NewWithT(t)
+
+	type SliceCmd struct {
+		Files []string `targ:"flag"`
+	}
+
+	// Test with multiple values
+	cmd := &SliceCmd{}
+	node, err := parseStruct(cmd)
+	g.Expect(err).NotTo(HaveOccurred())
+
+	if node == nil {
+		t.Fatal("node should not be nil when err is nil")
+	}
+
+	err = node.execute(context.TODO(), []string{"--files", "a.txt", "b.txt", "c.txt"}, RunOptions{})
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(cmd.Files).To(Equal([]string{"a.txt", "b.txt", "c.txt"}))
+}
+
+func TestSliceFlagStopsAtDoubleDash(t *testing.T) {
+	g := NewWithT(t)
+
+	type SliceCmd struct {
+		Files []string `targ:"flag"`
+		Arg   string   `targ:"positional"`
+	}
+
+	// Test that slice parsing stops at --
+	cmd := &SliceCmd{}
+	node, err := parseStruct(cmd)
+	g.Expect(err).NotTo(HaveOccurred())
+
+	if node == nil {
+		t.Fatal("node should not be nil when err is nil")
+	}
+
+	err = node.execute(
+		context.TODO(),
+		[]string{"--files", "a.txt", "--", "positional-arg"},
+		RunOptions{},
+	)
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(cmd.Files).To(Equal([]string{"a.txt"}))
+	g.Expect(cmd.Arg).To(Equal("positional-arg"))
+}
+
+func TestSliceFlagStopsAtFlag(t *testing.T) {
+	g := NewWithT(t)
+
+	type SliceCmd struct {
+		Files   []string `targ:"flag"`
+		Verbose bool     `targ:"flag,short=v"`
+	}
+
+	// Test that slice parsing stops at another flag
+	cmd := &SliceCmd{}
+	node, err := parseStruct(cmd)
+	g.Expect(err).NotTo(HaveOccurred())
+
+	if node == nil {
+		t.Fatal("node should not be nil when err is nil")
+	}
+
+	err = node.execute(context.TODO(), []string{"--files", "a.txt", "b.txt", "-v"}, RunOptions{})
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(cmd.Files).To(Equal([]string{"a.txt", "b.txt"}))
+	g.Expect(cmd.Verbose).To(BeTrue())
+}
+
 func TestTagOptionsInstance_Empty(t *testing.T) {
 	g := NewWithT(t)
 
@@ -1885,6 +1888,10 @@ func TestUsageLine_NoSubcommandWithRequiredPositional(t *testing.T) {
 	if !strings.HasSuffix(usage, "ID") {
 		t.Fatalf("expected ID positional at end: %s", usage)
 	}
+}
+
+func TooManyReturnsFunc() (int, error) {
+	return 42, nil
 }
 
 type helpTestCmd struct {

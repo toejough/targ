@@ -32,6 +32,21 @@ type newerCache struct {
 	Files   map[string]int64 `json:"files"`
 }
 
+func anyOutputOlderThan(outputs []string, threshold time.Time) bool {
+	for _, path := range outputs {
+		info, err := os.Stat(path)
+		if err != nil {
+			return true
+		}
+
+		if info.ModTime().Before(threshold) {
+			return true
+		}
+	}
+
+	return false
+}
+
 func cacheEqual(a, b *newerCache) bool {
 	if len(a.Matches) != len(b.Matches) {
 		return false
@@ -75,6 +90,23 @@ func cacheFilePath(cwd, pattern string) (string, error) {
 func hashString(value string) string {
 	sum := sha256.Sum256([]byte(value))
 	return hex.EncodeToString(sum[:])
+}
+
+func latestModTime(paths []string) (time.Time, bool) {
+	latest := time.Time{}
+
+	for _, path := range paths {
+		info, err := os.Stat(path)
+		if err != nil {
+			return time.Time{}, true
+		}
+
+		if info.ModTime().After(latest) {
+			latest = info.ModTime()
+		}
+	}
+
+	return latest, false
 }
 
 func newerWithCache(inputs []string) (bool, error) {
@@ -131,38 +163,6 @@ func newerWithOutputs(inputs, outputs []string) (bool, error) {
 	}
 
 	return anyOutputOlderThan(outMatches, latestInput), nil
-}
-
-func latestModTime(paths []string) (time.Time, bool) {
-	latest := time.Time{}
-
-	for _, path := range paths {
-		info, err := os.Stat(path)
-		if err != nil {
-			return time.Time{}, true
-		}
-
-		if info.ModTime().After(latest) {
-			latest = info.ModTime()
-		}
-	}
-
-	return latest, false
-}
-
-func anyOutputOlderThan(outputs []string, threshold time.Time) bool {
-	for _, path := range outputs {
-		info, err := os.Stat(path)
-		if err != nil {
-			return true
-		}
-
-		if info.ModTime().Before(threshold) {
-			return true
-		}
-	}
-
-	return false
 }
 
 func readCache(path string) (*newerCache, error) {

@@ -697,6 +697,79 @@ type namespaceNode struct {
 	VarName  string
 }
 
+// parseShellCommand splits a shell command string into parts.
+// Handles quoted strings.
+type shellCommandParser struct {
+	parts   []string
+	current strings.Builder
+	inQuote rune
+	escaped bool
+}
+
+func (p *shellCommandParser) finalize() ([]string, error) {
+	if p.inQuote != 0 {
+		return nil, errors.New("unclosed quote")
+	}
+
+	p.flushCurrent()
+
+	return p.parts, nil
+}
+
+func (p *shellCommandParser) flushCurrent() {
+	if p.current.Len() > 0 {
+		p.parts = append(p.parts, p.current.String())
+		p.current.Reset()
+	}
+}
+
+func (p *shellCommandParser) handleQuotedChar(r rune) {
+	if r == p.inQuote {
+		p.inQuote = 0
+	} else {
+		p.current.WriteRune(r)
+	}
+}
+
+func (p *shellCommandParser) handleUnquotedChar(r rune) {
+	if r == '"' || r == '\'' {
+		p.inQuote = r
+
+		return
+	}
+
+	if r == ' ' || r == '\t' {
+		p.flushCurrent()
+
+		return
+	}
+
+	p.current.WriteRune(r)
+}
+
+func (p *shellCommandParser) processRune(r rune) {
+	if p.escaped {
+		p.current.WriteRune(r)
+		p.escaped = false
+
+		return
+	}
+
+	if r == '\\' {
+		p.escaped = true
+
+		return
+	}
+
+	if p.inQuote != 0 {
+		p.handleQuotedChar(r)
+
+		return
+	}
+
+	p.handleUnquotedChar(r)
+}
+
 type targDependency struct {
 	ModulePath string
 	Version    string
@@ -766,6 +839,41 @@ func addAlias(name, command, targetFile string) (string, error) {
 			command,
 		)
 	}
+}
+
+func addShImportToContent(content string) string {
+	lines := strings.Split(content, "\n")
+
+	var result []string
+
+	importAdded := false
+
+	for i, line := range lines {
+		result = append(result, line)
+
+		if importAdded {
+			continue
+		}
+
+		trimmed := strings.TrimSpace(line)
+		if added := tryAddImportBlock(trimmed, &result); added {
+			importAdded = true
+
+			continue
+		}
+
+		if added := tryConvertSingleImport(trimmed, &result); added {
+			importAdded = true
+
+			continue
+		}
+
+		if added := tryAddAfterPackage(trimmed, lines, i, &result); added {
+			importAdded = true
+		}
+	}
+
+	return strings.Join(result, "\n")
 }
 
 // appendToFile appends content to a file.
@@ -963,6 +1071,29 @@ func buildBootstrapData(
 		FuncWrappers: funcWrappers,
 		UsesContext:  usesContext,
 	}, nil
+}
+
+func buildCommandFields(
+	node *namespaceNode,
+	commands []bootstrapCommand,
+	usedNames map[string]bool,
+) ([]bootstrapField, error) {
+	fields := make([]bootstrapField, 0, len(commands))
+
+	for _, cmd := range commands {
+		if usedNames[cmd.Name] {
+			return nil, fmt.Errorf("duplicate command name %q under %q", cmd.Name, node.Name)
+		}
+
+		usedNames[cmd.Name] = true
+		fields = append(fields, bootstrapField{
+			Name:     cmd.Name,
+			TypeExpr: cmd.TypeExpr,
+			TagLit:   `targ:"subcommand"`,
+		})
+	}
+
+	return fields, nil
 }
 
 // buildModuleBinary builds a single module's binary and queries its commands.
@@ -1169,6 +1300,46 @@ func buildMultiModuleBinaries(
 	return registry, nil
 }
 
+func buildNamespaceFields(
+	node *namespaceNode,
+	names []string,
+	fileCommands map[string][]bootstrapCommand,
+) ([]bootstrapField, error) {
+	fields := make([]bootstrapField, 0, len(node.Children))
+	usedNames := map[string]bool{}
+
+	for _, name := range names {
+		child := node.Children[name]
+		if child == nil {
+			continue
+		}
+
+		fieldName := segmentToIdent(child.Name)
+
+		if usedNames[fieldName] {
+			return nil, fmt.Errorf("duplicate namespace field %q under %q", fieldName, node.Name)
+		}
+
+		usedNames[fieldName] = true
+		fields = append(fields, bootstrapField{
+			Name:     fieldName,
+			TypeExpr: "*" + child.TypeName,
+			TagLit:   subcommandTag(fieldName, child.Name),
+		})
+	}
+
+	if node.File != "" {
+		cmdFields, err := buildCommandFields(node, fileCommands[node.File], usedNames)
+		if err != nil {
+			return nil, err
+		}
+
+		fields = append(fields, cmdFields...)
+	}
+
+	return fields, nil
+}
+
 func buildNamespaceTree(paths map[string][]string) *namespaceNode {
 	root := &namespaceNode{Children: make(map[string]*namespaceNode)}
 
@@ -1309,118 +1480,6 @@ func collectNamespaceNodes(
 	out *[]bootstrapNode,
 ) error {
 	return walkNamespaceTree(root, root, fileCommands, out)
-}
-
-func walkNamespaceTree(
-	node, root *namespaceNode,
-	fileCommands map[string][]bootstrapCommand,
-	out *[]bootstrapNode,
-) error {
-	names := sortedChildNames(node)
-
-	for _, name := range names {
-		child := node.Children[name]
-		if child == nil {
-			continue
-		}
-
-		err := walkNamespaceTree(child, root, fileCommands, out)
-		if err != nil {
-			return err
-		}
-	}
-
-	if node == root {
-		return nil
-	}
-
-	fields, err := buildNamespaceFields(node, names, fileCommands)
-	if err != nil {
-		return err
-	}
-
-	*out = append(*out, bootstrapNode{
-		Name:     node.Name,
-		TypeName: node.TypeName,
-		VarName:  node.VarName,
-		Fields:   fields,
-	})
-
-	return nil
-}
-
-func sortedChildNames(node *namespaceNode) []string {
-	names := make([]string, 0, len(node.Children))
-	for name := range node.Children {
-		names = append(names, name)
-	}
-
-	sort.Strings(names)
-
-	return names
-}
-
-func buildNamespaceFields(
-	node *namespaceNode,
-	names []string,
-	fileCommands map[string][]bootstrapCommand,
-) ([]bootstrapField, error) {
-	fields := make([]bootstrapField, 0, len(node.Children))
-	usedNames := map[string]bool{}
-
-	for _, name := range names {
-		child := node.Children[name]
-		if child == nil {
-			continue
-		}
-
-		fieldName := segmentToIdent(child.Name)
-
-		if usedNames[fieldName] {
-			return nil, fmt.Errorf("duplicate namespace field %q under %q", fieldName, node.Name)
-		}
-
-		usedNames[fieldName] = true
-		fields = append(fields, bootstrapField{
-			Name:     fieldName,
-			TypeExpr: "*" + child.TypeName,
-			TagLit:   subcommandTag(fieldName, child.Name),
-		})
-	}
-
-	if node.File != "" {
-		cmdFields, err := buildCommandFields(node, fileCommands[node.File], usedNames)
-		if err != nil {
-			return nil, err
-		}
-
-		fields = append(fields, cmdFields...)
-	}
-
-	return fields, nil
-}
-
-func buildCommandFields(
-	node *namespaceNode,
-	commands []bootstrapCommand,
-	usedNames map[string]bool,
-) ([]bootstrapField, error) {
-	fields := make([]bootstrapField, 0, len(commands))
-
-	for _, cmd := range commands {
-		if usedNames[cmd.Name] {
-			return nil, fmt.Errorf("duplicate command name %q under %q", cmd.Name, node.Name)
-		}
-
-		usedNames[cmd.Name] = true
-		fields = append(fields, bootstrapField{
-			Name:     cmd.Name,
-			TypeExpr: cmd.TypeExpr,
-			TagLit:   `targ:"subcommand"`,
-		})
-	}
-
-	return fields, nil
 }
 
 func commandSummariesFromCommands(commands []buildtool.CommandInfo) []commandSummary {
@@ -1723,92 +1782,6 @@ func ensureShImport(path string) error {
 	result := addShImportToContent(content)
 
 	return os.WriteFile(path, []byte(result), 0o644)
-}
-
-func addShImportToContent(content string) string {
-	lines := strings.Split(content, "\n")
-
-	var result []string
-
-	importAdded := false
-
-	for i, line := range lines {
-		result = append(result, line)
-
-		if importAdded {
-			continue
-		}
-
-		trimmed := strings.TrimSpace(line)
-		if added := tryAddImportBlock(trimmed, &result); added {
-			importAdded = true
-
-			continue
-		}
-
-		if added := tryConvertSingleImport(trimmed, &result); added {
-			importAdded = true
-
-			continue
-		}
-
-		if added := tryAddAfterPackage(trimmed, lines, i, &result); added {
-			importAdded = true
-		}
-	}
-
-	return strings.Join(result, "\n")
-}
-
-func tryAddImportBlock(trimmed string, result *[]string) bool {
-	if trimmed != "import (" {
-		return false
-	}
-
-	*result = append(*result, `	"github.com/toejough/targ/sh"`)
-
-	return true
-}
-
-func tryConvertSingleImport(trimmed string, result *[]string) bool {
-	if !strings.HasPrefix(trimmed, "import \"") {
-		return false
-	}
-
-	(*result)[len(*result)-1] = "import ("
-	*result = append(*result, "\t"+strings.TrimPrefix(trimmed, "import "))
-	*result = append(*result, `	"github.com/toejough/targ/sh"`)
-	*result = append(*result, ")")
-
-	return true
-}
-
-func tryAddAfterPackage(trimmed string, lines []string, index int, result *[]string) bool {
-	if !strings.HasPrefix(trimmed, "package ") {
-		return false
-	}
-
-	if hasImportAhead(lines, index) {
-		return false
-	}
-
-	*result = append(*result, "")
-	*result = append(*result, `import "github.com/toejough/targ/sh"`)
-
-	return true
-}
-
-func hasImportAhead(lines []string, index int) bool {
-	for j := index + 1; j < len(lines); j++ {
-		nextTrimmed := strings.TrimSpace(lines[j])
-		if nextTrimmed == "" {
-			continue
-		}
-
-		return strings.HasPrefix(nextTrimmed, "import")
-	}
-
-	return false
 }
 
 // extractLeadingCompletion extracts --completion from args before any command.
@@ -2125,6 +2098,19 @@ func handleInitFlag(args []string) *initResult {
 	return nil
 }
 
+func hasImportAhead(lines []string, index int) bool {
+	for j := index + 1; j < len(lines); j++ {
+		nextTrimmed := strings.TrimSpace(lines[j])
+		if nextTrimmed == "" {
+			continue
+		}
+
+		return strings.HasPrefix(nextTrimmed, "import")
+	}
+
+	return false
+}
+
 // hasTargBuildTag checks if a file has the //go:build targ tag.
 func hasTargBuildTag(path string) bool {
 	data, err := os.ReadFile(path)
@@ -2297,15 +2283,6 @@ func parseModulePath(content string) string {
 	return ""
 }
 
-// parseShellCommand splits a shell command string into parts.
-// Handles quoted strings.
-type shellCommandParser struct {
-	parts   []string
-	current strings.Builder
-	inQuote rune
-	escaped bool
-}
-
 func parseShellCommand(cmd string) ([]string, error) {
 	p := &shellCommandParser{}
 
@@ -2314,70 +2291,6 @@ func parseShellCommand(cmd string) ([]string, error) {
 	}
 
 	return p.finalize()
-}
-
-func (p *shellCommandParser) processRune(r rune) {
-	if p.escaped {
-		p.current.WriteRune(r)
-		p.escaped = false
-
-		return
-	}
-
-	if r == '\\' {
-		p.escaped = true
-
-		return
-	}
-
-	if p.inQuote != 0 {
-		p.handleQuotedChar(r)
-
-		return
-	}
-
-	p.handleUnquotedChar(r)
-}
-
-func (p *shellCommandParser) handleQuotedChar(r rune) {
-	if r == p.inQuote {
-		p.inQuote = 0
-	} else {
-		p.current.WriteRune(r)
-	}
-}
-
-func (p *shellCommandParser) handleUnquotedChar(r rune) {
-	if r == '"' || r == '\'' {
-		p.inQuote = r
-
-		return
-	}
-
-	if r == ' ' || r == '\t' {
-		p.flushCurrent()
-
-		return
-	}
-
-	p.current.WriteRune(r)
-}
-
-func (p *shellCommandParser) flushCurrent() {
-	if p.current.Len() > 0 {
-		p.parts = append(p.parts, p.current.String())
-		p.current.Reset()
-	}
-}
-
-func (p *shellCommandParser) finalize() ([]string, error) {
-	if p.inQuote != 0 {
-		return nil, errors.New("unclosed quote")
-	}
-
-	p.flushCurrent()
-
-	return p.parts, nil
 }
 
 func printBuildToolHelp(out io.Writer, startDir string) error {
@@ -2748,6 +2661,17 @@ func singlePackageBanner(info buildtool.PackageInfo) string {
 	return strings.Join(lines, "\n")
 }
 
+func sortedChildNames(node *namespaceNode) []string {
+	names := make([]string, 0, len(node.Children))
+	for name := range node.Children {
+		names = append(names, name)
+	}
+
+	sort.Strings(names)
+
+	return names
+}
+
 func subcommandTag(fieldName, segment string) string {
 	if camelToKebab(fieldName) == segment {
 		return `targ:"subcommand"`
@@ -2805,6 +2729,44 @@ func touchFile(path string) error {
 	return nil
 }
 
+func tryAddAfterPackage(trimmed string, lines []string, index int, result *[]string) bool {
+	if !strings.HasPrefix(trimmed, "package ") {
+		return false
+	}
+
+	if hasImportAhead(lines, index) {
+		return false
+	}
+
+	*result = append(*result, "")
+	*result = append(*result, `import "github.com/toejough/targ/sh"`)
+
+	return true
+}
+
+func tryAddImportBlock(trimmed string, result *[]string) bool {
+	if trimmed != "import (" {
+		return false
+	}
+
+	*result = append(*result, `	"github.com/toejough/targ/sh"`)
+
+	return true
+}
+
+func tryConvertSingleImport(trimmed string, result *[]string) bool {
+	if !strings.HasPrefix(trimmed, "import \"") {
+		return false
+	}
+
+	(*result)[len(*result)-1] = "import ("
+	*result = append(*result, "\t"+strings.TrimPrefix(trimmed, "import "))
+	*result = append(*result, `	"github.com/toejough/targ/sh"`)
+	*result = append(*result, ")")
+
+	return true
+}
+
 func uniqueImportName(name string, used map[string]bool) string {
 	candidate := name
 	if candidate == "" {
@@ -2822,6 +2784,44 @@ func uniqueImportName(name string, used map[string]bool) string {
 	used[candidate] = true
 
 	return candidate
+}
+
+func walkNamespaceTree(
+	node, root *namespaceNode,
+	fileCommands map[string][]bootstrapCommand,
+	out *[]bootstrapNode,
+) error {
+	names := sortedChildNames(node)
+
+	for _, name := range names {
+		child := node.Children[name]
+		if child == nil {
+			continue
+		}
+
+		err := walkNamespaceTree(child, root, fileCommands, out)
+		if err != nil {
+			return err
+		}
+	}
+
+	if node == root {
+		return nil
+	}
+
+	fields, err := buildNamespaceFields(node, names, fileCommands)
+	if err != nil {
+		return err
+	}
+
+	*out = append(*out, bootstrapNode{
+		Name:     node.Name,
+		TypeName: node.TypeName,
+		VarName:  node.VarName,
+		Fields:   fields,
+	})
+
+	return nil
 }
 
 func writeBootstrapFile(dir string, data []byte, keep bool) (string, func() error, error) {

@@ -266,45 +266,30 @@ func applyTagOptionsOverride(
 	return extractTagOptionsResult(results, opts)
 }
 
-func validateTagOptionsSignature(method reflect.Value) error {
-	mtype := method.Type()
-	if mtype.NumIn() != 2 || mtype.NumOut() != 2 {
-		return errors.New(
-			"TagOptions must accept (string, TagOptions) and return (TagOptions, error)",
-		)
+func applyTagPart(opts *TagOptions, p string) {
+	switch {
+	case strings.HasPrefix(p, "name="):
+		opts.Name = strings.TrimPrefix(p, "name=")
+	case strings.HasPrefix(p, "subcommand="):
+		opts.Name = strings.TrimPrefix(p, "subcommand=")
+	case strings.HasPrefix(p, "short="):
+		opts.Short = strings.TrimPrefix(p, "short=")
+	case strings.HasPrefix(p, "env="):
+		opts.Env = strings.TrimPrefix(p, "env=")
+	case strings.HasPrefix(p, "default="):
+		val := strings.TrimPrefix(p, "default=")
+		opts.Default = &val
+	case strings.HasPrefix(p, "enum="):
+		opts.Enum = strings.TrimPrefix(p, "enum=")
+	case strings.HasPrefix(p, "placeholder="):
+		opts.Placeholder = strings.TrimPrefix(p, "placeholder=")
+	case strings.HasPrefix(p, "desc="):
+		opts.Desc = strings.TrimPrefix(p, "desc=")
+	case strings.HasPrefix(p, "description="):
+		opts.Desc = strings.TrimPrefix(p, "description=")
+	case p == "required":
+		opts.Required = true
 	}
-
-	if mtype.In(0).Kind() != reflect.String || mtype.In(1) != reflect.TypeFor[TagOptions]() {
-		return errors.New("TagOptions must accept (string, TagOptions)")
-	}
-
-	if mtype.Out(0) != reflect.TypeFor[TagOptions]() || !isErrorType(mtype.Out(1)) {
-		return errors.New("TagOptions must return (TagOptions, error)")
-	}
-
-	return nil
-}
-
-func extractTagOptionsResult(results []reflect.Value, fallback TagOptions) (TagOptions, error) {
-	if len(results) < 2 {
-		return fallback, errors.New("TagOptions method returned wrong number of values")
-	}
-
-	if !results[1].IsNil() {
-		err, ok := results[1].Interface().(error)
-		if !ok {
-			return fallback, errors.New("TagOptions method returned non-error type")
-		}
-
-		return fallback, err
-	}
-
-	tagOpts, ok := results[0].Interface().(TagOptions)
-	if !ok {
-		return fallback, errors.New("TagOptions method returned wrong type")
-	}
-
-	return tagOpts, nil
 }
 
 func assignSubcommandField(
@@ -383,6 +368,20 @@ func binaryName() string {
 	}
 
 	return name
+}
+
+func buildFlagMaps(specs []*flagSpec) (shortInfo, longInfo map[string]bool) {
+	shortInfo = map[string]bool{}
+	longInfo = map[string]bool{}
+
+	for _, spec := range specs {
+		longInfo[spec.name] = true
+		if spec.short != "" {
+			shortInfo[spec.short] = spec.value.Kind() == reflect.Bool
+		}
+	}
+
+	return shortInfo, longInfo
 }
 
 func buildUsageLine(node *commandNode) (string, error) {
@@ -473,66 +472,6 @@ func callMethod(ctx context.Context, receiver reflect.Value, name string) (bool,
 	return true, invokeMethod(method, callArgs)
 }
 
-func lookupMethod(receiver reflect.Value, name string) (reflect.Value, bool) {
-	if !receiver.IsValid() {
-		return reflect.Value{}, false
-	}
-
-	target := receiver
-	if receiver.Kind() != reflect.Ptr && receiver.CanAddr() {
-		target = receiver.Addr()
-	}
-
-	method := target.MethodByName(name)
-
-	return method, method.IsValid()
-}
-
-func validateMethodInputs(
-	method reflect.Value,
-	ctx context.Context,
-	name string,
-) ([]reflect.Value, error) {
-	mtype := method.Type()
-	if mtype.NumIn() > 1 {
-		return nil, fmt.Errorf("%s must accept context.Context or no args", name)
-	}
-
-	if mtype.NumIn() == 0 {
-		return nil, nil
-	}
-
-	if !isContextType(mtype.In(0)) {
-		return nil, fmt.Errorf("%s must accept context.Context", name)
-	}
-
-	return []reflect.Value{reflect.ValueOf(ctx)}, nil
-}
-
-func validateMethodOutputs(method reflect.Value, name string) error {
-	mtype := method.Type()
-	if mtype.NumOut() > 1 {
-		return fmt.Errorf("%s must return only error", name)
-	}
-
-	if mtype.NumOut() == 1 && !isErrorType(mtype.Out(0)) {
-		return fmt.Errorf("%s must return only error", name)
-	}
-
-	return nil
-}
-
-func invokeMethod(method reflect.Value, args []reflect.Value) error {
-	results := method.Call(args)
-	if len(results) == 1 && !results[0].IsNil() {
-		if err, ok := results[0].Interface().(error); ok {
-			return err
-		}
-	}
-
-	return nil
-}
-
 func callStringMethod(v reflect.Value, typ reflect.Type, method string) string {
 	if m := methodValue(v, typ, method); m.IsValid() {
 		if m.Type().NumIn() == 0 && m.Type().NumOut() == 1 &&
@@ -618,53 +557,6 @@ func collectFlagHelp(node *commandNode) ([]flagHelp, error) {
 	return flags, nil
 }
 
-func flagHelpForField(inst reflect.Value, field reflect.StructField) (flagHelp, bool, error) {
-	opts, ok, err := tagOptionsForField(inst, field)
-	if err != nil {
-		return flagHelp{}, false, err
-	}
-
-	if !ok || opts.Kind != TagKindFlag {
-		return flagHelp{}, false, nil
-	}
-
-	if !field.IsExported() {
-		return flagHelp{}, false, fmt.Errorf("field %s must be exported", field.Name)
-	}
-
-	placeholder := resolvePlaceholder(opts, field.Type.Kind())
-
-	return flagHelp{
-		Name:        opts.Name,
-		Short:       opts.Short,
-		Usage:       opts.Desc,
-		Options:     "",
-		Placeholder: placeholder,
-		Required:    opts.Required,
-	}, true, nil
-}
-
-func resolvePlaceholder(opts TagOptions, kind reflect.Kind) string {
-	if opts.Enum != "" {
-		return fmt.Sprintf("{%s}", opts.Enum)
-	}
-
-	if opts.Placeholder != "" {
-		return opts.Placeholder
-	}
-
-	switch kind {
-	case reflect.String:
-		return "<string>"
-	case reflect.Int:
-		return "<int>"
-	case reflect.Bool:
-		return "[flag]"
-	default:
-		return ""
-	}
-}
-
 func collectFlagHelpChain(node *commandNode) ([]flagHelp, error) {
 	chain := nodeChain(node)
 
@@ -728,6 +620,40 @@ func collectPositionalHelp(node *commandNode) ([]positionalHelp, error) {
 	return positionals, nil
 }
 
+func copySubcommandFuncs(inst reflect.Value, node *commandNode) error {
+	if !node.Value.IsValid() || node.Value.Kind() != reflect.Struct {
+		return nil
+	}
+
+	typ := node.Type
+	for i := 0; i < typ.NumField(); i++ {
+		field := typ.Field(i)
+
+		opts, ok, err := tagOptionsForField(node.Value, field)
+		if err != nil {
+			return err
+		}
+
+		if ok && opts.Kind == TagKindSubcommand && field.Type.Kind() == reflect.Func {
+			inst.Field(i).Set(node.Value.Field(i))
+		}
+	}
+
+	return nil
+}
+
+func detectTagKind(opts *TagOptions, tag, fieldName string) {
+	if strings.Contains(tag, "subcommand") {
+		opts.Kind = TagKindSubcommand
+		opts.Name = camelToKebab(fieldName)
+	}
+
+	if strings.Contains(tag, "positional") {
+		opts.Kind = TagKindPositional
+		opts.Name = fieldName
+	}
+}
+
 func executeFunctionWithParents(
 	ctx context.Context,
 	args []string,
@@ -783,66 +709,6 @@ func executeFunctionWithParents(
 	return result.remaining, nil
 }
 
-func expandShortFlagGroups(args []string, specs []*flagSpec) ([]string, error) {
-	if len(args) == 0 {
-		return args, nil
-	}
-
-	shortInfo, longInfo := buildFlagMaps(specs)
-
-	var expanded []string
-
-	for _, arg := range args {
-		if skipShortExpansion(arg, longInfo) {
-			expanded = append(expanded, arg)
-			continue
-		}
-
-		group := strings.TrimPrefix(arg, "-")
-
-		expandedFlags, err := expandFlagGroup(arg, group, shortInfo)
-		if err != nil {
-			return nil, err
-		}
-
-		expanded = append(expanded, expandedFlags...)
-	}
-
-	return expanded, nil
-}
-
-func buildFlagMaps(specs []*flagSpec) (shortInfo, longInfo map[string]bool) {
-	shortInfo = map[string]bool{}
-	longInfo = map[string]bool{}
-
-	for _, spec := range specs {
-		longInfo[spec.name] = true
-		if spec.short != "" {
-			shortInfo[spec.short] = spec.value.Kind() == reflect.Bool
-		}
-	}
-
-	return shortInfo, longInfo
-}
-
-func skipShortExpansion(arg string, longInfo map[string]bool) bool {
-	if arg == "--" || strings.HasPrefix(arg, "--") {
-		return true
-	}
-
-	if len(arg) <= 2 || !strings.HasPrefix(arg, "-") {
-		return true
-	}
-
-	if strings.Contains(arg, "=") {
-		return true
-	}
-
-	group := strings.TrimPrefix(arg, "-")
-
-	return len(group) <= 1 || longInfo[group]
-}
-
 func expandFlagGroup(arg, group string, shortInfo map[string]bool) ([]string, error) {
 	allBool := true
 	unknown := false
@@ -876,6 +742,82 @@ func expandFlagGroup(arg, group string, shortInfo map[string]bool) ([]string, er
 	}
 
 	return expanded, nil
+}
+
+func expandShortFlagGroups(args []string, specs []*flagSpec) ([]string, error) {
+	if len(args) == 0 {
+		return args, nil
+	}
+
+	shortInfo, longInfo := buildFlagMaps(specs)
+
+	var expanded []string
+
+	for _, arg := range args {
+		if skipShortExpansion(arg, longInfo) {
+			expanded = append(expanded, arg)
+			continue
+		}
+
+		group := strings.TrimPrefix(arg, "-")
+
+		expandedFlags, err := expandFlagGroup(arg, group, shortInfo)
+		if err != nil {
+			return nil, err
+		}
+
+		expanded = append(expanded, expandedFlags...)
+	}
+
+	return expanded, nil
+}
+
+func extractTagOptionsResult(results []reflect.Value, fallback TagOptions) (TagOptions, error) {
+	if len(results) < 2 {
+		return fallback, errors.New("TagOptions method returned wrong number of values")
+	}
+
+	if !results[1].IsNil() {
+		err, ok := results[1].Interface().(error)
+		if !ok {
+			return fallback, errors.New("TagOptions method returned non-error type")
+		}
+
+		return fallback, err
+	}
+
+	tagOpts, ok := results[0].Interface().(TagOptions)
+	if !ok {
+		return fallback, errors.New("TagOptions method returned wrong type")
+	}
+
+	return tagOpts, nil
+}
+
+func flagHelpForField(inst reflect.Value, field reflect.StructField) (flagHelp, bool, error) {
+	opts, ok, err := tagOptionsForField(inst, field)
+	if err != nil {
+		return flagHelp{}, false, err
+	}
+
+	if !ok || opts.Kind != TagKindFlag {
+		return flagHelp{}, false, nil
+	}
+
+	if !field.IsExported() {
+		return flagHelp{}, false, fmt.Errorf("field %s must be exported", field.Name)
+	}
+
+	placeholder := resolvePlaceholder(opts, field.Type.Kind())
+
+	return flagHelp{
+		Name:        opts.Name,
+		Short:       opts.Short,
+		Usage:       opts.Desc,
+		Options:     "",
+		Placeholder: placeholder,
+		Required:    opts.Required,
+	}, true, nil
 }
 
 // --- Flag handling ---
@@ -922,6 +864,19 @@ func flagVisited(spec *flagSpec, visited map[string]bool) bool {
 	}
 
 	return false
+}
+
+func formatFlagName(item flagHelp) string {
+	name := "--" + item.Name
+	if item.Short != "" {
+		name = fmt.Sprintf("--%s, -%s", item.Name, item.Short)
+	}
+
+	if item.Placeholder != "" && item.Placeholder != "[flag]" {
+		name = fmt.Sprintf("%s %s", name, item.Placeholder)
+	}
+
+	return name
 }
 
 func formatFlagUsage(item flagHelp) string {
@@ -973,12 +928,38 @@ func getDescription(v reflect.Value, typ reflect.Type) string {
 	return strings.TrimSpace(desc)
 }
 
+func invokeMethod(method reflect.Value, args []reflect.Value) error {
+	results := method.Call(args)
+	if len(results) == 1 && !results[0].IsNil() {
+		if err, ok := results[0].Interface().(error); ok {
+			return err
+		}
+	}
+
+	return nil
+}
+
 func isContextType(t reflect.Type) bool {
 	return t == reflect.TypeFor[context.Context]()
 }
 
 func isErrorType(t reflect.Type) bool {
 	return t.Implements(reflect.TypeFor[error]())
+}
+
+func lookupMethod(receiver reflect.Value, name string) (reflect.Value, bool) {
+	if !receiver.IsValid() {
+		return reflect.Value{}, false
+	}
+
+	target := receiver
+	if receiver.Kind() != reflect.Ptr && receiver.CanAddr() {
+		target = receiver.Addr()
+	}
+
+	method := target.MethodByName(name)
+
+	return method, method.IsValid()
 }
 
 func methodValue(v reflect.Value, typ reflect.Type, method string) reflect.Value {
@@ -1023,6 +1004,11 @@ func nodeChain(node *commandNode) []*commandNode {
 	return chain
 }
 
+func nodeHasAddressableValue(node *commandNode) bool {
+	return node != nil && node.Value.IsValid() &&
+		node.Value.Kind() == reflect.Struct && node.Value.CanAddr()
+}
+
 func nodeInstance(node *commandNode) (reflect.Value, error) {
 	if nodeHasAddressableValue(node) {
 		return node.Value, nil
@@ -1040,33 +1026,6 @@ func nodeInstance(node *commandNode) (reflect.Value, error) {
 	}
 
 	return inst, nil
-}
-
-func nodeHasAddressableValue(node *commandNode) bool {
-	return node != nil && node.Value.IsValid() &&
-		node.Value.Kind() == reflect.Struct && node.Value.CanAddr()
-}
-
-func copySubcommandFuncs(inst reflect.Value, node *commandNode) error {
-	if !node.Value.IsValid() || node.Value.Kind() != reflect.Struct {
-		return nil
-	}
-
-	typ := node.Type
-	for i := 0; i < typ.NumField(); i++ {
-		field := typ.Field(i)
-
-		opts, ok, err := tagOptionsForField(node.Value, field)
-		if err != nil {
-			return err
-		}
-
-		if ok && opts.Kind == TagKindSubcommand && field.Type.Kind() == reflect.Func {
-			inst.Field(i).Set(node.Value.Field(i))
-		}
-	}
-
-	return nil
 }
 
 func parseFunc(v reflect.Value) (*commandNode, error) {
@@ -1243,6 +1202,13 @@ func parseStruct(t any) (*commandNode, error) {
 	return node, nil
 }
 
+func parseTagParts(opts *TagOptions, tag string) {
+	parts := strings.SplitSeq(tag, ",")
+	for p := range parts {
+		applyTagPart(opts, strings.TrimSpace(p))
+	}
+}
+
 // --- Parsing targets ---
 
 func parseTarget(t any) (*commandNode, error) {
@@ -1285,61 +1251,6 @@ func printCommandHelp(node *commandNode) {
 	printFlags(flags)
 }
 
-func printSimpleHelp(binName string, node *commandNode) {
-	fmt.Printf("Usage: %s %s\n\n", binName, node.Name)
-
-	if node.Description != "" {
-		fmt.Println(node.Description)
-	}
-}
-
-func printDescription(desc string) {
-	if desc != "" {
-		fmt.Println(desc)
-		fmt.Println()
-	}
-}
-
-func printSubcommands(subs map[string]*commandNode) {
-	if len(subs) == 0 {
-		return
-	}
-
-	fmt.Println("Subcommands:")
-
-	for name, sub := range subs {
-		fmt.Printf("  %-20s %s\n", name, sub.Description)
-	}
-
-	fmt.Println()
-}
-
-func printFlags(flags []flagHelp) {
-	if len(flags) == 0 {
-		return
-	}
-
-	fmt.Println("Flags:")
-
-	for _, item := range flags {
-		name := formatFlagName(item)
-		fmt.Printf("  %-24s %s\n", name, item.Usage)
-	}
-}
-
-func formatFlagName(item flagHelp) string {
-	name := "--" + item.Name
-	if item.Short != "" {
-		name = fmt.Sprintf("--%s, -%s", item.Name, item.Short)
-	}
-
-	if item.Placeholder != "" && item.Placeholder != "[flag]" {
-		name = fmt.Sprintf("%s %s", name, item.Placeholder)
-	}
-
-	return name
-}
-
 func printCommandSummary(node *commandNode, indent string) {
 	fmt.Printf("%s%-20s %s\n", indent, node.Name, node.Description)
 
@@ -1358,6 +1269,48 @@ func printCommandSummary(node *commandNode, indent string) {
 			printCommandSummary(sub, indent+"  ")
 		}
 	}
+}
+
+func printDescription(desc string) {
+	if desc != "" {
+		fmt.Println(desc)
+		fmt.Println()
+	}
+}
+
+func printFlags(flags []flagHelp) {
+	if len(flags) == 0 {
+		return
+	}
+
+	fmt.Println("Flags:")
+
+	for _, item := range flags {
+		name := formatFlagName(item)
+		fmt.Printf("  %-24s %s\n", name, item.Usage)
+	}
+}
+
+func printSimpleHelp(binName string, node *commandNode) {
+	fmt.Printf("Usage: %s %s\n\n", binName, node.Name)
+
+	if node.Description != "" {
+		fmt.Println(node.Description)
+	}
+}
+
+func printSubcommands(subs map[string]*commandNode) {
+	if len(subs) == 0 {
+		return
+	}
+
+	fmt.Println("Subcommands:")
+
+	for name, sub := range subs {
+		fmt.Printf("  %-20s %s\n", name, sub.Description)
+	}
+
+	fmt.Println()
 }
 
 func printTargOptions(opts RunOptions) {
@@ -1392,6 +1345,27 @@ func printUsage(nodes []*commandNode, opts RunOptions) {
 	}
 
 	printTargOptions(opts)
+}
+
+func resolvePlaceholder(opts TagOptions, kind reflect.Kind) string {
+	if opts.Enum != "" {
+		return fmt.Sprintf("{%s}", opts.Enum)
+	}
+
+	if opts.Placeholder != "" {
+		return opts.Placeholder
+	}
+
+	switch kind {
+	case reflect.String:
+		return "<string>"
+	case reflect.Int:
+		return "<int>"
+	case reflect.Bool:
+		return "[flag]"
+	default:
+		return ""
+	}
 }
 
 func reverseChain(chain []commandInstance) []commandInstance {
@@ -1437,6 +1411,24 @@ func runPersistentHooks(ctx context.Context, chain []commandInstance, methodName
 	return nil
 }
 
+func skipShortExpansion(arg string, longInfo map[string]bool) bool {
+	if arg == "--" || strings.HasPrefix(arg, "--") {
+		return true
+	}
+
+	if len(arg) <= 2 || !strings.HasPrefix(arg, "-") {
+		return true
+	}
+
+	if strings.Contains(arg, "=") {
+		return true
+	}
+
+	group := strings.TrimPrefix(arg, "-")
+
+	return len(group) <= 1 || longInfo[group]
+}
+
 // --- Tag options ---
 
 func tagOptionsForField(inst reflect.Value, field reflect.StructField) (TagOptions, bool, error) {
@@ -1464,51 +1456,6 @@ func tagOptionsForField(inst reflect.Value, field reflect.StructField) (TagOptio
 	}
 
 	return overridden, true, nil
-}
-
-func detectTagKind(opts *TagOptions, tag, fieldName string) {
-	if strings.Contains(tag, "subcommand") {
-		opts.Kind = TagKindSubcommand
-		opts.Name = camelToKebab(fieldName)
-	}
-
-	if strings.Contains(tag, "positional") {
-		opts.Kind = TagKindPositional
-		opts.Name = fieldName
-	}
-}
-
-func parseTagParts(opts *TagOptions, tag string) {
-	parts := strings.SplitSeq(tag, ",")
-	for p := range parts {
-		applyTagPart(opts, strings.TrimSpace(p))
-	}
-}
-
-func applyTagPart(opts *TagOptions, p string) {
-	switch {
-	case strings.HasPrefix(p, "name="):
-		opts.Name = strings.TrimPrefix(p, "name=")
-	case strings.HasPrefix(p, "subcommand="):
-		opts.Name = strings.TrimPrefix(p, "subcommand=")
-	case strings.HasPrefix(p, "short="):
-		opts.Short = strings.TrimPrefix(p, "short=")
-	case strings.HasPrefix(p, "env="):
-		opts.Env = strings.TrimPrefix(p, "env=")
-	case strings.HasPrefix(p, "default="):
-		val := strings.TrimPrefix(p, "default=")
-		opts.Default = &val
-	case strings.HasPrefix(p, "enum="):
-		opts.Enum = strings.TrimPrefix(p, "enum=")
-	case strings.HasPrefix(p, "placeholder="):
-		opts.Placeholder = strings.TrimPrefix(p, "placeholder=")
-	case strings.HasPrefix(p, "desc="):
-		opts.Desc = strings.TrimPrefix(p, "desc=")
-	case strings.HasPrefix(p, "description="):
-		opts.Desc = strings.TrimPrefix(p, "description=")
-	case p == "required":
-		opts.Required = true
-	}
 }
 
 func tagOptionsInstance(node *commandNode) reflect.Value {
@@ -1584,6 +1531,59 @@ func validateLongFlagArgs(args []string, longNames map[string]bool) error {
 		if longNames[name] {
 			return fmt.Errorf("long flags must use --%s (got -%s)", name, name)
 		}
+	}
+
+	return nil
+}
+
+func validateMethodInputs(
+	method reflect.Value,
+	ctx context.Context,
+	name string,
+) ([]reflect.Value, error) {
+	mtype := method.Type()
+	if mtype.NumIn() > 1 {
+		return nil, fmt.Errorf("%s must accept context.Context or no args", name)
+	}
+
+	if mtype.NumIn() == 0 {
+		return nil, nil
+	}
+
+	if !isContextType(mtype.In(0)) {
+		return nil, fmt.Errorf("%s must accept context.Context", name)
+	}
+
+	return []reflect.Value{reflect.ValueOf(ctx)}, nil
+}
+
+func validateMethodOutputs(method reflect.Value, name string) error {
+	mtype := method.Type()
+	if mtype.NumOut() > 1 {
+		return fmt.Errorf("%s must return only error", name)
+	}
+
+	if mtype.NumOut() == 1 && !isErrorType(mtype.Out(0)) {
+		return fmt.Errorf("%s must return only error", name)
+	}
+
+	return nil
+}
+
+func validateTagOptionsSignature(method reflect.Value) error {
+	mtype := method.Type()
+	if mtype.NumIn() != 2 || mtype.NumOut() != 2 {
+		return errors.New(
+			"TagOptions must accept (string, TagOptions) and return (TagOptions, error)",
+		)
+	}
+
+	if mtype.In(0).Kind() != reflect.String || mtype.In(1) != reflect.TypeFor[TagOptions]() {
+		return errors.New("TagOptions must accept (string, TagOptions)")
+	}
+
+	if mtype.Out(0) != reflect.TypeFor[TagOptions]() || !isErrorType(mtype.Out(1)) {
+		return errors.New("TagOptions must return (TagOptions, error)")
 	}
 
 	return nil

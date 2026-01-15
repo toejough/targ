@@ -1193,6 +1193,30 @@ func TestReturnStringLiteral_NotReturnStmt(t *testing.T) {
 	}
 }
 
+func TestShouldSkipGoFile(t *testing.T) {
+	tests := []struct {
+		name     string
+		filename string
+		want     bool
+	}{
+		{"regular go file", "main.go", false},
+		{"test file", "main_test.go", true},
+		{"generated targ file", "generated_targ_bootstrap.go", true},
+		{"non-go file", "readme.md", true},
+		{"non-go file txt", "notes.txt", true},
+		{"go in name but wrong suffix", "go.mod", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := shouldSkipGoFile(tt.filename)
+			if got != tt.want {
+				t.Errorf("shouldSkipGoFile(%q) = %v, want %v", tt.filename, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestTaggedFiles_ReturnsSelectedFiles(t *testing.T) {
 	fsMock := MockFileSystem(t)
 	opts := Options{StartDir: "/root"}
@@ -1241,30 +1265,6 @@ package pkg2
 	}
 }
 
-func TestShouldSkipGoFile(t *testing.T) {
-	tests := []struct {
-		name     string
-		filename string
-		want     bool
-	}{
-		{"regular go file", "main.go", false},
-		{"test file", "main_test.go", true},
-		{"generated targ file", "generated_targ_bootstrap.go", true},
-		{"non-go file", "readme.md", true},
-		{"non-go file txt", "notes.txt", true},
-		{"go in name but wrong suffix", "go.mod", true},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := shouldSkipGoFile(tt.filename)
-			if got != tt.want {
-				t.Errorf("shouldSkipGoFile(%q) = %v, want %v", tt.filename, got, tt.want)
-			}
-		})
-	}
-}
-
 func TestTryReadTaggedFile_ReadFileError(t *testing.T) {
 	fsMock := MockFileSystem(t)
 	done := make(chan struct{})
@@ -1276,6 +1276,7 @@ func TestTryReadTaggedFile_ReadFileError(t *testing.T) {
 
 	go func() {
 		result, ok = tryReadTaggedFile(fsMock.Mock, "/test/file.go", "file.go", "targ")
+
 		close(done)
 	}()
 
@@ -1311,12 +1312,17 @@ type fakeFileInfo struct {
 	dir  bool
 }
 
-func (f fakeFileInfo) Name() string       { return f.name }
-func (f fakeFileInfo) Size() int64        { return 0 }
-func (f fakeFileInfo) Mode() fs.FileMode  { return 0 }
+func (f fakeFileInfo) IsDir() bool { return f.dir }
+
 func (f fakeFileInfo) ModTime() time.Time { return time.Time{} }
-func (f fakeFileInfo) IsDir() bool        { return f.dir }
-func (f fakeFileInfo) Sys() any           { return nil }
+
+func (f fakeFileInfo) Mode() fs.FileMode { return 0 }
+
+func (f fakeFileInfo) Name() string { return f.name }
+
+func (f fakeFileInfo) Size() int64 { return 0 }
+
+func (f fakeFileInfo) Sys() any { return nil }
 
 func commandNamesByKind(info PackageInfo, kind CommandKind) []string {
 	var names []string

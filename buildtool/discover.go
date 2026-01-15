@@ -168,6 +168,11 @@ func TaggedFiles(fs FileSystem, opts Options) ([]TaggedFile, error) {
 	return files, nil
 }
 
+type dirQueueEntry struct {
+	path  string
+	depth int
+}
+
 type reflectTag string
 
 func (tag reflectTag) Get(key string) string {
@@ -331,11 +336,6 @@ func filterStructs(
 	return result
 }
 
-type dirQueueEntry struct {
-	path  string
-	depth int
-}
-
 func findTaggedDirs(fs FileSystem, startDir, tag string) ([]taggedDir, error) {
 	queue := []dirQueueEntry{{path: startDir, depth: 0}}
 
@@ -362,80 +362,6 @@ func findTaggedDirs(fs FileSystem, startDir, tag string) ([]taggedDir, error) {
 	}
 
 	return results, nil
-}
-
-func processDirectory(
-	fs FileSystem,
-	current dirQueueEntry,
-	tag string,
-) ([]taggedFile, []dirQueueEntry, error) {
-	entries, err := fs.ReadDir(current.path)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	sort.Slice(entries, func(i, j int) bool {
-		return entries[i].Name() < entries[j].Name()
-	})
-
-	var tagged []taggedFile
-
-	var subdirs []dirQueueEntry
-
-	for _, entry := range entries {
-		name := entry.Name()
-		fullPath := filepath.Join(current.path, name)
-
-		if entry.IsDir() {
-			if !shouldSkipDir(name) {
-				subdirs = append(subdirs, dirQueueEntry{path: fullPath, depth: current.depth + 1})
-			}
-
-			continue
-		}
-
-		if file, ok := tryReadTaggedFile(fs, fullPath, name, tag); ok {
-			tagged = append(tagged, file)
-		}
-	}
-
-	return tagged, subdirs, nil
-}
-
-func shouldSkipDir(name string) bool {
-	return name == ".git" || name == "vendor"
-}
-
-func shouldSkipGoFile(name string) bool {
-	if !strings.HasSuffix(name, ".go") {
-		return true
-	}
-
-	if strings.HasSuffix(name, "_test.go") {
-		return true
-	}
-
-	return strings.HasPrefix(name, "generated_targ_")
-}
-
-func tryReadTaggedFile(fs FileSystem, fullPath, name, tag string) (taggedFile, bool) {
-	if shouldSkipGoFile(name) {
-		return taggedFile{}, false
-	}
-
-	content, err := fs.ReadFile(fullPath)
-	if err != nil {
-		return taggedFile{}, false
-	}
-
-	if !hasBuildTag(content, tag) {
-		return taggedFile{}, false
-	}
-
-	return taggedFile{
-		Path:    fullPath,
-		Content: content,
-	}, true
 }
 
 func funcParamIsContext(expr ast.Expr, ctxAliases map[string]bool, ctxDotImport bool) bool {
@@ -721,6 +647,44 @@ func parsePackageInfo(dir taggedDir) (PackageInfo, error) {
 	}, nil
 }
 
+func processDirectory(
+	fs FileSystem,
+	current dirQueueEntry,
+	tag string,
+) ([]taggedFile, []dirQueueEntry, error) {
+	entries, err := fs.ReadDir(current.path)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].Name() < entries[j].Name()
+	})
+
+	var tagged []taggedFile
+
+	var subdirs []dirQueueEntry
+
+	for _, entry := range entries {
+		name := entry.Name()
+		fullPath := filepath.Join(current.path, name)
+
+		if entry.IsDir() {
+			if !shouldSkipDir(name) {
+				subdirs = append(subdirs, dirQueueEntry{path: fullPath, depth: current.depth + 1})
+			}
+
+			continue
+		}
+
+		if file, ok := tryReadTaggedFile(fs, fullPath, name, tag); ok {
+			tagged = append(tagged, file)
+		}
+	}
+
+	return tagged, subdirs, nil
+}
+
 func receiverTypeName(recv *ast.FieldList) string {
 	if recv == nil || len(recv.List) == 0 {
 		return ""
@@ -801,6 +765,42 @@ func returnStringLiteral(body *ast.BlockStmt) (string, bool) {
 	}
 
 	return strings.TrimSpace(value), true
+}
+
+func shouldSkipDir(name string) bool {
+	return name == ".git" || name == "vendor"
+}
+
+func shouldSkipGoFile(name string) bool {
+	if !strings.HasSuffix(name, ".go") {
+		return true
+	}
+
+	if strings.HasSuffix(name, "_test.go") {
+		return true
+	}
+
+	return strings.HasPrefix(name, "generated_targ_")
+}
+
+func tryReadTaggedFile(fs FileSystem, fullPath, name, tag string) (taggedFile, bool) {
+	if shouldSkipGoFile(name) {
+		return taggedFile{}, false
+	}
+
+	content, err := fs.ReadFile(fullPath)
+	if err != nil {
+		return taggedFile{}, false
+	}
+
+	if !hasBuildTag(content, tag) {
+		return taggedFile{}, false
+	}
+
+	return taggedFile{
+		Path:    fullPath,
+		Content: content,
+	}, true
 }
 
 func validateFunctionSignature(
