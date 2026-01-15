@@ -1319,7 +1319,12 @@ func walkNamespaceTree(
 	names := sortedChildNames(node)
 
 	for _, name := range names {
-		err := walkNamespaceTree(node.Children[name], root, fileCommands, out)
+		child := node.Children[name]
+		if child == nil {
+			continue
+		}
+
+		err := walkNamespaceTree(child, root, fileCommands, out)
 		if err != nil {
 			return err
 		}
@@ -1365,6 +1370,10 @@ func buildNamespaceFields(
 
 	for _, name := range names {
 		child := node.Children[name]
+		if child == nil {
+			continue
+		}
+
 		fieldName := segmentToIdent(child.Name)
 
 		if usedNames[fieldName] {
