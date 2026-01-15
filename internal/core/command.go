@@ -277,10 +277,20 @@ func applyTagOptionsOverride(
 	}
 
 	if !results[1].IsNil() {
-		return opts, results[1].Interface().(error)
+		err, ok := results[1].Interface().(error)
+		if !ok {
+			return opts, errors.New("TagOptions method returned non-error type")
+		}
+
+		return opts, err
 	}
 
-	return results[0].Interface().(TagOptions), nil
+	tagOpts, ok := results[0].Interface().(TagOptions)
+	if !ok {
+		return opts, errors.New("TagOptions method returned wrong type")
+	}
+
+	return tagOpts, nil
 }
 
 func assignSubcommandField(
@@ -428,7 +438,9 @@ func callFunction(ctx context.Context, fn reflect.Value) error {
 
 	results := fn.Call(args)
 	if len(results) == 1 && !results[0].IsNil() {
-		return results[0].Interface().(error)
+		if err, ok := results[0].Interface().(error); ok {
+			return err
+		}
 	}
 
 	return nil
@@ -476,7 +488,9 @@ func callMethod(ctx context.Context, receiver reflect.Value, name string) (bool,
 
 	results := method.Call(callArgs)
 	if len(results) == 1 && !results[0].IsNil() {
-		return true, results[0].Interface().(error)
+		if err, ok := results[0].Interface().(error); ok {
+			return true, err
+		}
 	}
 
 	return true, nil

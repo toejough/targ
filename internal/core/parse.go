@@ -2,6 +2,7 @@ package core
 
 import (
 	"encoding"
+	"errors"
 	"fmt"
 	"reflect"
 	"strconv"
@@ -117,13 +118,23 @@ func customSetter(fieldVal reflect.Value) (func(string) error, bool) {
 		ptr := fieldVal.Addr()
 		if ptr.Type().Implements(textUnmarshalerType) {
 			return func(value string) error {
-				return ptr.Interface().(encoding.TextUnmarshaler).UnmarshalText([]byte(value))
+				u, ok := ptr.Interface().(encoding.TextUnmarshaler)
+				if !ok {
+					return errors.New("type assertion to TextUnmarshaler failed")
+				}
+
+				return u.UnmarshalText([]byte(value))
 			}, true
 		}
 
 		if ptr.Type().Implements(stringSetterType) {
 			return func(value string) error {
-				return ptr.Interface().(interface{ Set(string) error }).Set(value)
+				s, ok := ptr.Interface().(interface{ Set(string) error })
+				if !ok {
+					return errors.New("type assertion to Set(string) error failed")
+				}
+
+				return s.Set(value)
 			}, true
 		}
 	}
@@ -133,7 +144,12 @@ func customSetter(fieldVal reflect.Value) (func(string) error, bool) {
 		return func(value string) error {
 			next := reflect.New(fieldType).Elem()
 
-			err := next.Interface().(encoding.TextUnmarshaler).UnmarshalText([]byte(value))
+			u, ok := next.Interface().(encoding.TextUnmarshaler)
+			if !ok {
+				return errors.New("type assertion to TextUnmarshaler failed")
+			}
+
+			err := u.UnmarshalText([]byte(value))
 			if err != nil {
 				return err
 			}
@@ -148,7 +164,12 @@ func customSetter(fieldVal reflect.Value) (func(string) error, bool) {
 		return func(value string) error {
 			next := reflect.New(fieldType).Elem()
 
-			err := next.Interface().(interface{ Set(string) error }).Set(value)
+			s, ok := next.Interface().(interface{ Set(string) error })
+			if !ok {
+				return errors.New("type assertion to Set(string) error failed")
+			}
+
+			err := s.Set(value)
 			if err != nil {
 				return err
 			}
