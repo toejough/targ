@@ -68,56 +68,54 @@ func TestNewerWithOutputs(t *testing.T) {
 	input := filepath.Join(dir, "input.txt")
 	output := filepath.Join(dir, "output.txt")
 
-	if err := os.WriteFile(input, []byte("one"), 0o644); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	writeFile(t, input, "one")
 
-	changed, err := Newer([]string{input}, []string{output})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if !changed {
-		t.Fatal("expected change when output missing")
-	}
+	assertNewer(t, []string{input}, []string{output}, true, "expected change when output missing")
 
 	time.Sleep(10 * time.Millisecond)
+	writeFile(t, output, "out")
+	setFutureTime(t, output, 2*time.Second)
 
-	if err := os.WriteFile(output, []byte("out"), 0o644); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	future := time.Now().Add(2 * time.Second)
-	if err := os.Chtimes(output, future, future); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	changed, err = Newer([]string{input}, []string{output})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if changed {
-		t.Fatal("expected output to be up-to-date")
-	}
+	assertNewer(t, []string{input}, []string{output}, false, "expected output to be up-to-date")
 
 	time.Sleep(10 * time.Millisecond)
+	writeFile(t, input, "two")
+	setFutureTime(t, input, 3*time.Second)
 
-	if err := os.WriteFile(input, []byte("two"), 0o644); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	assertNewer(t, []string{input}, []string{output}, true, "expected change when input newer")
+}
 
-	future = time.Now().Add(3 * time.Second)
-	if err := os.Chtimes(input, future, future); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+// assertNewer checks Newer result and fails with msg if expectation not met.
+func assertNewer(t *testing.T, inputs, outputs []string, expectChanged bool, msg string) {
+	t.Helper()
 
-	changed, err = Newer([]string{input}, []string{output})
+	changed, err := Newer(inputs, outputs)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if !changed {
-		t.Fatal("expected change when input newer")
+	if changed != expectChanged {
+		t.Fatal(msg)
+	}
+}
+
+// setFutureTime sets a file's mod time to now + offset.
+func setFutureTime(t *testing.T, path string, offset time.Duration) {
+	t.Helper()
+
+	future := time.Now().Add(offset)
+	err := os.Chtimes(path, future, future)
+	if err != nil {
+		t.Fatalf("unexpected error setting time on %s: %v", path, err)
+	}
+}
+
+// writeFile writes content to a file, failing the test on error.
+func writeFile(t *testing.T, path, content string) {
+	t.Helper()
+
+	err := os.WriteFile(path, []byte(content), 0o644)
+	if err != nil {
+		t.Fatalf("unexpected error writing %s: %v", path, err)
 	}
 }
