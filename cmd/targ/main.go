@@ -1519,20 +1519,10 @@ func collectModuleFiles(moduleRoot string) ([]buildtool.TaggedFile, error) {
 		}
 
 		if entry.IsDir() {
-			name := entry.Name()
-			if name == ".git" || name == "vendor" {
-				return filepath.SkipDir
-			}
-
-			return nil
+			return skipIfVendorOrGit(entry.Name())
 		}
 
-		name := entry.Name()
-		// Include go.mod and go.sum for cache invalidation when dependencies change
-		isModFile := name == "go.mod" || name == "go.sum"
-
-		isGoFile := strings.HasSuffix(name, ".go") && !strings.HasSuffix(name, "_test.go")
-		if !isModFile && !isGoFile {
+		if !isIncludableModuleFile(entry.Name()) {
 			return nil
 		}
 
@@ -2199,6 +2189,17 @@ func hasTargBuildTag(path string) bool {
 	return false
 }
 
+// isIncludableModuleFile returns true if the file should be included in module cache.
+func isIncludableModuleFile(name string) bool {
+	// Include go.mod and go.sum for cache invalidation when dependencies change
+	if name == "go.mod" || name == "go.sum" {
+		return true
+	}
+
+	// Include non-test .go files
+	return strings.HasSuffix(name, ".go") && !strings.HasSuffix(name, "_test.go")
+}
+
 // linkModuleEntry creates a symlink for a single directory entry if needed.
 func linkModuleEntry(startDir, root string, entry os.DirEntry) error {
 	name := entry.Name()
@@ -2724,6 +2725,15 @@ func singlePackageBanner(info buildtool.PackageInfo) string {
 	lines = append(lines, "Path: "+info.Dir)
 
 	return strings.Join(lines, "\n")
+}
+
+// skipIfVendorOrGit returns SkipDir for .git and vendor directories.
+func skipIfVendorOrGit(name string) error {
+	if name == ".git" || name == "vendor" {
+		return filepath.SkipDir
+	}
+
+	return nil
 }
 
 func sortedChildNames(node *namespaceNode) []string {
