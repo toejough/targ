@@ -731,6 +731,27 @@ func TestExpectingFlagValue_FlagGroupMiddleTakesValue(t *testing.T) {
 	g.Expect(expectingFlagValue([]string{"-nv"}, specs)).To(BeFalse())
 }
 
+func TestExpectingFlagValue_FlagGroupAllBool(t *testing.T) {
+	g := NewWithT(t)
+
+	specs := map[string]completionFlagSpec{
+		"-v": {TakesValue: false},
+		"-d": {TakesValue: false},
+	}
+	// -vd where all flags are bools
+	g.Expect(expectingFlagValue([]string{"-vd"}, specs)).To(BeFalse())
+}
+
+func TestExpectingFlagValue_FlagGroupUnknownFlag(t *testing.T) {
+	g := NewWithT(t)
+
+	specs := map[string]completionFlagSpec{
+		"-v": {TakesValue: false},
+	}
+	// -vx where x is unknown - continues past unknown to find none taking value
+	g.Expect(expectingFlagValue([]string{"-vx"}, specs)).To(BeFalse())
+}
+
 func TestExpectingFlagValue_LongFlagNeedsValue(t *testing.T) {
 	g := NewWithT(t)
 
