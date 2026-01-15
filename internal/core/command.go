@@ -13,6 +13,24 @@ import (
 	"unicode"
 )
 
+// unexported variables.
+var (
+	tagPartSetters = []struct {
+		prefix string
+		apply  func(opts *TagOptions, val string)
+	}{
+		{"name=", func(opts *TagOptions, val string) { opts.Name = val }},
+		{"subcommand=", func(opts *TagOptions, val string) { opts.Name = val }},
+		{"short=", func(opts *TagOptions, val string) { opts.Short = val }},
+		{"env=", func(opts *TagOptions, val string) { opts.Env = val }},
+		{"default=", func(opts *TagOptions, val string) { opts.Default = &val }},
+		{"enum=", func(opts *TagOptions, val string) { opts.Enum = val }},
+		{"placeholder=", func(opts *TagOptions, val string) { opts.Placeholder = val }},
+		{"desc=", func(opts *TagOptions, val string) { opts.Desc = val }},
+		{"description=", func(opts *TagOptions, val string) { opts.Desc = val }},
+	}
+)
+
 type commandInstance struct {
 	node  *commandNode
 	value reflect.Value
@@ -267,27 +285,14 @@ func applyTagOptionsOverride(
 }
 
 func applyTagPart(opts *TagOptions, p string) {
-	switch {
-	case strings.HasPrefix(p, "name="):
-		opts.Name = strings.TrimPrefix(p, "name=")
-	case strings.HasPrefix(p, "subcommand="):
-		opts.Name = strings.TrimPrefix(p, "subcommand=")
-	case strings.HasPrefix(p, "short="):
-		opts.Short = strings.TrimPrefix(p, "short=")
-	case strings.HasPrefix(p, "env="):
-		opts.Env = strings.TrimPrefix(p, "env=")
-	case strings.HasPrefix(p, "default="):
-		val := strings.TrimPrefix(p, "default=")
-		opts.Default = &val
-	case strings.HasPrefix(p, "enum="):
-		opts.Enum = strings.TrimPrefix(p, "enum=")
-	case strings.HasPrefix(p, "placeholder="):
-		opts.Placeholder = strings.TrimPrefix(p, "placeholder=")
-	case strings.HasPrefix(p, "desc="):
-		opts.Desc = strings.TrimPrefix(p, "desc=")
-	case strings.HasPrefix(p, "description="):
-		opts.Desc = strings.TrimPrefix(p, "description=")
-	case p == "required":
+	for _, setter := range tagPartSetters {
+		if after, ok := strings.CutPrefix(p, setter.prefix); ok {
+			setter.apply(opts, after)
+			return
+		}
+	}
+
+	if p == "required" {
 		opts.Required = true
 	}
 }
