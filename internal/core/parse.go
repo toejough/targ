@@ -263,6 +263,21 @@ func parseCommandArgs(
 	)
 }
 
+// parseContext holds state for argument parsing.
+type parseContext struct {
+	node            *commandNode
+	expandedArgs    []string
+	specByLong      map[string]*flagSpec
+	specByShort     map[string]*flagSpec
+	posSpecs        []positionalSpec
+	posCounts       []int
+	visited         map[string]bool
+	explicit        bool
+	allowIncomplete bool
+	argPosition     *int
+	posIndex        int
+}
+
 func parseCommandArgsWithPosition(
 	node *commandNode,
 	inst reflect.Value,
@@ -274,24 +289,79 @@ func parseCommandArgsWithPosition(
 	allowIncomplete bool,
 	argPosition *int,
 ) (parseResult, error) {
+	ctx, err := prepareParseContext(node, inst, chain, args, visited, explicit, allowIncomplete, argPosition)
+	if err != nil {
+		return parseResult{}, err
+	}
+
+	result, err := ctx.parseArgs()
+	if err != nil {
+		return parseResult{}, err
+	}
+
+	if result.subcommand != nil || len(result.remaining) > 0 {
+		return result, nil
+	}
+
+	if err := applyPositionalDefaults(ctx.posSpecs, ctx.posCounts, enforceRequired); err != nil {
+		return parseResult{}, err
+	}
+
+	return parseResult{positionalsComplete: positionalsComplete(ctx.posSpecs, ctx.posCounts)}, nil
+}
+
+// prepareParseContext sets up the parsing context with specs and expanded args.
+func prepareParseContext(
+	node *commandNode,
+	inst reflect.Value,
+	chain []commandInstance,
+	args []string,
+	visited map[string]bool,
+	explicit bool,
+	allowIncomplete bool,
+	argPosition *int,
+) (*parseContext, error) {
 	if visited == nil {
 		visited = map[string]bool{}
 	}
 
 	specs, longNames, err := collectFlagSpecs(chain)
 	if err != nil {
-		return parseResult{}, err
+		return nil, err
 	}
 
 	expandedArgs, err := expandShortFlagGroups(args, specs)
 	if err != nil {
-		return parseResult{}, err
+		return nil, err
 	}
 
 	if err := validateLongFlagArgs(expandedArgs, longNames); err != nil {
-		return parseResult{}, err
+		return nil, err
 	}
 
+	specByLong, specByShort := buildSpecMaps(specs)
+
+	posSpecs, err := collectPositionalSpecs(node, inst)
+	if err != nil {
+		return nil, err
+	}
+
+	return &parseContext{
+		node:            node,
+		expandedArgs:    expandedArgs,
+		specByLong:      specByLong,
+		specByShort:     specByShort,
+		posSpecs:        posSpecs,
+		posCounts:       make([]int, len(posSpecs)),
+		visited:         visited,
+		explicit:        explicit,
+		allowIncomplete: allowIncomplete,
+		argPosition:     argPosition,
+	}, nil
+}
+
+// buildSpecMaps creates lookup maps for flag specs.
+func buildSpecMaps(specs []*flagSpec) (map[string]*flagSpec, map[string]*flagSpec) {
 	specByLong := map[string]*flagSpec{}
 	specByShort := map[string]*flagSpec{}
 
@@ -302,120 +372,156 @@ func parseCommandArgsWithPosition(
 		}
 	}
 
-	posSpecs, err := collectPositionalSpecs(node, inst)
+	return specByLong, specByShort
+}
+
+// parseArgs processes all arguments in the context.
+func (ctx *parseContext) parseArgs() (parseResult, error) {
+	for i := 0; i < len(ctx.expandedArgs); i++ {
+		result, consumed, err := ctx.parseArg(i)
+		if err != nil {
+			return parseResult{}, err
+		}
+
+		if result != nil {
+			return *result, nil
+		}
+
+		i += consumed
+	}
+
+	return parseResult{}, nil
+}
+
+// parseArg processes a single argument at the given index.
+func (ctx *parseContext) parseArg(i int) (*parseResult, int, error) {
+	arg := ctx.expandedArgs[i]
+
+	if arg == "--" {
+		ctx.advanceVariadicPositional()
+		return nil, 0, nil
+	}
+
+	if strings.HasPrefix(arg, "-") && arg != "-" {
+		return ctx.parseFlag(i, arg)
+	}
+
+	return ctx.parsePositionalOrSubcommand(i, arg)
+}
+
+// advanceVariadicPositional moves past a variadic positional on "--".
+func (ctx *parseContext) advanceVariadicPositional() {
+	if ctx.posIndex < len(ctx.posSpecs) && ctx.posSpecs[ctx.posIndex].variadic {
+		ctx.posIndex++
+	}
+}
+
+// parseFlag handles flag arguments.
+func (ctx *parseContext) parseFlag(i int, arg string) (*parseResult, int, error) {
+	if ctx.posIndex < len(ctx.posSpecs) &&
+		ctx.posSpecs[ctx.posIndex].variadic &&
+		ctx.posCounts[ctx.posIndex] > 0 {
+		ctx.posIndex++
+	}
+
+	consumed, err := parseFlagArgWithPosition(
+		arg,
+		ctx.expandedArgs,
+		i,
+		ctx.specByLong,
+		ctx.specByShort,
+		ctx.visited,
+		ctx.allowIncomplete,
+		ctx.argPosition,
+	)
+
+	return nil, consumed, err
+}
+
+// parsePositionalOrSubcommand handles positional args and subcommand detection.
+func (ctx *parseContext) parsePositionalOrSubcommand(i int, arg string) (*parseResult, int, error) {
+	if ctx.posIndex < len(ctx.posSpecs) {
+		return ctx.parsePositional(arg)
+	}
+
+	return ctx.trySubcommandOrUnknown(i, arg)
+}
+
+// parsePositional handles a positional argument.
+func (ctx *parseContext) parsePositional(arg string) (*parseResult, int, error) {
+	spec := ctx.posSpecs[ctx.posIndex]
+
+	err := setFieldWithPosition(spec.value, arg, ctx.argPosition)
 	if err != nil {
-		return parseResult{}, err
+		return nil, 0, err
 	}
 
-	posCounts := make([]int, len(posSpecs))
+	ctx.posCounts[ctx.posIndex]++
 
-	posIndex := 0
-
-	for i := 0; i < len(expandedArgs); i++ {
-		arg := expandedArgs[i]
-		if arg == "--" {
-			if posIndex < len(posSpecs) && posSpecs[posIndex].variadic {
-				posIndex++
-			}
-
-			continue
-		}
-
-		if strings.HasPrefix(arg, "-") && arg != "-" {
-			if posIndex < len(posSpecs) && posSpecs[posIndex].variadic && posCounts[posIndex] > 0 {
-				posIndex++
-			}
-
-			consumed, err := parseFlagArgWithPosition(
-				arg,
-				expandedArgs,
-				i,
-				specByLong,
-				specByShort,
-				visited,
-				allowIncomplete,
-				argPosition,
-			)
-			if err != nil {
-				return parseResult{}, err
-			}
-
-			i += consumed
-
-			continue
-		}
-
-		if posIndex < len(posSpecs) {
-			spec := posSpecs[posIndex]
-			if spec.variadic {
-				err := setFieldWithPosition(spec.value, arg, argPosition)
-				if err != nil {
-					return parseResult{}, err
-				}
-
-				posCounts[posIndex]++
-
-				continue
-			}
-
-			err := setFieldWithPosition(spec.value, arg, argPosition)
-			if err != nil {
-				return parseResult{}, err
-			}
-
-			posCounts[posIndex] = 1
-			posIndex++
-
-			continue
-		}
-
-		if node != nil && len(node.Subcommands) > 0 {
-			if sub, ok := node.Subcommands[arg]; ok {
-				return parseResult{
-					remaining:           expandedArgs[i+1:],
-					subcommand:          sub,
-					positionalsComplete: true,
-				}, nil
-			}
-		}
-
-		if !explicit {
-			return parseResult{}, fmt.Errorf("unknown command: %s", arg)
-		}
-
-		return parseResult{remaining: expandedArgs[i:]}, nil
+	if !spec.variadic {
+		ctx.posIndex++
 	}
 
+	return nil, 0, nil
+}
+
+// trySubcommandOrUnknown attempts to match a subcommand or handle unknown arg.
+func (ctx *parseContext) trySubcommandOrUnknown(i int, arg string) (*parseResult, int, error) {
+	if ctx.node != nil && len(ctx.node.Subcommands) > 0 {
+		if sub, ok := ctx.node.Subcommands[arg]; ok {
+			return &parseResult{
+				remaining:           ctx.expandedArgs[i+1:],
+				subcommand:          sub,
+				positionalsComplete: true,
+			}, 0, nil
+		}
+	}
+
+	if !ctx.explicit {
+		return nil, 0, fmt.Errorf("unknown command: %s", arg)
+	}
+
+	return &parseResult{remaining: ctx.expandedArgs[i:]}, 0, nil
+}
+
+// applyPositionalDefaults applies defaults and validates required positionals.
+func applyPositionalDefaults(posSpecs []positionalSpec, posCounts []int, enforceRequired bool) error {
 	for idx, spec := range posSpecs {
 		if posCounts[idx] == 0 && spec.opts.Default != nil {
-			err := setFieldFromString(spec.value, *spec.opts.Default)
-			if err != nil {
-				return parseResult{}, err
+			if err := setFieldFromString(spec.value, *spec.opts.Default); err != nil {
+				return err
 			}
 
 			posCounts[idx] = 1
 		}
 
 		if enforceRequired && spec.opts.Required && posCounts[idx] == 0 {
-			name := spec.opts.Name
-			if name == "" {
-				name = spec.field.Name
-			}
-
-			return parseResult{}, fmt.Errorf("missing required positional %s", name)
+			return missingPositionalError(spec)
 		}
 	}
 
-	complete := true
+	return nil
+}
 
+// missingPositionalError creates an error for a missing required positional.
+func missingPositionalError(spec positionalSpec) error {
+	name := spec.opts.Name
+	if name == "" {
+		name = spec.field.Name
+	}
+
+	return fmt.Errorf("missing required positional %s", name)
+}
+
+// positionalsComplete checks if all required positionals have been filled.
+func positionalsComplete(posSpecs []positionalSpec, posCounts []int) bool {
 	for idx, spec := range posSpecs {
 		if spec.opts.Required && posCounts[idx] == 0 {
-			complete = false
-			break
+			return false
 		}
 	}
 
-	return parseResult{positionalsComplete: complete}, nil
+	return true
 }
 
 func parseFlagArgWithPosition(
