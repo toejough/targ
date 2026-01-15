@@ -3,7 +3,6 @@ package core
 import (
 	"context"
 	"errors"
-	"fmt"
 	"reflect"
 	"sync"
 )
@@ -95,10 +94,6 @@ type depKey struct {
 	kind    string
 	id      uintptr
 	typName string
-}
-
-func (k depKey) String() string {
-	return fmt.Sprintf("%s:%s@%x", k.kind, k.typName, k.id)
 }
 
 type depTracker struct {

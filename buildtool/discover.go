@@ -364,7 +364,11 @@ func findTaggedDirs(fs FileSystem, startDir, tag string) ([]taggedDir, error) {
 	return results, nil
 }
 
-func processDirectory(fs FileSystem, current dirQueueEntry, tag string) ([]taggedFile, []dirQueueEntry, error) {
+func processDirectory(
+	fs FileSystem,
+	current dirQueueEntry,
+	tag string,
+) ([]taggedFile, []dirQueueEntry, error) {
 	entries, err := fs.ReadDir(current.path)
 	if err != nil {
 		return nil, nil, err

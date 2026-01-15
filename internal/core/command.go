@@ -336,7 +336,12 @@ func assignSubcommandField(
 	return nil
 }
 
-func assignSubcommandValue(fieldVal reflect.Value, fieldType reflect.Type, sub *commandNode, subName string) error {
+func assignSubcommandValue(
+	fieldVal reflect.Value,
+	fieldType reflect.Type,
+	sub *commandNode,
+	subName string,
+) error {
 	switch fieldType.Kind() {
 	case reflect.Func:
 		if fieldVal.IsNil() {
@@ -483,7 +488,11 @@ func lookupMethod(receiver reflect.Value, name string) (reflect.Value, bool) {
 	return method, method.IsValid()
 }
 
-func validateMethodInputs(method reflect.Value, ctx context.Context, name string) ([]reflect.Value, error) {
+func validateMethodInputs(
+	method reflect.Value,
+	ctx context.Context,
+	name string,
+) ([]reflect.Value, error) {
 	mtype := method.Type()
 	if mtype.NumIn() > 1 {
 		return nil, fmt.Errorf("%s must accept context.Context or no args", name)
@@ -802,7 +811,7 @@ func expandShortFlagGroups(args []string, specs []*flagSpec) ([]string, error) {
 	return expanded, nil
 }
 
-func buildFlagMaps(specs []*flagSpec) (shortInfo map[string]bool, longInfo map[string]bool) {
+func buildFlagMaps(specs []*flagSpec) (shortInfo, longInfo map[string]bool) {
 	shortInfo = map[string]bool{}
 	longInfo = map[string]bool{}
 

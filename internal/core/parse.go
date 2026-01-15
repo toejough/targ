@@ -51,7 +51,10 @@ func collectFlagSpecs(chain []commandInstance) ([]*flagSpec, map[string]bool, er
 	return specs, longNames, nil
 }
 
-func collectInstanceFlagSpecs(inst commandInstance, usedNames map[string]bool) ([]*flagSpec, error) {
+func collectInstanceFlagSpecs(
+	inst commandInstance,
+	usedNames map[string]bool,
+) ([]*flagSpec, error) {
 	if inst.node == nil || inst.node.Type == nil {
 		return nil, nil
 	}
@@ -73,7 +76,12 @@ func collectInstanceFlagSpecs(inst commandInstance, usedNames map[string]bool) (
 	return specs, nil
 }
 
-func collectFieldFlagSpec(inst commandInstance, field reflect.StructField, fieldVal reflect.Value, usedNames map[string]bool) (*flagSpec, error) {
+func collectFieldFlagSpec(
+	inst commandInstance,
+	field reflect.StructField,
+	fieldVal reflect.Value,
+	usedNames map[string]bool,
+) (*flagSpec, error) {
 	spec, ok, err := flagSpecForField(inst.value, field, fieldVal)
 	if err != nil {
 		return nil, err
@@ -527,7 +535,13 @@ func parseBoolFlagValue(spec *flagSpec, argPosition *int) (int, error) {
 	return 0, nil
 }
 
-func parseSliceFlagValue(spec *flagSpec, args []string, index int, allowIncomplete bool, argPosition *int) (int, error) {
+func parseSliceFlagValue(
+	spec *flagSpec,
+	args []string,
+	index int,
+	allowIncomplete bool,
+	argPosition *int,
+) (int, error) {
 	count := 0
 
 	for i := index + 1; i < len(args); i++ {
@@ -555,7 +569,13 @@ func parseSliceFlagValue(spec *flagSpec, args []string, index int, allowIncomple
 	return count, nil
 }
 
-func parseSingleFlagValue(spec *flagSpec, args []string, index int, allowIncomplete bool, argPosition *int) (int, error) {
+func parseSingleFlagValue(
+	spec *flagSpec,
+	args []string,
+	index int,
+	allowIncomplete bool,
+	argPosition *int,
+) (int, error) {
 	if index+1 >= len(args) {
 		if allowIncomplete {
 			return 0, nil

@@ -1319,7 +1319,8 @@ func walkNamespaceTree(
 	names := sortedChildNames(node)
 
 	for _, name := range names {
-		if err := walkNamespaceTree(node.Children[name], root, fileCommands, out); err != nil {
+		err := walkNamespaceTree(node.Children[name], root, fileCommands, out)
+		if err != nil {
 			return err
 		}
 	}
@@ -1390,7 +1391,11 @@ func buildNamespaceFields(
 	return fields, nil
 }
 
-func buildCommandFields(node *namespaceNode, commands []bootstrapCommand, usedNames map[string]bool) ([]bootstrapField, error) {
+func buildCommandFields(
+	node *namespaceNode,
+	commands []bootstrapCommand,
+	usedNames map[string]bool,
+) ([]bootstrapField, error) {
 	fields := make([]bootstrapField, 0, len(commands))
 
 	for _, cmd := range commands {
