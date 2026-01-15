@@ -14,39 +14,7 @@ import (
 )
 
 func TestBuildBootstrapData_Namespaces(t *testing.T) {
-	infos := []buildtool.PackageInfo{
-		{
-			Dir:     "/repo/tools/issues",
-			Package: "issues",
-			Files:   []buildtool.FileInfo{{Path: "/repo/tools/issues/issues.go"}},
-			Commands: []buildtool.CommandInfo{
-				{Name: "List", Kind: buildtool.CommandStruct, File: "/repo/tools/issues/issues.go"},
-			},
-		},
-		{
-			Dir:     "/repo/tools/other",
-			Package: "other",
-			Files: []buildtool.FileInfo{
-				{Path: "/repo/tools/other/foo.go"},
-				{Path: "/repo/tools/other/bar.go"},
-			},
-			Commands: []buildtool.CommandInfo{
-				{Name: "Thing", Kind: buildtool.CommandStruct, File: "/repo/tools/other/foo.go"},
-				{Name: "Ship", Kind: buildtool.CommandStruct, File: "/repo/tools/other/bar.go"},
-			},
-		},
-	}
-
-	// Compute collapsed paths for the test files
-	var filePaths []string
-
-	for _, info := range infos {
-		for _, cmd := range info.Commands {
-			filePaths = append(filePaths, cmd.File)
-		}
-	}
-
-	collapsedPaths, _ := namespacePaths(filePaths, "/repo")
+	infos, collapsedPaths := namespaceTestData()
 
 	data, err := buildBootstrapData(infos, "/repo", "/repo", "example.com/proj", collapsedPaths)
 	if err != nil {
@@ -404,6 +372,43 @@ func hasField(fields []bootstrapField, name string) bool {
 	}
 
 	return false
+}
+
+func namespaceTestData() ([]buildtool.PackageInfo, map[string][]string) {
+	infos := []buildtool.PackageInfo{
+		{
+			Dir:     "/repo/tools/issues",
+			Package: "issues",
+			Files:   []buildtool.FileInfo{{Path: "/repo/tools/issues/issues.go"}},
+			Commands: []buildtool.CommandInfo{
+				{Name: "List", Kind: buildtool.CommandStruct, File: "/repo/tools/issues/issues.go"},
+			},
+		},
+		{
+			Dir:     "/repo/tools/other",
+			Package: "other",
+			Files: []buildtool.FileInfo{
+				{Path: "/repo/tools/other/foo.go"},
+				{Path: "/repo/tools/other/bar.go"},
+			},
+			Commands: []buildtool.CommandInfo{
+				{Name: "Thing", Kind: buildtool.CommandStruct, File: "/repo/tools/other/foo.go"},
+				{Name: "Ship", Kind: buildtool.CommandStruct, File: "/repo/tools/other/bar.go"},
+			},
+		},
+	}
+
+	var filePaths []string
+
+	for _, info := range infos {
+		for _, cmd := range info.Commands {
+			filePaths = append(filePaths, cmd.File)
+		}
+	}
+
+	collapsedPaths, _ := namespacePaths(filePaths, "/repo")
+
+	return infos, collapsedPaths
 }
 
 func nodeNames(nodes []bootstrapNode) []string {
