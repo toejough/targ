@@ -1910,6 +1910,25 @@ func findCommandBinary(registry []moduleRegistry, cmdName string) (string, bool)
 	return "", false
 }
 
+// findModCacheDir finds the cached module directory for a clean version.
+func findModCacheDir(modulePath, version string) (string, bool) {
+	if !isCleanVersion(version) {
+		return "", false
+	}
+
+	modCache, err := goEnv("GOMODCACHE")
+	if err != nil || modCache == "" {
+		return "", false
+	}
+
+	candidate := filepath.Join(modCache, modulePath+"@"+version)
+	if statInfo, err := os.Stat(candidate); err == nil && statInfo.IsDir() {
+		return candidate, true
+	}
+
+	return "", false
+}
+
 // findModuleForPath walks up from the given path to find the nearest go.mod.
 // Returns the module root directory, module path, whether found, and any error.
 func findModuleForPath(path string) (string, string, bool, error) {
@@ -2184,6 +2203,11 @@ func hasTargBuildTag(path string) bool {
 	}
 
 	return false
+}
+
+// isCleanVersion returns true if the version is suitable for cache lookup.
+func isCleanVersion(version string) bool {
+	return version != "" && version != "(devel)" && !strings.Contains(version, "+dirty")
 }
 
 // isHelpRequest returns true if args represent a help request.
@@ -2644,23 +2668,19 @@ func resolveTargDependency() targDependency {
 	}
 
 	info, ok := debug.ReadBuildInfo()
-	if ok {
-		if looksLikeModulePath(info.Main.Path) {
-			dep.ModulePath = info.Main.Path
-		}
+	if !ok {
+		return dep
+	}
 
-		if info.Main.Version != "" && info.Main.Version != "(devel)" &&
-			!strings.Contains(info.Main.Version, "+dirty") {
-			if modCache, err := goEnv("GOMODCACHE"); err == nil && modCache != "" {
-				candidate := filepath.Join(modCache, dep.ModulePath+"@"+info.Main.Version)
-				if statInfo, err := os.Stat(candidate); err == nil && statInfo.IsDir() {
-					dep.Version = info.Main.Version
-					dep.ReplaceDir = candidate
-				}
-			}
-		} else if root, ok := buildSourceRoot(); ok {
-			dep.ReplaceDir = root
-		}
+	if looksLikeModulePath(info.Main.Path) {
+		dep.ModulePath = info.Main.Path
+	}
+
+	if cacheDir, ok := findModCacheDir(dep.ModulePath, info.Main.Version); ok {
+		dep.Version = info.Main.Version
+		dep.ReplaceDir = cacheDir
+	} else if root, ok := buildSourceRoot(); ok {
+		dep.ReplaceDir = root
 	}
 
 	return dep
