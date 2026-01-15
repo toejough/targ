@@ -783,17 +783,14 @@ func addAlias(name, command, targetFile string) (string, error) {
 		return "", err
 	}
 
-	// If target file specified, use it directly
 	if targetFile != "" {
-		err := appendToFile(targetFile, code)
-		if err != nil {
-			return "", err
-		}
-
-		return fmt.Sprintf("Added %s to %s", toExportedName(name), targetFile), nil
+		return addAliasToFile(name, targetFile, code)
 	}
 
-	// Discover target files in current directory
+	return addAliasAutoDiscover(name, command, code)
+}
+
+func addAliasAutoDiscover(name, command, code string) (string, error) {
 	targetFiles, err := findTargetFiles(".")
 	if err != nil {
 		return "", fmt.Errorf("discovering target files: %w", err)
@@ -801,44 +798,52 @@ func addAlias(name, command, targetFile string) (string, error) {
 
 	switch len(targetFiles) {
 	case 0:
-		// No target files - create targs.go
-		targetFile = "targs.go"
-		if _, err := createTargetsFile(targetFile); err != nil {
-			return "", err
-		}
-
-		err := appendToFile(targetFile, code)
-		if err != nil {
-			return "", err
-		}
-
-		return fmt.Sprintf("Created %s and added %s", targetFile, toExportedName(name)), nil
-
+		return addAliasCreateNew(name, code)
 	case 1:
-		// One target file - ensure sh import and append
-		targetFile = targetFiles[0]
-
-		err := ensureShImport(targetFile)
-		if err != nil {
-			return "", fmt.Errorf("ensuring sh import: %w", err)
-		}
-
-		err = appendToFile(targetFile, code)
-		if err != nil {
-			return "", err
-		}
-
-		return fmt.Sprintf("Added %s to %s", toExportedName(name), targetFile), nil
-
+		return addAliasToExisting(name, targetFiles[0], code)
 	default:
-		// Multiple target files - require explicit file
 		return "", fmt.Errorf(
 			"multiple target files found (%s); specify which file: --alias %s %q <file>",
-			strings.Join(targetFiles, ", "),
-			name,
-			command,
+			strings.Join(targetFiles, ", "), name, command,
 		)
 	}
+}
+
+func addAliasCreateNew(name, code string) (string, error) {
+	targetFile := "targs.go"
+	if _, err := createTargetsFile(targetFile); err != nil {
+		return "", err
+	}
+
+	err := appendToFile(targetFile, code)
+	if err != nil {
+		return "", err
+	}
+
+	return fmt.Sprintf("Created %s and added %s", targetFile, toExportedName(name)), nil
+}
+
+func addAliasToExisting(name, targetFile, code string) (string, error) {
+	err := ensureShImport(targetFile)
+	if err != nil {
+		return "", fmt.Errorf("ensuring sh import: %w", err)
+	}
+
+	err := appendToFile(targetFile, code)
+	if err != nil {
+		return "", err
+	}
+
+	return fmt.Sprintf("Added %s to %s", toExportedName(name), targetFile), nil
+}
+
+func addAliasToFile(name, targetFile, code string) (string, error) {
+	err := appendToFile(targetFile, code)
+	if err != nil {
+		return "", err
+	}
+
+	return fmt.Sprintf("Added %s to %s", toExportedName(name), targetFile), nil
 }
 
 func addShImportToContent(content string) string {
