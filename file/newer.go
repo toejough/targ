@@ -13,7 +13,7 @@ import (
 
 // Newer reports whether inputs are newer than outputs, or when outputs are empty,
 // whether the input match set or file modtimes changed since the last run.
-func Newer(inputs []string, outputs []string) (bool, error) {
+func Newer(inputs, outputs []string) (bool, error) {
 	if len(inputs) == 0 {
 		return false, fmt.Errorf("no input patterns provided")
 	}
@@ -30,7 +30,7 @@ type newerCache struct {
 	Files   map[string]int64 `json:"files"`
 }
 
-func cacheEqual(a *newerCache, b *newerCache) bool {
+func cacheEqual(a, b *newerCache) bool {
 	if len(a.Matches) != len(b.Matches) {
 		return false
 	}
@@ -50,14 +50,14 @@ func cacheEqual(a *newerCache, b *newerCache) bool {
 	return true
 }
 
-func cacheFilePath(cwd string, pattern string) (string, error) {
+func cacheFilePath(cwd, pattern string) (string, error) {
 	cacheDir, err := os.UserCacheDir()
 	if err != nil {
 		return "", err
 	}
 	encoded := hashString(cwd + "::" + pattern)
 	dir := filepath.Join(cacheDir, "targ", "newer")
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", err
 	}
 	return filepath.Join(dir, encoded+".json"), nil
@@ -94,7 +94,7 @@ func newerWithCache(inputs []string) (bool, error) {
 	return changed, nil
 }
 
-func newerWithOutputs(inputs []string, outputs []string) (bool, error) {
+func newerWithOutputs(inputs, outputs []string) (bool, error) {
 	inMatches, err := Match(inputs...)
 	if err != nil {
 		return false, err
@@ -143,7 +143,7 @@ func readCache(path string) (*newerCache, error) {
 	return &cache, nil
 }
 
-func snapshotPattern(cwd string, pattern string) (*newerCache, error) {
+func snapshotPattern(cwd, pattern string) (*newerCache, error) {
 	matches, err := Match(pattern)
 	if err != nil {
 		return nil, err
@@ -170,5 +170,5 @@ func writeCache(path string, cache *newerCache) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0644)
+	return os.WriteFile(path, data, 0o644)
 }

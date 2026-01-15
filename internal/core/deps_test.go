@@ -128,7 +128,7 @@ func TestParallelDepsRunsConcurrently(t *testing.T) {
 		}()
 
 		timeout := time.After(200 * time.Millisecond)
-		for i := 0; i < 2; i++ {
+		for range 2 {
 			select {
 			case <-started:
 			case <-timeout:

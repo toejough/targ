@@ -89,7 +89,7 @@ func TestDefaultPositional(t *testing.T) {
 }
 
 func TestDetectRootCommands(t *testing.T) {
-	candidates := []interface{}{
+	candidates := []any{
 		&DiscoveryRootA{},
 		&DiscoveryChildB{},
 		&DiscoveryRootC{},

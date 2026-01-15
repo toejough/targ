@@ -265,7 +265,7 @@ func fieldTypeName(expr ast.Expr) string {
 	return ""
 }
 
-func filterCommands(candidates map[string]bool, subcommandNames map[string]bool) []string {
+func filterCommands(candidates, subcommandNames map[string]bool) []string {
 	var result []string
 	for name := range candidates {
 		cmd := camelToKebab(name)
@@ -277,7 +277,9 @@ func filterCommands(candidates map[string]bool, subcommandNames map[string]bool)
 	return result
 }
 
-func filterStructs(candidates map[string]bool, subcommandTypes map[string]bool, structHasRun map[string]bool, structHasSubcommands map[string]bool) []string {
+func filterStructs(
+	candidates, subcommandTypes, structHasRun, structHasSubcommands map[string]bool,
+) []string {
 	var result []string
 	for name := range candidates {
 		if !subcommandTypes[name] {
@@ -290,7 +292,7 @@ func filterStructs(candidates map[string]bool, subcommandTypes map[string]bool, 
 	return result
 }
 
-func findTaggedDirs(fs FileSystem, startDir string, tag string) ([]taggedDir, error) {
+func findTaggedDirs(fs FileSystem, startDir, tag string) ([]taggedDir, error) {
 	type dirEntry struct {
 		path  string
 		depth int
@@ -391,8 +393,8 @@ func functionUsesContext(fnType *ast.FuncType, ctxAliases map[string]bool, ctxDo
 }
 
 func hasBuildTag(content []byte, tag string) bool {
-	lines := strings.Split(string(content), "\n")
-	for _, line := range lines {
+	lines := strings.SplitSeq(string(content), "\n")
+	for line := range lines {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
@@ -400,8 +402,8 @@ func hasBuildTag(content []byte, tag string) bool {
 		if !strings.HasPrefix(line, "//") {
 			return false
 		}
-		if strings.HasPrefix(line, "//go:build") {
-			exprText := strings.TrimSpace(strings.TrimPrefix(line, "//go:build"))
+		if after, ok := strings.CutPrefix(line, "//go:build"); ok {
+			exprText := strings.TrimSpace(after)
 			expr, err := constraint.Parse(exprText)
 			if err != nil {
 				return exprText == tag
@@ -509,7 +511,10 @@ func parsePackageInfo(dir taggedDir) (PackageInfo, error) {
 	}
 	if len(mainFiles) > 0 {
 		sort.Strings(mainFiles)
-		return PackageInfo{}, fmt.Errorf("tagged files must not declare main(): %s", strings.Join(mainFiles, ", "))
+		return PackageInfo{}, fmt.Errorf(
+			"tagged files must not declare main(): %s",
+			strings.Join(mainFiles, ", "),
+		)
 	}
 
 	structList := filterStructs(structs, subcommandTypes, structHasRun, structHasSubcommands)
@@ -518,8 +523,8 @@ func parsePackageInfo(dir taggedDir) (PackageInfo, error) {
 	if len(structList) > 0 && len(funcList) > 0 {
 		wrapped := make(map[string]bool)
 		for _, name := range structList {
-			if strings.HasSuffix(name, "Command") {
-				base := strings.TrimSuffix(name, "Command")
+			if before, ok := strings.CutSuffix(name, "Command"); ok {
+				base := before
 				if base != "" {
 					wrapped[base] = true
 				}
@@ -544,7 +549,12 @@ func parsePackageInfo(dir taggedDir) (PackageInfo, error) {
 	for _, name := range funcList {
 		cmd := camelToKebab(name)
 		if other, ok := seen[cmd]; ok {
-			return PackageInfo{}, fmt.Errorf("duplicate command name %q from %s and %s", cmd, other, name)
+			return PackageInfo{}, fmt.Errorf(
+				"duplicate command name %q from %s and %s",
+				cmd,
+				other,
+				name,
+			)
 		}
 	}
 
@@ -625,13 +635,13 @@ func recordSubcommandRefs(
 		}
 		hasSubcommand = true
 		nameOverride := ""
-		parts := strings.Split(targTag, ",")
-		for _, p := range parts {
+		parts := strings.SplitSeq(targTag, ",")
+		for p := range parts {
 			p = strings.TrimSpace(p)
-			if strings.HasPrefix(p, "name=") {
-				nameOverride = strings.TrimPrefix(p, "name=")
-			} else if strings.HasPrefix(p, "subcommand=") {
-				nameOverride = strings.TrimPrefix(p, "subcommand=")
+			if after, ok := strings.CutPrefix(p, "name="); ok {
+				nameOverride = after
+			} else if after, ok := strings.CutPrefix(p, "subcommand="); ok {
+				nameOverride = after
 			}
 		}
 		if nameOverride != "" {
@@ -670,7 +680,11 @@ func returnStringLiteral(body *ast.BlockStmt) (string, bool) {
 	return strings.TrimSpace(value), true
 }
 
-func validateFunctionSignature(fnType *ast.FuncType, ctxAliases map[string]bool, ctxDotImport bool) error {
+func validateFunctionSignature(
+	fnType *ast.FuncType,
+	ctxAliases map[string]bool,
+	ctxDotImport bool,
+) error {
 	paramCount := 0
 	if fnType.Params != nil {
 		paramCount = len(fnType.Params.List)
@@ -678,7 +692,8 @@ func validateFunctionSignature(fnType *ast.FuncType, ctxAliases map[string]bool,
 	if paramCount > 1 {
 		return fmt.Errorf("must be niladic or accept context")
 	}
-	if paramCount == 1 && !funcParamIsContext(fnType.Params.List[0].Type, ctxAliases, ctxDotImport) {
+	if paramCount == 1 &&
+		!funcParamIsContext(fnType.Params.List[0].Type, ctxAliases, ctxDotImport) {
 		return fmt.Errorf("must accept context.Context")
 	}
 	if fnType.Results == nil || len(fnType.Results.List) == 0 {

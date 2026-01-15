@@ -31,7 +31,7 @@ func NewOsEnv() runEnv {
 }
 
 // RunWithEnv executes commands with a custom environment.
-func RunWithEnv(env runEnv, opts RunOptions, targets ...interface{}) error {
+func RunWithEnv(env runEnv, opts RunOptions, targets ...any) error {
 	ctx := context.Background()
 	if _, ok := env.(osRunEnv); ok {
 		rootCtx, cancel := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
@@ -147,8 +147,8 @@ func RunWithEnv(env runEnv, opts RunOptions, targets ...interface{}) error {
 				}
 				return nil
 			}
-			if strings.HasPrefix(rest[0], "--completion=") {
-				shell := strings.TrimPrefix(rest[0], "--completion=")
+			if after, ok := strings.CutPrefix(rest[0], "--completion="); ok {
+				shell := after
 				if err := PrintCompletionScript(shell, binaryName()); err != nil {
 					env.Printf("Error: %v\n", err)
 					return ExitError{Code: 1}
@@ -167,7 +167,14 @@ func RunWithEnv(env runEnv, opts RunOptions, targets ...interface{}) error {
 			}
 			remaining := rest
 			for len(remaining) > 0 {
-				next, err := roots[0].executeWithParents(ctx, remaining, nil, map[string]bool{}, false, opts)
+				next, err := roots[0].executeWithParents(
+					ctx,
+					remaining,
+					nil,
+					map[string]bool{},
+					false,
+					opts,
+				)
 				if err != nil {
 					env.Printf("Error: %v\n", err)
 					return ExitError{Code: 1}
@@ -197,7 +204,14 @@ func RunWithEnv(env runEnv, opts RunOptions, targets ...interface{}) error {
 				return ExitError{Code: 1}
 			}
 
-			next, err := matched.executeWithParents(ctx, remaining[1:], nil, map[string]bool{}, true, opts)
+			next, err := matched.executeWithParents(
+				ctx,
+				remaining[1:],
+				nil,
+				map[string]bool{},
+				true,
+				opts,
+			)
 			if err != nil {
 				env.Printf("Error: %v\n", err)
 				return ExitError{Code: 1}
@@ -365,8 +379,8 @@ func extractTimeout(args []string) (time.Duration, []string, error) {
 			continue
 		}
 
-		if strings.HasPrefix(arg, "--timeout=") {
-			val := strings.TrimPrefix(arg, "--timeout=")
+		if after, ok := strings.CutPrefix(arg, "--timeout="); ok {
+			val := after
 			d, err := time.ParseDuration(val)
 			if err != nil {
 				return 0, nil, fmt.Errorf("invalid timeout duration %q: %w", val, err)

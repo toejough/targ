@@ -26,7 +26,10 @@ func TestBuildBootstrapData_Namespaces(t *testing.T) {
 		{
 			Dir:     "/repo/tools/other",
 			Package: "other",
-			Files:   []buildtool.FileInfo{{Path: "/repo/tools/other/foo.go"}, {Path: "/repo/tools/other/bar.go"}},
+			Files: []buildtool.FileInfo{
+				{Path: "/repo/tools/other/foo.go"},
+				{Path: "/repo/tools/other/bar.go"},
+			},
 			Commands: []buildtool.CommandInfo{
 				{Name: "Thing", Kind: buildtool.CommandStruct, File: "/repo/tools/other/foo.go"},
 				{Name: "Ship", Kind: buildtool.CommandStruct, File: "/repo/tools/other/bar.go"},
@@ -58,7 +61,10 @@ func TestBuildBootstrapData_Namespaces(t *testing.T) {
 		t.Fatalf("expected issues node, got %v", nodeNames(data.Nodes))
 	}
 	if !hasField(otherNode.Fields, "Foo") || !hasField(otherNode.Fields, "Bar") {
-		t.Fatalf("expected other node to have Foo and Bar fields, got %v", fieldNames(otherNode.Fields))
+		t.Fatalf(
+			"expected other node to have Foo and Bar fields, got %v",
+			fieldNames(otherNode.Fields),
+		)
 	}
 	if !hasField(issuesNode.Fields, "List") {
 		t.Fatalf("expected issues node to have List field, got %v", fieldNames(issuesNode.Fields))
@@ -122,11 +128,15 @@ func TestEnsureFallbackModuleRoot(t *testing.T) {
 		t.Skip("symlink behavior is restricted on windows")
 	}
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "file.txt"), []byte("ok"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "file.txt"), []byte("ok"), 0o644); err != nil {
 		t.Fatalf("unexpected write error: %v", err)
 	}
 
-	root, err := ensureFallbackModuleRoot(dir, "targ.local", targDependency{ModulePath: "github.com/toejough/targ", Version: "v0.0.0"})
+	root, err := ensureFallbackModuleRoot(
+		dir,
+		"targ.local",
+		targDependency{ModulePath: "github.com/toejough/targ", Version: "v0.0.0"},
+	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -161,13 +171,13 @@ func TestFindModuleForPath_WalksUp(t *testing.T) {
 	// Create parent with go.mod
 	parent := t.TempDir()
 	modContent := "module example.com/parent\n\ngo 1.21\n"
-	if err := os.WriteFile(filepath.Join(parent, "go.mod"), []byte(modContent), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(parent, "go.mod"), []byte(modContent), 0o644); err != nil {
 		t.Fatalf("unexpected write error: %v", err)
 	}
 
 	// Create child without go.mod
 	child := filepath.Join(parent, "child")
-	if err := os.MkdirAll(child, 0755); err != nil {
+	if err := os.MkdirAll(child, 0o755); err != nil {
 		t.Fatalf("unexpected mkdir error: %v", err)
 	}
 
@@ -191,17 +201,17 @@ func TestFindModuleForPath_WithFile(t *testing.T) {
 	// Test that findModuleForPath works when given a file path
 	parent := t.TempDir()
 	modContent := "module example.com/parent\n\ngo 1.21\n"
-	if err := os.WriteFile(filepath.Join(parent, "go.mod"), []byte(modContent), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(parent, "go.mod"), []byte(modContent), 0o644); err != nil {
 		t.Fatalf("unexpected write error: %v", err)
 	}
 
 	// Create a subdirectory with a file
 	child := filepath.Join(parent, "pkg")
-	if err := os.MkdirAll(child, 0755); err != nil {
+	if err := os.MkdirAll(child, 0o755); err != nil {
 		t.Fatalf("unexpected mkdir error: %v", err)
 	}
 	targetFile := filepath.Join(child, "main.go")
-	if err := os.WriteFile(targetFile, []byte("package main"), 0644); err != nil {
+	if err := os.WriteFile(targetFile, []byte("package main"), 0o644); err != nil {
 		t.Fatalf("unexpected write error: %v", err)
 	}
 
@@ -224,7 +234,7 @@ func TestFindModuleForPath_WithFile(t *testing.T) {
 func TestFindModuleForPath_WithModule(t *testing.T) {
 	dir := t.TempDir()
 	modContent := "module example.com/test\n\ngo 1.21\n"
-	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte(modContent), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte(modContent), 0o644); err != nil {
 		t.Fatalf("unexpected write error: %v", err)
 	}
 

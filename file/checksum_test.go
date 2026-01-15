@@ -11,7 +11,7 @@ func TestChecksumDetectsChanges(t *testing.T) {
 	input := filepath.Join(dir, "a.txt")
 	dest := filepath.Join(dir, "hash.txt")
 
-	if err := os.WriteFile(input, []byte("one"), 0644); err != nil {
+	if err := os.WriteFile(input, []byte("one"), 0o644); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -31,7 +31,7 @@ func TestChecksumDetectsChanges(t *testing.T) {
 		t.Fatal("expected checksum to be unchanged")
 	}
 
-	if err := os.WriteFile(input, []byte("two"), 0644); err != nil {
+	if err := os.WriteFile(input, []byte("two"), 0o644); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	changed, err = Checksum([]string{input}, dest)
@@ -49,7 +49,7 @@ func TestChecksumDetectsMatchSetChanges(t *testing.T) {
 	pattern := filepath.Join(dir, "*.txt")
 
 	first := filepath.Join(dir, "a.txt")
-	if err := os.WriteFile(first, []byte("one"), 0644); err != nil {
+	if err := os.WriteFile(first, []byte("one"), 0o644); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	changed, err := Checksum([]string{pattern}, dest)
@@ -61,7 +61,7 @@ func TestChecksumDetectsMatchSetChanges(t *testing.T) {
 	}
 
 	second := filepath.Join(dir, "b.txt")
-	if err := os.WriteFile(second, []byte("one"), 0644); err != nil {
+	if err := os.WriteFile(second, []byte("one"), 0o644); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	changed, err = Checksum([]string{pattern}, dest)

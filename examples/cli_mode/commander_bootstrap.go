@@ -6,7 +6,7 @@ import (
 
 func main() {
 	// Auto-detected commands
-	cmds := []interface{}{
+	cmds := []any{
 		&Build{},
 		&Clean{},
 		&Deploy{},

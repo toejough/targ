@@ -25,8 +25,16 @@ import (
 )
 
 func main() {
+	// Guard against nil os.Args (should never happen, but satisfies static analysis)
+	if len(os.Args) == 0 {
+		fmt.Fprintln(os.Stderr, "error: os.Args is empty")
+		os.Exit(1)
+	}
+	binArg := os.Args[0]
+	args := os.Args[1:]
+
 	// Handle --init early, before flag parsing
-	if initResult := handleInitFlag(os.Args[1:]); initResult != nil {
+	if initResult := handleInitFlag(args); initResult != nil {
 		if initResult.err != nil {
 			fmt.Fprintln(os.Stderr, initResult.err)
 			os.Exit(1)
@@ -36,7 +44,7 @@ func main() {
 	}
 
 	// Handle --alias early, before flag parsing
-	if aliasResult := handleAliasFlag(os.Args[1:]); aliasResult != nil {
+	if aliasResult := handleAliasFlag(args); aliasResult != nil {
 		if aliasResult.err != nil {
 			fmt.Fprintln(os.Stderr, aliasResult.err)
 			os.Exit(1)
@@ -60,7 +68,7 @@ func main() {
 		printBuildToolUsage(os.Stdout)
 	}
 	fs.SetOutput(io.Discard)
-	rawArgs := os.Args[1:]
+	rawArgs := args
 	quietBuild := len(rawArgs) > 0 && rawArgs[0] == "__complete"
 	errOut := io.Writer(os.Stderr)
 	if quietBuild {
@@ -77,7 +85,7 @@ func main() {
 		printBuildToolUsage(errOut)
 		os.Exit(1)
 	}
-	args := fs.Args()
+	args = fs.Args()
 	if helpFlag {
 		helpRequested = true
 	}
@@ -101,7 +109,7 @@ func main() {
 			_, _ = fmt.Fprintln(errOut, "Usage: --completion [bash|zsh|fish]")
 			os.Exit(1)
 		}
-		binName := os.Args[0]
+		binName := binArg
 		if idx := strings.LastIndex(binName, "/"); idx != -1 {
 			binName = binName[idx+1:]
 		}
@@ -109,7 +117,11 @@ func main() {
 			binName = binName[idx+1:]
 		}
 		if err := targ.PrintCompletionScript(completionShell, binName); err != nil {
-			_, _ = fmt.Fprintf(errOut, "Unsupported shell: %s. Supported: bash, zsh, fish\n", completionShell)
+			_, _ = fmt.Fprintf(
+				errOut,
+				"Unsupported shell: %s. Supported: bash, zsh, fish\n",
+				completionShell,
+			)
 			os.Exit(1)
 		}
 		return
@@ -132,11 +144,14 @@ func main() {
 
 	var generatedWrappers []string
 	for _, dir := range taggedDirs {
-		wrapper, err := buildtool.GenerateFunctionWrappers(buildtool.OSFileSystem{}, buildtool.GenerateOptions{
-			Dir:        dir.Path,
-			BuildTag:   "targ",
-			OnlyTagged: true,
-		})
+		wrapper, err := buildtool.GenerateFunctionWrappers(
+			buildtool.OSFileSystem{},
+			buildtool.GenerateOptions{
+				Dir:        dir.Path,
+				BuildTag:   "targ",
+				OnlyTagged: true,
+			},
+		)
 		if err != nil {
 			_, _ = fmt.Fprintf(errOut, "Error generating command wrappers: %v\n", err)
 			os.Exit(1)
@@ -167,8 +182,15 @@ func main() {
 	// Validate no package main in targ files
 	for _, info := range infos {
 		if info.Package == "main" {
-			_, _ = fmt.Fprintf(errOut, "Error: targ files cannot use 'package main' (found in %s)\n", info.Dir)
-			_, _ = fmt.Fprintf(errOut, "Use a named package instead, e.g., 'package targets' or 'package dev'\n")
+			_, _ = fmt.Fprintf(
+				errOut,
+				"Error: targ files cannot use 'package main' (found in %s)\n",
+				info.Dir,
+			)
+			_, _ = fmt.Fprintf(
+				errOut,
+				"Use a named package instead, e.g., 'package targets' or 'package dev'\n",
+			)
 			exit(1)
 		}
 	}
@@ -184,7 +206,13 @@ func main() {
 	if helpRequested && !helpTargets {
 		if len(moduleGroups) > 1 {
 			// Multi-module: build binaries and show aggregated help
-			registry, err := buildMultiModuleBinaries(moduleGroups, startDir, noCache, keepBootstrap, errOut)
+			registry, err := buildMultiModuleBinaries(
+				moduleGroups,
+				startDir,
+				noCache,
+				keepBootstrap,
+				errOut,
+			)
 			if err != nil {
 				_, _ = fmt.Fprintf(errOut, "Error building module binaries: %v\n", err)
 				exit(1)
@@ -204,13 +232,19 @@ func main() {
 
 	// For multi-module case, use the new multi-binary dispatch
 	if len(moduleGroups) > 1 {
-		registry, err := buildMultiModuleBinaries(moduleGroups, startDir, noCache, keepBootstrap, errOut)
+		registry, err := buildMultiModuleBinaries(
+			moduleGroups,
+			startDir,
+			noCache,
+			keepBootstrap,
+			errOut,
+		)
 		if err != nil {
 			_, _ = fmt.Fprintf(errOut, "Error building module binaries: %v\n", err)
 			exit(1)
 		}
 		cleanupWrappers()
-		if err := dispatchCommand(registry, args, errOut); err != nil {
+		if err := dispatchCommand(registry, args, errOut, binArg); err != nil {
 			if exitErr, ok := err.(*exec.ExitError); ok {
 				os.Exit(exitErr.ExitCode())
 			}
@@ -222,7 +256,7 @@ func main() {
 
 	// Single module case
 	// Collect file paths and compute collapsed namespace paths
-	var filePaths []string
+	filePaths := make([]string, 0)
 	for _, info := range infos {
 		for _, f := range info.Files {
 			filePaths = append(filePaths, f.Path)
@@ -292,7 +326,7 @@ func main() {
 	bootstrapDir := filepath.Join(projCache, "tmp")
 
 	cacheDir := filepath.Join(projCache, "bin")
-	if err := os.MkdirAll(cacheDir, 0755); err != nil {
+	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
 		_, _ = fmt.Fprintf(errOut, "Error creating cache directory: %v\n", err)
 		exit(1)
 	}
@@ -300,7 +334,7 @@ func main() {
 
 	// Get binary name for help output
 	targBinName := "targ"
-	if binArg := os.Args[0]; binArg != "" {
+	if binArg != "" {
 		if idx := strings.LastIndex(binArg, "/"); idx != -1 {
 			targBinName = binArg[idx+1:]
 		} else if idx := strings.LastIndex(binArg, "\\"); idx != -1 {
@@ -312,7 +346,8 @@ func main() {
 
 	// Check if cached binary exists - if so, run it without writing bootstrap file
 	if !noCache {
-		if info, err := os.Stat(binaryPath); err == nil && info.Mode().IsRegular() && info.Mode()&0111 != 0 {
+		if info, err := os.Stat(binaryPath); err == nil && info.Mode().IsRegular() &&
+			info.Mode()&0o111 != 0 {
 			cmd := exec.Command(binaryPath, args...)
 			cmd.Env = append(os.Environ(), "TARG_BIN_NAME="+targBinName)
 			cmd.Stdout = os.Stdout
@@ -622,14 +657,18 @@ func addAlias(name, command, targetFile string) (string, error) {
 
 	default:
 		// Multiple target files - require explicit file
-		return "", fmt.Errorf("multiple target files found (%s); specify which file: --alias %s %q <file>",
-			strings.Join(targetFiles, ", "), name, command)
+		return "", fmt.Errorf(
+			"multiple target files found (%s); specify which file: --alias %s %q <file>",
+			strings.Join(targetFiles, ", "),
+			name,
+			command,
+		)
 	}
 }
 
 // appendToFile appends content to a file.
-func appendToFile(path string, content string) (err error) {
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0644)
+func appendToFile(path, content string) (err error) {
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o644)
 	if err != nil {
 		return err
 	}
@@ -774,7 +813,10 @@ func buildBootstrapData(
 	}
 	sort.Strings(rootNames)
 	for _, name := range rootNames {
-		rootExprs = append(rootExprs, tree.Children[name].VarName)
+		child := tree.Children[name]
+		if child != nil {
+			rootExprs = append(rootExprs, child.VarName)
+		}
 	}
 
 	if err := collectNamespaceNodes(tree, fileCommands, &nodes); err != nil {
@@ -814,7 +856,10 @@ func buildModuleBinary(
 	// Validate no package main in targ files
 	for _, pkg := range mt.Packages {
 		if pkg.Package == "main" {
-			return reg, fmt.Errorf("targ files cannot use 'package main' (found in %s); use a named package instead", pkg.Dir)
+			return reg, fmt.Errorf(
+				"targ files cannot use 'package main' (found in %s); use a named package instead",
+				pkg.Dir,
+			)
 		}
 	}
 
@@ -844,7 +889,13 @@ func buildModuleBinary(
 	}
 
 	// Build bootstrap data
-	data, err := buildBootstrapData(mt.Packages, startDir, importRoot, mt.ModulePath, collapsedPaths)
+	data, err := buildBootstrapData(
+		mt.Packages,
+		startDir,
+		importRoot,
+		mt.ModulePath,
+		collapsedPaths,
+	)
 	if err != nil {
 		return reg, fmt.Errorf("preparing bootstrap: %w", err)
 	}
@@ -889,7 +940,7 @@ func buildModuleBinary(
 	// Determine binary path
 	projCache := projectCacheDir(importRoot)
 	cacheDir := filepath.Join(projCache, "bin")
-	if err := os.MkdirAll(cacheDir, 0755); err != nil {
+	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
 		return reg, fmt.Errorf("creating cache directory: %w", err)
 	}
 	binaryPath := filepath.Join(cacheDir, fmt.Sprintf("targ_%s", cacheKey))
@@ -897,7 +948,8 @@ func buildModuleBinary(
 
 	// Check cache
 	if !noCache {
-		if info, err := os.Stat(binaryPath); err == nil && info.Mode().IsRegular() && info.Mode()&0111 != 0 {
+		if info, err := os.Stat(binaryPath); err == nil && info.Mode().IsRegular() &&
+			info.Mode()&0o111 != 0 {
 			// Binary exists, query commands
 			cmds, err := queryModuleCommands(binaryPath)
 			if err != nil {
@@ -1082,7 +1134,11 @@ func collectModuleTaggedFiles(mt moduleTargets) ([]buildtool.TaggedFile, error) 
 	return files, nil
 }
 
-func collectNamespaceNodes(root *namespaceNode, fileCommands map[string][]bootstrapCommand, out *[]bootstrapNode) error {
+func collectNamespaceNodes(
+	root *namespaceNode,
+	fileCommands map[string][]bootstrapCommand,
+	out *[]bootstrapNode,
+) error {
 	var walk func(node *namespaceNode) error
 	walk = func(node *namespaceNode) error {
 		names := make([]string, 0, len(node.Children))
@@ -1157,11 +1213,8 @@ func commandSummariesFromCommands(commands []buildtool.CommandInfo) []commandSum
 	return summaries
 }
 
-func commonPrefix(a []string, b []string) []string {
-	max := len(a)
-	if len(b) < max {
-		max = len(b)
-	}
+func commonPrefix(a, b []string) []string {
+	max := min(len(b), len(a))
 	var i int
 	for i = 0; i < max; i++ {
 		if a[i] != b[i] {
@@ -1219,7 +1272,11 @@ func compressNamespacePaths(paths map[string][]string) map[string][]string {
 	return out
 }
 
-func computeCacheKey(modulePath string, moduleRoot string, buildTag string, bootstrap []byte, tagged []buildtool.TaggedFile) (string, error) {
+func computeCacheKey(
+	modulePath, moduleRoot, buildTag string,
+	bootstrap []byte,
+	tagged []buildtool.TaggedFile,
+) (string, error) {
 	hasher := sha256.New()
 	write := func(value string) {
 		hasher.Write([]byte(value))
@@ -1263,7 +1320,7 @@ import "github.com/toejough/targ/sh"
 var _ = sh.Run
 `
 
-	if err := os.WriteFile(filename, []byte(content), 0644); err != nil {
+	if err := os.WriteFile(filename, []byte(content), 0o644); err != nil {
 		return "", fmt.Errorf("writing %s: %w", filename, err)
 	}
 
@@ -1291,7 +1348,12 @@ func detectShell() string {
 }
 
 // dispatchCommand finds the right binary for a command and executes it.
-func dispatchCommand(registry []moduleRegistry, args []string, errOut io.Writer) error {
+func dispatchCommand(
+	registry []moduleRegistry,
+	args []string,
+	errOut io.Writer,
+	binArg string,
+) error {
 	// Handle help request
 	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" {
 		printMultiModuleHelp(registry)
@@ -1317,7 +1379,7 @@ func dispatchCommand(registry []moduleRegistry, args []string, errOut io.Writer)
 
 				// Set TARG_BIN_NAME for proper help output
 				targBinName := "targ"
-				if binArg := os.Args[0]; binArg != "" {
+				if binArg != "" {
 					if idx := strings.LastIndex(binArg, "/"); idx != -1 {
 						targBinName = binArg[idx+1:]
 					} else {
@@ -1351,7 +1413,7 @@ func dispatchCompletion(registry []moduleRegistry, args []string) error {
 		if err != nil {
 			continue // Skip failed completions
 		}
-		for _, line := range strings.Split(string(output), "\n") {
+		for line := range strings.SplitSeq(string(output), "\n") {
 			line = strings.TrimSpace(line)
 			if line != "" && !seen[line] {
 				seen[line] = true
@@ -1363,10 +1425,10 @@ func dispatchCompletion(registry []moduleRegistry, args []string) error {
 	return nil
 }
 
-func ensureFallbackModuleRoot(startDir string, modulePath string, dep targDependency) (string, error) {
+func ensureFallbackModuleRoot(startDir, modulePath string, dep targDependency) (string, error) {
 	hash := sha256.Sum256([]byte(startDir))
 	root := filepath.Join(projectCacheDir(startDir), "mod", fmt.Sprintf("%x", hash[:8]))
-	if err := os.MkdirAll(root, 0755); err != nil {
+	if err := os.MkdirAll(root, 0o755); err != nil {
 		return "", err
 	}
 	if err := linkModuleRoot(startDir, root); err != nil {
@@ -1444,7 +1506,7 @@ func ensureShImport(path string) error {
 		}
 	}
 
-	return os.WriteFile(path, []byte(strings.Join(result, "\n")), 0644)
+	return os.WriteFile(path, []byte(strings.Join(result, "\n")), 0o644)
 }
 
 // extractLeadingCompletion extracts --completion from args before any command.
@@ -1468,8 +1530,8 @@ func extractLeadingCompletion(args []string) (string, []string) {
 			}
 			continue
 		}
-		if strings.HasPrefix(arg, "--completion=") {
-			shell = strings.TrimPrefix(arg, "--completion=")
+		if after, ok := strings.CutPrefix(arg, "--completion="); ok {
+			shell = after
 			if shell == "" {
 				shell = "auto"
 			}
@@ -1499,8 +1561,8 @@ func extractLeadingTimeout(args []string) (string, []string) {
 			}
 			continue
 		}
-		if strings.HasPrefix(arg, "--timeout=") {
-			timeout = strings.TrimPrefix(arg, "--timeout=")
+		if after, ok := strings.CutPrefix(arg, "--timeout="); ok {
+			timeout = after
 			continue
 		}
 		result = append(result, arg)
@@ -1563,7 +1625,7 @@ func findTargetFiles(dir string) ([]string, error) {
 }
 
 // generateAlias creates Go code for a simple shell command target.
-func generateAlias(name string, command string) (string, error) {
+func generateAlias(name, command string) (string, error) {
 	if name == "" {
 		return "", fmt.Errorf("alias name cannot be empty")
 	}
@@ -1581,12 +1643,12 @@ func generateAlias(name string, command string) (string, error) {
 	}
 
 	// Build sh.Run arguments
-	var argsStr string
+	var argsStr strings.Builder
 	for i, part := range parts {
 		if i > 0 {
-			argsStr += ", "
+			argsStr.WriteString(", ")
 		}
-		argsStr += strconv.Quote(part)
+		argsStr.WriteString(strconv.Quote(part))
 	}
 
 	// Generate the code with leading newline for nice appending
@@ -1595,7 +1657,7 @@ func generateAlias(name string, command string) (string, error) {
 func %s() error {
 	return sh.Run(%s)
 }
-`, funcName, command, funcName, argsStr)
+`, funcName, command, funcName, argsStr.String())
 
 	return code, nil
 }
@@ -1662,7 +1724,11 @@ func handleAliasFlag(args []string) *aliasResult {
 
 		if arg == "--alias" {
 			if i+2 >= len(args) {
-				return &aliasResult{err: fmt.Errorf("--alias requires at least two arguments: NAME \"COMMAND\" [FILE]")}
+				return &aliasResult{
+					err: fmt.Errorf(
+						"--alias requires at least two arguments: NAME \"COMMAND\" [FILE]",
+					),
+				}
 			}
 			name = args[i+1]
 			command = args[i+2]
@@ -1670,9 +1736,9 @@ func handleAliasFlag(args []string) *aliasResult {
 			if i+3 < len(args) && !strings.HasPrefix(args[i+3], "-") {
 				targetFile = args[i+3]
 			}
-		} else if strings.HasPrefix(arg, "--alias=") {
+		} else if after, ok := strings.CutPrefix(arg, "--alias="); ok {
 			// --alias=name "command" [file] format
-			name = strings.TrimPrefix(arg, "--alias=")
+			name = after
 			if i+1 >= len(args) {
 				return &aliasResult{err: fmt.Errorf("--alias requires a command argument")}
 			}
@@ -1702,8 +1768,8 @@ func handleInitFlag(args []string) *initResult {
 			msg, err := createTargetsFile(filename)
 			return &initResult{message: msg, err: err}
 		}
-		if strings.HasPrefix(arg, "--init=") {
-			filename := strings.TrimPrefix(arg, "--init=")
+		if after, ok := strings.CutPrefix(arg, "--init="); ok {
+			filename := after
 			if filename == "" {
 				filename = "targs.go"
 			}
@@ -1722,7 +1788,7 @@ func hasTargBuildTag(path string) bool {
 	}
 	content := string(data)
 	// Check for //go:build targ (with possible other tags)
-	for _, line := range strings.Split(content, "\n") {
+	for line := range strings.SplitSeq(content, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
@@ -1738,7 +1804,7 @@ func hasTargBuildTag(path string) bool {
 	return false
 }
 
-func linkModuleRoot(startDir string, root string) error {
+func linkModuleRoot(startDir, root string) error {
 	entries, err := os.ReadDir(startDir)
 	if err != nil {
 		return err
@@ -1851,10 +1917,10 @@ func parseHelpRequest(args []string) (bool, bool) {
 }
 
 func parseModulePath(content string) string {
-	for _, line := range strings.Split(content, "\n") {
+	for line := range strings.SplitSeq(content, "\n") {
 		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "module ") {
-			return strings.TrimSpace(strings.TrimPrefix(line, "module "))
+		if after, ok := strings.CutPrefix(line, "module "); ok {
+			return strings.TrimSpace(after)
 		}
 	}
 	return ""
@@ -2018,19 +2084,47 @@ func printNoTargetsCompletion(args []string) {
 }
 
 func printBuildToolUsage(out io.Writer) {
-	_, _ = fmt.Fprintln(out, "targ is a build-tool runner that discovers tagged commands and executes them.")
+	_, _ = fmt.Fprintln(
+		out,
+		"targ is a build-tool runner that discovers tagged commands and executes them.",
+	)
 	_, _ = fmt.Fprintln(out, "")
 	_, _ = fmt.Fprintln(out, "Usage: targ [FLAGS...] COMMAND [COMMAND_ARGS...]")
 	_, _ = fmt.Fprintln(out, "")
 	_, _ = fmt.Fprintln(out, "Flags:")
 	_, _ = fmt.Fprintf(out, "    %-28s %s\n", "--no-cache", "disable cached build tool binaries")
 	_, _ = fmt.Fprintf(out, "    %-28s %s\n", "--keep", "keep generated bootstrap file")
-	_, _ = fmt.Fprintf(out, "    %-28s %s\n", "--timeout <duration>", "set execution timeout (e.g., 10m, 1h)")
-	_, _ = fmt.Fprintf(out, "    %-28s %s\n", "--completion {bash|zsh|fish}", "print completion script for specified shell. Uses the current shell if none is")
-	_, _ = fmt.Fprintf(out, "    %-28s %s\n", "", "specified. The output should be eval'd/sourced in the shell to enable completions.")
+	_, _ = fmt.Fprintf(
+		out,
+		"    %-28s %s\n",
+		"--timeout <duration>",
+		"set execution timeout (e.g., 10m, 1h)",
+	)
+	_, _ = fmt.Fprintf(
+		out,
+		"    %-28s %s\n",
+		"--completion {bash|zsh|fish}",
+		"print completion script for specified shell. Uses the current shell if none is",
+	)
+	_, _ = fmt.Fprintf(
+		out,
+		"    %-28s %s\n",
+		"",
+		"specified. The output should be eval'd/sourced in the shell to enable completions.",
+	)
 	_, _ = fmt.Fprintf(out, "    %-28s %s\n", "", "(e.g. 'targ --completion fish | source')")
-	_, _ = fmt.Fprintf(out, "    %-28s %s\n", "--init [FILE]", "create a starter targets file (default: targs.go)")
-	_, _ = fmt.Fprintf(out, "    %-28s %s\n", "--alias NAME \"CMD\" [FILE]", "add a shell command target to a targets file")
+	_, _ = fmt.Fprintf(
+		out,
+		"    %-28s %s\n",
+		"--init [FILE]",
+		"create a starter targets file (default: targs.go)",
+	)
+	_, _ = fmt.Fprintf(
+		out,
+		"    %-28s %s\n",
+		"--alias NAME \"CMD\" [FILE]",
+		"add a shell command target to a targets file",
+	)
 	_, _ = fmt.Fprintf(out, "    %-28s %s\n", "", "(auto-creates targs.go if no targets exist)")
 	_, _ = fmt.Fprintf(out, "    %-28s %s\n", "--help", "Print help information")
 }
@@ -2147,7 +2241,8 @@ func resolveTargDependency() targDependency {
 		if looksLikeModulePath(info.Main.Path) {
 			dep.ModulePath = info.Main.Path
 		}
-		if info.Main.Version != "" && info.Main.Version != "(devel)" && !strings.Contains(info.Main.Version, "+dirty") {
+		if info.Main.Version != "" && info.Main.Version != "(devel)" &&
+			!strings.Contains(info.Main.Version, "+dirty") {
 			if modCache, err := goEnv("GOMODCACHE"); err == nil && modCache != "" {
 				candidate := filepath.Join(modCache, dep.ModulePath+"@"+info.Main.Version)
 				if statInfo, err := os.Stat(candidate); err == nil && statInfo.IsDir() {
@@ -2162,7 +2257,7 @@ func resolveTargDependency() targDependency {
 	return dep
 }
 
-func sameDir(a string, b string) bool {
+func sameDir(a, b string) bool {
 	absA, err := filepath.Abs(a)
 	if err != nil {
 		return false
@@ -2211,7 +2306,7 @@ func singlePackageBanner(info buildtool.PackageInfo) string {
 	return strings.Join(lines, "\n")
 }
 
-func subcommandTag(fieldName string, segment string) string {
+func subcommandTag(fieldName, segment string) string {
 	if camelToKebab(fieldName) == segment {
 		return `targ:"subcommand"`
 	}
@@ -2252,7 +2347,7 @@ func toExportedName(name string) string {
 }
 
 func touchFile(path string) error {
-	if err := os.WriteFile(path, []byte{}, 0644); err != nil {
+	if err := os.WriteFile(path, []byte{}, 0o644); err != nil {
 		return err
 	}
 	return nil
@@ -2274,7 +2369,7 @@ func uniqueImportName(name string, used map[string]bool) string {
 }
 
 func writeBootstrapFile(dir string, data []byte, keep bool) (string, func() error, error) {
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", nil, err
 	}
 	temp, err := os.CreateTemp(dir, "targ_bootstrap_*.go")
@@ -2301,7 +2396,7 @@ func writeBootstrapFile(dir string, data []byte, keep bool) (string, func() erro
 	return tempFile, cleanup, nil
 }
 
-func writeFallbackGoMod(root string, modulePath string, dep targDependency) error {
+func writeFallbackGoMod(root, modulePath string, dep targDependency) error {
 	modPath := filepath.Join(root, "go.mod")
 	if dep.ModulePath == "" {
 		dep.ModulePath = "github.com/toejough/targ"
@@ -2318,5 +2413,5 @@ func writeFallbackGoMod(root string, modulePath string, dep targDependency) erro
 		lines = append(lines, "", fmt.Sprintf("replace %s => %s", dep.ModulePath, dep.ReplaceDir))
 	}
 	content := strings.Join(lines, "\n") + "\n"
-	return os.WriteFile(modPath, []byte(content), 0644)
+	return os.WriteFile(modPath, []byte(content), 0o644)
 }

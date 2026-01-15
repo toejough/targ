@@ -130,7 +130,8 @@ func TestRunWithEnv_MultipleRoots_SubcommandThenRoot(t *testing.T) {
 		close(done)
 	}()
 
-	env.Method.Args.ExpectCalledWithExactly().InjectReturnValues([]string{"cmd", "firmware", "flash-only", "discover"})
+	env.Method.Args.ExpectCalledWithExactly().
+		InjectReturnValues([]string{"cmd", "firmware", "flash-only", "discover"})
 	<-done
 
 	if multiRootFlashCalls != 1 {

@@ -20,21 +20,26 @@ func TestWatchDetectsAddModifyRemove(t *testing.T) {
 
 	interval := 20 * time.Millisecond
 	go func() {
-		err := Watch(ctx, []string{pattern}, WatchOptions{Interval: interval}, func(set ChangeSet) error {
-			changesCh <- set
-			return nil
-		})
+		err := Watch(
+			ctx,
+			[]string{pattern},
+			WatchOptions{Interval: interval},
+			func(set ChangeSet) error {
+				changesCh <- set
+				return nil
+			},
+		)
 		done <- err
 	}()
 
 	time.Sleep(2 * interval)
 
 	file := filepath.Join(dir, "a.txt")
-	if err := os.WriteFile(file, []byte("one"), 0644); err != nil {
+	if err := os.WriteFile(file, []byte("one"), 0o644); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	time.Sleep(40 * time.Millisecond)
-	if err := os.WriteFile(file, []byte("two"), 0644); err != nil {
+	if err := os.WriteFile(file, []byte("two"), 0o644); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	time.Sleep(40 * time.Millisecond)

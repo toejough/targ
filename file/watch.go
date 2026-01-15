@@ -21,7 +21,12 @@ type WatchOptions struct {
 }
 
 // Watch polls patterns for changes and invokes fn with any detected changes.
-func Watch(ctx context.Context, patterns []string, opts WatchOptions, fn func(ChangeSet) error) error {
+func Watch(
+	ctx context.Context,
+	patterns []string,
+	opts WatchOptions,
+	fn func(ChangeSet) error,
+) error {
 	if len(patterns) == 0 {
 		return fmt.Errorf("no patterns provided")
 	}
@@ -62,7 +67,7 @@ type fileSnapshot struct {
 	List  []string
 }
 
-func diffSnapshot(prev *fileSnapshot, next *fileSnapshot) *ChangeSet {
+func diffSnapshot(prev, next *fileSnapshot) *ChangeSet {
 	added := []string{}
 	removed := []string{}
 	modified := []string{}

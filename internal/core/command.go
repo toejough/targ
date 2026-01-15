@@ -95,7 +95,14 @@ func (n *commandNode) executeWithParents(
 		if err := assignSubcommandField(n, inst, result.subcommand.Name, result.subcommand); err != nil {
 			return nil, err
 		}
-		remaining, err := result.subcommand.executeWithParents(ctx, result.remaining, chain, visited, true, opts)
+		remaining, err := result.subcommand.executeWithParents(
+			ctx,
+			result.remaining,
+			chain,
+			visited,
+			true,
+			opts,
+		)
 		if err != nil {
 			return nil, err
 		}
@@ -119,7 +126,14 @@ func (n *commandNode) executeWithParents(
 			if err := assignSubcommandField(n, inst, sibling.Name, sibling); err != nil {
 				return nil, err
 			}
-			remaining, err = sibling.executeWithParents(ctx, remaining[1:], chain, visited, true, opts)
+			remaining, err = sibling.executeWithParents(
+				ctx,
+				remaining[1:],
+				chain,
+				visited,
+				true,
+				opts,
+			)
 			if err != nil {
 				return nil, err
 			}
@@ -203,32 +217,46 @@ func applyDefaultsAndEnv(specs []*flagSpec, visited map[string]bool) error {
 	return nil
 }
 
-func applyTagOptionsOverride(inst reflect.Value, field reflect.StructField, opts TagOptions) (TagOptions, error) {
+func applyTagOptionsOverride(
+	inst reflect.Value,
+	field reflect.StructField,
+	opts TagOptions,
+) (TagOptions, error) {
 	method := tagOptionsMethod(inst)
 	if !method.IsValid() {
 		return opts, nil
 	}
 	mtype := method.Type()
 	if mtype.NumIn() != 2 || mtype.NumOut() != 2 {
-		return opts, fmt.Errorf("TagOptions must accept (string, TagOptions) and return (TagOptions, error)")
+		return opts, fmt.Errorf(
+			"TagOptions must accept (string, TagOptions) and return (TagOptions, error)",
+		)
 	}
-	if mtype.In(0).Kind() != reflect.String || mtype.In(1) != reflect.TypeOf(TagOptions{}) {
+	if mtype.In(0).Kind() != reflect.String || mtype.In(1) != reflect.TypeFor[TagOptions]() {
 		return opts, fmt.Errorf("TagOptions must accept (string, TagOptions)")
 	}
-	if mtype.Out(0) != reflect.TypeOf(TagOptions{}) || !isErrorType(mtype.Out(1)) {
+	if mtype.Out(0) != reflect.TypeFor[TagOptions]() || !isErrorType(mtype.Out(1)) {
 		return opts, fmt.Errorf("TagOptions must return (TagOptions, error)")
 	}
 	results := method.Call([]reflect.Value{
 		reflect.ValueOf(field.Name),
 		reflect.ValueOf(opts),
 	})
+	if len(results) < 2 {
+		return opts, fmt.Errorf("TagOptions method returned wrong number of values")
+	}
 	if !results[1].IsNil() {
 		return opts, results[1].Interface().(error)
 	}
 	return results[0].Interface().(TagOptions), nil
 }
 
-func assignSubcommandField(parent *commandNode, parentInst reflect.Value, subName string, sub *commandNode) error {
+func assignSubcommandField(
+	parent *commandNode,
+	parentInst reflect.Value,
+	subName string,
+	sub *commandNode,
+) error {
 	if parent == nil || parent.Type == nil {
 		return nil
 	}
@@ -278,6 +306,9 @@ func assignSubcommandField(parent *commandNode, parentInst reflect.Value, subNam
 func binaryName() string {
 	if name := os.Getenv("TARG_BIN_NAME"); name != "" {
 		return name
+	}
+	if len(os.Args) == 0 {
+		return "targ"
 	}
 	name := os.Args[0]
 	if idx := strings.LastIndex(name, "/"); idx != -1 {
@@ -384,7 +415,8 @@ func callMethod(ctx context.Context, receiver reflect.Value, name string) (bool,
 
 func callStringMethod(v reflect.Value, typ reflect.Type, method string) string {
 	if m := methodValue(v, typ, method); m.IsValid() {
-		if m.Type().NumIn() == 0 && m.Type().NumOut() == 1 && m.Type().Out(0).Kind() == reflect.String {
+		if m.Type().NumIn() == 0 && m.Type().NumOut() == 1 &&
+			m.Type().Out(0).Kind() == reflect.String {
 			out := m.Call(nil)
 			if len(out) == 1 {
 				if s, ok := out[0].Interface().(string); ok {
@@ -541,7 +573,16 @@ func executeFunctionWithParents(
 	if err != nil {
 		return nil, err
 	}
-	result, err := parseCommandArgs(nil, reflect.Value{}, parents, args, visited, explicit, true, false)
+	result, err := parseCommandArgs(
+		nil,
+		reflect.Value{},
+		parents,
+		args,
+		visited,
+		explicit,
+		true,
+		false,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -634,7 +675,11 @@ func expandShortFlagGroups(args []string, specs []*flagSpec) ([]string, error) {
 
 // --- Flag handling ---
 
-func flagSpecForField(inst reflect.Value, field reflect.StructField, fieldVal reflect.Value) (*flagSpec, bool, error) {
+func flagSpecForField(
+	inst reflect.Value,
+	field reflect.StructField,
+	fieldVal reflect.Value,
+) (*flagSpec, bool, error) {
 	opts, ok, err := tagOptionsForField(inst, field)
 	if err != nil {
 		return nil, false, err
@@ -714,11 +759,11 @@ func getDescription(v reflect.Value, typ reflect.Type) string {
 }
 
 func isContextType(t reflect.Type) bool {
-	return t == reflect.TypeOf((*context.Context)(nil)).Elem()
+	return t == reflect.TypeFor[context.Context]()
 }
 
 func isErrorType(t reflect.Type) bool {
-	return t.Implements(reflect.TypeOf((*error)(nil)).Elem())
+	return t.Implements(reflect.TypeFor[error]())
 }
 
 func methodValue(v reflect.Value, typ reflect.Type, method string) reflect.Value {
@@ -746,7 +791,7 @@ func nodeChain(node *commandNode) []*commandNode {
 	if node == nil {
 		return nil
 	}
-	var chain []*commandNode
+	chain := make([]*commandNode, 0)
 	for current := node; current != nil; current = current.Parent {
 		chain = append(chain, current)
 	}
@@ -757,7 +802,8 @@ func nodeChain(node *commandNode) []*commandNode {
 }
 
 func nodeInstance(node *commandNode) (reflect.Value, error) {
-	if node != nil && node.Value.IsValid() && node.Value.Kind() == reflect.Struct && node.Value.CanAddr() {
+	if node != nil && node.Value.IsValid() && node.Value.Kind() == reflect.Struct &&
+		node.Value.CanAddr() {
 		return node.Value, nil
 	}
 	if node != nil && node.Type != nil {
@@ -802,7 +848,7 @@ func parseFunc(v reflect.Value) (*commandNode, error) {
 	}, nil
 }
 
-func parseStruct(t interface{}) (*commandNode, error) {
+func parseStruct(t any) (*commandNode, error) {
 	if t == nil {
 		return nil, fmt.Errorf("nil target")
 	}
@@ -836,12 +882,19 @@ func parseStruct(t interface{}) (*commandNode, error) {
 				continue
 			}
 			if !fieldVal.IsZero() {
-				return nil, fmt.Errorf("command %s must not prefill subcommand %s; use default tags instead", typ.Name(), field.Name)
+				return nil, fmt.Errorf(
+					"command %s must not prefill subcommand %s; use default tags instead",
+					typ.Name(),
+					field.Name,
+				)
 			}
 			continue
 		}
 		if !fieldVal.IsZero() {
-			return nil, fmt.Errorf("command %s must be zero value; use default tags instead of prefilled fields", typ.Name())
+			return nil, fmt.Errorf(
+				"command %s must be zero value; use default tags instead of prefilled fields",
+				typ.Name(),
+			)
 		}
 	}
 
@@ -929,7 +982,7 @@ func parseStruct(t interface{}) (*commandNode, error) {
 
 // --- Parsing targets ---
 
-func parseTarget(t interface{}) (*commandNode, error) {
+func parseTarget(t any) (*commandNode, error) {
 	if t == nil {
 		return nil, fmt.Errorf("nil target")
 	}
@@ -1016,7 +1069,9 @@ func printCommandSummary(node *commandNode, indent string) {
 
 	for _, name := range subcommandNames {
 		sub := node.Subcommands[name]
-		printCommandSummary(sub, indent+"  ")
+		if sub != nil {
+			printCommandSummary(sub, indent+"  ")
+		}
 	}
 }
 
@@ -1061,7 +1116,13 @@ func reverseChain(chain []commandInstance) []commandInstance {
 	return out
 }
 
-func runCommand(ctx context.Context, node *commandNode, inst reflect.Value, args []string, posArgIdx int) error {
+func runCommand(
+	ctx context.Context,
+	node *commandNode,
+	inst reflect.Value,
+	args []string,
+	posArgIdx int,
+) error {
 	if node == nil {
 		return nil
 	}
@@ -1105,8 +1166,8 @@ func tagOptionsForField(inst reflect.Value, field reflect.StructField) (TagOptio
 		opts.Name = field.Name
 	}
 
-	parts := strings.Split(tag, ",")
-	for _, p := range parts {
+	parts := strings.SplitSeq(tag, ",")
+	for p := range parts {
 		p = strings.TrimSpace(p)
 		switch {
 		case strings.HasPrefix(p, "name="):

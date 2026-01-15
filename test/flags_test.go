@@ -93,7 +93,10 @@ type TagOptionsOverride struct {
 
 func (c *TagOptionsOverride) Run() {}
 
-func (c *TagOptionsOverride) TagOptions(field string, opts targ.TagOptions) (targ.TagOptions, error) {
+func (c *TagOptionsOverride) TagOptions(
+	field string,
+	opts targ.TagOptions,
+) (targ.TagOptions, error) {
 	if field == "Mode" {
 		opts.Name = "stage"
 		opts.Short = "s"

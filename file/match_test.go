@@ -15,11 +15,11 @@ func TestMatchBraceAndGlob(t *testing.T) {
 		filepath.Join(dir, "c.md"),
 		filepath.Join(dir, "dir", "d.txt"),
 	}
-	if err := os.MkdirAll(filepath.Join(dir, "dir"), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(dir, "dir"), 0o755); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	for _, path := range files {
-		if err := os.WriteFile(path, []byte("x"), 0644); err != nil {
+		if err := os.WriteFile(path, []byte("x"), 0o644); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 	}

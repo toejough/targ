@@ -24,7 +24,8 @@ func TestDiscover_AllowsContextFunctions(t *testing.T) {
 	fsMock.Method.ReadDir.ExpectCalledWithExactly("/root").InjectReturnValues([]fs.DirEntry{
 		fakeDirEntry{name: "cmd.go", dir: false},
 	}, nil)
-	fsMock.Method.ReadFile.ExpectCalledWithExactly("/root/cmd.go").InjectReturnValues([]byte(`//go:build targ
+	fsMock.Method.ReadFile.ExpectCalledWithExactly("/root/cmd.go").
+		InjectReturnValues([]byte(`//go:build targ
 
 package build
 
@@ -63,7 +64,8 @@ func TestDiscover_AllowsErrorReturnFunctions(t *testing.T) {
 	fsMock.Method.ReadDir.ExpectCalledWithExactly("/root").InjectReturnValues([]fs.DirEntry{
 		fakeDirEntry{name: "cmd.go", dir: false},
 	}, nil)
-	fsMock.Method.ReadFile.ExpectCalledWithExactly("/root/cmd.go").InjectReturnValues([]byte(`//go:build targ
+	fsMock.Method.ReadFile.ExpectCalledWithExactly("/root/cmd.go").
+		InjectReturnValues([]byte(`//go:build targ
 
 package build
 
@@ -100,7 +102,8 @@ func TestDiscover_DescriptionMethod(t *testing.T) {
 	fsMock.Method.ReadDir.ExpectCalledWithExactly("/root").InjectReturnValues([]fs.DirEntry{
 		fakeDirEntry{name: "cmd.go", dir: false},
 	}, nil)
-	fsMock.Method.ReadFile.ExpectCalledWithExactly("/root/cmd.go").InjectReturnValues([]byte(`//go:build targ
+	fsMock.Method.ReadFile.ExpectCalledWithExactly("/root/cmd.go").
+		InjectReturnValues([]byte(`//go:build targ
 
 package build
 
@@ -145,7 +148,8 @@ func TestDiscover_DuplicateCommandNames(t *testing.T) {
 	fsMock.Method.ReadDir.ExpectCalledWithExactly("/root").InjectReturnValues([]fs.DirEntry{
 		fakeDirEntry{name: "cmd.go", dir: false},
 	}, nil)
-	fsMock.Method.ReadFile.ExpectCalledWithExactly("/root/cmd.go").InjectReturnValues([]byte(`//go:build targ
+	fsMock.Method.ReadFile.ExpectCalledWithExactly("/root/cmd.go").
+		InjectReturnValues([]byte(`//go:build targ
 
 package build
 
@@ -178,7 +182,8 @@ func TestDiscover_FiltersNonRunnableStructs(t *testing.T) {
 	fsMock.Method.ReadDir.ExpectCalledWithExactly("/root").InjectReturnValues([]fs.DirEntry{
 		fakeDirEntry{name: "cmd.go", dir: false},
 	}, nil)
-	fsMock.Method.ReadFile.ExpectCalledWithExactly("/root/cmd.go").InjectReturnValues([]byte(`//go:build targ
+	fsMock.Method.ReadFile.ExpectCalledWithExactly("/root/cmd.go").
+		InjectReturnValues([]byte(`//go:build targ
 
 package build
 
@@ -221,7 +226,8 @@ func TestDiscover_FiltersSubcommandsAndFuncs(t *testing.T) {
 	fsMock.Method.ReadDir.ExpectCalledWithExactly("/root").InjectReturnValues([]fs.DirEntry{
 		fakeDirEntry{name: "cmd.go", dir: false},
 	}, nil)
-	fsMock.Method.ReadFile.ExpectCalledWithExactly("/root/cmd.go").InjectReturnValues([]byte(`//go:build targ
+	fsMock.Method.ReadFile.ExpectCalledWithExactly("/root/cmd.go").
+		InjectReturnValues([]byte(`//go:build targ
 
 package build
 
@@ -274,7 +280,8 @@ func TestDiscover_FunctionWrappersOverrideFuncs(t *testing.T) {
 		fakeDirEntry{name: "generated_targ_build.go", dir: false},
 	}, nil)
 	// generated_targ_* files should be skipped, not read
-	fsMock.Method.ReadFile.ExpectCalledWithExactly("/root/cmd.go").InjectReturnValues([]byte(`//go:build targ
+	fsMock.Method.ReadFile.ExpectCalledWithExactly("/root/cmd.go").
+		InjectReturnValues([]byte(`//go:build targ
 
 package build
 
@@ -313,7 +320,8 @@ func TestDiscover_RejectsMainFunction(t *testing.T) {
 	fsMock.Method.ReadDir.ExpectCalledWithExactly("/root").InjectReturnValues([]fs.DirEntry{
 		fakeDirEntry{name: "cmd.go", dir: false},
 	}, nil)
-	fsMock.Method.ReadFile.ExpectCalledWithExactly("/root/cmd.go").InjectReturnValues([]byte(`//go:build targ
+	fsMock.Method.ReadFile.ExpectCalledWithExactly("/root/cmd.go").
+		InjectReturnValues([]byte(`//go:build targ
 
 package build
 
@@ -344,7 +352,8 @@ func TestDiscover_RejectsNonErrorReturnFunctions(t *testing.T) {
 	fsMock.Method.ReadDir.ExpectCalledWithExactly("/root").InjectReturnValues([]fs.DirEntry{
 		fakeDirEntry{name: "cmd.go", dir: false},
 	}, nil)
-	fsMock.Method.ReadFile.ExpectCalledWithExactly("/root/cmd.go").InjectReturnValues([]byte(`//go:build targ
+	fsMock.Method.ReadFile.ExpectCalledWithExactly("/root/cmd.go").
+		InjectReturnValues([]byte(`//go:build targ
 
 package build
 
@@ -372,7 +381,8 @@ func TestDiscover_RejectsNonNiladicFunctions(t *testing.T) {
 	fsMock.Method.ReadDir.ExpectCalledWithExactly("/root").InjectReturnValues([]fs.DirEntry{
 		fakeDirEntry{name: "cmd.go", dir: false},
 	}, nil)
-	fsMock.Method.ReadFile.ExpectCalledWithExactly("/root/cmd.go").InjectReturnValues([]byte(`//go:build targ
+	fsMock.Method.ReadFile.ExpectCalledWithExactly("/root/cmd.go").
+		InjectReturnValues([]byte(`//go:build targ
 
 package build
 
@@ -413,7 +423,8 @@ func TestDiscover_ReturnsAllTaggedDirs(t *testing.T) {
 	fsMock.Method.ReadDir.ExpectCalledWithExactly("/root/pkg1").InjectReturnValues([]fs.DirEntry{
 		fakeDirEntry{name: "cmd.go", dir: false},
 	}, nil)
-	fsMock.Method.ReadFile.ExpectCalledWithExactly("/root/pkg1/cmd.go").InjectReturnValues([]byte(`//go:build targ
+	fsMock.Method.ReadFile.ExpectCalledWithExactly("/root/pkg1/cmd.go").
+		InjectReturnValues([]byte(`//go:build targ
 
 package pkg1
 
@@ -422,7 +433,8 @@ func Hello() {}
 	fsMock.Method.ReadDir.ExpectCalledWithExactly("/root/pkg2").InjectReturnValues([]fs.DirEntry{
 		fakeDirEntry{name: "cmd.go", dir: false},
 	}, nil)
-	fsMock.Method.ReadFile.ExpectCalledWithExactly("/root/pkg2/cmd.go").InjectReturnValues([]byte(`//go:build targ
+	fsMock.Method.ReadFile.ExpectCalledWithExactly("/root/pkg2/cmd.go").
+		InjectReturnValues([]byte(`//go:build targ
 
 package pkg2
 
@@ -457,7 +469,8 @@ func TestDiscover_SkipsTargCacheDir(t *testing.T) {
 		fakeDirEntry{name: ".git", dir: true},
 		fakeDirEntry{name: "cmd.go", dir: false},
 	}, nil)
-	fsMock.Method.ReadFile.ExpectCalledWithExactly("/root/cmd.go").InjectReturnValues([]byte(`//go:build targ
+	fsMock.Method.ReadFile.ExpectCalledWithExactly("/root/cmd.go").
+		InjectReturnValues([]byte(`//go:build targ
 
 package build
 
@@ -508,14 +521,16 @@ func TestTaggedFiles_ReturnsSelectedFiles(t *testing.T) {
 	fsMock.Method.ReadDir.ExpectCalledWithExactly("/root/pkg1").InjectReturnValues([]fs.DirEntry{
 		fakeDirEntry{name: "cmd.go", dir: false},
 	}, nil)
-	fsMock.Method.ReadFile.ExpectCalledWithExactly("/root/pkg1/cmd.go").InjectReturnValues([]byte(`//go:build targ
+	fsMock.Method.ReadFile.ExpectCalledWithExactly("/root/pkg1/cmd.go").
+		InjectReturnValues([]byte(`//go:build targ
 
 package pkg1
 `), nil)
 	fsMock.Method.ReadDir.ExpectCalledWithExactly("/root/pkg2").InjectReturnValues([]fs.DirEntry{
 		fakeDirEntry{name: "cmd.go", dir: false},
 	}, nil)
-	fsMock.Method.ReadFile.ExpectCalledWithExactly("/root/pkg2/cmd.go").InjectReturnValues([]byte(`//go:build targ
+	fsMock.Method.ReadFile.ExpectCalledWithExactly("/root/pkg2/cmd.go").
+		InjectReturnValues([]byte(`//go:build targ
 
 package pkg2
 `), nil)

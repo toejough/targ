@@ -7,7 +7,7 @@ import (
 )
 
 // PrintCompletionScript prints a shell completion script for the given shell.
-func PrintCompletionScript(shell string, binName string) error {
+func PrintCompletionScript(shell, binName string) error {
 	switch shell {
 	case "bash":
 		fmt.Printf(_bashCompletion, binName, binName, binName, binName)
@@ -92,14 +92,21 @@ func completionFlagSpecs(chain []commandInstance) (map[string]completionFlagSpec
 			variadic := field.Type.Kind() == reflect.Slice
 			specs["--"+opts.Name] = completionFlagSpec{TakesValue: takesValue, Variadic: variadic}
 			if opts.Short != "" {
-				specs["-"+opts.Short] = completionFlagSpec{TakesValue: takesValue, Variadic: variadic}
+				specs["-"+opts.Short] = completionFlagSpec{
+					TakesValue: takesValue,
+					Variadic:   variadic,
+				}
 			}
 		}
 	}
 	return specs, nil
 }
 
-func completionParse(node *commandNode, args []string, explicit bool) ([]commandInstance, parseResult, error) {
+func completionParse(
+	node *commandNode,
+	args []string,
+	explicit bool,
+) ([]commandInstance, parseResult, error) {
 	chainNodes := nodeChain(node)
 	chain := make([]commandInstance, 0, len(chainNodes))
 	for _, current := range chainNodes {
@@ -112,7 +119,16 @@ func completionParse(node *commandNode, args []string, explicit bool) ([]command
 	if len(chain) == 0 {
 		return nil, parseResult{}, nil
 	}
-	result, err := parseCommandArgs(node, chain[len(chain)-1].value, chain, args, map[string]bool{}, explicit, false, true)
+	result, err := parseCommandArgs(
+		node,
+		chain[len(chain)-1].value,
+		chain,
+		args,
+		map[string]bool{},
+		explicit,
+		false,
+		true,
+	)
 	return chain, result, err
 }
 
@@ -329,7 +345,12 @@ maybeSuggestRoots:
 	return nil
 }
 
-func enumValuesForArg(chain []commandInstance, args []string, prefix string, isNewArg bool) ([]string, bool, error) {
+func enumValuesForArg(
+	chain []commandInstance,
+	args []string,
+	prefix string,
+	isNewArg bool,
+) ([]string, bool, error) {
 	enumByFlag := map[string][]string{}
 	for _, current := range chain {
 		if current.node == nil || current.node.Type == nil {
@@ -470,7 +491,7 @@ func positionalIndex(node *commandNode, args []string, chain []commandInstance) 
 			continue
 		}
 		if strings.HasPrefix(arg, "--") {
-			if eq := strings.Index(arg, "="); eq != -1 {
+			if found := strings.Contains(arg, "="); found {
 				continue
 			}
 			if spec, ok := specs[arg]; ok && spec.TakesValue {

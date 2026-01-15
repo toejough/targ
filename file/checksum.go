@@ -75,12 +75,12 @@ func readChecksum(path string) (string, error) {
 	return string(data), nil
 }
 
-func writeChecksum(path string, sum string) error {
+func writeChecksum(path, sum string) error {
 	dir := filepath.Dir(path)
 	if dir != "." {
-		if err := os.MkdirAll(dir, 0755); err != nil {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return err
 		}
 	}
-	return os.WriteFile(path, []byte(sum), 0644)
+	return os.WriteFile(path, []byte(sum), 0o644)
 }

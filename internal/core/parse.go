@@ -11,7 +11,7 @@ import (
 // unexported variables.
 var (
 	stringSetterType    = reflect.TypeOf((*interface{ Set(string) error })(nil)).Elem()
-	textUnmarshalerType = reflect.TypeOf((*encoding.TextUnmarshaler)(nil)).Elem()
+	textUnmarshalerType = reflect.TypeFor[encoding.TextUnmarshaler]()
 )
 
 type parseResult struct {
@@ -46,7 +46,7 @@ func collectFlagSpecs(chain []commandInstance) ([]*flagSpec, map[string]bool, er
 			if err != nil {
 				return nil, nil, err
 			}
-			if !ok {
+			if !ok || spec == nil {
 				continue
 			}
 			if usedNames[spec.name] {
@@ -174,7 +174,17 @@ func parseCommandArgs(
 ) (parseResult, error) {
 	// Position counter for Interleaved slice tracking
 	argPosition := 0
-	return parseCommandArgsWithPosition(node, inst, chain, args, visited, explicit, enforceRequired, allowIncomplete, &argPosition)
+	return parseCommandArgsWithPosition(
+		node,
+		inst,
+		chain,
+		args,
+		visited,
+		explicit,
+		enforceRequired,
+		allowIncomplete,
+		&argPosition,
+	)
 }
 
 func parseCommandArgsWithPosition(
@@ -231,7 +241,16 @@ func parseCommandArgsWithPosition(
 			if posIndex < len(posSpecs) && posSpecs[posIndex].variadic && posCounts[posIndex] > 0 {
 				posIndex++
 			}
-			consumed, err := parseFlagArgWithPosition(arg, expandedArgs, i, specByLong, specByShort, visited, allowIncomplete, argPosition)
+			consumed, err := parseFlagArgWithPosition(
+				arg,
+				expandedArgs,
+				i,
+				specByLong,
+				specByShort,
+				visited,
+				allowIncomplete,
+				argPosition,
+			)
 			if err != nil {
 				return parseResult{}, err
 			}
@@ -307,8 +326,8 @@ func parseFlagArgWithPosition(
 	allowIncomplete bool,
 	argPosition *int,
 ) (int, error) {
-	if strings.HasPrefix(arg, "--") {
-		name := strings.TrimPrefix(arg, "--")
+	if after, ok := strings.CutPrefix(arg, "--"); ok {
+		name := after
 		value := ""
 		hasValue := false
 		if eq := strings.Index(name, "="); eq >= 0 {
@@ -346,7 +365,14 @@ func parseFlagArgWithPosition(
 	return parseFlagValueWithPosition(spec, args, index, visited, allowIncomplete, argPosition)
 }
 
-func parseFlagValueWithPosition(spec *flagSpec, args []string, index int, visited map[string]bool, allowIncomplete bool, argPosition *int) (int, error) {
+func parseFlagValueWithPosition(
+	spec *flagSpec,
+	args []string,
+	index int,
+	visited map[string]bool,
+	allowIncomplete bool,
+	argPosition *int,
+) (int, error) {
 	if spec.value.Kind() == reflect.Bool {
 		spec.value.SetBool(true)
 		if argPosition != nil {

@@ -23,7 +23,7 @@ func ContinueOnError() DepsOption { return continueOnErrorOpt{} }
 //	targ.Deps(A, B, C, targ.Parallel())             // parallel, fail-fast
 //	targ.Deps(A, B, C, targ.ContinueOnError())      // serial, run all
 //	targ.Deps(A, B, targ.Parallel(), targ.WithContext(ctx))
-func Deps(args ...interface{}) error {
+func Deps(args ...any) error {
 	depsMu.Lock()
 	tracker := currentDeps
 	depsMu.Unlock()
@@ -33,7 +33,7 @@ func Deps(args ...interface{}) error {
 
 	// Separate options from targets
 	var cfg depsConfig
-	var targets []interface{}
+	var targets []any
 	for _, arg := range args {
 		if opt, ok := arg.(DepsOption); ok {
 			opt.applyDeps(&cfg)
@@ -95,7 +95,7 @@ type depTracker struct {
 	inFlight map[depKey]chan struct{}
 }
 
-func (d *depTracker) execute(ctx context.Context, target interface{}) error {
+func (d *depTracker) execute(ctx context.Context, target any) error {
 	node, err := parseTarget(target)
 	if err != nil {
 		return err
@@ -103,7 +103,7 @@ func (d *depTracker) execute(ctx context.Context, target interface{}) error {
 	return node.execute(ctx, nil, RunOptions{})
 }
 
-func (d *depTracker) run(ctx context.Context, target interface{}) error {
+func (d *depTracker) run(ctx context.Context, target any) error {
 	key, err := depKeyFor(target)
 	if err != nil {
 		return err
@@ -149,7 +149,7 @@ type withContextOpt struct{ ctx context.Context }
 
 func (o withContextOpt) applyDeps(c *depsConfig) { c.ctx = o.ctx }
 
-func depKeyFor(target interface{}) (depKey, error) {
+func depKeyFor(target any) (depKey, error) {
 	if target == nil {
 		return depKey{}, fmt.Errorf("dependency target cannot be nil")
 	}
@@ -176,7 +176,12 @@ func newDepTracker(ctx context.Context) *depTracker {
 	}
 }
 
-func parallelRun(tracker *depTracker, ctx context.Context, targets []interface{}, continueOnError bool) error {
+func parallelRun(
+	tracker *depTracker,
+	ctx context.Context,
+	targets []any,
+	continueOnError bool,
+) error {
 	if len(targets) == 0 {
 		return nil
 	}
@@ -193,10 +198,7 @@ func parallelRun(tracker *depTracker, ctx context.Context, targets []interface{}
 	errCh := make(chan error, len(targets))
 
 	for _, target := range targets {
-		target := target
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			err := tracker.run(runCtx, target)
 			if err != nil {
 				errCh <- err
@@ -204,7 +206,7 @@ func parallelRun(tracker *depTracker, ctx context.Context, targets []interface{}
 					cancel() // cancel siblings on first error
 				}
 			}
-		}()
+		})
 	}
 
 	wg.Wait()
@@ -217,7 +219,12 @@ func parallelRun(tracker *depTracker, ctx context.Context, targets []interface{}
 	return nil
 }
 
-func serialRun(tracker *depTracker, ctx context.Context, targets []interface{}, continueOnError bool) error {
+func serialRun(
+	tracker *depTracker,
+	ctx context.Context,
+	targets []any,
+	continueOnError bool,
+) error {
 	var firstErr error
 	for _, target := range targets {
 		// Check for cancellation before each target

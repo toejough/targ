@@ -233,6 +233,6 @@ func TestUsageLine_NoSubcommandWithRequiredPositional(t *testing.T) {
 // --- Helpers for other test files ---
 
 // parseCommand is a helper used by completion_test.go
-func parseCommand(f interface{}) (*commandNode, error) {
+func parseCommand(f any) (*commandNode, error) {
 	return parseStruct(f)
 }

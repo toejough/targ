@@ -34,12 +34,12 @@ func Check(ctx context.Context) error {
 	fmt.Println("Checking...")
 
 	return targ.Deps(
-		func() error { return Tidy(ctx) },           // clean up the module dependencies
 		func() error { return DeleteDeadcode(ctx) }, // no use doing anything else to dead code
 		func() error { return Fmt(ctx) },            // after dead code removal, format code including imports
+		func() error { return Tidy(ctx) },           // clean up the module dependencies
 		func() error { return Modernize(ctx) },      // no use doing anything else to old code patterns
-		func() error { return CheckCoverage(ctx) },  // does our code work?
 		func() error { return CheckNils(ctx) },      // is it nil free?
+		func() error { return CheckCoverage(ctx) },  // does our code work?
 		func() error { return ReorderDecls(ctx) },   // linter will yell about declaration order if not correct
 		func() error { return Lint(ctx) },
 	)

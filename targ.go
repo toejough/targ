@@ -53,14 +53,14 @@ func ContinueOnError() DepsOption { return core.ContinueOnError() }
 //	targ.Deps(A, B, C, targ.Parallel())             // parallel, fail-fast
 //	targ.Deps(A, B, C, targ.ContinueOnError())      // serial, run all
 //	targ.Deps(A, B, targ.Parallel(), targ.WithContext(ctx))
-func Deps(args ...interface{}) error {
+func Deps(args ...any) error {
 	return core.Deps(args...)
 }
 
 // DetectRootCommands filters a list of possible command objects to find those
 // that are NOT subcommands of any other command in the list.
 // It uses the `targ:"subcommand"` tag to identify relationships.
-func DetectRootCommands(candidates ...interface{}) []interface{} {
+func DetectRootCommands(candidates ...any) []any {
 	// 1. Find all types that are referenced as subcommands
 	subcommandTypes := make(map[reflect.Type]bool)
 
@@ -90,7 +90,7 @@ func DetectRootCommands(candidates ...interface{}) []interface{} {
 	}
 
 	// 2. Filter candidates
-	var roots []interface{}
+	var roots []any
 	for _, c := range candidates {
 		v := reflect.ValueOf(c)
 		t := v.Type()
@@ -108,13 +108,17 @@ func DetectRootCommands(candidates ...interface{}) []interface{} {
 
 // Execute runs commands with the given args and returns results instead of exiting.
 // This is useful for testing. Args should include the program name as the first element.
-func Execute(args []string, targets ...interface{}) (ExecuteResult, error) {
+func Execute(args []string, targets ...any) (ExecuteResult, error) {
 	return ExecuteWithOptions(args, RunOptions{AllowDefault: true}, targets...)
 }
 
 // ExecuteWithOptions runs commands with given args and options, returning results.
 // This is useful for testing. Args should include the program name as the first element.
-func ExecuteWithOptions(args []string, opts RunOptions, targets ...interface{}) (ExecuteResult, error) {
+func ExecuteWithOptions(
+	args []string,
+	opts RunOptions,
+	targets ...any,
+) (ExecuteResult, error) {
 	env := core.NewExecuteEnv(args)
 	err := core.RunWithEnv(env, opts, targets...)
 	return ExecuteResult{Output: env.Output()}, err
@@ -124,7 +128,7 @@ func ExecuteWithOptions(args []string, opts RunOptions, targets ...interface{}) 
 func Parallel() DepsOption { return core.Parallel() }
 
 // PrintCompletionScript outputs shell completion scripts for the given shell.
-func PrintCompletionScript(shell string, binName string) error {
+func PrintCompletionScript(shell, binName string) error {
 	return core.PrintCompletionScript(shell, binName)
 }
 
@@ -138,12 +142,12 @@ func ResetDeps() {
 // --- Public API ---
 
 // Run executes the CLI using os.Args and exits on error.
-func Run(targets ...interface{}) {
+func Run(targets ...any) {
 	RunWithOptions(RunOptions{AllowDefault: true}, targets...)
 }
 
 // RunWithOptions executes the CLI using os.Args and exits on error.
-func RunWithOptions(opts RunOptions, targets ...interface{}) {
+func RunWithOptions(opts RunOptions, targets ...any) {
 	err := core.RunWithEnv(core.NewOsEnv(), opts, targets...)
 	if err != nil {
 		if exitErr, ok := err.(ExitError); ok {

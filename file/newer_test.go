@@ -19,7 +19,7 @@ func TestNewerWithCacheTracksChanges(t *testing.T) {
 
 	dir := t.TempDir()
 	file := filepath.Join(dir, "main.go")
-	if err := os.WriteFile(file, []byte("one"), 0644); err != nil {
+	if err := os.WriteFile(file, []byte("one"), 0o644); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -40,7 +40,7 @@ func TestNewerWithCacheTracksChanges(t *testing.T) {
 	}
 
 	time.Sleep(10 * time.Millisecond)
-	if err := os.WriteFile(file, []byte("two"), 0644); err != nil {
+	if err := os.WriteFile(file, []byte("two"), 0o644); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	future := time.Now().Add(2 * time.Second)
@@ -61,7 +61,7 @@ func TestNewerWithOutputs(t *testing.T) {
 	dir := t.TempDir()
 	input := filepath.Join(dir, "input.txt")
 	output := filepath.Join(dir, "output.txt")
-	if err := os.WriteFile(input, []byte("one"), 0644); err != nil {
+	if err := os.WriteFile(input, []byte("one"), 0o644); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -74,7 +74,7 @@ func TestNewerWithOutputs(t *testing.T) {
 	}
 
 	time.Sleep(10 * time.Millisecond)
-	if err := os.WriteFile(output, []byte("out"), 0644); err != nil {
+	if err := os.WriteFile(output, []byte("out"), 0o644); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	future := time.Now().Add(2 * time.Second)
@@ -91,7 +91,7 @@ func TestNewerWithOutputs(t *testing.T) {
 	}
 
 	time.Sleep(10 * time.Millisecond)
-	if err := os.WriteFile(input, []byte("two"), 0644); err != nil {
+	if err := os.WriteFile(input, []byte("two"), 0o644); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	future = time.Now().Add(3 * time.Second)

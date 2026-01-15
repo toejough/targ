@@ -173,7 +173,11 @@ func TestExecute_Success(t *testing.T) {
 
 func TestExecute_UnknownCommand(t *testing.T) {
 	cmd := &ExecuteTestCmd{}
-	result, err := targ.ExecuteWithOptions([]string{"app", "unknown"}, targ.RunOptions{AllowDefault: false}, cmd)
+	result, err := targ.ExecuteWithOptions(
+		[]string{"app", "unknown"},
+		targ.RunOptions{AllowDefault: false},
+		cmd,
+	)
 	if err == nil {
 		t.Fatal("expected error for unknown command")
 	}
@@ -208,7 +212,10 @@ func TestInterleavedFlags_IntType(t *testing.T) {
 
 func TestInterleavedFlags_ReconstructOrder(t *testing.T) {
 	cmd := &InterleavedFlagsCmd{}
-	_, err := targ.Execute([]string{"app", "--exclude", "x", "--include", "a", "--include", "b", "--exclude", "y"}, cmd)
+	_, err := targ.Execute(
+		[]string{"app", "--exclude", "x", "--include", "a", "--include", "b", "--exclude", "y"},
+		cmd,
+	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -253,7 +260,10 @@ func TestInterleavedFlags_ReconstructOrder(t *testing.T) {
 
 func TestInterleavedFlags_TracksPosition(t *testing.T) {
 	cmd := &InterleavedFlagsCmd{}
-	_, err := targ.Execute([]string{"app", "--include", "a", "--exclude", "b", "--include", "c"}, cmd)
+	_, err := targ.Execute(
+		[]string{"app", "--include", "a", "--exclude", "b", "--include", "c"},
+		cmd,
+	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

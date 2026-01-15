@@ -230,7 +230,7 @@ func GenerateFunctionWrappers(filesystem FileSystem, opts GenerateOptions) (stri
 	}
 
 	filename := filepath.Join(dir, fmt.Sprintf("generated_targ_%s.go", packageName))
-	if err := filesystem.WriteFile(filename, formatted, iofs.FileMode(0644)); err != nil {
+	if err := filesystem.WriteFile(filename, formatted, iofs.FileMode(0o644)); err != nil {
 		return "", err
 	}
 
