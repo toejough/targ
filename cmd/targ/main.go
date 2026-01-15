@@ -1710,49 +1710,20 @@ func dispatchCommand(
 	errOut io.Writer,
 	binArg string,
 ) error {
-	// Handle help request
-	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" {
+	if isHelpRequest(args) {
 		printMultiModuleHelp(registry)
 		return nil
 	}
 
-	// Handle completion
-	if args[0] == "__complete" {
+	if len(args) > 0 && args[0] == "__complete" {
 		return dispatchCompletion(registry, args)
 	}
 
-	// Find the command in the registry
 	cmdName := args[0]
-
-	for _, reg := range registry {
-		for _, cmd := range reg.Commands {
-			// Check if command matches (exact match or prefix for subcommands)
-			if cmd.Name == cmdName || strings.HasPrefix(cmd.Name, cmdName+" ") {
-				// Execute via the module's binary
-				proc := exec.Command(reg.BinaryPath, args...)
-				proc.Stdin = os.Stdin
-				proc.Stdout = os.Stdout
-				proc.Stderr = errOut
-
-				// Set TARG_BIN_NAME for proper help output
-				targBinName := "targ"
-
-				if binArg != "" {
-					if idx := strings.LastIndex(binArg, "/"); idx != -1 {
-						targBinName = binArg[idx+1:]
-					} else {
-						targBinName = binArg
-					}
-				}
-
-				proc.Env = append(os.Environ(), "TARG_BIN_NAME="+targBinName)
-
-				return proc.Run()
-			}
-		}
+	if binaryPath, ok := findCommandBinary(registry, cmdName); ok {
+		return runModuleBinary(binaryPath, args, errOut, binArg)
 	}
 
-	// Command not found
 	_, _ = fmt.Fprintf(errOut, "Unknown command: %s\n", cmdName)
 
 	printMultiModuleHelp(registry)
@@ -1835,6 +1806,19 @@ func ensureShImport(path string) error {
 	return os.WriteFile(path, []byte(result), 0o644)
 }
 
+// extractBinName extracts the binary name from a path or returns "targ" as default.
+func extractBinName(binArg string) string {
+	if binArg == "" {
+		return "targ"
+	}
+
+	if idx := strings.LastIndex(binArg, "/"); idx != -1 {
+		return binArg[idx+1:]
+	}
+
+	return binArg
+}
+
 // extractLeadingCompletion extracts --completion from args before any command.
 // Returns the shell value (empty if not found) and remaining args.
 func extractLeadingCompletion(args []string) (string, []string) {
@@ -1911,6 +1895,19 @@ func extractLeadingTimeout(args []string) (string, []string) {
 	}
 
 	return timeout, result
+}
+
+// findCommandBinary finds the binary path for a command in the registry.
+func findCommandBinary(registry []moduleRegistry, cmdName string) (string, bool) {
+	for _, reg := range registry {
+		for _, cmd := range reg.Commands {
+			if cmd.Name == cmdName || strings.HasPrefix(cmd.Name, cmdName+" ") {
+				return reg.BinaryPath, true
+			}
+		}
+	}
+
+	return "", false
 }
 
 // findModuleForPath walks up from the given path to find the nearest go.mod.
@@ -2187,6 +2184,11 @@ func hasTargBuildTag(path string) bool {
 	}
 
 	return false
+}
+
+// isHelpRequest returns true if args represent a help request.
+func isHelpRequest(args []string) bool {
+	return len(args) == 0 || args[0] == "-h" || args[0] == "--help"
 }
 
 // isIncludableModuleFile returns true if the file should be included in module cache.
@@ -2662,6 +2664,18 @@ func resolveTargDependency() targDependency {
 	}
 
 	return dep
+}
+
+// runModuleBinary executes a module binary with the given args.
+func runModuleBinary(binaryPath string, args []string, errOut io.Writer, binArg string) error {
+	proc := exec.Command(binaryPath, args...)
+	proc.Stdin = os.Stdin
+	proc.Stdout = os.Stdout
+	proc.Stderr = errOut
+
+	proc.Env = append(os.Environ(), "TARG_BIN_NAME="+extractBinName(binArg))
+
+	return proc.Run()
 }
 
 func sameDir(a, b string) bool {
