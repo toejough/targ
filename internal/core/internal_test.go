@@ -175,6 +175,14 @@ func (t *TooManyReturnsMethod) Run() (int, error) {
 	return 42, nil
 }
 
+type TooManyInputsMethod struct{}
+
+func (t *TooManyInputsMethod) Run(ctx context.Context, extra int) {}
+
+type WrongInputTypeMethod struct{}
+
+func (w *WrongInputTypeMethod) Run(notContext int) {}
+
 // --- parseFunc tests ---
 
 func InvalidSigFunc(a, b int) {}
@@ -1035,6 +1043,36 @@ func TestParseTarget_InvalidFunctionSignature(t *testing.T) {
 	_, err := parseTarget(InvalidSigFunc)
 	g.Expect(err).To(HaveOccurred())
 	g.Expect(err.Error()).To(ContainSubstring("niladic or accept context"))
+}
+
+func TestExecute_MethodTooManyInputs(t *testing.T) {
+	g := NewWithT(t)
+
+	cmd := &TooManyInputsMethod{}
+	node, err := parseStruct(cmd)
+	g.Expect(err).NotTo(HaveOccurred())
+	if node == nil {
+		t.Fatal("node should not be nil when err is nil")
+	}
+
+	err = node.execute(context.TODO(), []string{}, RunOptions{})
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("accept context.Context or no args"))
+}
+
+func TestExecute_MethodWrongInputType(t *testing.T) {
+	g := NewWithT(t)
+
+	cmd := &WrongInputTypeMethod{}
+	node, err := parseStruct(cmd)
+	g.Expect(err).NotTo(HaveOccurred())
+	if node == nil {
+		t.Fatal("node should not be nil when err is nil")
+	}
+
+	err = node.execute(context.TODO(), []string{}, RunOptions{})
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("accept context.Context"))
 }
 
 func TestPersistentFlagConflicts(t *testing.T) {
