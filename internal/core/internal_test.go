@@ -565,7 +565,7 @@ func TestDetectShell_KnownShells(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.shell, func(t *testing.T) {
 			t.Setenv("SHELL", tt.shell)
-			g.Expect(detectShell()).To(Equal(tt.expected))
+			g.Expect(DetectShell()).To(Equal(tt.expected))
 		})
 	}
 }
@@ -604,7 +604,7 @@ func TestDetectShell_UnknownOrEmpty(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Setenv("SHELL", tt.shell)
-			g.Expect(detectShell()).To(BeEmpty())
+			g.Expect(DetectShell()).To(BeEmpty())
 		})
 	}
 }
@@ -2006,7 +2006,7 @@ func (t testValueTextUnmarshaler) UnmarshalText(text []byte) error {
 }
 
 // extractShellName extracts and validates the shell name from a path.
-// This is the testable core logic of detectShell().
+// This is the testable core logic of DetectShell().
 func extractShellName(shell string) string {
 	shell = strings.TrimSpace(shell)
 	if shell == "" {

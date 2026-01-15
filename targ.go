@@ -47,6 +47,8 @@ type TagOptions = core.TagOptions
 // Without this option, Deps fails fast (cancels remaining on first error).
 func ContinueOnError() DepsOption { return core.ContinueOnError() }
 
+// DetectShell returns the current shell name (bash, zsh, fish) or empty string.
+
 // Deps executes dependencies, each exactly once per CLI run.
 // Options can be mixed with targets in any order:
 //
@@ -135,9 +137,6 @@ func ExecuteWithOptions(
 func Parallel() DepsOption { return core.Parallel() }
 
 // PrintCompletionScript outputs shell completion scripts for the given shell.
-func PrintCompletionScript(shell, binName string) error {
-	return core.PrintCompletionScript(shell, binName)
-}
 
 // ResetDeps clears the dependency execution cache, allowing all targets
 // to run again on subsequent Deps() calls. This is useful for watch mode

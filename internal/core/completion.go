@@ -606,7 +606,7 @@ func (s *completionState) suggestPositionalEnums() (bool, error) {
 		return false, nil
 	}
 
-	for _, value := range strings.Split(fields[posIndex].Opts.Enum, "|") {
+	for value := range strings.SplitSeq(fields[posIndex].Opts.Enum, "|") {
 		printIfPrefix(value, s.prefix)
 	}
 

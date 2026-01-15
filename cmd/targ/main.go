@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -22,7 +21,6 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/toejough/targ"
 	"github.com/toejough/targ/buildtool"
 )
 
@@ -60,95 +58,18 @@ func main() {
 		return
 	}
 
-	var (
-		noCache         bool
-		keepBootstrap   bool
-		helpFlag        bool
-		timeoutFlag     string
-		completionShell string
-	)
-
-	fs := flag.NewFlagSet("targ", flag.ContinueOnError)
-	fs.BoolVar(&noCache, "no-cache", false, "disable cached build tool binaries")
-	fs.BoolVar(&keepBootstrap, "keep", false, "keep generated bootstrap file")
-	fs.BoolVar(&helpFlag, "help", false, "print help information")
-	fs.BoolVar(&helpFlag, "h", false, "alias for --help")
-	fs.Usage = func() {
-		printBuildToolUsage(os.Stdout)
-	}
-	fs.SetOutput(io.Discard)
-
-	rawArgs := args
-	quietBuild := len(rawArgs) > 0 && rawArgs[0] == "__complete"
+	quietBuild := len(args) > 0 && args[0] == "__complete"
 
 	errOut := io.Writer(os.Stderr)
 	if quietBuild {
 		errOut = io.Discard
 	}
 
-	helpRequested, helpTargets := parseHelpRequest(rawArgs)
-	// Extract leading flags before any command
-	timeoutFlag, rawArgs = extractLeadingTimeout(rawArgs)
-	completionShell, rawArgs = extractLeadingCompletion(rawArgs)
-	completionRequested := completionShell != ""
+	// Check for bare --help (no command targets) for multi-module aggregation
+	helpRequested, helpTargets := parseHelpRequest(args)
 
-	parseArgs := append([]string{}, rawArgs...)
-	if err := fs.Parse(parseArgs); err != nil {
-		_, _ = fmt.Fprintln(errOut, err)
-		printBuildToolUsage(errOut)
-		os.Exit(1)
-	}
-
-	args = fs.Args()
-
-	if helpFlag {
-		helpRequested = true
-	}
-
-	// For --help without targets, we need to check if it's multi-module
-	// This is deferred until after module grouping
-	if helpRequested && helpTargets {
-		args = append(args, "--help")
-	}
-
-	// Prepend timeout flag to args for the bootstrap binary
-	if timeoutFlag != "" {
-		args = append([]string{"--timeout", timeoutFlag}, args...)
-	}
-
-	if completionRequested {
-		if completionShell == "auto" {
-			completionShell = detectShell()
-		}
-
-		if completionShell == "" || completionShell == "auto" {
-			_, _ = fmt.Fprintln(errOut, "Usage: --completion [bash|zsh|fish]")
-
-			os.Exit(1)
-		}
-
-		binName := binArg
-		if idx := strings.LastIndex(binName, "/"); idx != -1 {
-			binName = binName[idx+1:]
-		}
-
-		if idx := strings.LastIndex(binName, "\\"); idx != -1 {
-			binName = binName[idx+1:]
-		}
-
-		err := targ.PrintCompletionScript(completionShell, binName)
-		if err != nil {
-			_, _ = fmt.Fprintf(
-				errOut,
-				"Unsupported shell: %s. Supported: bash, zsh, fish\n",
-				completionShell,
-			)
-
-			os.Exit(1)
-		}
-
-		return
-	}
+	// Extract targ-specific flags, pass everything else to binary
+	noCache, keepBootstrap, args := extractTargFlags(args)
 
 	startDir, err := os.Getwd()
 	if err != nil {
@@ -234,37 +155,23 @@ func main() {
 		exit(1)
 	}
 
-	// Handle --help without targets
-	if helpRequested && !helpTargets {
-		if len(moduleGroups) > 1 {
-			// Multi-module: build binaries and show aggregated help
-			registry, err := buildMultiModuleBinaries(
-				moduleGroups,
-				startDir,
-				noCache,
-				keepBootstrap,
-				errOut,
-			)
-			if err != nil {
-				_, _ = fmt.Fprintf(errOut, "Error building module binaries: %v\n", err)
-
-				exit(1)
-			}
-
-			cleanupWrappers()
-			printMultiModuleHelp(registry)
-
-			return
-		}
-		// Single module: use standard help
-		err := printBuildToolHelp(os.Stdout, startDir)
+	// Handle --help without targets for multi-module case (aggregated help)
+	if helpRequested && !helpTargets && len(moduleGroups) > 1 {
+		registry, err := buildMultiModuleBinaries(
+			moduleGroups,
+			startDir,
+			noCache,
+			keepBootstrap,
+			errOut,
+		)
 		if err != nil {
-			_, _ = fmt.Fprintf(errOut, "Error discovering packages: %v\n", err)
+			_, _ = fmt.Fprintf(errOut, "Error building module binaries: %v\n", err)
 
 			exit(1)
 		}
 
 		cleanupWrappers()
+		printMultiModuleHelp(registry)
 
 		return
 	}
@@ -1056,7 +963,11 @@ func (b *bootstrapBuilder) computeImportPath(dir string) string {
 	return b.modulePath + "/" + filepath.ToSlash(rel)
 }
 
-func (b *bootstrapBuilder) processCommand(pkgName string, cmd buildtool.CommandInfo, prefix string) error {
+func (b *bootstrapBuilder) processCommand(
+	pkgName string,
+	cmd buildtool.CommandInfo,
+	prefix string,
+) error {
 	switch cmd.Kind {
 	case buildtool.CommandStruct:
 		b.addStructCommand(cmd, prefix)
@@ -1077,7 +988,11 @@ func (b *bootstrapBuilder) addStructCommand(cmd buildtool.CommandInfo, prefix st
 	})
 }
 
-func (b *bootstrapBuilder) addFuncCommand(pkgName string, cmd buildtool.CommandInfo, prefix string) {
+func (b *bootstrapBuilder) addFuncCommand(
+	pkgName string,
+	cmd buildtool.CommandInfo,
+	prefix string,
+) {
 	base := segmentToIdent(pkgName) + segmentToIdent(cmd.Name) + "Func"
 	typeName := b.wrapperNames.uniqueTypeName(base)
 
@@ -1123,7 +1038,10 @@ func buildBootstrapData(
 	return builder.buildResult(startDir, infos)
 }
 
-func (b *bootstrapBuilder) buildResult(startDir string, infos []buildtool.PackageInfo) (bootstrapData, error) {
+func (b *bootstrapBuilder) buildResult(
+	startDir string,
+	infos []buildtool.PackageInfo,
+) (bootstrapData, error) {
 	filePaths := b.sortedFilePaths()
 
 	paths, err := namespacePaths(filePaths, startDir)
@@ -1270,7 +1188,15 @@ func buildModuleBinary(
 		}
 	}
 
-	cmds, err := buildAndQueryBinary(buildCtx, mt, dep, binaryPath, bootstrap, keepBootstrap, errOut)
+	cmds, err := buildAndQueryBinary(
+		buildCtx,
+		mt,
+		dep,
+		binaryPath,
+		bootstrap,
+		keepBootstrap,
+		errOut,
+	)
 	if err != nil {
 		return reg, err
 	}
@@ -1301,7 +1227,11 @@ type buildContext struct {
 }
 
 // prepareBuildContext determines build roots and handles fallback module setup.
-func prepareBuildContext(mt moduleTargets, startDir string, dep targDependency) (buildContext, error) {
+func prepareBuildContext(
+	mt moduleTargets,
+	startDir string,
+	dep targDependency,
+) (buildContext, error) {
 	ctx := buildContext{
 		usingFallback: mt.ModulePath == "targ.local",
 		buildRoot:     mt.ModuleRoot,
@@ -1327,7 +1257,10 @@ type moduleBootstrap struct {
 }
 
 // generateModuleBootstrap creates bootstrap code and computes cache key.
-func generateModuleBootstrap(mt moduleTargets, startDir, importRoot string) (moduleBootstrap, error) {
+func generateModuleBootstrap(
+	mt moduleTargets,
+	startDir, importRoot string,
+) (moduleBootstrap, error) {
 	filePaths := collectPackageFilePaths(mt)
 
 	collapsedPaths, err := namespacePaths(filePaths, startDir)
@@ -1335,7 +1268,13 @@ func generateModuleBootstrap(mt moduleTargets, startDir, importRoot string) (mod
 		return moduleBootstrap{}, fmt.Errorf("computing namespace paths: %w", err)
 	}
 
-	data, err := buildBootstrapData(mt.Packages, startDir, importRoot, mt.ModulePath, collapsedPaths)
+	data, err := buildBootstrapData(
+		mt.Packages,
+		startDir,
+		importRoot,
+		mt.ModulePath,
+		collapsedPaths,
+	)
 	if err != nil {
 		return moduleBootstrap{}, fmt.Errorf("preparing bootstrap: %w", err)
 	}
@@ -1644,23 +1583,6 @@ func cleanupStaleModSymlinks(root string) {
 }
 
 // collectFileCommands collects commands from package infos into a map by file path.
-func collectFileCommands(infos []buildtool.PackageInfo) (map[string][]commandSummary, []string) {
-	fileCommands := make(map[string][]commandSummary)
-
-	var filePaths []string
-
-	for _, info := range infos {
-		for _, file := range info.Files {
-			summaries := commandSummariesFromCommands(file.Commands)
-			fileCommands[file.Path] = summaries
-			filePaths = append(filePaths, file.Path)
-		}
-	}
-
-	sort.Strings(filePaths)
-
-	return fileCommands, filePaths
-}
 
 func collectModuleFiles(moduleRoot string) ([]buildtool.TaggedFile, error) {
 	var files []buildtool.TaggedFile
@@ -1832,29 +1754,6 @@ var _ = sh.Run
 	return "Created " + filename, nil
 }
 
-func detectShell() string {
-	shell := strings.TrimSpace(os.Getenv("SHELL"))
-	if shell == "" {
-		return ""
-	}
-
-	base := shell
-	if idx := strings.LastIndex(base, "/"); idx != -1 {
-		base = base[idx+1:]
-	}
-
-	if idx := strings.LastIndex(base, "\\"); idx != -1 {
-		base = base[idx+1:]
-	}
-
-	switch base {
-	case "bash", "zsh", "fish":
-		return base
-	default:
-		return ""
-	}
-}
-
 // dispatchCommand finds the right binary for a command and executes it.
 func dispatchCommand(
 	registry []moduleRegistry,
@@ -1971,82 +1870,21 @@ func extractBinName(binArg string) string {
 	return binArg
 }
 
-// extractLeadingCompletion extracts --completion from args before any command.
-// Returns the shell value (empty if not found) and remaining args.
-func extractLeadingCompletion(args []string) (string, []string) {
-	var (
-		result []string
-		shell  string
-	)
-
-	for i := 0; i < len(args); i++ {
-		arg := args[i]
-		// Stop looking for completion once we hit a non-flag (command name)
-		if !strings.HasPrefix(arg, "-") {
-			result = append(result, args[i:]...)
-			break
+// extractTargFlags extracts targ-specific flags (--no-cache, --keep) from args.
+// Returns the flag values and remaining args to pass to the binary.
+func extractTargFlags(args []string) (noCache, keepBootstrap bool, remaining []string) {
+	for _, arg := range args {
+		switch arg {
+		case "--no-cache":
+			noCache = true
+		case "--keep":
+			keepBootstrap = true
+		default:
+			remaining = append(remaining, arg)
 		}
-
-		if arg == "--completion" {
-			if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
-				shell = args[i+1]
-				i++
-			} else {
-				shell = "auto" // Signal that completion was requested but no shell specified
-			}
-
-			continue
-		}
-
-		if after, ok := strings.CutPrefix(arg, "--completion="); ok {
-			shell = after
-			if shell == "" {
-				shell = "auto"
-			}
-
-			continue
-		}
-
-		result = append(result, arg)
 	}
 
-	return shell, result
-}
-
-// extractLeadingTimeout extracts --timeout from args before any command.
-// Returns the timeout value (empty if not found) and remaining args.
-func extractLeadingTimeout(args []string) (string, []string) {
-	var (
-		result  []string
-		timeout string
-	)
-
-	for i := 0; i < len(args); i++ {
-		arg := args[i]
-		// Stop looking for timeout once we hit a non-flag (command name)
-		if !strings.HasPrefix(arg, "-") {
-			result = append(result, args[i:]...)
-			break
-		}
-
-		if arg == "--timeout" {
-			if i+1 < len(args) {
-				timeout = args[i+1]
-				i++
-			}
-
-			continue
-		}
-
-		if after, ok := strings.CutPrefix(arg, "--timeout="); ok {
-			timeout = after
-			continue
-		}
-
-		result = append(result, arg)
-	}
-
-	return timeout, result
+	return noCache, keepBootstrap, remaining
 }
 
 // findCommandBinary finds the binary path for a command in the registry.
@@ -2528,39 +2366,6 @@ func parseShellCommand(cmd string) ([]string, error) {
 	return p.finalize()
 }
 
-func printBuildToolHelp(out io.Writer, startDir string) error {
-	printBuildToolUsage(out)
-	_, _ = fmt.Fprintln(out, "")
-
-	infos, err := buildtool.Discover(buildtool.OSFileSystem{}, buildtool.Options{
-		StartDir: startDir,
-		BuildTag: "targ",
-	})
-	if err != nil && !errors.Is(err, buildtool.ErrNoTaggedFiles) {
-		return err
-	}
-
-	if len(infos) == 0 {
-		printNoCommandsHelp(out)
-		return nil
-	}
-
-	fileCommands, filePaths := collectFileCommands(infos)
-
-	paths, err := namespacePaths(filePaths, startDir)
-	if err != nil {
-		return err
-	}
-
-	printRootCommands(out, fileCommands, paths, filePaths)
-	printSubcommandTree(out, paths)
-
-	_, _ = fmt.Fprintln(out, "")
-	_, _ = fmt.Fprintln(out, "More info: https://github.com/toejough/targ#readme")
-
-	return nil
-}
-
 func printBuildToolUsage(out io.Writer) {
 	_, _ = fmt.Fprintln(
 		out,
@@ -2607,38 +2412,9 @@ func printBuildToolUsage(out io.Writer) {
 	_, _ = fmt.Fprintf(out, "    %-28s %s\n", "--help", "Print help information")
 }
 
-func printCommandSummaries(out io.Writer, summaries []commandSummary) {
-	if len(summaries) == 0 {
-		_, _ = fmt.Fprintln(out, "    (none)")
-		return
-	}
-	// Find max name length for alignment
-	maxLen := 0
-	for _, summary := range summaries {
-		if len(summary.Name) > maxLen {
-			maxLen = len(summary.Name)
-		}
-	}
+// Find max name length for alignment
 
-	if maxLen < 10 {
-		maxLen = 10
-	}
-	// Indent for continuation lines: 4 leading + name width + 2 padding + 1 space + 2 extra
-	indent := strings.Repeat(" ", 4+maxLen+2+1+2)
-
-	for _, summary := range summaries {
-		if summary.Description != "" {
-			lines := strings.Split(summary.Description, "\n")
-
-			_, _ = fmt.Fprintf(out, "    %-*s %s\n", maxLen+2, summary.Name, lines[0])
-			for _, line := range lines[1:] {
-				_, _ = fmt.Fprintf(out, "%s%s\n", indent, line)
-			}
-		} else {
-			_, _ = fmt.Fprintf(out, "    %s\n", summary.Name)
-		}
-	}
-}
+// Indent for continuation lines: 4 leading + name width + 2 padding + 1 space + 2 extra
 
 // printMultiModuleHelp prints aggregated help for all modules.
 func printMultiModuleHelp(registry []moduleRegistry) {
@@ -2694,11 +2470,6 @@ func printMultiModuleHelp(registry []moduleRegistry) {
 }
 
 // printNoCommandsHelp prints the help message when no commands are found.
-func printNoCommandsHelp(out io.Writer) {
-	_, _ = fmt.Fprintln(out, "No tagged commands found in this directory.")
-	_, _ = fmt.Fprintln(out, "")
-	_, _ = fmt.Fprintln(out, "More info: https://github.com/toejough/targ#readme")
-}
 
 // printNoTargetsCompletion outputs completion suggestions when no target files exist.
 // This allows users to discover flags like --init even before creating targets.
@@ -2740,55 +2511,8 @@ func printNoTargetsCompletion(args []string) {
 }
 
 // printRootCommands prints commands that are at the root level (no namespace).
-func printRootCommands(
-	out io.Writer,
-	fileCommands map[string][]commandSummary,
-	paths map[string][]string,
-	filePaths []string,
-) {
-	var rootCommands []commandSummary
-
-	for _, path := range filePaths {
-		if len(paths[path]) == 0 {
-			rootCommands = append(rootCommands, fileCommands[path]...)
-		}
-	}
-
-	if len(rootCommands) == 0 {
-		return
-	}
-
-	sort.Slice(rootCommands, func(i, j int) bool {
-		return rootCommands[i].Name < rootCommands[j].Name
-	})
-
-	_, _ = fmt.Fprintln(out, "Commands:")
-	printCommandSummaries(out, rootCommands)
-	_, _ = fmt.Fprintln(out, "")
-}
 
 // printSubcommandTree prints the top-level subcommand names.
-func printSubcommandTree(out io.Writer, paths map[string][]string) {
-	tree := buildNamespaceTree(paths)
-	if len(tree.Children) == 0 {
-		return
-	}
-
-	names := make([]string, 0, len(tree.Children))
-	for name := range tree.Children {
-		names = append(names, name)
-	}
-
-	sort.Strings(names)
-
-	_, _ = fmt.Fprintln(out, "Subcommands:")
-
-	for _, name := range names {
-		_, _ = fmt.Fprintf(out, "    %s\n", name)
-	}
-
-	_, _ = fmt.Fprintln(out, "")
-}
 
 // projectCacheDir returns a project-specific subdirectory within the targ cache.
 // Uses a hash of the project path to isolate projects.

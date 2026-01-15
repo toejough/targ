@@ -437,152 +437,289 @@ func isStringExpr(expr ast.Expr) bool {
 	return ok && ident.Name == "string"
 }
 
+// packageInfoParser holds state for parsing package info from tagged files.
+type packageInfoParser struct {
+	dir                  taggedDir
+	fset                 *token.FileSet
+	packageName          string
+	packageDoc           string
+	structs              map[string]bool
+	structFiles          map[string]string
+	structHasSubcommands map[string]bool
+	structHasRun         map[string]bool
+	structDescriptions   map[string]string
+	funcs                map[string]bool
+	funcFiles            map[string]string
+	funcDescriptions     map[string]string
+	funcUsesContext      map[string]bool
+	funcReturnsError     map[string]bool
+	subcommandNames      map[string]bool
+	subcommandTypes      map[string]bool
+	mainFiles            []string
+	structList           []string
+	funcList             []string
+}
+
 func parsePackageInfo(dir taggedDir) (PackageInfo, error) {
-	fset := token.NewFileSet()
-	packageName := ""
-	packageDoc := ""
-	structs := make(map[string]bool)
-	structFiles := make(map[string]string)
-	structHasSubcommands := make(map[string]bool)
-	structHasRun := make(map[string]bool)
-	funcs := make(map[string]bool)
-	funcFiles := make(map[string]string)
-	structDescriptions := make(map[string]string)
-	funcDescriptions := make(map[string]string)
-	funcUsesContext := make(map[string]bool)
-	funcReturnsError := make(map[string]bool)
-	subcommandNames := make(map[string]bool)
-	subcommandTypes := make(map[string]bool)
+	p := newPackageInfoParser(dir)
 
-	var mainFiles []string
+	if err := p.parseFiles(); err != nil {
+		return PackageInfo{}, err
+	}
 
-	for _, file := range dir.Files {
-		parsed, err := parser.ParseFile(fset, file.Path, file.Content, parser.ParseComments)
-		if err != nil {
-			return PackageInfo{}, err
-		}
+	if err := p.validate(); err != nil {
+		return PackageInfo{}, err
+	}
 
-		if packageName == "" {
-			packageName = parsed.Name.Name
-			if parsed.Doc != nil {
-				packageDoc = strings.TrimSpace(parsed.Doc.Text())
-			}
-		} else if packageName != parsed.Name.Name {
-			return PackageInfo{}, fmt.Errorf("multiple package names in %s", dir.Path)
-		}
+	p.filterCandidates()
 
-		ctxAliases, ctxDotImport := contextImportInfo(parsed.Imports)
-		for _, decl := range parsed.Decls {
-			switch node := decl.(type) {
-			case *ast.GenDecl:
-				for _, spec := range node.Specs {
-					typeSpec, ok := spec.(*ast.TypeSpec)
-					if !ok || !typeSpec.Name.IsExported() {
-						continue
-					}
+	if err := p.checkDuplicates(); err != nil {
+		return PackageInfo{}, err
+	}
 
-					structType, ok := typeSpec.Type.(*ast.StructType)
-					if !ok {
-						continue
-					}
+	return p.buildResult(), nil
+}
 
-					structs[typeSpec.Name.Name] = true
+// newPackageInfoParser creates a new parser with initialized state.
+func newPackageInfoParser(dir taggedDir) *packageInfoParser {
+	return &packageInfoParser{
+		dir:                  dir,
+		fset:                 token.NewFileSet(),
+		structs:              make(map[string]bool),
+		structFiles:          make(map[string]string),
+		structHasSubcommands: make(map[string]bool),
+		structHasRun:         make(map[string]bool),
+		structDescriptions:   make(map[string]string),
+		funcs:                make(map[string]bool),
+		funcFiles:            make(map[string]string),
+		funcDescriptions:     make(map[string]string),
+		funcUsesContext:      make(map[string]bool),
+		funcReturnsError:     make(map[string]bool),
+		subcommandNames:      make(map[string]bool),
+		subcommandTypes:      make(map[string]bool),
+	}
+}
 
-					structFiles[typeSpec.Name.Name] = file.Path
-					if recordSubcommandRefs(structType, subcommandNames, subcommandTypes) {
-						structHasSubcommands[typeSpec.Name.Name] = true
-					}
-				}
-			case *ast.FuncDecl:
-				if node.Recv != nil {
-					if desc, ok := descriptionMethodValue(node); ok {
-						if recvName := receiverTypeName(node.Recv); recvName != "" {
-							structDescriptions[recvName] = desc
-						}
-					}
-
-					if node.Name.Name == "Run" {
-						if recvName := receiverTypeName(node.Recv); recvName != "" {
-							structHasRun[recvName] = true
-						}
-					}
-
-					continue
-				}
-
-				if node.Name.Name == "main" {
-					mainFiles = append(mainFiles, file.Path)
-					continue
-				}
-
-				if !node.Name.IsExported() {
-					continue
-				}
-
-				err := validateFunctionSignature(node.Type, ctxAliases, ctxDotImport)
-				if err != nil {
-					return PackageInfo{}, fmt.Errorf("function %s %w", node.Name.Name, err)
-				}
-
-				funcs[node.Name.Name] = true
-				funcFiles[node.Name.Name] = file.Path
-				funcUsesContext[node.Name.Name] = functionUsesContext(node.Type, ctxAliases, ctxDotImport)
-
-				funcReturnsError[node.Name.Name] = functionReturnsError(node.Type)
-				if desc, ok := functionDocValue(node); ok {
-					funcDescriptions[node.Name.Name] = desc
-				}
-			}
+// parseFiles parses all files in the tagged directory.
+func (p *packageInfoParser) parseFiles() error {
+	for _, file := range p.dir.Files {
+		if err := p.parseFile(file); err != nil {
+			return err
 		}
 	}
 
-	if len(mainFiles) > 0 {
-		sort.Strings(mainFiles)
+	return nil
+}
 
-		return PackageInfo{}, fmt.Errorf(
-			"tagged files must not declare main(): %s",
-			strings.Join(mainFiles, ", "),
-		)
+// parseFile parses a single file and extracts declarations.
+func (p *packageInfoParser) parseFile(file taggedFile) error {
+	parsed, err := parser.ParseFile(p.fset, file.Path, file.Content, parser.ParseComments)
+	if err != nil {
+		return err
 	}
 
-	structList := filterStructs(structs, subcommandTypes, structHasRun, structHasSubcommands)
-	funcList := filterCommands(funcs, subcommandNames)
+	if err := p.checkPackageName(parsed, file.Path); err != nil {
+		return err
+	}
 
-	if len(structList) > 0 && len(funcList) > 0 {
-		wrapped := make(map[string]bool)
+	ctxAliases, ctxDotImport := contextImportInfo(parsed.Imports)
 
-		for _, name := range structList {
-			if before, ok := strings.CutSuffix(name, "Command"); ok {
-				base := before
-				if base != "" {
-					wrapped[base] = true
-				}
-			}
-		}
-
-		if len(wrapped) > 0 {
-			filtered := make([]string, 0, len(funcList))
-			for _, name := range funcList {
-				if !wrapped[name] {
-					filtered = append(filtered, name)
-				}
-			}
-
-			funcList = filtered
+	for _, decl := range parsed.Decls {
+		if err := p.processDecl(decl, file.Path, ctxAliases, ctxDotImport); err != nil {
+			return err
 		}
 	}
 
+	return nil
+}
+
+// checkPackageName validates and records the package name.
+func (p *packageInfoParser) checkPackageName(parsed *ast.File, filePath string) error {
+	if p.packageName == "" {
+		p.packageName = parsed.Name.Name
+		if parsed.Doc != nil {
+			p.packageDoc = strings.TrimSpace(parsed.Doc.Text())
+		}
+
+		return nil
+	}
+
+	if p.packageName != parsed.Name.Name {
+		return fmt.Errorf("multiple package names in %s", p.dir.Path)
+	}
+
+	return nil
+}
+
+// processDecl handles a single declaration.
+func (p *packageInfoParser) processDecl(
+	decl ast.Decl,
+	filePath string,
+	ctxAliases map[string]bool,
+	ctxDotImport bool,
+) error {
+	switch node := decl.(type) {
+	case *ast.GenDecl:
+		p.processGenDecl(node, filePath)
+	case *ast.FuncDecl:
+		return p.processFuncDecl(node, filePath, ctxAliases, ctxDotImport)
+	}
+
+	return nil
+}
+
+// processGenDecl processes a general declaration (types).
+func (p *packageInfoParser) processGenDecl(node *ast.GenDecl, filePath string) {
+	for _, spec := range node.Specs {
+		typeSpec, ok := spec.(*ast.TypeSpec)
+		if !ok || !typeSpec.Name.IsExported() {
+			continue
+		}
+
+		structType, ok := typeSpec.Type.(*ast.StructType)
+		if !ok {
+			continue
+		}
+
+		p.structs[typeSpec.Name.Name] = true
+		p.structFiles[typeSpec.Name.Name] = filePath
+
+		if recordSubcommandRefs(structType, p.subcommandNames, p.subcommandTypes) {
+			p.structHasSubcommands[typeSpec.Name.Name] = true
+		}
+	}
+}
+
+// processFuncDecl processes a function declaration.
+func (p *packageInfoParser) processFuncDecl(
+	node *ast.FuncDecl,
+	filePath string,
+	ctxAliases map[string]bool,
+	ctxDotImport bool,
+) error {
+	if node.Recv != nil {
+		p.processMethod(node)
+		return nil
+	}
+
+	if node.Name.Name == "main" {
+		p.mainFiles = append(p.mainFiles, filePath)
+		return nil
+	}
+
+	if !node.Name.IsExported() {
+		return nil
+	}
+
+	return p.processExportedFunc(node, filePath, ctxAliases, ctxDotImport)
+}
+
+// processMethod handles method declarations on structs.
+func (p *packageInfoParser) processMethod(node *ast.FuncDecl) {
+	if desc, ok := descriptionMethodValue(node); ok {
+		if recvName := receiverTypeName(node.Recv); recvName != "" {
+			p.structDescriptions[recvName] = desc
+		}
+	}
+
+	if node.Name.Name == "Run" {
+		if recvName := receiverTypeName(node.Recv); recvName != "" {
+			p.structHasRun[recvName] = true
+		}
+	}
+}
+
+// processExportedFunc validates and records an exported function.
+func (p *packageInfoParser) processExportedFunc(
+	node *ast.FuncDecl,
+	filePath string,
+	ctxAliases map[string]bool,
+	ctxDotImport bool,
+) error {
+	if err := validateFunctionSignature(node.Type, ctxAliases, ctxDotImport); err != nil {
+		return fmt.Errorf("function %s %w", node.Name.Name, err)
+	}
+
+	name := node.Name.Name
+	p.funcs[name] = true
+	p.funcFiles[name] = filePath
+	p.funcUsesContext[name] = functionUsesContext(node.Type, ctxAliases, ctxDotImport)
+	p.funcReturnsError[name] = functionReturnsError(node.Type)
+
+	if desc, ok := functionDocValue(node); ok {
+		p.funcDescriptions[name] = desc
+	}
+
+	return nil
+}
+
+// validate checks that parsing produced valid results.
+func (p *packageInfoParser) validate() error {
+	if len(p.mainFiles) == 0 {
+		return nil
+	}
+
+	sort.Strings(p.mainFiles)
+
+	return fmt.Errorf(
+		"tagged files must not declare main(): %s",
+		strings.Join(p.mainFiles, ", "),
+	)
+}
+
+// filterCandidates builds the filtered lists of structs and funcs.
+func (p *packageInfoParser) filterCandidates() {
+	p.structList = filterStructs(
+		p.structs,
+		p.subcommandTypes,
+		p.structHasRun,
+		p.structHasSubcommands,
+	)
+	p.funcList = filterCommands(p.funcs, p.subcommandNames)
+	p.removeWrappedFuncs()
+}
+
+// removeWrappedFuncs removes functions that have XCommand struct wrappers.
+func (p *packageInfoParser) removeWrappedFuncs() {
+	if len(p.structList) == 0 || len(p.funcList) == 0 {
+		return
+	}
+
+	wrapped := make(map[string]bool)
+
+	for _, name := range p.structList {
+		if before, ok := strings.CutSuffix(name, "Command"); ok && before != "" {
+			wrapped[before] = true
+		}
+	}
+
+	if len(wrapped) == 0 {
+		return
+	}
+
+	filtered := make([]string, 0, len(p.funcList))
+
+	for _, name := range p.funcList {
+		if !wrapped[name] {
+			filtered = append(filtered, name)
+		}
+	}
+
+	p.funcList = filtered
+}
+
+// checkDuplicates ensures no duplicate command names exist.
+func (p *packageInfoParser) checkDuplicates() error {
 	seen := make(map[string]string)
 
-	for _, name := range structList {
-		cmd := camelToKebab(name)
-		seen[cmd] = name
+	for _, name := range p.structList {
+		seen[camelToKebab(name)] = name
 	}
 
-	for _, name := range funcList {
+	for _, name := range p.funcList {
 		cmd := camelToKebab(name)
 		if other, ok := seen[cmd]; ok {
-			return PackageInfo{}, fmt.Errorf(
+			return fmt.Errorf(
 				"duplicate command name %q from %s and %s",
 				cmd,
 				other,
@@ -591,28 +728,47 @@ func parsePackageInfo(dir taggedDir) (PackageInfo, error) {
 		}
 	}
 
-	commands := make([]CommandInfo, 0, len(structList)+len(funcList))
+	return nil
+}
+
+// buildResult constructs the final PackageInfo.
+func (p *packageInfoParser) buildResult() PackageInfo {
+	commands, fileCommands := p.buildCommands()
+	files := p.buildFiles(fileCommands)
+
+	return PackageInfo{
+		Dir:      p.dir.Path,
+		Package:  p.packageName,
+		Doc:      p.packageDoc,
+		Commands: commands,
+		Files:    files,
+	}
+}
+
+// buildCommands creates CommandInfo for all structs and funcs.
+func (p *packageInfoParser) buildCommands() ([]CommandInfo, map[string][]CommandInfo) {
+	commands := make([]CommandInfo, 0, len(p.structList)+len(p.funcList))
 	fileCommands := make(map[string][]CommandInfo)
 
-	for _, name := range structList {
+	for _, name := range p.structList {
 		cmd := CommandInfo{
 			Name:        name,
 			Kind:        CommandStruct,
-			File:        structFiles[name],
-			Description: structDescriptions[name],
+			File:        p.structFiles[name],
+			Description: p.structDescriptions[name],
 		}
 		commands = append(commands, cmd)
 		fileCommands[cmd.File] = append(fileCommands[cmd.File], cmd)
 	}
 
-	for _, name := range funcList {
+	for _, name := range p.funcList {
 		cmd := CommandInfo{
 			Name:         name,
 			Kind:         CommandFunc,
-			File:         funcFiles[name],
-			Description:  funcDescriptions[name],
-			UsesContext:  funcUsesContext[name],
-			ReturnsError: funcReturnsError[name],
+			File:         p.funcFiles[name],
+			Description:  p.funcDescriptions[name],
+			UsesContext:  p.funcUsesContext[name],
+			ReturnsError: p.funcReturnsError[name],
 		}
 		commands = append(commands, cmd)
 		fileCommands[cmd.File] = append(fileCommands[cmd.File], cmd)
@@ -622,7 +778,13 @@ func parsePackageInfo(dir taggedDir) (PackageInfo, error) {
 		return commands[i].Name < commands[j].Name
 	})
 
+	return commands, fileCommands
+}
+
+// buildFiles creates FileInfo from the file-grouped commands.
+func (p *packageInfoParser) buildFiles(fileCommands map[string][]CommandInfo) []FileInfo {
 	files := make([]FileInfo, 0, len(fileCommands))
+
 	for path, cmds := range fileCommands {
 		sort.Slice(cmds, func(i, j int) bool {
 			return cmds[i].Name < cmds[j].Name
@@ -638,13 +800,7 @@ func parsePackageInfo(dir taggedDir) (PackageInfo, error) {
 		return files[i].Path < files[j].Path
 	})
 
-	return PackageInfo{
-		Dir:      dir.Path,
-		Package:  packageName,
-		Doc:      packageDoc,
-		Commands: commands,
-		Files:    files,
-	}, nil
+	return files
 }
 
 func processDirectory(

@@ -289,7 +289,16 @@ func parseCommandArgsWithPosition(
 	allowIncomplete bool,
 	argPosition *int,
 ) (parseResult, error) {
-	ctx, err := prepareParseContext(node, inst, chain, args, visited, explicit, allowIncomplete, argPosition)
+	ctx, err := prepareParseContext(
+		node,
+		inst,
+		chain,
+		args,
+		visited,
+		explicit,
+		allowIncomplete,
+		argPosition,
+	)
 	if err != nil {
 		return parseResult{}, err
 	}
@@ -485,7 +494,11 @@ func (ctx *parseContext) trySubcommandOrUnknown(i int, arg string) (*parseResult
 }
 
 // applyPositionalDefaults applies defaults and validates required positionals.
-func applyPositionalDefaults(posSpecs []positionalSpec, posCounts []int, enforceRequired bool) error {
+func applyPositionalDefaults(
+	posSpecs []positionalSpec,
+	posCounts []int,
+	enforceRequired bool,
+) error {
 	for idx, spec := range posSpecs {
 		if posCounts[idx] == 0 && spec.opts.Default != nil {
 			if err := setFieldFromString(spec.value, *spec.opts.Default); err != nil {
