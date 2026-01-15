@@ -37,43 +37,75 @@ func collectFlagSpecs(chain []commandInstance) ([]*flagSpec, map[string]bool, er
 	usedNames := map[string]bool{}
 
 	for _, inst := range chain {
-		if inst.node == nil || inst.node.Type == nil {
-			continue
+		instSpecs, err := collectInstanceFlagSpecs(inst, usedNames)
+		if err != nil {
+			return nil, nil, err
 		}
 
-		typ := inst.node.Type
-		for i := 0; i < typ.NumField(); i++ {
-			field := typ.Field(i)
-			fieldVal := inst.value.Field(i)
-
-			spec, ok, err := flagSpecForField(inst.value, field, fieldVal)
-			if err != nil {
-				return nil, nil, err
-			}
-
-			if !ok || spec == nil {
-				continue
-			}
-
-			if usedNames[spec.name] {
-				return nil, nil, fmt.Errorf("flag %s already defined", spec.name)
-			}
-
-			usedNames[spec.name] = true
-			if spec.short != "" {
-				if usedNames[spec.short] {
-					return nil, nil, fmt.Errorf("flag %s already defined", spec.short)
-				}
-
-				usedNames[spec.short] = true
-			}
-
+		for _, spec := range instSpecs {
 			longNames[spec.name] = true
 			specs = append(specs, spec)
 		}
 	}
 
 	return specs, longNames, nil
+}
+
+func collectInstanceFlagSpecs(inst commandInstance, usedNames map[string]bool) ([]*flagSpec, error) {
+	if inst.node == nil || inst.node.Type == nil {
+		return nil, nil
+	}
+
+	var specs []*flagSpec
+
+	typ := inst.node.Type
+	for i := 0; i < typ.NumField(); i++ {
+		spec, err := collectFieldFlagSpec(inst, typ.Field(i), inst.value.Field(i), usedNames)
+		if err != nil {
+			return nil, err
+		}
+
+		if spec != nil {
+			specs = append(specs, spec)
+		}
+	}
+
+	return specs, nil
+}
+
+func collectFieldFlagSpec(inst commandInstance, field reflect.StructField, fieldVal reflect.Value, usedNames map[string]bool) (*flagSpec, error) {
+	spec, ok, err := flagSpecForField(inst.value, field, fieldVal)
+	if err != nil {
+		return nil, err
+	}
+
+	if !ok || spec == nil {
+		return nil, nil
+	}
+
+	if err := registerFlagName(spec, usedNames); err != nil {
+		return nil, err
+	}
+
+	return spec, nil
+}
+
+func registerFlagName(spec *flagSpec, usedNames map[string]bool) error {
+	if usedNames[spec.name] {
+		return fmt.Errorf("flag %s already defined", spec.name)
+	}
+
+	usedNames[spec.name] = true
+
+	if spec.short != "" {
+		if usedNames[spec.short] {
+			return fmt.Errorf("flag %s already defined", spec.short)
+		}
+
+		usedNames[spec.short] = true
+	}
+
+	return nil
 }
 
 func collectPositionalSpecs(node *commandNode, inst reflect.Value) ([]positionalSpec, error) {
@@ -114,31 +146,45 @@ func collectPositionalSpecs(node *commandNode, inst reflect.Value) ([]positional
 }
 
 func customSetter(fieldVal reflect.Value) (func(string) error, bool) {
-	if fieldVal.CanAddr() {
-		ptr := fieldVal.Addr()
-		if ptr.Type().Implements(textUnmarshalerType) {
-			return func(value string) error {
-				u, ok := ptr.Interface().(encoding.TextUnmarshaler)
-				if !ok {
-					return errors.New("type assertion to TextUnmarshaler failed")
-				}
-
-				return u.UnmarshalText([]byte(value))
-			}, true
-		}
-
-		if ptr.Type().Implements(stringSetterType) {
-			return func(value string) error {
-				s, ok := ptr.Interface().(interface{ Set(s string) error })
-				if !ok {
-					return errors.New("type assertion to Set(string) error failed")
-				}
-
-				return s.Set(value)
-			}, true
-		}
+	if setter, ok := addressableCustomSetter(fieldVal); ok {
+		return setter, true
 	}
 
+	return valueTypeCustomSetter(fieldVal)
+}
+
+func addressableCustomSetter(fieldVal reflect.Value) (func(string) error, bool) {
+	if !fieldVal.CanAddr() {
+		return nil, false
+	}
+
+	ptr := fieldVal.Addr()
+	if ptr.Type().Implements(textUnmarshalerType) {
+		return func(value string) error {
+			u, ok := ptr.Interface().(encoding.TextUnmarshaler)
+			if !ok {
+				return errors.New("type assertion to TextUnmarshaler failed")
+			}
+
+			return u.UnmarshalText([]byte(value))
+		}, true
+	}
+
+	if ptr.Type().Implements(stringSetterType) {
+		return func(value string) error {
+			s, ok := ptr.Interface().(interface{ Set(s string) error })
+			if !ok {
+				return errors.New("type assertion to Set(string) error failed")
+			}
+
+			return s.Set(value)
+		}, true
+	}
+
+	return nil, false
+}
+
+func valueTypeCustomSetter(fieldVal reflect.Value) (func(string) error, bool) {
 	fieldType := fieldVal.Type()
 	if fieldType.Implements(textUnmarshalerType) {
 		return func(value string) error {
@@ -461,43 +507,55 @@ func parseFlagValueWithPosition(
 	argPosition *int,
 ) (int, error) {
 	if spec.value.Kind() == reflect.Bool {
-		spec.value.SetBool(true)
-
-		if argPosition != nil {
-			*argPosition++
-		}
-
-		return 0, nil
+		return parseBoolFlagValue(spec, argPosition)
 	}
 
 	if spec.value.Kind() == reflect.Slice {
-		count := 0
-
-		for i := index + 1; i < len(args); i++ {
-			next := args[i]
-			if next == "--" || strings.HasPrefix(next, "-") {
-				break
-			}
-
-			err := setFieldWithPosition(spec.value, next, argPosition)
-			if err != nil {
-				return 0, err
-			}
-
-			count++
-		}
-
-		if count == 0 {
-			if allowIncomplete && index+1 >= len(args) {
-				return 0, nil
-			}
-
-			return 0, fmt.Errorf("flag needs an argument: --%s", spec.name)
-		}
-
-		return count, nil
+		return parseSliceFlagValue(spec, args, index, allowIncomplete, argPosition)
 	}
 
+	return parseSingleFlagValue(spec, args, index, allowIncomplete, argPosition)
+}
+
+func parseBoolFlagValue(spec *flagSpec, argPosition *int) (int, error) {
+	spec.value.SetBool(true)
+
+	if argPosition != nil {
+		*argPosition++
+	}
+
+	return 0, nil
+}
+
+func parseSliceFlagValue(spec *flagSpec, args []string, index int, allowIncomplete bool, argPosition *int) (int, error) {
+	count := 0
+
+	for i := index + 1; i < len(args); i++ {
+		next := args[i]
+		if next == "--" || strings.HasPrefix(next, "-") {
+			break
+		}
+
+		err := setFieldWithPosition(spec.value, next, argPosition)
+		if err != nil {
+			return 0, err
+		}
+
+		count++
+	}
+
+	if count == 0 {
+		if allowIncomplete && index+1 >= len(args) {
+			return 0, nil
+		}
+
+		return 0, fmt.Errorf("flag needs an argument: --%s", spec.name)
+	}
+
+	return count, nil
+}
+
+func parseSingleFlagValue(spec *flagSpec, args []string, index int, allowIncomplete bool, argPosition *int) (int, error) {
 	if index+1 >= len(args) {
 		if allowIncomplete {
 			return 0, nil
