@@ -204,7 +204,8 @@ func doCompletion(roots []*commandNode, commandLine string) error {
 	singleRoot := len(roots) == 1
 	atRoot := true
 	allowRootSuggestions := len(roots) > 1
-	positionalsComplete := false
+
+	var positionalsComplete bool
 
 	if singleRoot {
 		currentNode = roots[0]
@@ -273,7 +274,6 @@ func doCompletion(roots []*commandNode, commandLine string) error {
 			processedArgs = result.remaining
 			explicit = true
 			atRoot = false
-			positionalsComplete = false
 
 			continue
 		}
@@ -289,7 +289,6 @@ func doCompletion(roots []*commandNode, commandLine string) error {
 				processedArgs = result.remaining[1:]
 				explicit = true
 				atRoot = false
-				positionalsComplete = false
 
 				continue
 			}
@@ -298,7 +297,6 @@ func doCompletion(roots []*commandNode, commandLine string) error {
 			processedArgs = result.remaining
 			explicit = false
 			atRoot = true
-			positionalsComplete = false
 
 			continue
 		}
@@ -472,24 +470,14 @@ func enumValuesForArg(
 		return nil, false, nil
 	}
 
-	previous := ""
+	if len(args) == 0 {
+		return nil, false, nil
+	}
 
-	if isNewArg {
-		if len(args) == 0 {
-			return nil, false, nil
-		}
+	previous := args[len(args)-1]
 
-		previous = args[len(args)-1]
-	} else {
-		if len(args) == 0 {
-			return nil, false, nil
-		}
-
-		previous = args[len(args)-1]
-
-		if strings.HasPrefix(prefix, "-") {
-			return nil, false, nil
-		}
+	if !isNewArg && strings.HasPrefix(prefix, "-") {
+		return nil, false, nil
 	}
 
 	if values, ok := enumByFlag[previous]; ok {

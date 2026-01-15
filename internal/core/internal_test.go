@@ -1731,9 +1731,7 @@ type subStructSub struct{}
 func (s subStructSub) Run() {}
 
 // plainType has no custom setter
-type testPlainType struct {
-	value string
-}
+type testPlainType struct{}
 
 // stringSetterType implements Set(string) error
 type testStringSetter struct {

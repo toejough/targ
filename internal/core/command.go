@@ -197,7 +197,6 @@ type flagSpec struct {
 	value          reflect.Value
 	name           string
 	short          string
-	usage          string
 	env            string
 	defaultValue   *string
 	required       bool
@@ -825,7 +824,6 @@ func flagSpecForField(
 		value:        fieldVal,
 		name:         opts.Name,
 		short:        opts.Short,
-		usage:        opts.Desc,
 		env:          opts.Env,
 		defaultValue: opts.Default,
 		required:     opts.Required,

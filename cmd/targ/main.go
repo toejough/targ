@@ -851,11 +851,10 @@ func buildBootstrapData(
 			}
 		}
 
-		importName := ""
 		prefix := ""
 
 		if !local {
-			importName = uniqueImportName(info.Package, usedImports)
+			importName := uniqueImportName(info.Package, usedImports)
 			prefix = importName + "."
 			imports = append(imports, bootstrapImport{
 				Path:  importPath,
