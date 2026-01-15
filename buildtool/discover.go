@@ -331,13 +331,13 @@ func filterStructs(
 	return result
 }
 
-func findTaggedDirs(fs FileSystem, startDir, tag string) ([]taggedDir, error) {
-	type dirEntry struct {
-		path  string
-		depth int
-	}
+type dirQueueEntry struct {
+	path  string
+	depth int
+}
 
-	queue := []dirEntry{{path: startDir, depth: 0}}
+func findTaggedDirs(fs FileSystem, startDir, tag string) ([]taggedDir, error) {
+	queue := []dirQueueEntry{{path: startDir, depth: 0}}
 
 	var results []taggedDir
 
@@ -345,55 +345,12 @@ func findTaggedDirs(fs FileSystem, startDir, tag string) ([]taggedDir, error) {
 		current := queue[0]
 		queue = queue[1:]
 
-		entries, err := fs.ReadDir(current.path)
+		tagged, newDirs, err := processDirectory(fs, current, tag)
 		if err != nil {
 			return nil, err
 		}
 
-		sort.Slice(entries, func(i, j int) bool {
-			return entries[i].Name() < entries[j].Name()
-		})
-
-		var tagged []taggedFile
-
-		for _, entry := range entries {
-			name := entry.Name()
-
-			fullPath := filepath.Join(current.path, name)
-			if entry.IsDir() {
-				if name == ".git" || name == "vendor" {
-					continue
-				}
-
-				queue = append(queue, dirEntry{path: fullPath, depth: current.depth + 1})
-
-				continue
-			}
-
-			if !strings.HasSuffix(name, ".go") {
-				continue
-			}
-
-			if strings.HasSuffix(name, "_test.go") {
-				continue
-			}
-
-			if strings.HasPrefix(name, "generated_targ_") {
-				continue
-			}
-
-			content, err := fs.ReadFile(fullPath)
-			if err != nil {
-				return nil, err
-			}
-
-			if hasBuildTag(content, tag) {
-				tagged = append(tagged, taggedFile{
-					Path:    fullPath,
-					Content: content,
-				})
-			}
-		}
+		queue = append(queue, newDirs...)
 
 		if len(tagged) > 0 {
 			results = append(results, taggedDir{
@@ -405,6 +362,76 @@ func findTaggedDirs(fs FileSystem, startDir, tag string) ([]taggedDir, error) {
 	}
 
 	return results, nil
+}
+
+func processDirectory(fs FileSystem, current dirQueueEntry, tag string) ([]taggedFile, []dirQueueEntry, error) {
+	entries, err := fs.ReadDir(current.path)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].Name() < entries[j].Name()
+	})
+
+	var tagged []taggedFile
+
+	var subdirs []dirQueueEntry
+
+	for _, entry := range entries {
+		name := entry.Name()
+		fullPath := filepath.Join(current.path, name)
+
+		if entry.IsDir() {
+			if !shouldSkipDir(name) {
+				subdirs = append(subdirs, dirQueueEntry{path: fullPath, depth: current.depth + 1})
+			}
+
+			continue
+		}
+
+		if file, ok := tryReadTaggedFile(fs, fullPath, name, tag); ok {
+			tagged = append(tagged, file)
+		}
+	}
+
+	return tagged, subdirs, nil
+}
+
+func shouldSkipDir(name string) bool {
+	return name == ".git" || name == "vendor"
+}
+
+func shouldSkipGoFile(name string) bool {
+	if !strings.HasSuffix(name, ".go") {
+		return true
+	}
+
+	if strings.HasSuffix(name, "_test.go") {
+		return true
+	}
+
+	return strings.HasPrefix(name, "generated_targ_")
+}
+
+func tryReadTaggedFile(fs FileSystem, fullPath, name, tag string) (taggedFile, bool) {
+	if shouldSkipGoFile(name) {
+		return taggedFile{}, false
+	}
+
+	content, err := fs.ReadFile(fullPath)
+	if err != nil {
+		return taggedFile{}, false
+	}
+
+	if !hasBuildTag(content, tag) {
+		return taggedFile{}, false
+	}
+
+	return taggedFile{
+		Path:    fullPath,
+		Content: content,
+	}, true
 }
 
 func funcParamIsContext(expr ast.Expr, ctxAliases map[string]bool, ctxDotImport bool) bool {

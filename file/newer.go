@@ -125,35 +125,44 @@ func newerWithOutputs(inputs, outputs []string) (bool, error) {
 		return true, nil
 	}
 
-	latestInput := time.Time{}
-
-	for _, path := range inMatches {
-		info, err := os.Stat(path)
-		if err != nil {
-			return true, nil
-		}
-
-		if info.ModTime().After(latestInput) {
-			latestInput = info.ModTime()
-		}
-	}
-
-	if latestInput.IsZero() {
+	latestInput, inputMissing := latestModTime(inMatches)
+	if inputMissing || latestInput.IsZero() {
 		return true, nil
 	}
 
-	for _, path := range outMatches {
+	return anyOutputOlderThan(outMatches, latestInput), nil
+}
+
+func latestModTime(paths []string) (time.Time, bool) {
+	latest := time.Time{}
+
+	for _, path := range paths {
 		info, err := os.Stat(path)
 		if err != nil {
-			return true, nil
+			return time.Time{}, true
 		}
 
-		if info.ModTime().Before(latestInput) {
-			return true, nil
+		if info.ModTime().After(latest) {
+			latest = info.ModTime()
 		}
 	}
 
-	return false, nil
+	return latest, false
+}
+
+func anyOutputOlderThan(outputs []string, threshold time.Time) bool {
+	for _, path := range outputs {
+		info, err := os.Stat(path)
+		if err != nil {
+			return true
+		}
+
+		if info.ModTime().Before(threshold) {
+			return true
+		}
+	}
+
+	return false
 }
 
 func readCache(path string) (*newerCache, error) {
