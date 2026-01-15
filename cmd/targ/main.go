@@ -1481,6 +1481,16 @@ func camelToKebab(name string) string {
 	return result.String()
 }
 
+// cleanupStaleModSymlinks removes stale go.mod/go.sum symlinks from before the fix.
+func cleanupStaleModSymlinks(root string) {
+	for _, name := range []string{"go.mod", "go.sum"} {
+		dst := filepath.Join(root, name)
+		if symlinkExists(dst) {
+			_ = os.Remove(dst)
+		}
+	}
+}
+
 func collectModuleFiles(moduleRoot string) ([]buildtool.TaggedFile, error) {
 	var files []buildtool.TaggedFile
 
@@ -2170,6 +2180,27 @@ func hasTargBuildTag(path string) bool {
 	return false
 }
 
+// linkModuleEntry creates a symlink for a single directory entry if needed.
+func linkModuleEntry(startDir, root string, entry os.DirEntry) error {
+	name := entry.Name()
+	// Skip .git and module files - we'll create our own go.mod/go.sum
+	if name == ".git" || name == "go.mod" || name == "go.sum" {
+		return nil
+	}
+
+	src := filepath.Join(startDir, name)
+	dst := filepath.Join(root, name)
+
+	if symlinkExists(dst) {
+		return nil
+	}
+
+	// Remove non-symlink file/dir if it exists
+	_ = os.RemoveAll(dst)
+
+	return os.Symlink(src, dst)
+}
+
 func linkModuleRoot(startDir, root string) error {
 	entries, err := os.ReadDir(startDir)
 	if err != nil {
@@ -2177,39 +2208,13 @@ func linkModuleRoot(startDir, root string) error {
 	}
 
 	for _, entry := range entries {
-		name := entry.Name()
-		// Skip .git and module files - we'll create our own go.mod/go.sum
-		if name == ".git" || name == "go.mod" || name == "go.sum" {
-			continue
-		}
-
-		src := filepath.Join(startDir, name)
-		dst := filepath.Join(root, name)
-
-		info, err := os.Lstat(dst)
-		if err == nil {
-			if info.Mode()&os.ModeSymlink != 0 {
-				continue
-			}
-
-			_ = os.RemoveAll(dst)
-		} else if !os.IsNotExist(err) {
-			return err
-		}
-
-		if err := os.Symlink(src, dst); err != nil {
+		err := linkModuleEntry(startDir, root, entry)
+		if err != nil {
 			return err
 		}
 	}
-	// Clean up stale go.mod/go.sum symlinks from before the fix
-	for _, name := range []string{"go.mod", "go.sum"} {
-		dst := filepath.Join(root, name)
 
-		info, err := os.Lstat(dst)
-		if err == nil && info.Mode()&os.ModeSymlink != 0 {
-			_ = os.Remove(dst)
-		}
-	}
+	cleanupStaleModSymlinks(root)
 
 	return nil
 }
@@ -2710,6 +2715,16 @@ func subcommandTag(fieldName, segment string) string {
 	}
 
 	return fmt.Sprintf(`targ:"subcommand,name=%s"`, segment)
+}
+
+// symlinkExists returns true if dst is an existing symlink.
+func symlinkExists(dst string) bool {
+	info, err := os.Lstat(dst)
+	if err != nil || info == nil {
+		return false
+	}
+
+	return info.Mode()&os.ModeSymlink != 0
 }
 
 // targCacheDir returns the centralized cache directory for targ following XDG spec.
