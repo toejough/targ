@@ -165,6 +165,16 @@ func InvalidReturnFunc() int {
 	return 42
 }
 
+func TooManyReturnsFunc() (int, error) {
+	return 42, nil
+}
+
+type TooManyReturnsMethod struct{}
+
+func (t *TooManyReturnsMethod) Run() (int, error) {
+	return 42, nil
+}
+
 // --- parseFunc tests ---
 
 func InvalidSigFunc(a, b int) {}
@@ -989,6 +999,28 @@ func TestParseTarget_InvalidFunctionReturn(t *testing.T) {
 
 	// Function returning non-error
 	_, err := parseTarget(InvalidReturnFunc)
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("return only error"))
+}
+
+func TestParseTarget_TooManyReturns(t *testing.T) {
+	g := NewWithT(t)
+
+	// Function returning multiple values
+	_, err := parseTarget(TooManyReturnsFunc)
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("return only error"))
+}
+
+func TestExecute_MethodTooManyReturns(t *testing.T) {
+	g := NewWithT(t)
+
+	// Struct with Run method returning multiple values
+	cmd := &TooManyReturnsMethod{}
+	node, err := parseStruct(cmd)
+	g.Expect(err).NotTo(HaveOccurred())
+
+	err = node.execute(context.TODO(), []string{}, RunOptions{})
 	g.Expect(err).To(HaveOccurred())
 	g.Expect(err.Error()).To(ContainSubstring("return only error"))
 }

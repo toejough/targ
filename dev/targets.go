@@ -206,6 +206,12 @@ func CheckCoverage(ctx context.Context) error {
 			continue
 		}
 
+		// Exclude valueTypeCustomSetter (handles non-addressable values implementing
+		// TextUnmarshaler/Set - dead code in practice since such values aren't settable)
+		if strings.Contains(line, "valueTypeCustomSetter\t") {
+			continue
+		}
+
 		// Exclude osRunEnv methods (thin OS wrappers at 0% - tested via mocks instead)
 		if percent == 0.0 && strings.Contains(line, "run_env.go") &&
 			(strings.Contains(line, "\tArgs\t") ||

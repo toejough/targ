@@ -1241,6 +1241,30 @@ package pkg2
 	}
 }
 
+func TestShouldSkipGoFile(t *testing.T) {
+	tests := []struct {
+		name     string
+		filename string
+		want     bool
+	}{
+		{"regular go file", "main.go", false},
+		{"test file", "main_test.go", true},
+		{"generated targ file", "generated_targ_bootstrap.go", true},
+		{"non-go file", "readme.md", true},
+		{"non-go file txt", "notes.txt", true},
+		{"go in name but wrong suffix", "go.mod", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := shouldSkipGoFile(tt.filename)
+			if got != tt.want {
+				t.Errorf("shouldSkipGoFile(%q) = %v, want %v", tt.filename, got, tt.want)
+			}
+		})
+	}
+}
+
 type fakeDirEntry struct {
 	name string
 	dir  bool
