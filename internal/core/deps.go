@@ -54,26 +54,8 @@ func Deps(args ...interface{}) error {
 	return serialRun(tracker, ctx, targets, cfg.continueOnError)
 }
 
-// Deprecated: Use Deps with WithContext() option instead.
-func DepsCtx(ctx context.Context, targets ...interface{}) error {
-	args := append([]interface{}{WithContext(ctx)}, targets...)
-	return Deps(args...)
-}
-
 // Parallel runs dependencies concurrently instead of sequentially.
 func Parallel() DepsOption { return parallelOpt{} }
-
-// Deprecated: Use Deps with Parallel() option instead.
-func ParallelDeps(targets ...interface{}) error {
-	args := append([]interface{}{Parallel(), ContinueOnError()}, targets...)
-	return Deps(args...)
-}
-
-// Deprecated: Use Deps with Parallel() and WithContext() options instead.
-func ParallelDepsCtx(ctx context.Context, targets ...interface{}) error {
-	args := append([]interface{}{Parallel(), ContinueOnError(), WithContext(ctx)}, targets...)
-	return Deps(args...)
-}
 
 // ResetDeps clears the dependency execution cache, allowing all targets
 // to run again on subsequent Deps() calls. This is useful for watch mode

@@ -232,3 +232,50 @@ func overrideStdio(t *testing.T) func() {
 		stdin = prevStdin
 	}
 }
+
+func TestExeSuffix(t *testing.T) {
+	suffix := ExeSuffix()
+	if IsWindows() {
+		if suffix != ".exe" {
+			t.Errorf("expected .exe on Windows, got %q", suffix)
+		}
+	} else {
+		if suffix != "" {
+			t.Errorf("expected empty string on non-Windows, got %q", suffix)
+		}
+	}
+}
+
+func TestIsWindows(t *testing.T) {
+	// Just verify it returns a bool and doesn't panic
+	_ = IsWindows()
+}
+
+func TestWithExeSuffix(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"myapp", "myapp"},
+		{"myapp.exe", "myapp.exe"},
+		{"path/to/myapp", "path/to/myapp"},
+	}
+
+	if IsWindows() {
+		tests[0].expected = "myapp.exe"
+		tests[2].expected = "path/to/myapp.exe"
+	}
+
+	for _, tc := range tests {
+		result := WithExeSuffix(tc.input)
+		if result != tc.expected {
+			t.Errorf("WithExeSuffix(%q) = %q, want %q", tc.input, result, tc.expected)
+		}
+	}
+}
+
+func TestEnableCleanup(t *testing.T) {
+	// EnableCleanup should be idempotent - calling multiple times is safe
+	EnableCleanup()
+	EnableCleanup() // Second call should not panic or cause issues
+}

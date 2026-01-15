@@ -29,17 +29,6 @@ import (
 	"github.com/toejough/testredundancy"
 )
 
-// Build builds the local impgen binary.
-func Build() error {
-	fmt.Println("Building impgen...")
-
-	if err := os.MkdirAll("bin", 0o755); err != nil {
-		return fmt.Errorf("failed to create bin directory: %w", err)
-	}
-
-	return sh.Run("go", "build", "-o", "bin/impgen", "./impgen")
-}
-
 // Check runs all checks & fixes on the code, in order of correctness.
 func Check(ctx context.Context) error {
 	fmt.Println("Checking...")
@@ -457,27 +446,12 @@ func Fuzz() error {
 	return nil
 }
 
-// Generate runs go generate on all packages using the locally-built impgen binary.
+// Generate runs go generate on all packages
 func Generate() error {
 	fmt.Println("Generating...")
 
-	if err := targ.Deps(Build); err != nil {
-		return err
-	}
-
-	// Get current PATH and prepend our bin directory
-	currentPath := os.Getenv("PATH")
-
-	binDir, err := filepath.Abs("bin")
-	if err != nil {
-		return fmt.Errorf("failed to get absolute path for bin: %w", err)
-	}
-
-	newPath := binDir + string(filepath.ListSeparator) + currentPath
-
 	// Run go generate with modified PATH
 	cmd := exec.Command("go", "generate", "./...")
-	cmd.Env = append(os.Environ(), "PATH="+newPath)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -745,7 +719,7 @@ func Test(ctx context.Context) error {
 		"-race",
 		"-count=1",
 		"-coverprofile=coverage.out",
-		"-coverpkg=./impgen/...,./imptest/...",
+		"-coverpkg=./...",
 		"-cover",
 		"./...",
 	)

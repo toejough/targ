@@ -6,7 +6,6 @@ import (
 	"reflect"
 	"strings"
 
-	"github.com/toejough/targ/file"
 	"github.com/toejough/targ/internal/core"
 )
 
@@ -17,10 +16,6 @@ const (
 	TagKindSubcommand = core.TagKindSubcommand
 	TagKindUnknown    = core.TagKindUnknown
 )
-
-// ChangeSet contains the files that changed between snapshots.
-// Deprecated: Use file.ChangeSet instead.
-type ChangeSet = file.ChangeSet
 
 // DepsOption configures Deps behavior.
 type DepsOption = core.DepsOption
@@ -47,10 +42,6 @@ type TagKind = core.TagKind
 // TagOptions contains parsed tag options for a struct field.
 type TagOptions = core.TagOptions
 
-// WatchOptions configures the Watch function.
-// Deprecated: Use file.WatchOptions instead.
-type WatchOptions = file.WatchOptions
-
 // ContinueOnError runs all dependencies even if one fails.
 // Without this option, Deps fails fast (cancels remaining on first error).
 func ContinueOnError() DepsOption { return core.ContinueOnError() }
@@ -64,11 +55,6 @@ func ContinueOnError() DepsOption { return core.ContinueOnError() }
 //	targ.Deps(A, B, targ.Parallel(), targ.WithContext(ctx))
 func Deps(args ...interface{}) error {
 	return core.Deps(args...)
-}
-
-// Deprecated: Use Deps with WithContext() option instead.
-func DepsCtx(ctx context.Context, targets ...interface{}) error {
-	return core.DepsCtx(ctx, targets...)
 }
 
 // DetectRootCommands filters a list of possible command objects to find those
@@ -134,32 +120,8 @@ func ExecuteWithOptions(args []string, opts RunOptions, targets ...interface{}) 
 	return ExecuteResult{Output: env.Output()}, err
 }
 
-// --- Backwards-compatible file utility re-exports ---
-
-// Match expands one or more patterns using fish-style globs.
-// Deprecated: Use file.Match instead.
-func Match(patterns ...string) ([]string, error) {
-	return file.Match(patterns...)
-}
-
-// Newer reports whether inputs are newer than outputs.
-// Deprecated: Use file.Newer instead.
-func Newer(inputs []string, outputs []string) (bool, error) {
-	return file.Newer(inputs, outputs)
-}
-
 // Parallel runs dependencies concurrently instead of sequentially.
 func Parallel() DepsOption { return core.Parallel() }
-
-// Deprecated: Use Deps with Parallel() and ContinueOnError() options instead.
-func ParallelDeps(targets ...interface{}) error {
-	return core.ParallelDeps(targets...)
-}
-
-// Deprecated: Use Deps with Parallel(), ContinueOnError(), and WithContext() options instead.
-func ParallelDepsCtx(ctx context.Context, targets ...interface{}) error {
-	return core.ParallelDepsCtx(ctx, targets...)
-}
 
 // PrintCompletionScript outputs shell completion scripts for the given shell.
 func PrintCompletionScript(shell string, binName string) error {
@@ -189,12 +151,6 @@ func RunWithOptions(opts RunOptions, targets ...interface{}) {
 		}
 		os.Exit(1)
 	}
-}
-
-// Watch polls patterns for changes and invokes fn with any detected changes.
-// Deprecated: Use file.Watch instead.
-func Watch(ctx context.Context, patterns []string, opts WatchOptions, fn func(ChangeSet) error) error {
-	return file.Watch(ctx, patterns, opts, fn)
 }
 
 // WithContext passes a custom context to dependencies.

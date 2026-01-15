@@ -97,7 +97,7 @@ func TestParallelDepsReturnsError(t *testing.T) {
 	err := withDepTracker(context.Background(), func() error {
 		done := make(chan error, 1)
 		go func() {
-			done <- ParallelDeps(bad, waiter)
+			done <- Deps(bad, waiter, Parallel(), ContinueOnError())
 		}()
 		select {
 		case <-started:
@@ -124,7 +124,7 @@ func TestParallelDepsRunsConcurrently(t *testing.T) {
 	err := withDepTracker(context.Background(), func() error {
 		done := make(chan error, 1)
 		go func() {
-			done <- ParallelDeps(worker, func() { worker() })
+			done <- Deps(worker, func() { worker() }, Parallel(), ContinueOnError())
 		}()
 
 		timeout := time.After(200 * time.Millisecond)
@@ -157,7 +157,7 @@ func TestParallelDepsSharesDependencies(t *testing.T) {
 	}
 
 	err := withDepTracker(context.Background(), func() error {
-		return ParallelDeps(target, func() error { return target() })
+		return Deps(target, func() error { return target() }, Parallel(), ContinueOnError())
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)

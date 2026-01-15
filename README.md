@@ -17,7 +17,7 @@ Build CLIs and run build targets with minimal configuration. Inspired by Mage, g
 | Run shell commands  | `sh.Run("go", "build")` or `sh.RunContext(ctx, ...)`  |
 | Skip unchanged work | `file.Newer(inputs, outputs)` or `file.Checksum(...)` |
 | Watch for changes   | `file.Watch(ctx, patterns, opts, callback)`           |
-| Run deps once       | `targ.Deps(A, B, C)` or `targ.ParallelDeps(...)`      |
+| Run deps once       | `targ.Deps(A, B, C)` or `targ.Deps(..., targ.Parallel())` |
 | Scaffold a target   | `targ --alias tidy "go mod tidy"`                     |
 
 ## Installation
@@ -422,7 +422,7 @@ func CI() error {
     if err := targ.Deps(Generate); err != nil {
         return err
     }
-    if err := targ.ParallelDeps(Build, Lint); err != nil {
+    if err := targ.Deps(Build, Lint, targ.Parallel()); err != nil {
         return err
     }
     return targ.Deps(Test)
