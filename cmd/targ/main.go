@@ -697,6 +697,75 @@ type namespaceNode struct {
 	VarName  string
 }
 
+// canCompress returns true if this node should be compressed (skipped in output).
+func (n *namespaceNode) canCompress() bool {
+	return len(n.Children) == 1 && n.File == ""
+}
+
+// collectCompressedPaths walks the tree and collects compressed paths.
+// Assumes Children is always non-nil (enforced by insertPath and constructors).
+func (n *namespaceNode) collectCompressedPaths(
+	out map[string][]string,
+	prefix []string,
+	isRoot bool,
+) {
+	// Skip single-child intermediate nodes (compression)
+	if !isRoot && n.canCompress() {
+		for _, child := range n.Children {
+			child.collectCompressedPaths(out, prefix, false)
+		}
+
+		return
+	}
+
+	if !isRoot {
+		prefix = append(prefix, n.Name)
+	}
+
+	if n.File != "" {
+		out[n.File] = append([]string(nil), prefix...)
+	}
+
+	for _, child := range n.sortedChildren() {
+		child.collectCompressedPaths(out, prefix, false)
+	}
+}
+
+// insertPath inserts a file path into the namespace tree.
+func (n *namespaceNode) insertPath(file string, parts []string) {
+	node := n
+	for _, part := range parts {
+		child := node.Children[part]
+		if child == nil {
+			child = &namespaceNode{Name: part, Children: make(map[string]*namespaceNode)}
+			node.Children[part] = child
+		}
+
+		node = child
+	}
+
+	node.File = file
+}
+
+// sortedChildren returns children in sorted name order.
+func (n *namespaceNode) sortedChildren() []*namespaceNode {
+	names := make([]string, 0, len(n.Children))
+	for name := range n.Children {
+		names = append(names, name)
+	}
+
+	sort.Strings(names)
+
+	children := make([]*namespaceNode, 0, len(names))
+	for _, name := range names {
+		if child := n.Children[name]; child != nil {
+			children = append(children, child)
+		}
+	}
+
+	return children
+}
+
 // parseShellCommand splits a shell command string into parts.
 // Handles quoted strings.
 type shellCommandParser struct {
@@ -829,8 +898,7 @@ func addAliasToExisting(name, targetFile, code string) (string, error) {
 		return "", fmt.Errorf("ensuring sh import: %w", err)
 	}
 
-	err := appendToFile(targetFile, code)
-	if err != nil {
+	if err = appendToFile(targetFile, code); err != nil {
 		return "", err
 	}
 
@@ -1526,51 +1594,10 @@ func compressNamespacePaths(paths map[string][]string) map[string][]string {
 			continue
 		}
 
-		node := root
-		for _, part := range parts {
-			child := node.Children[part]
-			if child == nil {
-				child = &namespaceNode{Name: part, Children: make(map[string]*namespaceNode)}
-				node.Children[part] = child
-			}
-
-			node = child
-		}
-
-		node.File = file
+		root.insertPath(file, parts)
 	}
 
-	var walk func(node *namespaceNode, prefix []string)
-
-	walk = func(node *namespaceNode, prefix []string) {
-		if node != root && len(node.Children) == 1 && node.File == "" {
-			for _, child := range node.Children {
-				walk(child, prefix)
-			}
-
-			return
-		}
-
-		if node != root {
-			prefix = append(prefix, node.Name)
-		}
-
-		if node.File != "" {
-			out[node.File] = append([]string(nil), prefix...)
-		}
-
-		names := make([]string, 0, len(node.Children))
-		for name := range node.Children {
-			names = append(names, name)
-		}
-
-		sort.Strings(names)
-
-		for _, name := range names {
-			walk(node.Children[name], prefix)
-		}
-	}
-	walk(root, nil)
+	root.collectCompressedPaths(out, nil, true)
 
 	return out
 }
