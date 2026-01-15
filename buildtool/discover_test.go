@@ -1265,6 +1265,34 @@ func TestShouldSkipGoFile(t *testing.T) {
 	}
 }
 
+func TestTryReadTaggedFile_ReadFileError(t *testing.T) {
+	fsMock := MockFileSystem(t)
+	done := make(chan struct{})
+
+	var (
+		result taggedFile
+		ok     bool
+	)
+
+	go func() {
+		result, ok = tryReadTaggedFile(fsMock.Mock, "/test/file.go", "file.go", "targ")
+		close(done)
+	}()
+
+	fsMock.Method.ReadFile.ExpectCalledWithExactly("/test/file.go").
+		InjectReturnValues([]byte(nil), errors.New("read error"))
+
+	<-done
+
+	if ok {
+		t.Fatal("expected false, got true")
+	}
+
+	if result.Path != "" {
+		t.Fatalf("expected empty path, got %q", result.Path)
+	}
+}
+
 type fakeDirEntry struct {
 	name string
 	dir  bool
