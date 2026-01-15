@@ -817,46 +817,11 @@ func skipTargFlags(args []string) []string {
 	return result
 }
 
-func suggestFlags(chain []commandInstance, prefix string, atRoot bool) error {
-	if len(chain) == 0 {
-		return nil
-	}
-
-	seen := map[string]bool{}
-
-	if err := suggestCommandFlags(chain, prefix, seen); err != nil {
-		return err
-	}
-
-	suggestMatchingFlags(targGlobalFlags, prefix, seen)
-
-	if atRoot {
-		suggestMatchingFlags(targRootOnlyFlags, prefix, seen)
-	}
-
-	return nil
-}
-
 // suggestCommandFlags suggests flags from command chain fields.
 func suggestCommandFlags(chain []commandInstance, prefix string, seen map[string]bool) error {
 	for _, current := range chain {
-		if err := suggestInstanceFlags(current, prefix, seen); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-// suggestInstanceFlags suggests flags from a single command instance.
-func suggestInstanceFlags(current commandInstance, prefix string, seen map[string]bool) error {
-	if current.node == nil || current.node.Type == nil {
-		return nil
-	}
-
-	typ := current.node.Type
-	for i := 0; i < typ.NumField(); i++ {
-		if err := suggestFieldFlags(current, typ.Field(i), prefix, seen); err != nil {
+		err := suggestInstanceFlags(current, prefix, seen)
+		if err != nil {
 			return err
 		}
 	}
@@ -889,18 +854,56 @@ func suggestFieldFlags(
 	return nil
 }
 
-// suggestMatchingFlags prints flags that match the prefix.
-func suggestMatchingFlags(flags []string, prefix string, seen map[string]bool) {
-	for _, flag := range flags {
-		suggestFlag(flag, prefix, seen)
-	}
-}
-
 // suggestFlag prints a single flag if it matches prefix and hasn't been seen.
 func suggestFlag(flag, prefix string, seen map[string]bool) {
 	if strings.HasPrefix(flag, prefix) && !seen[flag] {
 		fmt.Println(flag)
 		seen[flag] = true
+	}
+}
+
+func suggestFlags(chain []commandInstance, prefix string, atRoot bool) error {
+	if len(chain) == 0 {
+		return nil
+	}
+
+	seen := map[string]bool{}
+
+	err := suggestCommandFlags(chain, prefix, seen)
+	if err != nil {
+		return err
+	}
+
+	suggestMatchingFlags(targGlobalFlags, prefix, seen)
+
+	if atRoot {
+		suggestMatchingFlags(targRootOnlyFlags, prefix, seen)
+	}
+
+	return nil
+}
+
+// suggestInstanceFlags suggests flags from a single command instance.
+func suggestInstanceFlags(current commandInstance, prefix string, seen map[string]bool) error {
+	if current.node == nil || current.node.Type == nil {
+		return nil
+	}
+
+	typ := current.node.Type
+	for i := 0; i < typ.NumField(); i++ {
+		err := suggestFieldFlags(current, typ.Field(i), prefix, seen)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// suggestMatchingFlags prints flags that match the prefix.
+func suggestMatchingFlags(flags []string, prefix string, seen map[string]bool) {
+	for _, flag := range flags {
+		suggestFlag(flag, prefix, seen)
 	}
 }
 
