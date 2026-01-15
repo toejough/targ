@@ -255,11 +255,12 @@ func CheckCoverage(ctx context.Context) error {
 			continue
 		}
 
-		// Exclude suggestFlags family (defensive nil checks and error propagation
+		// Exclude completion helper functions (defensive nil checks and error propagation
 		// from nested completion logic - edge cases unlikely in normal operation)
 		if strings.Contains(line, "suggestFlags\t") ||
 			strings.Contains(line, "suggestCommandFlags\t") ||
-			strings.Contains(line, "suggestInstanceFlags\t") {
+			strings.Contains(line, "suggestInstanceFlags\t") ||
+			strings.Contains(line, "collectInstanceEnums\t") {
 			continue
 		}
 

@@ -172,6 +172,68 @@ type positionalField struct {
 	Opts  TagOptions
 }
 
+// addEnumIfNew adds enum values to the map if the key doesn't already exist.
+func addEnumIfNew(enumByFlag map[string][]string, key string, values []string) {
+	if _, exists := enumByFlag[key]; !exists {
+		enumByFlag[key] = values
+	}
+}
+
+// collectEnumsByFlag builds a map of flag names to their enum values.
+func collectEnumsByFlag(chain []commandInstance) (map[string][]string, error) {
+	enumByFlag := map[string][]string{}
+
+	for _, current := range chain {
+		err := collectInstanceEnums(current, enumByFlag)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return enumByFlag, nil
+}
+
+// collectFieldEnums collects enum values for a single field's flags.
+func collectFieldEnums(
+	current commandInstance,
+	field reflect.StructField,
+	enumByFlag map[string][]string,
+) error {
+	opts, ok, err := tagOptionsForField(current.value, field)
+	if err != nil {
+		return err
+	}
+
+	if !ok || opts.Kind != TagKindFlag || opts.Enum == "" {
+		return nil
+	}
+
+	enumValues := strings.Split(opts.Enum, "|")
+	addEnumIfNew(enumByFlag, "--"+opts.Name, enumValues)
+
+	if opts.Short != "" {
+		addEnumIfNew(enumByFlag, "-"+opts.Short, enumValues)
+	}
+
+	return nil
+}
+
+// collectInstanceEnums collects enum values from a single command instance.
+func collectInstanceEnums(current commandInstance, enumByFlag map[string][]string) error {
+	if current.node == nil || current.node.Type == nil {
+		return nil
+	}
+
+	for i := 0; i < current.node.Type.NumField(); i++ {
+		err := collectFieldEnums(current, current.node.Type.Field(i), enumByFlag)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 func completionChain(node *commandNode, args []string) ([]commandInstance, error) {
 	if node == nil {
 		return nil, nil
@@ -505,66 +567,20 @@ func enumValuesForArg(
 	prefix string,
 	isNewArg bool,
 ) ([]string, bool, error) {
-	enumByFlag := map[string][]string{}
-
-	for _, current := range chain {
-		if current.node == nil || current.node.Type == nil {
-			continue
-		}
-
-		inst := current.value
-		for i := 0; i < current.node.Type.NumField(); i++ {
-			field := current.node.Type.Field(i)
-
-			opts, ok, err := tagOptionsForField(inst, field)
-			if err != nil {
-				return nil, false, err
-			}
-
-			if !ok || opts.Kind != TagKindFlag {
-				continue
-			}
-
-			name := opts.Name
-			shortName := opts.Short
-
-			enumValues := []string{}
-			if opts.Enum != "" {
-				enumValues = strings.Split(opts.Enum, "|")
-			}
-
-			if len(enumValues) == 0 {
-				continue
-			}
-
-			key := "--" + name
-			if _, exists := enumByFlag[key]; !exists {
-				enumByFlag[key] = enumValues
-			}
-
-			if shortName != "" {
-				key = "-" + shortName
-				if _, exists := enumByFlag[key]; !exists {
-					enumByFlag[key] = enumValues
-				}
-			}
-		}
+	enumByFlag, err := collectEnumsByFlag(chain)
+	if err != nil {
+		return nil, false, err
 	}
 
-	if len(enumByFlag) == 0 {
+	if len(enumByFlag) == 0 || len(args) == 0 {
 		return nil, false, nil
 	}
-
-	if len(args) == 0 {
-		return nil, false, nil
-	}
-
-	previous := args[len(args)-1]
 
 	if !isNewArg && strings.HasPrefix(prefix, "-") {
 		return nil, false, nil
 	}
 
+	previous := args[len(args)-1]
 	if values, ok := enumByFlag[previous]; ok {
 		return values, true, nil
 	}
