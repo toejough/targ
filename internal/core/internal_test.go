@@ -1095,6 +1095,48 @@ func TestPositionalEnumUsage(t *testing.T) {
 	}
 }
 
+func TestFlagEnumUsage(t *testing.T) {
+	type EnumFlag struct {
+		Mode string `targ:"flag,enum=dev|prod|test"`
+	}
+
+	cmd, err := parseStruct(&EnumFlag{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	usage, err := buildUsageLine(cmd)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !strings.Contains(usage, "{dev|prod|test}") {
+		t.Fatalf("expected enum flag placeholder, got: %s", usage)
+	}
+}
+
+func TestFlagDefaultPlaceholder(t *testing.T) {
+	// Test type that hits default case (not string, int, or bool)
+	type DefaultFlag struct {
+		Rate float64 `targ:"flag"`
+	}
+
+	cmd, err := parseStruct(&DefaultFlag{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	usage, err := buildUsageLine(cmd)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Default placeholder is empty string, so flag name should appear without placeholder
+	if !strings.Contains(usage, "--rate") {
+		t.Fatalf("expected flag in usage: %s", usage)
+	}
+}
+
 func TestPositionalIndex_BoolFlagNoConsume(t *testing.T) {
 	g := NewWithT(t)
 
