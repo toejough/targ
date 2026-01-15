@@ -42,7 +42,7 @@ func TestBuildBootstrapData_Namespaces(t *testing.T) {
 		}
 	}
 	collapsedPaths, _ := namespacePaths(filePaths, "/repo")
-	data, err := buildBootstrapData(infos, "/repo", "/repo", "example.com/proj", collapsedPaths, false)
+	data, err := buildBootstrapData(infos, "/repo", "/repo", "example.com/proj", collapsedPaths)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -80,7 +80,7 @@ func TestBuildBootstrapData_RootCommands(t *testing.T) {
 
 	// Compute collapsed paths for the test files
 	collapsedPaths, _ := namespacePaths([]string{"/repo/app/tasks.go"}, "/repo/app")
-	data, err := buildBootstrapData(infos, "/repo/app", "/repo", "example.com/proj", collapsedPaths, false)
+	data, err := buildBootstrapData(infos, "/repo/app", "/repo", "example.com/proj", collapsedPaths)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
