@@ -1491,6 +1491,25 @@ func cleanupStaleModSymlinks(root string) {
 	}
 }
 
+// collectFileCommands collects commands from package infos into a map by file path.
+func collectFileCommands(infos []buildtool.PackageInfo) (map[string][]commandSummary, []string) {
+	fileCommands := make(map[string][]commandSummary)
+
+	var filePaths []string
+
+	for _, info := range infos {
+		for _, file := range info.Files {
+			summaries := commandSummariesFromCommands(file.Commands)
+			fileCommands[file.Path] = summaries
+			filePaths = append(filePaths, file.Path)
+		}
+	}
+
+	sort.Strings(filePaths)
+
+	return fileCommands, filePaths
+}
+
 func collectModuleFiles(moduleRoot string) ([]buildtool.TaggedFile, error) {
 	var files []buildtool.TaggedFile
 
@@ -2343,68 +2362,19 @@ func printBuildToolHelp(out io.Writer, startDir string) error {
 	}
 
 	if len(infos) == 0 {
-		_, _ = fmt.Fprintln(out, "No tagged commands found in this directory.")
-		_, _ = fmt.Fprintln(out, "")
-		_, _ = fmt.Fprintln(out, "More info: https://github.com/toejough/targ#readme")
-
+		printNoCommandsHelp(out)
 		return nil
 	}
 
-	fileCommands := make(map[string][]commandSummary)
-
-	var filePaths []string
-
-	for _, info := range infos {
-		for _, file := range info.Files {
-			summaries := commandSummariesFromCommands(file.Commands)
-			fileCommands[file.Path] = summaries
-			filePaths = append(filePaths, file.Path)
-		}
-	}
-
-	sort.Strings(filePaths)
+	fileCommands, filePaths := collectFileCommands(infos)
 
 	paths, err := namespacePaths(filePaths, startDir)
 	if err != nil {
 		return err
 	}
 
-	var rootCommands []commandSummary
-
-	for _, path := range filePaths {
-		if len(paths[path]) != 0 {
-			continue
-		}
-
-		rootCommands = append(rootCommands, fileCommands[path]...)
-	}
-
-	if len(rootCommands) > 0 {
-		sort.Slice(rootCommands, func(i, j int) bool {
-			return rootCommands[i].Name < rootCommands[j].Name
-		})
-
-		_, _ = fmt.Fprintln(out, "Commands:")
-		printCommandSummaries(out, rootCommands)
-		_, _ = fmt.Fprintln(out, "")
-	}
-
-	tree := buildNamespaceTree(paths)
-	if len(tree.Children) > 0 {
-		names := make([]string, 0, len(tree.Children))
-		for name := range tree.Children {
-			names = append(names, name)
-		}
-
-		sort.Strings(names)
-
-		_, _ = fmt.Fprintln(out, "Subcommands:")
-		for _, name := range names {
-			_, _ = fmt.Fprintf(out, "    %s\n", name)
-		}
-
-		_, _ = fmt.Fprintln(out, "")
-	}
+	printRootCommands(out, fileCommands, paths, filePaths)
+	printSubcommandTree(out, paths)
 
 	_, _ = fmt.Fprintln(out, "")
 	_, _ = fmt.Fprintln(out, "More info: https://github.com/toejough/targ#readme")
@@ -2544,6 +2514,13 @@ func printMultiModuleHelp(registry []moduleRegistry) {
 	fmt.Println("More info: https://github.com/toejough/targ#readme")
 }
 
+// printNoCommandsHelp prints the help message when no commands are found.
+func printNoCommandsHelp(out io.Writer) {
+	_, _ = fmt.Fprintln(out, "No tagged commands found in this directory.")
+	_, _ = fmt.Fprintln(out, "")
+	_, _ = fmt.Fprintln(out, "More info: https://github.com/toejough/targ#readme")
+}
+
 // printNoTargetsCompletion outputs completion suggestions when no target files exist.
 // This allows users to discover flags like --init even before creating targets.
 func printNoTargetsCompletion(args []string) {
@@ -2581,6 +2558,57 @@ func printNoTargetsCompletion(args []string) {
 			fmt.Println(flag)
 		}
 	}
+}
+
+// printRootCommands prints commands that are at the root level (no namespace).
+func printRootCommands(
+	out io.Writer,
+	fileCommands map[string][]commandSummary,
+	paths map[string][]string,
+	filePaths []string,
+) {
+	var rootCommands []commandSummary
+
+	for _, path := range filePaths {
+		if len(paths[path]) == 0 {
+			rootCommands = append(rootCommands, fileCommands[path]...)
+		}
+	}
+
+	if len(rootCommands) == 0 {
+		return
+	}
+
+	sort.Slice(rootCommands, func(i, j int) bool {
+		return rootCommands[i].Name < rootCommands[j].Name
+	})
+
+	_, _ = fmt.Fprintln(out, "Commands:")
+	printCommandSummaries(out, rootCommands)
+	_, _ = fmt.Fprintln(out, "")
+}
+
+// printSubcommandTree prints the top-level subcommand names.
+func printSubcommandTree(out io.Writer, paths map[string][]string) {
+	tree := buildNamespaceTree(paths)
+	if len(tree.Children) == 0 {
+		return
+	}
+
+	names := make([]string, 0, len(tree.Children))
+	for name := range tree.Children {
+		names = append(names, name)
+	}
+
+	sort.Strings(names)
+
+	_, _ = fmt.Fprintln(out, "Subcommands:")
+
+	for _, name := range names {
+		_, _ = fmt.Fprintf(out, "    %s\n", name)
+	}
+
+	_, _ = fmt.Fprintln(out, "")
 }
 
 // projectCacheDir returns a project-specific subdirectory within the targ cache.
