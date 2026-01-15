@@ -824,63 +824,84 @@ func suggestFlags(chain []commandInstance, prefix string, atRoot bool) error {
 
 	seen := map[string]bool{}
 
-	for _, current := range chain {
-		if current.node == nil || current.node.Type == nil {
-			continue
-		}
-
-		inst := current.value
-
-		typ := current.node.Type
-		for i := 0; i < typ.NumField(); i++ {
-			field := typ.Field(i)
-
-			opts, ok, err := tagOptionsForField(inst, field)
-			if err != nil {
-				return err
-			}
-
-			if !ok || opts.Kind != TagKindFlag {
-				continue
-			}
-
-			name := opts.Name
-			shortName := opts.Short
-
-			longFlag := "--" + name
-			if strings.HasPrefix(longFlag, prefix) && !seen[longFlag] {
-				fmt.Println(longFlag)
-				seen[longFlag] = true
-			}
-
-			if shortName != "" {
-				shortFlag := "-" + shortName
-				if strings.HasPrefix(shortFlag, prefix) && !seen[shortFlag] {
-					fmt.Println(shortFlag)
-					seen[shortFlag] = true
-				}
-			}
-		}
+	if err := suggestCommandFlags(chain, prefix, seen); err != nil {
+		return err
 	}
 
-	// Suggest targ global flags (valid at any level)
-	for _, opt := range targGlobalFlags {
-		if strings.HasPrefix(opt, prefix) && !seen[opt] {
-			fmt.Println(opt)
-			seen[opt] = true
-		}
-	}
-	// Suggest targ root-only flags when at root
+	suggestMatchingFlags(targGlobalFlags, prefix, seen)
+
 	if atRoot {
-		for _, opt := range targRootOnlyFlags {
-			if strings.HasPrefix(opt, prefix) && !seen[opt] {
-				fmt.Println(opt)
-				seen[opt] = true
-			}
+		suggestMatchingFlags(targRootOnlyFlags, prefix, seen)
+	}
+
+	return nil
+}
+
+// suggestCommandFlags suggests flags from command chain fields.
+func suggestCommandFlags(chain []commandInstance, prefix string, seen map[string]bool) error {
+	for _, current := range chain {
+		if err := suggestInstanceFlags(current, prefix, seen); err != nil {
+			return err
 		}
 	}
 
 	return nil
+}
+
+// suggestInstanceFlags suggests flags from a single command instance.
+func suggestInstanceFlags(current commandInstance, prefix string, seen map[string]bool) error {
+	if current.node == nil || current.node.Type == nil {
+		return nil
+	}
+
+	typ := current.node.Type
+	for i := 0; i < typ.NumField(); i++ {
+		if err := suggestFieldFlags(current, typ.Field(i), prefix, seen); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// suggestFieldFlags suggests the long and short flags for a field.
+func suggestFieldFlags(
+	current commandInstance,
+	field reflect.StructField,
+	prefix string,
+	seen map[string]bool,
+) error {
+	opts, ok, err := tagOptionsForField(current.value, field)
+	if err != nil {
+		return err
+	}
+
+	if !ok || opts.Kind != TagKindFlag {
+		return nil
+	}
+
+	suggestFlag("--"+opts.Name, prefix, seen)
+
+	if opts.Short != "" {
+		suggestFlag("-"+opts.Short, prefix, seen)
+	}
+
+	return nil
+}
+
+// suggestMatchingFlags prints flags that match the prefix.
+func suggestMatchingFlags(flags []string, prefix string, seen map[string]bool) {
+	for _, flag := range flags {
+		suggestFlag(flag, prefix, seen)
+	}
+}
+
+// suggestFlag prints a single flag if it matches prefix and hasn't been seen.
+func suggestFlag(flag, prefix string, seen map[string]bool) {
+	if strings.HasPrefix(flag, prefix) && !seen[flag] {
+		fmt.Println(flag)
+		seen[flag] = true
+	}
 }
 
 func tokenizeCommandLine(commandLine string) ([]string, bool) {
