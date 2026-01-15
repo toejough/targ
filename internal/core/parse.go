@@ -129,7 +129,7 @@ func customSetter(fieldVal reflect.Value) (func(string) error, bool) {
 
 		if ptr.Type().Implements(stringSetterType) {
 			return func(value string) error {
-				s, ok := ptr.Interface().(interface{ Set(string) error })
+				s, ok := ptr.Interface().(interface{ Set(s string) error })
 				if !ok {
 					return errors.New("type assertion to Set(string) error failed")
 				}
@@ -164,7 +164,7 @@ func customSetter(fieldVal reflect.Value) (func(string) error, bool) {
 		return func(value string) error {
 			next := reflect.New(fieldType).Elem()
 
-			s, ok := next.Interface().(interface{ Set(string) error })
+			s, ok := next.Interface().(interface{ Set(s string) error })
 			if !ok {
 				return errors.New("type assertion to Set(string) error failed")
 			}
