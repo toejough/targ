@@ -1019,6 +1019,9 @@ func TestExecute_MethodTooManyReturns(t *testing.T) {
 	cmd := &TooManyReturnsMethod{}
 	node, err := parseStruct(cmd)
 	g.Expect(err).NotTo(HaveOccurred())
+	if node == nil {
+		t.Fatal("node should not be nil when err is nil")
+	}
 
 	err = node.execute(context.TODO(), []string{}, RunOptions{})
 	g.Expect(err).To(HaveOccurred())
