@@ -253,41 +253,55 @@ func applyTagOptionsOverride(
 		return opts, nil
 	}
 
-	mtype := method.Type()
-	if mtype.NumIn() != 2 || mtype.NumOut() != 2 {
-		return opts, errors.New(
-			"TagOptions must accept (string, TagOptions) and return (TagOptions, error)",
-		)
-	}
-
-	if mtype.In(0).Kind() != reflect.String || mtype.In(1) != reflect.TypeFor[TagOptions]() {
-		return opts, errors.New("TagOptions must accept (string, TagOptions)")
-	}
-
-	if mtype.Out(0) != reflect.TypeFor[TagOptions]() || !isErrorType(mtype.Out(1)) {
-		return opts, errors.New("TagOptions must return (TagOptions, error)")
+	err := validateTagOptionsSignature(method)
+	if err != nil {
+		return opts, err
 	}
 
 	results := method.Call([]reflect.Value{
 		reflect.ValueOf(field.Name),
 		reflect.ValueOf(opts),
 	})
+
+	return extractTagOptionsResult(results, opts)
+}
+
+func validateTagOptionsSignature(method reflect.Value) error {
+	mtype := method.Type()
+	if mtype.NumIn() != 2 || mtype.NumOut() != 2 {
+		return errors.New(
+			"TagOptions must accept (string, TagOptions) and return (TagOptions, error)",
+		)
+	}
+
+	if mtype.In(0).Kind() != reflect.String || mtype.In(1) != reflect.TypeFor[TagOptions]() {
+		return errors.New("TagOptions must accept (string, TagOptions)")
+	}
+
+	if mtype.Out(0) != reflect.TypeFor[TagOptions]() || !isErrorType(mtype.Out(1)) {
+		return errors.New("TagOptions must return (TagOptions, error)")
+	}
+
+	return nil
+}
+
+func extractTagOptionsResult(results []reflect.Value, fallback TagOptions) (TagOptions, error) {
 	if len(results) < 2 {
-		return opts, errors.New("TagOptions method returned wrong number of values")
+		return fallback, errors.New("TagOptions method returned wrong number of values")
 	}
 
 	if !results[1].IsNil() {
 		err, ok := results[1].Interface().(error)
 		if !ok {
-			return opts, errors.New("TagOptions method returned non-error type")
+			return fallback, errors.New("TagOptions method returned non-error type")
 		}
 
-		return opts, err
+		return fallback, err
 	}
 
 	tagOpts, ok := results[0].Interface().(TagOptions)
 	if !ok {
-		return opts, errors.New("TagOptions method returned wrong type")
+		return fallback, errors.New("TagOptions method returned wrong type")
 	}
 
 	return tagOpts, nil
@@ -312,42 +326,32 @@ func assignSubcommandField(
 			return err
 		}
 
-		if !ok || opts.Kind != TagKindSubcommand {
+		if !ok || opts.Kind != TagKindSubcommand || opts.Name != subName {
 			continue
 		}
 
-		if opts.Name != subName {
-			continue
+		return assignSubcommandValue(parentInst.Field(i), field.Type, sub, subName)
+	}
+
+	return nil
+}
+
+func assignSubcommandValue(fieldVal reflect.Value, fieldType reflect.Type, sub *commandNode, subName string) error {
+	switch fieldType.Kind() {
+	case reflect.Func:
+		if fieldVal.IsNil() {
+			return fmt.Errorf("subcommand %s is nil", subName)
 		}
 
-		fieldVal := parentInst.Field(i)
-
-		fieldType := field.Type
-		if fieldType.Kind() == reflect.Func {
-			if fieldVal.IsNil() {
-				return fmt.Errorf("subcommand %s is nil", subName)
-			}
-
-			sub.Func = fieldVal
-
-			return nil
-		}
-
-		if fieldType.Kind() == reflect.Ptr {
-			newInst := reflect.New(fieldType.Elem())
-			fieldVal.Set(newInst)
-			sub.Value = newInst.Elem()
-
-			return nil
-		}
-
-		if fieldType.Kind() == reflect.Struct {
-			newInst := reflect.New(fieldType).Elem()
-			fieldVal.Set(newInst)
-			sub.Value = newInst
-
-			return nil
-		}
+		sub.Func = fieldVal
+	case reflect.Ptr:
+		newInst := reflect.New(fieldType.Elem())
+		fieldVal.Set(newInst)
+		sub.Value = newInst.Elem()
+	case reflect.Struct:
+		newInst := reflect.New(fieldType).Elem()
+		fieldVal.Set(newInst)
+		sub.Value = newInst
 	}
 
 	return nil
@@ -447,53 +451,77 @@ func callFunction(ctx context.Context, fn reflect.Value) error {
 }
 
 func callMethod(ctx context.Context, receiver reflect.Value, name string) (bool, error) {
-	if !receiver.IsValid() {
+	method, ok := lookupMethod(receiver, name)
+	if !ok {
 		return false, nil
+	}
+
+	callArgs, err := validateMethodInputs(method, ctx, name)
+	if err != nil {
+		return true, err
+	}
+
+	if err := validateMethodOutputs(method, name); err != nil {
+		return true, err
+	}
+
+	return true, invokeMethod(method, callArgs)
+}
+
+func lookupMethod(receiver reflect.Value, name string) (reflect.Value, bool) {
+	if !receiver.IsValid() {
+		return reflect.Value{}, false
 	}
 
 	target := receiver
-	if receiver.Kind() != reflect.Ptr {
-		if receiver.CanAddr() {
-			target = receiver.Addr()
-		}
+	if receiver.Kind() != reflect.Ptr && receiver.CanAddr() {
+		target = receiver.Addr()
 	}
 
 	method := target.MethodByName(name)
-	if !method.IsValid() {
-		return false, nil
-	}
 
+	return method, method.IsValid()
+}
+
+func validateMethodInputs(method reflect.Value, ctx context.Context, name string) ([]reflect.Value, error) {
 	mtype := method.Type()
 	if mtype.NumIn() > 1 {
-		return true, fmt.Errorf("%s must accept context.Context or no args", name)
+		return nil, fmt.Errorf("%s must accept context.Context or no args", name)
 	}
 
-	var callArgs []reflect.Value
-
-	if mtype.NumIn() == 1 {
-		if !isContextType(mtype.In(0)) {
-			return true, fmt.Errorf("%s must accept context.Context", name)
-		}
-
-		callArgs = []reflect.Value{reflect.ValueOf(ctx)}
+	if mtype.NumIn() == 0 {
+		return nil, nil
 	}
 
+	if !isContextType(mtype.In(0)) {
+		return nil, fmt.Errorf("%s must accept context.Context", name)
+	}
+
+	return []reflect.Value{reflect.ValueOf(ctx)}, nil
+}
+
+func validateMethodOutputs(method reflect.Value, name string) error {
+	mtype := method.Type()
 	if mtype.NumOut() > 1 {
-		return true, fmt.Errorf("%s must return only error", name)
+		return fmt.Errorf("%s must return only error", name)
 	}
 
 	if mtype.NumOut() == 1 && !isErrorType(mtype.Out(0)) {
-		return true, fmt.Errorf("%s must return only error", name)
+		return fmt.Errorf("%s must return only error", name)
 	}
 
-	results := method.Call(callArgs)
+	return nil
+}
+
+func invokeMethod(method reflect.Value, args []reflect.Value) error {
+	results := method.Call(args)
 	if len(results) == 1 && !results[0].IsNil() {
 		if err, ok := results[0].Interface().(error); ok {
-			return true, err
+			return err
 		}
 	}
 
-	return true, nil
+	return nil
 }
 
 func callStringMethod(v reflect.Value, typ reflect.Type, method string) string {
@@ -568,46 +596,64 @@ func collectFlagHelp(node *commandNode) ([]flagHelp, error) {
 	for i := 0; i < typ.NumField(); i++ {
 		field := typ.Field(i)
 
-		opts, ok, err := tagOptionsForField(inst, field)
+		help, ok, err := flagHelpForField(inst, field)
 		if err != nil {
 			return nil, err
 		}
 
-		if !ok || opts.Kind != TagKindFlag {
-			continue
+		if ok {
+			flags = append(flags, help)
 		}
-
-		if !field.IsExported() {
-			return nil, fmt.Errorf("field %s must be exported", field.Name)
-		}
-
-		placeholder := opts.Placeholder
-		if opts.Enum != "" {
-			placeholder = fmt.Sprintf("{%s}", opts.Enum)
-		}
-
-		if placeholder == "" {
-			switch field.Type.Kind() {
-			case reflect.String:
-				placeholder = "<string>"
-			case reflect.Int:
-				placeholder = "<int>"
-			case reflect.Bool:
-				placeholder = "[flag]"
-			}
-		}
-
-		flags = append(flags, flagHelp{
-			Name:        opts.Name,
-			Short:       opts.Short,
-			Usage:       opts.Desc,
-			Options:     "",
-			Placeholder: placeholder,
-			Required:    opts.Required,
-		})
 	}
 
 	return flags, nil
+}
+
+func flagHelpForField(inst reflect.Value, field reflect.StructField) (flagHelp, bool, error) {
+	opts, ok, err := tagOptionsForField(inst, field)
+	if err != nil {
+		return flagHelp{}, false, err
+	}
+
+	if !ok || opts.Kind != TagKindFlag {
+		return flagHelp{}, false, nil
+	}
+
+	if !field.IsExported() {
+		return flagHelp{}, false, fmt.Errorf("field %s must be exported", field.Name)
+	}
+
+	placeholder := resolvePlaceholder(opts, field.Type.Kind())
+
+	return flagHelp{
+		Name:        opts.Name,
+		Short:       opts.Short,
+		Usage:       opts.Desc,
+		Options:     "",
+		Placeholder: placeholder,
+		Required:    opts.Required,
+	}, true, nil
+}
+
+func resolvePlaceholder(opts TagOptions, kind reflect.Kind) string {
+	if opts.Enum != "" {
+		return fmt.Sprintf("{%s}", opts.Enum)
+	}
+
+	if opts.Placeholder != "" {
+		return opts.Placeholder
+	}
+
+	switch kind {
+	case reflect.String:
+		return "<string>"
+	case reflect.Int:
+		return "<int>"
+	case reflect.Bool:
+		return "[flag]"
+	default:
+		return ""
+	}
 }
 
 func collectFlagHelpChain(node *commandNode) ([]flagHelp, error) {
@@ -969,33 +1015,49 @@ func nodeChain(node *commandNode) []*commandNode {
 }
 
 func nodeInstance(node *commandNode) (reflect.Value, error) {
-	if node != nil && node.Value.IsValid() && node.Value.Kind() == reflect.Struct &&
-		node.Value.CanAddr() {
+	if nodeHasAddressableValue(node) {
 		return node.Value, nil
 	}
 
-	if node != nil && node.Type != nil {
-		inst := reflect.New(node.Type).Elem()
-		if node.Value.IsValid() && node.Value.Kind() == reflect.Struct {
-			typ := node.Type
-			for i := 0; i < typ.NumField(); i++ {
-				field := typ.Field(i)
-
-				opts, ok, err := tagOptionsForField(node.Value, field)
-				if err != nil {
-					return reflect.Value{}, err
-				}
-
-				if ok && opts.Kind == TagKindSubcommand && field.Type.Kind() == reflect.Func {
-					inst.Field(i).Set(node.Value.Field(i))
-				}
-			}
-		}
-
-		return inst, nil
+	if node == nil || node.Type == nil {
+		return reflect.Value{}, nil
 	}
 
-	return reflect.Value{}, nil
+	inst := reflect.New(node.Type).Elem()
+
+	err := copySubcommandFuncs(inst, node)
+	if err != nil {
+		return reflect.Value{}, err
+	}
+
+	return inst, nil
+}
+
+func nodeHasAddressableValue(node *commandNode) bool {
+	return node != nil && node.Value.IsValid() &&
+		node.Value.Kind() == reflect.Struct && node.Value.CanAddr()
+}
+
+func copySubcommandFuncs(inst reflect.Value, node *commandNode) error {
+	if !node.Value.IsValid() || node.Value.Kind() != reflect.Struct {
+		return nil
+	}
+
+	typ := node.Type
+	for i := 0; i < typ.NumField(); i++ {
+		field := typ.Field(i)
+
+		opts, ok, err := tagOptionsForField(node.Value, field)
+		if err != nil {
+			return err
+		}
+
+		if ok && opts.Kind == TagKindSubcommand && field.Type.Kind() == reflect.Func {
+			inst.Field(i).Set(node.Value.Field(i))
+		}
+	}
+
+	return nil
 }
 
 func parseFunc(v reflect.Value) (*commandNode, error) {
@@ -1384,43 +1446,8 @@ func tagOptionsForField(inst reflect.Value, field reflect.StructField) (TagOptio
 		return overridden, true, nil
 	}
 
-	if strings.Contains(tag, "subcommand") {
-		opts.Kind = TagKindSubcommand
-		opts.Name = camelToKebab(field.Name)
-	}
-
-	if strings.Contains(tag, "positional") {
-		opts.Kind = TagKindPositional
-		opts.Name = field.Name
-	}
-
-	parts := strings.SplitSeq(tag, ",")
-	for p := range parts {
-		p = strings.TrimSpace(p)
-		switch {
-		case strings.HasPrefix(p, "name="):
-			opts.Name = strings.TrimPrefix(p, "name=")
-		case strings.HasPrefix(p, "subcommand="):
-			opts.Name = strings.TrimPrefix(p, "subcommand=")
-		case strings.HasPrefix(p, "short="):
-			opts.Short = strings.TrimPrefix(p, "short=")
-		case strings.HasPrefix(p, "env="):
-			opts.Env = strings.TrimPrefix(p, "env=")
-		case strings.HasPrefix(p, "default="):
-			val := strings.TrimPrefix(p, "default=")
-			opts.Default = &val
-		case strings.HasPrefix(p, "enum="):
-			opts.Enum = strings.TrimPrefix(p, "enum=")
-		case strings.HasPrefix(p, "placeholder="):
-			opts.Placeholder = strings.TrimPrefix(p, "placeholder=")
-		case strings.HasPrefix(p, "desc="):
-			opts.Desc = strings.TrimPrefix(p, "desc=")
-		case strings.HasPrefix(p, "description="):
-			opts.Desc = strings.TrimPrefix(p, "description=")
-		case p == "required":
-			opts.Required = true
-		}
-	}
+	detectTagKind(&opts, tag, field.Name)
+	parseTagParts(&opts, tag)
 
 	overridden, err := applyTagOptionsOverride(inst, field, opts)
 	if err != nil {
@@ -1428,6 +1455,51 @@ func tagOptionsForField(inst reflect.Value, field reflect.StructField) (TagOptio
 	}
 
 	return overridden, true, nil
+}
+
+func detectTagKind(opts *TagOptions, tag, fieldName string) {
+	if strings.Contains(tag, "subcommand") {
+		opts.Kind = TagKindSubcommand
+		opts.Name = camelToKebab(fieldName)
+	}
+
+	if strings.Contains(tag, "positional") {
+		opts.Kind = TagKindPositional
+		opts.Name = fieldName
+	}
+}
+
+func parseTagParts(opts *TagOptions, tag string) {
+	parts := strings.SplitSeq(tag, ",")
+	for p := range parts {
+		applyTagPart(opts, strings.TrimSpace(p))
+	}
+}
+
+func applyTagPart(opts *TagOptions, p string) {
+	switch {
+	case strings.HasPrefix(p, "name="):
+		opts.Name = strings.TrimPrefix(p, "name=")
+	case strings.HasPrefix(p, "subcommand="):
+		opts.Name = strings.TrimPrefix(p, "subcommand=")
+	case strings.HasPrefix(p, "short="):
+		opts.Short = strings.TrimPrefix(p, "short=")
+	case strings.HasPrefix(p, "env="):
+		opts.Env = strings.TrimPrefix(p, "env=")
+	case strings.HasPrefix(p, "default="):
+		val := strings.TrimPrefix(p, "default=")
+		opts.Default = &val
+	case strings.HasPrefix(p, "enum="):
+		opts.Enum = strings.TrimPrefix(p, "enum=")
+	case strings.HasPrefix(p, "placeholder="):
+		opts.Placeholder = strings.TrimPrefix(p, "placeholder=")
+	case strings.HasPrefix(p, "desc="):
+		opts.Desc = strings.TrimPrefix(p, "desc=")
+	case strings.HasPrefix(p, "description="):
+		opts.Desc = strings.TrimPrefix(p, "description=")
+	case p == "required":
+		opts.Required = true
+	}
 }
 
 func tagOptionsInstance(node *commandNode) reflect.Value {
