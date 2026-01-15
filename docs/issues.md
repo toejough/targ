@@ -444,6 +444,294 @@ Low
 **Acceptance**
 Can remove files/directories without using shell commands.
 
+### 65. Recursive help for all commands and subcommands
+
+#### Universal
+
+**Status**
+backlog
+
+**Description**
+Show help and usage recursively for all commands and subcommands.
+
+#### Planning
+
+**Priority**
+Low
+
+**Acceptance**
+TBD
+
+### 66. Bug: don't show completion in targ options for subcommands
+
+#### Universal
+
+**Status**
+backlog
+
+**Description**
+Completion is shown as a targ option for subcommands, but it only works at the root level.
+
+#### Planning
+
+**Priority**
+Low
+
+**Acceptance**
+TBD
+
+### 67. Consistent help message structure
+
+#### Universal
+
+**Status**
+backlog
+
+**Description**
+Targ options show at the top for targ --help, but at the bottom for subcommands. Use a consistent structure: usage, description, options, subcommand help, for-more-info.
+
+#### Planning
+
+**Priority**
+Low
+
+**Acceptance**
+TBD
+
+### 68. Init targets from remote repo
+
+#### Universal
+
+**Status**
+backlog
+
+**Description**
+A command to initialize targets based on a remote repo's targets.
+
+#### Planning
+
+**Priority**
+Low
+
+**Acceptance**
+TBD
+
+### 69. Update targets from remote repo
+
+#### Universal
+
+**Status**
+backlog
+
+**Description**
+A command to update targets from a remote repo (sync with upstream template).
+
+#### Planning
+
+**Priority**
+Low
+
+**Acceptance**
+TBD
+
+### 70. Make a CLI from a target
+
+#### Universal
+
+**Status**
+backlog
+
+**Description**
+A command to generate a standalone CLI binary from a targ target.
+
+#### Planning
+
+**Priority**
+Low
+
+**Acceptance**
+TBD
+
+### 71. Recursively search for issues.md
+
+#### Universal
+
+**Status**
+backlog
+
+**Description**
+When no --file is specified, recursively search upward for an issues.md file and use the first one found. This matches how other tools find their config files (like .git, go.mod, etc.).
+
+#### Planning
+
+**Priority**
+Low
+
+**Acceptance**
+TBD
+
+### 72. --nest: create struct-based hierarchy from flat commands
+
+#### Universal
+
+**Status**
+backlog
+
+**Description**
+Add --nest NAME CMD... flag to group flat commands under a new subcommand using struct-based hierarchy.
+
+#### Planning
+
+**Priority**
+Medium
+
+**Acceptance**
+TBD
+
+### 73. --flatten: pull subcommands up with parent prefix
+
+#### Universal
+
+**Status**
+backlog
+
+**Description**
+Add --flatten NAME flag to pull subcommands up one level, adding parent name as prefix. Errors on naming conflict. Uses dotted syntax.
+
+#### Planning
+
+**Priority**
+Medium
+
+**Acceptance**
+TBD
+
+### 74. --to-struct: convert file-based hierarchy to struct-based
+
+#### Universal
+
+**Status**
+backlog
+
+**Description**
+Add --to-struct NAME flag to convert file/directory-based hierarchy to struct-based. Deletes original files and pulls code into parent file. Uses dotted syntax.
+
+#### Planning
+
+**Priority**
+Medium
+
+**Acceptance**
+TBD
+
+### 75. --to-files: convert struct-based hierarchy to file-based
+
+#### Universal
+
+**Status**
+backlog
+
+**Description**
+Add --to-files NAME flag to explode struct-based hierarchy into directory structure. Opposite of --to-struct. Uses dotted syntax.
+
+#### Planning
+
+**Priority**
+Medium
+
+**Acceptance**
+TBD
+
+### 76. --move: relocate command in hierarchy
+
+#### Universal
+
+**Status**
+backlog
+
+**Description**
+Add --move CMD DEST flag to move a command to a different location. Uses dotted syntax (e.g., --move check.lint validate.passes.linter).
+
+#### Planning
+
+**Priority**
+Medium
+
+**Acceptance**
+TBD
+
+### 77. --rename: rename a command
+
+#### Universal
+
+**Status**
+backlog
+
+**Description**
+Add --rename OLD NEW flag to rename a command. Uses dotted syntax for nested commands.
+
+#### Planning
+
+**Priority**
+Medium
+
+**Acceptance**
+TBD
+
+### 78. --delete: remove command or unexport if dependency
+
+#### Universal
+
+**Status**
+backlog
+
+**Description**
+Add --delete CMD flag. If nothing depends on it, delete entirely. If used via targ.Deps(), make unexported instead. Uses dotted syntax.
+
+#### Planning
+
+**Priority**
+Medium
+
+**Acceptance**
+TBD
+
+### 79. --tree: show command hierarchy
+
+#### Universal
+
+**Status**
+backlog
+
+**Description**
+Add --tree flag to display full command hierarchy as a tree. Does not show unexported dependencies.
+
+#### Planning
+
+**Priority**
+Low
+
+**Acceptance**
+TBD
+
+### 80. --where: show command source location
+
+#### Universal
+
+**Status**
+backlog
+
+**Description**
+Add --where CMD flag to show where a command is defined. Uses dotted syntax. Output shows file path and line number.
+
+#### Planning
+
+**Priority**
+Low
+
+**Acceptance**
+TBD
+
 ## Done
 
 Completed issues.
