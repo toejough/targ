@@ -10,7 +10,7 @@ import (
 
 // DepsOption configures Deps behavior.
 type DepsOption interface {
-	applyDeps(*depsConfig)
+	applyDeps(cfg *depsConfig)
 }
 
 // ContinueOnError runs all dependencies even if one fails.

@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"runtime/debug"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -374,7 +375,7 @@ func main() {
 		exit(1)
 	}
 
-	cacheInputs := append(taggedFiles, moduleFiles...)
+	cacheInputs := slices.Concat(taggedFiles, moduleFiles)
 
 	cacheKey, err := computeCacheKey(modulePath, importRoot, "targ", buf.Bytes(), cacheInputs)
 	if err != nil {
@@ -1047,7 +1048,7 @@ func buildModuleBinary(
 		return reg, fmt.Errorf("gathering module files: %w", err)
 	}
 
-	cacheInputs := append(taggedFiles, moduleFiles...)
+	cacheInputs := slices.Concat(taggedFiles, moduleFiles)
 
 	cacheKey, err := computeCacheKey(mt.ModulePath, importRoot, "targ", buf.Bytes(), cacheInputs)
 	if err != nil {

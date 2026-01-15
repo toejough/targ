@@ -7,6 +7,7 @@ import (
 	"os"
 	"reflect"
 	"runtime"
+	"slices"
 	"sort"
 	"strings"
 	"unicode"
@@ -86,7 +87,7 @@ func (n *commandNode) executeWithParents(
 		return nil, err
 	}
 
-	chain := append(parents, commandInstance{node: n, value: inst})
+	chain := slices.Concat(parents, []commandInstance{{node: n, value: inst}})
 
 	specs, _, err := collectFlagSpecs(chain)
 	if err != nil {
