@@ -1,9 +1,11 @@
-package file
+package file_test
 
 import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/toejough/targ/file"
 )
 
 func TestChecksumDetectsChanges(t *testing.T) {
@@ -16,7 +18,7 @@ func TestChecksumDetectsChanges(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	changed, err := Checksum([]string{input}, dest)
+	changed, err := file.Checksum([]string{input}, dest)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -25,7 +27,7 @@ func TestChecksumDetectsChanges(t *testing.T) {
 		t.Fatal("expected first checksum to report change")
 	}
 
-	changed, err = Checksum([]string{input}, dest)
+	changed, err = file.Checksum([]string{input}, dest)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -38,7 +40,7 @@ func TestChecksumDetectsChanges(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	changed, err = Checksum([]string{input}, dest)
+	changed, err = file.Checksum([]string{input}, dest)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -59,7 +61,7 @@ func TestChecksumDetectsMatchSetChanges(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	changed, err := Checksum([]string{pattern}, dest)
+	changed, err := file.Checksum([]string{pattern}, dest)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -73,7 +75,7 @@ func TestChecksumDetectsMatchSetChanges(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	changed, err = Checksum([]string{pattern}, dest)
+	changed, err = file.Checksum([]string{pattern}, dest)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -86,12 +88,12 @@ func TestChecksumDetectsMatchSetChanges(t *testing.T) {
 func TestChecksumRequiresInputs(t *testing.T) {
 	t.Parallel()
 
-	_, err := Checksum(nil, "dest")
+	_, err := file.Checksum(nil, "dest")
 	if err == nil {
 		t.Fatal("expected error for empty inputs")
 	}
 
-	_, err = Checksum([]string{"file"}, "")
+	_, err = file.Checksum([]string{"file"}, "")
 	if err == nil {
 		t.Fatal("expected error for empty dest")
 	}

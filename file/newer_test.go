@@ -1,16 +1,18 @@
-package file
+package file_test
 
 import (
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/toejough/targ/file"
 )
 
 func TestNewerRequiresInputs(t *testing.T) {
 	t.Parallel()
 
-	_, err := Newer(nil, nil)
+	_, err := file.Newer(nil, nil)
 	if err == nil {
 		t.Fatal("expected error for empty inputs")
 	}
@@ -22,14 +24,14 @@ func TestNewerWithCacheTracksChanges(t *testing.T) {
 
 	dir := t.TempDir()
 
-	file := filepath.Join(dir, "main.go")
+	f := filepath.Join(dir, "main.go")
 
-	err := os.WriteFile(file, []byte("one"), 0o644)
+	err := os.WriteFile(f, []byte("one"), 0o644)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	changed, err := Newer([]string{file}, nil)
+	changed, err := file.Newer([]string{f}, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -38,7 +40,7 @@ func TestNewerWithCacheTracksChanges(t *testing.T) {
 		t.Fatal("expected first run to report changed")
 	}
 
-	changed, err = Newer([]string{file}, nil)
+	changed, err = file.Newer([]string{f}, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -49,19 +51,19 @@ func TestNewerWithCacheTracksChanges(t *testing.T) {
 
 	time.Sleep(10 * time.Millisecond)
 
-	err = os.WriteFile(file, []byte("two"), 0o644)
+	err = os.WriteFile(f, []byte("two"), 0o644)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
 	future := time.Now().Add(2 * time.Second)
 
-	err = os.Chtimes(file, future, future)
+	err = os.Chtimes(f, future, future)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	changed, err = Newer([]string{file}, nil)
+	changed, err = file.Newer([]string{f}, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -98,7 +100,7 @@ func TestNewerWithOutputs(t *testing.T) {
 func assertNewer(t *testing.T, inputs, outputs []string, expectChanged bool, msg string) {
 	t.Helper()
 
-	changed, err := Newer(inputs, outputs)
+	changed, err := file.Newer(inputs, outputs)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

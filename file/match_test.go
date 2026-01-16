@@ -1,10 +1,12 @@
-package file
+package file_test
 
 import (
 	"os"
 	"path/filepath"
 	"reflect"
 	"testing"
+
+	"github.com/toejough/targ/file"
 )
 
 func TestMatchBraceAndGlob(t *testing.T) {
@@ -28,7 +30,7 @@ func TestMatchBraceAndGlob(t *testing.T) {
 		}
 	}
 
-	matches, err := Match(filepath.Join(dir, "{a,b}.txt"), filepath.Join(dir, "**", "*.txt"))
+	matches, err := file.Match(filepath.Join(dir, "{a,b}.txt"), filepath.Join(dir, "**", "*.txt"))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

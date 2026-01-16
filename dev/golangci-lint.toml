@@ -11,14 +11,13 @@ disable = [
 	'ireturn',        # I like generic return types
 	'nonamedreturns', # I like named returns
 	'paralleltest',   # not all tests can run in parallel (shared state)
-	'testpackage',    # white-box tests are valid for testing internals
 	'wsl',            # deprecated
 ]
 
 # Exclude certain linters from test files
 [[linters.exclusions.rules]]
 path = '_test\.go$'
-linters = ['dogsled', 'err113', 'gosec', 'mnd', 'noctx', 'noinlineerr', 'wrapcheck']
+linters = ['dogsled', 'err113', 'gosec', 'mnd', 'noctx', 'noinlineerr', 'testpackage', 'wrapcheck']
 
 # Allow dot imports in test files (gomega requires them)
 [[linters.exclusions.rules]]

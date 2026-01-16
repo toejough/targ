@@ -1,4 +1,4 @@
-package file
+package file_test
 
 import (
 	"context"
@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/toejough/targ/file"
 )
 
 func TestWatchDetectsAddModifyRemove(t *testing.T) {
@@ -16,13 +18,13 @@ func TestWatchDetectsAddModifyRemove(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	changesCh := make(chan ChangeSet, 8)
+	changesCh := make(chan file.ChangeSet, 8)
 	done := make(chan error, 1)
 
 	interval := 20 * time.Millisecond
 
 	go func() {
-		done <- Watch(ctx, []string{pattern}, WatchOptions{Interval: interval}, func(set ChangeSet) error {
+		done <- file.Watch(ctx, []string{pattern}, file.WatchOptions{Interval: interval}, func(set file.ChangeSet) error {
 			changesCh <- set
 			return nil
 		})
@@ -30,9 +32,9 @@ func TestWatchDetectsAddModifyRemove(t *testing.T) {
 
 	time.Sleep(2 * interval)
 
-	file := filepath.Join(dir, "a.txt")
+	f := filepath.Join(dir, "a.txt")
 
-	performFileOperations(t, file)
+	performFileOperations(t, f)
 	waitForAllChanges(t, changesCh, cancel)
 
 	cancel()
@@ -45,10 +47,10 @@ func TestWatchDetectsAddModifyRemove(t *testing.T) {
 
 func TestWatchReturnsErrorFromCallback(t *testing.T) {
 	dir := t.TempDir()
-	file := filepath.Join(dir, "test.txt")
+	f := filepath.Join(dir, "test.txt")
 	pattern := filepath.Join(dir, "*.txt")
 
-	requireNoError(t, os.WriteFile(file, []byte("initial"), 0o644))
+	requireNoError(t, os.WriteFile(f, []byte("initial"), 0o644))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -57,7 +59,8 @@ func TestWatchReturnsErrorFromCallback(t *testing.T) {
 	done := make(chan error, 1)
 
 	go func() {
-		done <- Watch(ctx, []string{pattern}, WatchOptions{Interval: 10 * time.Millisecond}, func(ChangeSet) error {
+		opts := file.WatchOptions{Interval: 10 * time.Millisecond}
+		done <- file.Watch(ctx, []string{pattern}, opts, func(file.ChangeSet) error {
 			return callbackErr
 		})
 	}()
@@ -65,7 +68,7 @@ func TestWatchReturnsErrorFromCallback(t *testing.T) {
 	time.Sleep(20 * time.Millisecond)
 
 	// Modify file to trigger callback
-	requireNoError(t, os.WriteFile(file, []byte("modified"), 0o644))
+	requireNoError(t, os.WriteFile(f, []byte("modified"), 0o644))
 
 	select {
 	case err := <-done:
@@ -79,23 +82,23 @@ func TestWatchReturnsErrorFromCallback(t *testing.T) {
 }
 
 func TestWatchReturnsErrorOnNoPatterns(t *testing.T) {
-	err := Watch(context.Background(), nil, WatchOptions{}, func(ChangeSet) error { return nil })
-	if !errors.Is(err, ErrNoPatterns) {
+	err := file.Watch(context.Background(), nil, file.WatchOptions{}, func(file.ChangeSet) error { return nil })
+	if !errors.Is(err, file.ErrNoPatterns) {
 		t.Fatalf("expected ErrNoPatterns error, got: %v", err)
 	}
 }
 
 // performFileOperations creates, modifies, and removes a test file.
-func performFileOperations(t *testing.T, file string) {
+func performFileOperations(t *testing.T, f string) {
 	t.Helper()
 
-	requireNoError(t, os.WriteFile(file, []byte("one"), 0o644))
+	requireNoError(t, os.WriteFile(f, []byte("one"), 0o644))
 	time.Sleep(40 * time.Millisecond)
 
-	requireNoError(t, os.WriteFile(file, []byte("two"), 0o644))
+	requireNoError(t, os.WriteFile(f, []byte("two"), 0o644))
 	time.Sleep(40 * time.Millisecond)
 
-	requireNoError(t, os.Remove(file))
+	requireNoError(t, os.Remove(f))
 }
 
 // requireNoError fails the test if err is not nil.
@@ -108,7 +111,7 @@ func requireNoError(t *testing.T, err error) {
 }
 
 // waitForAllChanges waits until Added, Modified, and Removed events are seen.
-func waitForAllChanges(t *testing.T, changesCh <-chan ChangeSet, cancel context.CancelFunc) {
+func waitForAllChanges(t *testing.T, changesCh <-chan file.ChangeSet, cancel context.CancelFunc) {
 	t.Helper()
 
 	var added, modified, removed bool
