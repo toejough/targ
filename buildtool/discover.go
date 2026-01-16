@@ -30,6 +30,16 @@ var (
 	ErrNoTaggedFiles = errors.New("no tagged files found")
 )
 
+// Error variables used by the parser.
+var (
+	ErrDuplicateCommand      = errors.New("duplicate command name")
+	ErrMultiplePackageNames  = errors.New("multiple package names")
+	ErrMainFunctionNotAllowed = errors.New("tagged files must not declare main()")
+	ErrNiladicOrContext      = errors.New("must be niladic or accept context")
+	ErrMustAcceptContext     = errors.New("must accept context.Context")
+	ErrMustReturnOnlyError   = errors.New("must return only error")
+)
+
 // CommandInfo describes a discovered command within a targ file.
 type CommandInfo struct {
 	Name         string
@@ -119,7 +129,7 @@ func Discover(fs FileSystem, opts Options) ([]PackageInfo, error) {
 		return nil, err
 	}
 
-	var infos []PackageInfo
+	infos := make([]PackageInfo, 0, len(dirs))
 
 	for _, dir := range dirs {
 		info, err := parsePackageInfo(dir)
@@ -297,12 +307,7 @@ func (p *packageInfoParser) checkDuplicates() error {
 	for _, name := range p.funcList {
 		cmd := camelToKebab(name)
 		if other, ok := seen[cmd]; ok {
-			return fmt.Errorf(
-				"duplicate command name %q from %s and %s",
-				cmd,
-				other,
-				name,
-			)
+			return fmt.Errorf("%w: %q from %s and %s", ErrDuplicateCommand, cmd, other, name)
 		}
 	}
 
@@ -321,7 +326,7 @@ func (p *packageInfoParser) checkPackageName(parsed *ast.File, _ string) error {
 	}
 
 	if p.packageName != parsed.Name.Name {
-		return fmt.Errorf("multiple package names in %s", p.dir.Path)
+		return fmt.Errorf("%w: %s", ErrMultiplePackageNames, p.dir.Path)
 	}
 
 	return nil
@@ -514,10 +519,7 @@ func (p *packageInfoParser) validate() error {
 
 	sort.Strings(p.mainFiles)
 
-	return fmt.Errorf(
-		"tagged files must not declare main(): %s",
-		strings.Join(p.mainFiles, ", "),
-	)
+	return fmt.Errorf("%w: %s", ErrMainFunctionNotAllowed, strings.Join(p.mainFiles, ", "))
 }
 
 type reflectTag string
@@ -994,12 +996,12 @@ func validateFunctionSignature(
 	}
 
 	if paramCount > 1 {
-		return errors.New("must be niladic or accept context")
+		return ErrNiladicOrContext
 	}
 
 	if paramCount == 1 &&
 		!funcParamIsContext(fnType.Params.List[0].Type, ctxAliases, ctxDotImport) {
-		return errors.New("must accept context.Context")
+		return ErrMustAcceptContext
 	}
 
 	if fnType.Results == nil || len(fnType.Results.List) == 0 {
@@ -1010,5 +1012,5 @@ func validateFunctionSignature(
 		return nil
 	}
 
-	return errors.New("must return only error")
+	return ErrMustReturnOnlyError
 }

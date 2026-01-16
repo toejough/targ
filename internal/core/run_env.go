@@ -303,7 +303,7 @@ func (e *runExecutor) handleComplete() error {
 	if len(e.rest) > 1 {
 		err := e.completeFn(e.roots, e.rest[1])
 		if err != nil {
-			e.env.Printf("Error: %v\n", err)
+			e.env.Println(err.Error())
 		}
 	}
 
@@ -328,9 +328,9 @@ func (e *runExecutor) handleCompletionFlag() (bool, error) {
 }
 
 // handleGlobalHelp handles global help when HelpOnly mode is set.
-func (e *runExecutor) handleGlobalHelp() (bool, error) {
+func (e *runExecutor) handleGlobalHelp() bool {
 	if !e.opts.HelpOnly {
-		return false, nil
+		return false
 	}
 
 	if e.hasDefault {
@@ -340,7 +340,7 @@ func (e *runExecutor) handleGlobalHelp() (bool, error) {
 		printUsage(e.roots, e.opts)
 	}
 
-	return true, nil
+	return true
 }
 
 // handleList handles the __list hidden command.
@@ -381,8 +381,8 @@ func (e *runExecutor) handleSpecialCommands() (bool, error) {
 		return true, e.handleList()
 	}
 
-	if handled, err := e.handleGlobalHelp(); handled {
-		return true, err
+	if e.handleGlobalHelp() {
+		return true, nil
 	}
 
 	return e.handleCompletionFlag()
@@ -503,7 +503,7 @@ func doListTo(w io.Writer, roots []*commandNode) error {
 
 // extractHelpFlag checks if -h or --help is in args and returns remaining args.
 func extractHelpFlag(args []string) (bool, []string) {
-	var result []string
+	result := make([]string, 0, len(args))
 
 	helpFound := false
 
@@ -521,10 +521,8 @@ func extractHelpFlag(args []string) (bool, []string) {
 
 // extractTimeout looks for --timeout flag and returns the duration and remaining args.
 func extractTimeout(args []string) (time.Duration, []string, error) {
-	var (
-		result  []string
-		timeout time.Duration
-	)
+	result := make([]string, 0, len(args))
+	timeout := time.Duration(0)
 
 	skip := false
 

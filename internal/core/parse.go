@@ -328,12 +328,12 @@ func collectPositionalSpecs(node *commandNode, inst reflect.Value) ([]positional
 	for i := 0; i < typ.NumField(); i++ {
 		field := typ.Field(i)
 
-		opts, ok, err := tagOptionsForField(inst, field)
+		opts, err := tagOptionsForField(inst, field)
 		if err != nil {
 			return nil, err
 		}
 
-		if !ok || opts.Kind != TagKindPositional {
+		if opts.Kind != TagKindPositional {
 			continue
 		}
 

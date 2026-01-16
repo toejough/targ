@@ -2,6 +2,7 @@ package buildtool
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"go/ast"
 	"go/format"
@@ -12,6 +13,13 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+)
+
+// Error variables used by the wrapper generator.
+var (
+	ErrGeneratedWrapperExists = errors.New("generated wrapper already exists")
+	ErrNoGoFilesFound         = errors.New("no Go files found")
+	ErrPackageNameNotFound    = errors.New("package name not found")
 )
 
 type GenerateOptions struct {
@@ -95,7 +103,7 @@ func (g *wrapperGenerator) checkPackageName(name string) error {
 	}
 
 	if g.packageName != name {
-		return fmt.Errorf("multiple package names in %s", g.dir)
+		return fmt.Errorf("%w: %s", ErrMultiplePackageNames, g.dir)
 	}
 
 	return nil
@@ -106,7 +114,7 @@ func (g *wrapperGenerator) checkWrapperConflicts() error {
 	for _, name := range g.functionNames {
 		wrapperName := name + "Command"
 		if g.typeNames[wrapperName] {
-			return fmt.Errorf("generated wrapper %s already exists", wrapperName)
+			return fmt.Errorf("%w: %s", ErrGeneratedWrapperExists, wrapperName)
 		}
 	}
 
@@ -275,11 +283,11 @@ func (g *wrapperGenerator) processGenDecl(node *ast.GenDecl) {
 // validate checks that parsing produced valid results.
 func (g *wrapperGenerator) validate() error {
 	if g.parsedFiles == 0 {
-		return fmt.Errorf("no Go files found in %s", g.dir)
+		return fmt.Errorf("%w: %s", ErrNoGoFilesFound, g.dir)
 	}
 
 	if g.packageName == "" {
-		return fmt.Errorf("package name not found in %s", g.dir)
+		return fmt.Errorf("%w: %s", ErrPackageNameNotFound, g.dir)
 	}
 
 	g.collectFunctionNames()

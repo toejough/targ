@@ -146,12 +146,10 @@ func TestParallelDepsReturnsError(t *testing.T) {
 	started := make(chan struct{}, 1)
 	release := make(chan struct{})
 	bad := func() error { return errors.New("boom") }
-	waiter := func() error {
+	waiter := func() {
 		started <- struct{}{}
 
 		<-release
-
-		return nil
 	}
 
 	err := withDepTracker(context.Background(), func() error {

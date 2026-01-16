@@ -11,9 +11,9 @@ func PrintCompletionScript(shell, binName string) error {
 	switch shell {
 	case "bash":
 		fmt.Printf(_bashCompletion, binName, binName, binName, binName)
-	case "zsh":
+	case zshShell:
 		fmt.Printf(_zshCompletion, binName, binName, binName, binName, binName)
-	case "fish":
+	case fishShell:
 		fmt.Printf(_fishCompletion, binName, binName, binName, binName)
 	default:
 		return fmt.Errorf("unsupported shell: %s", shell)
@@ -23,6 +23,11 @@ func PrintCompletionScript(shell, binName string) error {
 }
 
 // unexported variables.
+const (
+	zshShell  = "zsh"
+	fishShell = "fish"
+)
+
 var (
 	_bashCompletion = `
 _%s_completion() {
@@ -574,12 +579,12 @@ func collectFieldEnums(
 	field reflect.StructField,
 	enumByFlag map[string][]string,
 ) error {
-	opts, ok, err := tagOptionsForField(current.value, field)
+	opts, err := tagOptionsForField(current.value, field)
 	if err != nil {
 		return err
 	}
 
-	if !ok || opts.Kind != TagKindFlag || opts.Enum == "" {
+	if opts.Kind != TagKindFlag || opts.Enum == "" {
 		return nil
 	}
 
@@ -631,12 +636,12 @@ func completionFlagSpecs(chain []commandInstance) (map[string]completionFlagSpec
 		for i := range current.node.Type.NumField() {
 			field := current.node.Type.Field(i)
 
-			opts, ok, err := tagOptionsForField(inst, field)
+			opts, err := tagOptionsForField(inst, field)
 			if err != nil {
 				return nil, err
 			}
 
-			if !ok || opts.Kind != TagKindFlag {
+			if opts.Kind != TagKindFlag {
 				continue
 			}
 
@@ -838,17 +843,17 @@ func positionalFields(node *commandNode, inst reflect.Value) ([]positionalField,
 		return nil, nil
 	}
 
-	var fields []positionalField
+	fields := make([]positionalField, 0, node.Type.NumField())
 
 	for i := range node.Type.NumField() {
 		field := node.Type.Field(i)
 
-		opts, ok, err := tagOptionsForField(inst, field)
+		opts, err := tagOptionsForField(inst, field)
 		if err != nil {
 			return nil, err
 		}
 
-		if !ok || opts.Kind != TagKindPositional {
+		if opts.Kind != TagKindPositional {
 			continue
 		}
 
@@ -903,7 +908,7 @@ func printIfPrefix(name, prefix string) {
 // skipTargFlags removes targ-level flags from the args for completion purposes.
 // These flags are handled by the outer targ binary, not the bootstrap.
 func skipTargFlags(args []string) []string {
-	var result []string
+	result := make([]string, 0, len(args))
 
 	skip := false
 	for _, arg := range args {
@@ -954,12 +959,12 @@ func suggestFieldFlags(
 	prefix string,
 	seen map[string]bool,
 ) error {
-	opts, ok, err := tagOptionsForField(current.value, field)
+	opts, err := tagOptionsForField(current.value, field)
 	if err != nil {
 		return err
 	}
 
-	if !ok || opts.Kind != TagKindFlag {
+	if opts.Kind != TagKindFlag {
 		return nil
 	}
 

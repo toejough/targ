@@ -401,12 +401,12 @@ func assignSubcommandField(
 	for i := range typ.NumField() {
 		field := typ.Field(i)
 
-		opts, ok, err := tagOptionsForField(parentInst, field)
+		opts, err := tagOptionsForField(parentInst, field)
 		if err != nil {
 			return err
 		}
 
-		if !ok || opts.Kind != TagKindSubcommand || opts.Name != subName {
+		if opts.Kind != TagKindSubcommand || opts.Name != subName {
 			continue
 		}
 
@@ -549,38 +549,46 @@ func callFunction(ctx context.Context, fn reflect.Value) error {
 	return nil
 }
 
-func callMethod(ctx context.Context, receiver reflect.Value, name string) (bool, error) {
+func callMethod(ctx context.Context, receiver reflect.Value, name string) error {
 	method, ok := lookupMethod(receiver, name)
 	if !ok {
-		return false, nil
+		return nil
 	}
 
 	callArgs, err := validateMethodInputs(ctx, method, name)
 	if err != nil {
-		return true, err
+		return err
 	}
 
 	if err := validateMethodOutputs(method, name); err != nil {
-		return true, err
+		return err
 	}
 
-	return true, invokeMethod(method, callArgs)
+	return invokeMethod(method, callArgs)
 }
 
 func callStringMethod(v reflect.Value, typ reflect.Type, method string) string {
-	if m := methodValue(v, typ, method); m.IsValid() {
-		if m.Type().NumIn() == 0 && m.Type().NumOut() == 1 &&
-			m.Type().Out(0).Kind() == reflect.String {
-			out := m.Call(nil)
-			if len(out) == 1 {
-				if s, ok := out[0].Interface().(string); ok {
-					return strings.TrimSpace(s)
-				}
-			}
-		}
+	m := methodValue(v, typ, method)
+	if !m.IsValid() {
+		return ""
 	}
 
-	return ""
+	if m.Type().NumIn() != 0 || m.Type().NumOut() != 1 ||
+		m.Type().Out(0).Kind() != reflect.String {
+		return ""
+	}
+
+	out := m.Call(nil)
+	if len(out) != 1 {
+		return ""
+	}
+
+	s, ok := out[0].Interface().(string)
+	if !ok {
+		return ""
+	}
+
+	return strings.TrimSpace(s)
 }
 
 // --- Utilities ---
@@ -682,17 +690,17 @@ func collectPositionalHelp(node *commandNode) ([]positionalHelp, error) {
 	typ := node.Type
 	inst := tagOptionsInstance(node)
 
-	var positionals []positionalHelp
+	positionals := make([]positionalHelp, 0, typ.NumField())
 
 	for i := range typ.NumField() {
 		field := typ.Field(i)
 
-		opts, ok, err := tagOptionsForField(inst, field)
+		opts, err := tagOptionsForField(inst, field)
 		if err != nil {
 			return nil, err
 		}
 
-		if !ok || opts.Kind != TagKindPositional {
+		if opts.Kind != TagKindPositional {
 			continue
 		}
 
@@ -724,12 +732,12 @@ func copySubcommandFuncs(inst reflect.Value, node *commandNode) error {
 	for i := range typ.NumField() {
 		field := typ.Field(i)
 
-		opts, ok, err := tagOptionsForField(node.Value, field)
+		opts, err := tagOptionsForField(node.Value, field)
 		if err != nil {
 			return err
 		}
 
-		if ok && opts.Kind == TagKindSubcommand && field.Type.Kind() == reflect.Func {
+		if opts.Kind == TagKindSubcommand && field.Type.Kind() == reflect.Func {
 			inst.Field(i).Set(node.Value.Field(i))
 		}
 	}
@@ -900,12 +908,12 @@ func extractTagOptionsResult(results []reflect.Value, fallback TagOptions) (TagO
 }
 
 func flagHelpForField(inst reflect.Value, field reflect.StructField) (flagHelp, bool, error) {
-	opts, ok, err := tagOptionsForField(inst, field)
+	opts, err := tagOptionsForField(inst, field)
 	if err != nil {
 		return flagHelp{}, false, err
 	}
 
-	if !ok || opts.Kind != TagKindFlag {
+	if opts.Kind != TagKindFlag {
 		return flagHelp{}, false, nil
 	}
 
@@ -932,13 +940,9 @@ func flagSpecForField(
 	field reflect.StructField,
 	fieldVal reflect.Value,
 ) (*flagSpec, bool, error) {
-	opts, ok, err := tagOptionsForField(inst, field)
+	opts, err := tagOptionsForField(inst, field)
 	if err != nil {
 		return nil, false, err
-	}
-
-	if !ok {
-		return nil, false, nil
 	}
 
 	if !field.IsExported() {
@@ -1223,12 +1227,12 @@ func parseSubcommandFields(node *commandNode, v reflect.Value, typ reflect.Type)
 	for i := range typ.NumField() {
 		field := typ.Field(i)
 
-		opts, ok, err := tagOptionsForField(v, field)
+		opts, err := tagOptionsForField(v, field)
 		if err != nil {
 			return err
 		}
 
-		if !ok || opts.Kind != TagKindSubcommand {
+		if opts.Kind != TagKindSubcommand {
 			continue
 		}
 
@@ -1460,7 +1464,7 @@ func runCommand(
 		return nil
 	}
 
-	_, err := callMethod(ctx, inst, "Run")
+	err := callMethod(ctx, inst, "Run")
 
 	return err
 }
@@ -1471,7 +1475,8 @@ func runPersistentHooks(ctx context.Context, chain []commandInstance, methodName
 			continue
 		}
 
-		if _, err := callMethod(ctx, inst.value, methodName); err != nil {
+		err := callMethod(ctx, inst.value, methodName)
+		if err != nil {
 			return err
 		}
 	}
@@ -1499,7 +1504,7 @@ func skipShortExpansion(arg string, longInfo map[string]bool) bool {
 
 // --- Tag options ---
 
-func tagOptionsForField(inst reflect.Value, field reflect.StructField) (TagOptions, bool, error) {
+func tagOptionsForField(inst reflect.Value, field reflect.StructField) (TagOptions, error) {
 	tag := field.Tag.Get("targ")
 
 	opts := TagOptions{
@@ -1509,10 +1514,10 @@ func tagOptionsForField(inst reflect.Value, field reflect.StructField) (TagOptio
 	if strings.TrimSpace(tag) == "" {
 		overridden, err := applyTagOptionsOverride(inst, field, opts)
 		if err != nil {
-			return TagOptions{}, true, err
+			return TagOptions{}, err
 		}
 
-		return overridden, true, nil
+		return overridden, nil
 	}
 
 	detectTagKind(&opts, tag, field.Name)
@@ -1520,10 +1525,10 @@ func tagOptionsForField(inst reflect.Value, field reflect.StructField) (TagOptio
 
 	overridden, err := applyTagOptionsOverride(inst, field, opts)
 	if err != nil {
-		return TagOptions{}, true, err
+		return TagOptions{}, err
 	}
 
-	return overridden, true, nil
+	return overridden, nil
 }
 
 func tagOptionsInstance(node *commandNode) reflect.Value {
@@ -1686,13 +1691,9 @@ func validateZeroFields(v reflect.Value, typ reflect.Type) error {
 	for i := range typ.NumField() {
 		field := typ.Field(i)
 
-		opts, ok, err := tagOptionsForField(v, field)
+		opts, err := tagOptionsForField(v, field)
 		if err != nil {
 			return err
-		}
-
-		if !ok {
-			continue
 		}
 
 		if err := validateFieldValue(v.Field(i), opts, typ.Name(), field.Name); err != nil {

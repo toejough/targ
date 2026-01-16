@@ -15,6 +15,53 @@ const (
 	runTestCmdName   = "Run"
 )
 
+// runDiscoverTest runs Discover and expects a single PackageInfo.
+// Returns the infos for further assertions.
+func runDiscoverTest(t *testing.T, fsMock *FileSystemMockHandle, fileContent []byte) []PackageInfo {
+	opts := Options{StartDir: "/root"}
+	done := make(chan struct{})
+
+	var (
+		infos []PackageInfo
+		err   error
+	)
+
+	go func() {
+		infos, err = Discover(fsMock.Mock, opts)
+
+		close(done)
+	}()
+
+	fsMock.Method.ReadDir.ExpectCalledWithExactly("/root").InjectReturnValues([]fs.DirEntry{
+		fakeDirEntry{name: "cmd.go", dir: false},
+	}, nil)
+	fsMock.Method.ReadFile.ExpectCalledWithExactly("/root/cmd.go").
+		InjectReturnValues(fileContent, nil)
+
+	<-done
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(infos) != 1 {
+		t.Fatalf("expected 1 package info, got %d", len(infos))
+	}
+
+	return infos
+}
+
+// findCommandDesc finds the description of a command by name and kind.
+func findCommandDesc(info PackageInfo, name string, kind CommandKind) string {
+	for _, cmd := range info.Commands {
+		if cmd.Name == name && cmd.Kind == kind {
+			return cmd.Description
+		}
+	}
+
+	return ""
+}
+
 func TestDiscover_AllowsContextFunctions(t *testing.T) {
 	fsMock := MockFileSystem(t)
 	opts := Options{StartDir: "/root"}
@@ -171,50 +218,23 @@ func TestDiscover_ContextImportVariations(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			fsMock := MockFileSystem(t)
-			opts := Options{StartDir: "/root"}
-			done := make(chan struct{})
-
-			var (
-				infos []PackageInfo
-				err   error
-			)
-
-			go func() {
-				infos, err = Discover(fsMock.Mock, opts)
-
-				close(done)
-			}()
-
 			commentSection := ""
 			if tc.comment != "" {
 				commentSection = tc.comment + "\n"
 			}
 
-			fsMock.Method.ReadDir.ExpectCalledWithExactly("/root").InjectReturnValues([]fs.DirEntry{
-				fakeDirEntry{name: "cmd.go", dir: false},
-			}, nil)
-			fsMock.Method.ReadFile.ExpectCalledWithExactly("/root/cmd.go").
-				InjectReturnValues([]byte(`//go:build targ
+			fsMock := MockFileSystem(t)
+			infos := runDiscoverTest(t, fsMock, []byte(`//go:build targ
 
 package build
 
 `+tc.importLine+`
 
 `+commentSection+tc.funcLine+`
-`), nil)
+`))
 
-			<-done
-
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-
-			if len(infos) != 1 {
-				t.Fatalf("expected 1 package info, got %d", len(infos))
-			}
-
-			if names := commandNamesByKind(infos[0], CommandFunc); len(names) != 1 || names[0] != tc.expectFunc {
+			names := commandNamesByKind(infos[0], CommandFunc)
+			if len(names) != 1 || names[0] != tc.expectFunc {
 				t.Fatalf("expected %s func to be detected, got %v", tc.expectFunc, names)
 			}
 		})
@@ -257,25 +277,7 @@ func TestDiscover_DescriptionMethodVariations(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			fsMock := MockFileSystem(t)
-			opts := Options{StartDir: "/root"}
-			done := make(chan struct{})
-
-			var (
-				infos []PackageInfo
-				err   error
-			)
-
-			go func() {
-				infos, err = Discover(fsMock.Mock, opts)
-
-				close(done)
-			}()
-
-			fsMock.Method.ReadDir.ExpectCalledWithExactly("/root").InjectReturnValues([]fs.DirEntry{
-				fakeDirEntry{name: "cmd.go", dir: false},
-			}, nil)
-			fsMock.Method.ReadFile.ExpectCalledWithExactly("/root/cmd.go").
-				InjectReturnValues([]byte(`//go:build targ
+			infos := runDiscoverTest(t, fsMock, []byte(`//go:build targ
 
 package build
 
@@ -283,28 +285,9 @@ type Build struct{}
 
 func (b *Build) Run() {}
 `+tc.descriptionFunc+`
-`), nil)
+`))
 
-			<-done
-
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-
-			if len(infos) != 1 {
-				t.Fatalf("expected 1 package info, got %d", len(infos))
-			}
-
-			info := infos[0]
-
-			var desc string
-
-			for _, cmd := range info.Commands {
-				if cmd.Name == buildTestCmdName && cmd.Kind == CommandStruct {
-					desc = cmd.Description
-					break
-				}
-			}
+			desc := findCommandDesc(infos[0], buildTestCmdName, CommandStruct)
 
 			if desc != tc.expectedDesc {
 				if tc.failureReason != "" {
@@ -809,25 +792,7 @@ func Bad(a int) {}
 func TestDiscover_RemovesWrappedFuncs(t *testing.T) {
 	// When a struct named BuildCommand exists, function Build should be removed
 	fsMock := MockFileSystem(t)
-	opts := Options{StartDir: "/root"}
-	done := make(chan struct{})
-
-	var (
-		infos []PackageInfo
-		err   error
-	)
-
-	go func() {
-		infos, err = Discover(fsMock.Mock, opts)
-
-		close(done)
-	}()
-
-	fsMock.Method.ReadDir.ExpectCalledWithExactly("/root").InjectReturnValues([]fs.DirEntry{
-		fakeDirEntry{name: "cmd.go", dir: false},
-	}, nil)
-	fsMock.Method.ReadFile.ExpectCalledWithExactly("/root/cmd.go").
-		InjectReturnValues([]byte(`//go:build targ
+	infos := runDiscoverTest(t, fsMock, []byte(`//go:build targ
 
 package build
 
@@ -841,17 +806,7 @@ func Build() {}
 
 // Deploy does something else.
 func Deploy() {}
-`), nil)
-
-	<-done
-
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if len(infos) != 1 {
-		t.Fatalf("expected 1 package info, got %d", len(infos))
-	}
+`))
 
 	// Build should be removed (wrapped by BuildCommand)
 	funcNames := commandNamesByKind(infos[0], CommandFunc)
@@ -862,17 +817,13 @@ func Deploy() {}
 	}
 
 	// Deploy should remain (not wrapped)
-	found := slices.Contains(funcNames, "Deploy")
-
-	if !found {
+	if !slices.Contains(funcNames, "Deploy") {
 		t.Fatal("Deploy function should remain in funcList")
 	}
 
 	// BuildCommand struct should be in structList
 	structNames := commandNamesByKind(infos[0], CommandStruct)
-	found = slices.Contains(structNames, "BuildCommand")
-
-	if !found {
+	if !slices.Contains(structNames, "BuildCommand") {
 		t.Fatalf("BuildCommand struct should be in structList, got: %v", structNames)
 	}
 }

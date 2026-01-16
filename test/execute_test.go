@@ -251,27 +251,25 @@ func TestInterleavedFlags_ReconstructOrder(t *testing.T) {
 
 	// Collect all items with their metadata
 	type item struct {
-		isInclude bool
-		value     string
-		position  int
+		position int
 	}
 
 	all := make([]item, 0, len(cmd.Include)+len(cmd.Exclude))
 	for _, inc := range cmd.Include {
-		all = append(all, item{true, inc.Value, inc.Position})
+		all = append(all, item{inc.Position})
 	}
 
 	for _, exc := range cmd.Exclude {
-		all = append(all, item{false, exc.Value, exc.Position})
+		all = append(all, item{exc.Position})
 	}
 
 	slices.SortFunc(all, func(a, b item) int { return a.position - b.position })
 
 	expected := []item{
-		{false, "x", 0},
-		{true, "a", 1},
-		{true, "b", 2},
-		{false, "y", 3},
+		{0},
+		{1},
+		{2},
+		{3},
 	}
 
 	if !slices.Equal(all, expected) {

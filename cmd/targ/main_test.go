@@ -97,7 +97,7 @@ func TestCommandSummariesFromCommands(t *testing.T) {
 	}
 	summaries := commandSummariesFromCommands(cmds)
 
-	var names []string
+	names := make([]string, 0, len(summaries))
 	for _, cmd := range summaries {
 		names = append(names, cmd.Name)
 	}

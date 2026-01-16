@@ -134,7 +134,7 @@ func (r *targRunner) discoverAndGenerateWrappers() ([]buildtool.PackageInfo, err
 		BuildTag: "targ",
 	})
 	if err != nil {
-		return nil, fmt.Errorf("Error discovering commands: %w", err)
+		return nil, fmt.Errorf("error discovering commands: %w", err)
 	}
 
 	for _, dir := range taggedDirs {
@@ -147,7 +147,7 @@ func (r *targRunner) discoverAndGenerateWrappers() ([]buildtool.PackageInfo, err
 			},
 		)
 		if err != nil {
-			return nil, fmt.Errorf("Error generating command wrappers: %w", err)
+			return nil, fmt.Errorf("error generating command wrappers: %w", err)
 		}
 
 		if wrapper != "" {
@@ -160,15 +160,15 @@ func (r *targRunner) discoverAndGenerateWrappers() ([]buildtool.PackageInfo, err
 		BuildTag: "targ",
 	})
 	if err != nil {
-		return nil, fmt.Errorf("Error discovering commands: %w", err)
+		return nil, fmt.Errorf("error discovering commands: %w", err)
 	}
 
 	// Validate no package main in targ files
 	for _, info := range infos {
 		if info.Package == "main" {
 			return nil, fmt.Errorf(
-				"Error: targ files cannot use 'package main' (found in %s)\n"+
-					"Use a named package instead, e.g., 'package targets' or 'package dev'",
+				"targ files cannot use 'package main' (found in %s)\n"+
+					"use a named package instead, e.g., 'package targets' or 'package dev'",
 				info.Dir,
 			)
 		}
@@ -243,7 +243,7 @@ func (r *targRunner) handleSingleModule(infos []buildtool.PackageInfo) int {
 
 	if !moduleFound {
 		importRoot = r.startDir
-		modulePath = "targ.local"
+		modulePath = targLocalModule
 	}
 
 	bootstrap, err := r.prepareBootstrap(infos, importRoot, modulePath, collapsedPaths)
@@ -278,14 +278,14 @@ func (r *targRunner) prepareBootstrap(
 ) (moduleBootstrap, error) {
 	data, err := buildBootstrapData(infos, r.startDir, importRoot, modulePath, collapsedPaths)
 	if err != nil {
-		return moduleBootstrap{}, fmt.Errorf("Error preparing bootstrap: %w", err)
+		return moduleBootstrap{}, fmt.Errorf("error preparing bootstrap: %w", err)
 	}
 
 	tmpl := template.Must(template.New("main").Parse(bootstrapTemplate))
 
 	var buf bytes.Buffer
 	if err := tmpl.Execute(&buf, data); err != nil {
-		return moduleBootstrap{}, fmt.Errorf("Error generating code: %w", err)
+		return moduleBootstrap{}, fmt.Errorf("error generating code: %w", err)
 	}
 
 	taggedFiles, err := buildtool.TaggedFiles(buildtool.OSFileSystem{}, buildtool.Options{
@@ -293,19 +293,19 @@ func (r *targRunner) prepareBootstrap(
 		BuildTag: "targ",
 	})
 	if err != nil {
-		return moduleBootstrap{}, fmt.Errorf("Error gathering tagged files: %w", err)
+		return moduleBootstrap{}, fmt.Errorf("error gathering tagged files: %w", err)
 	}
 
 	moduleFiles, err := collectModuleFiles(importRoot)
 	if err != nil {
-		return moduleBootstrap{}, fmt.Errorf("Error gathering module files: %w", err)
+		return moduleBootstrap{}, fmt.Errorf("error gathering module files: %w", err)
 	}
 
 	cacheInputs := slices.Concat(taggedFiles, moduleFiles)
 
 	cacheKey, err := computeCacheKey(modulePath, importRoot, "targ", buf.Bytes(), cacheInputs)
 	if err != nil {
-		return moduleBootstrap{}, fmt.Errorf("Error computing cache key: %w", err)
+		return moduleBootstrap{}, fmt.Errorf("error computing cache key: %w", err)
 	}
 
 	return moduleBootstrap{code: buf.Bytes(), cacheKey: cacheKey}, nil
@@ -462,6 +462,9 @@ func extractBinName(binArg string) string {
 // unexported constants.
 const (
 	completeCommand   = "__complete"
+	targLocalModule   = "targ.local"
+	targsGoFilename   = "targs.go"
+	pkgNameDefault    = "pkg"
 	bootstrapTemplate = `
 package main
 
@@ -1042,7 +1045,7 @@ func addAliasAutoDiscover(name, command, code string) (string, error) {
 }
 
 func addAliasCreateNew(name, code string) (string, error) {
-	targetFile := "targs.go"
+	targetFile := targsGoFilename
 	if _, err := createTargetsFile(targetFile); err != nil {
 		return "", err
 	}
@@ -1080,7 +1083,7 @@ func addAliasToFile(name, targetFile, code string) (string, error) {
 func addShImportToContent(content string) string {
 	lines := strings.Split(content, "\n")
 
-	var result []string
+	result := make([]string, 0, len(lines)+3)
 
 	importAdded := false
 
@@ -1306,7 +1309,7 @@ func buildMultiModuleBinaries(
 	keepBootstrap bool,
 	errOut io.Writer,
 ) ([]moduleRegistry, error) {
-	var registry []moduleRegistry
+	registry := make([]moduleRegistry, 0, len(moduleGroups))
 
 	dep := resolveTargDependency()
 
@@ -1984,7 +1987,7 @@ func groupByModule(infos []buildtool.PackageInfo, startDir string) ([]moduleTarg
 		if !found {
 			// No module found - use startDir as pseudo-module
 			modRoot = startDir
-			modPath = "targ.local"
+			modPath = targLocalModule
 		}
 
 		// Group by module root
@@ -2012,41 +2015,58 @@ func groupByModule(infos []buildtool.PackageInfo, startDir string) ([]moduleTarg
 	return result, nil
 }
 
+// parseAliasArgs extracts alias name, command, and optional file from arguments.
+// Returns ok=false if this is not an alias invocation.
+// Returns ok=true with error if alias is malformed.
+func parseAliasArgs(args []string, i int, arg string) (name, command, targetFile string, ok bool, err error) {
+	if arg == "--alias" {
+		if i+2 >= len(args) {
+			err = errors.New("--alias requires at least two arguments: NAME \"COMMAND\" [FILE]")
+			return "", "", "", true, err
+		}
+
+		name = args[i+1]
+		command = args[i+2]
+		// Optional third argument for target file
+		if i+3 < len(args) && !strings.HasPrefix(args[i+3], "-") {
+			targetFile = args[i+3]
+		}
+
+		return name, command, targetFile, true, nil
+	}
+
+	after, found := strings.CutPrefix(arg, "--alias=")
+	if !found {
+		return "", "", "", false, nil
+	}
+
+	// --alias=name "command" [file] format
+	if i+1 >= len(args) {
+		err = errors.New("--alias requires a command argument")
+		return "", "", "", true, err
+	}
+
+	name = after
+
+	command = args[i+1]
+	if i+2 < len(args) && !strings.HasPrefix(args[i+2], "-") {
+		targetFile = args[i+2]
+	}
+
+	return name, command, targetFile, true, nil
+}
+
 // handleAliasFlag checks for --alias and generates target code.
 // Returns nil if --alias was not specified.
 func handleAliasFlag(args []string) *aliasResult {
 	for i, arg := range args {
-		var name, command, targetFile string
-
-		if arg == "--alias" {
-			if i+2 >= len(args) {
-				return &aliasResult{
-					err: errors.New(
-						"--alias requires at least two arguments: NAME \"COMMAND\" [FILE]",
-					),
-				}
-			}
-
-			name = args[i+1]
-			command = args[i+2]
-			// Optional third argument for target file
-			if i+3 < len(args) && !strings.HasPrefix(args[i+3], "-") {
-				targetFile = args[i+3]
-			}
-		} else if after, ok := strings.CutPrefix(arg, "--alias="); ok {
-			// --alias=name "command" [file] format
-			name = after
-
-			if i+1 >= len(args) {
-				return &aliasResult{err: errors.New("--alias requires a command argument")}
-			}
-
-			command = args[i+1]
-			if i+2 < len(args) && !strings.HasPrefix(args[i+2], "-") {
-				targetFile = args[i+2]
-			}
-		} else {
+		name, command, targetFile, ok, err := parseAliasArgs(args, i, arg)
+		if !ok {
 			continue
+		}
+
+		if err != nil {
+			return &aliasResult{err: err}
 		}
 
 		msg, err := addAlias(name, command, targetFile)
@@ -2062,7 +2082,7 @@ func handleAliasFlag(args []string) *aliasResult {
 func handleInitFlag(args []string) *initResult {
 	for i, arg := range args {
 		if arg == "--init" {
-			filename := "targs.go"
+			filename := targsGoFilename
 			if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
 				filename = args[i+1]
 			}
@@ -2199,7 +2219,7 @@ func looksLikeModulePath(path string) bool {
 
 func lowerFirst(name string) string {
 	if name == "" {
-		return "pkg"
+		return pkgNameDefault
 	}
 
 	return strings.ToLower(name[:1]) + name[1:]
@@ -2317,7 +2337,7 @@ func prepareBuildContext(
 	dep targDependency,
 ) (buildContext, error) {
 	ctx := buildContext{
-		usingFallback: mt.ModulePath == "targ.local",
+		usingFallback: mt.ModulePath == targLocalModule,
 		buildRoot:     mt.ModuleRoot,
 		importRoot:    mt.ModuleRoot,
 	}
@@ -2795,7 +2815,7 @@ func tryConvertSingleImport(trimmed string, result *[]string) bool {
 func uniqueImportName(name string, used map[string]bool) string {
 	candidate := name
 	if candidate == "" {
-		candidate = "pkg"
+		candidate = pkgNameDefault
 	}
 
 	if candidate == "github.com/toejough/targ" {
