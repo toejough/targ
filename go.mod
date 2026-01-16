@@ -2,7 +2,7 @@ module github.com/toejough/targ
 
 go 1.25.5
 
-require github.com/toejough/imptest v0.0.0-20260113120110-23d4c2f907db
+require github.com/toejough/imptest v0.0.0-20260114221958-c7ce1c3a442b
 
 require (
 	github.com/akedrou/textdiff v0.1.0

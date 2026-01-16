@@ -1,27 +1,28 @@
-package buildtool
+package buildtool_test
 
 import (
 	"errors"
-	"go/ast"
 	"io/fs"
 	"slices"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/toejough/targ/buildtool"
 )
 
 func TestDiscover_AllowsContextFunctions(t *testing.T) {
 	fsMock := MockFileSystem(t)
-	opts := Options{StartDir: "/root"}
+	opts := buildtool.Options{StartDir: "/root"}
 	done := make(chan struct{})
 
 	var (
-		infos []PackageInfo
+		infos []buildtool.PackageInfo
 		err   error
 	)
 
 	go func() {
-		infos, err = Discover(fsMock.Mock, opts)
+		infos, err = buildtool.Discover(fsMock.Mock, opts)
 
 		close(done)
 	}()
@@ -49,7 +50,7 @@ func Run(ctx context.Context) {}
 		t.Fatalf("expected 1 package info, got %d", len(infos))
 	}
 
-	if names := commandNamesByKind(infos[0], CommandFunc); len(names) != 1 ||
+	if names := commandNamesByKind(infos[0], buildtool.CommandFunc); len(names) != 1 ||
 		names[0] != runTestCmdName {
 		t.Fatalf("unexpected funcs: %v", names)
 	}
@@ -57,16 +58,16 @@ func Run(ctx context.Context) {}
 
 func TestDiscover_AllowsErrorReturnFunctions(t *testing.T) {
 	fsMock := MockFileSystem(t)
-	opts := Options{StartDir: "/root"}
+	opts := buildtool.Options{StartDir: "/root"}
 	done := make(chan struct{})
 
 	var (
-		infos []PackageInfo
+		infos []buildtool.PackageInfo
 		err   error
 	)
 
 	go func() {
-		infos, err = Discover(fsMock.Mock, opts)
+		infos, err = buildtool.Discover(fsMock.Mock, opts)
 
 		close(done)
 	}()
@@ -92,23 +93,23 @@ func Fail() error { return nil }
 		t.Fatalf("expected 1 package info, got %d", len(infos))
 	}
 
-	if names := commandNamesByKind(infos[0], CommandFunc); len(names) != 1 || names[0] != "Fail" {
+	if names := commandNamesByKind(infos[0], buildtool.CommandFunc); len(names) != 1 || names[0] != "Fail" {
 		t.Fatalf("unexpected funcs: %v", names)
 	}
 }
 
 func TestDiscover_ContextAliasImport(t *testing.T) {
 	fsMock := MockFileSystem(t)
-	opts := Options{StartDir: "/root"}
+	opts := buildtool.Options{StartDir: "/root"}
 	done := make(chan struct{})
 
 	var (
-		infos []PackageInfo
+		infos []buildtool.PackageInfo
 		err   error
 	)
 
 	go func() {
-		infos, err = Discover(fsMock.Mock, opts)
+		infos, err = buildtool.Discover(fsMock.Mock, opts)
 
 		close(done)
 	}()
@@ -136,7 +137,7 @@ func Run(c ctx.Context) {}
 		t.Fatalf("expected 1 package info, got %d", len(infos))
 	}
 
-	if names := commandNamesByKind(infos[0], CommandFunc); len(names) != 1 ||
+	if names := commandNamesByKind(infos[0], buildtool.CommandFunc); len(names) != 1 ||
 		names[0] != runTestCmdName {
 		t.Fatalf(
 			"expected %s func to be detected with aliased context, got %v",
@@ -187,7 +188,7 @@ package build
 `+commentSection+tc.funcLine+`
 `))
 
-			names := commandNamesByKind(infos[0], CommandFunc)
+			names := commandNamesByKind(infos[0], buildtool.CommandFunc)
 			if len(names) != 1 || names[0] != tc.expectFunc {
 				t.Fatalf("expected %s func to be detected, got %v", tc.expectFunc, names)
 			}
@@ -241,7 +242,7 @@ func (b *Build) Run() {}
 `+tc.descriptionFunc+`
 `))
 
-			desc := findCommandDesc(infos[0], buildTestCmdName, CommandStruct)
+			desc := findCommandDesc(infos[0], buildTestCmdName, buildtool.CommandStruct)
 
 			if desc != tc.expectedDesc {
 				if tc.failureReason != "" {
@@ -256,13 +257,13 @@ func (b *Build) Run() {}
 
 func TestDiscover_DuplicateCommandNames(t *testing.T) {
 	fsMock := MockFileSystem(t)
-	opts := Options{StartDir: "/root"}
+	opts := buildtool.Options{StartDir: "/root"}
 	done := make(chan struct{})
 
 	var err error
 
 	go func() {
-		_, err = Discover(fsMock.Mock, opts)
+		_, err = buildtool.Discover(fsMock.Mock, opts)
 
 		close(done)
 	}()
@@ -289,16 +290,16 @@ func FooBar() {}
 
 func TestDiscover_FiltersNonRunnableStructs(t *testing.T) {
 	fsMock := MockFileSystem(t)
-	opts := Options{StartDir: "/root"}
+	opts := buildtool.Options{StartDir: "/root"}
 	done := make(chan struct{})
 
 	var (
-		infos []PackageInfo
+		infos []buildtool.PackageInfo
 		err   error
 	)
 
 	go func() {
-		infos, err = Discover(fsMock.Mock, opts)
+		infos, err = buildtool.Discover(fsMock.Mock, opts)
 
 		close(done)
 	}()
@@ -330,23 +331,23 @@ type SubCmd struct{}
 	}
 
 	info := infos[0]
-	if names := commandNamesByKind(info, CommandStruct); len(names) != 1 || names[0] != "Root" {
+	if names := commandNamesByKind(info, buildtool.CommandStruct); len(names) != 1 || names[0] != "Root" {
 		t.Fatalf("expected structs [Root], got %v", names)
 	}
 }
 
 func TestDiscover_FiltersSubcommandsAndFuncs(t *testing.T) {
 	fsMock := MockFileSystem(t)
-	opts := Options{StartDir: "/root"}
+	opts := buildtool.Options{StartDir: "/root"}
 	done := make(chan struct{})
 
 	var (
-		infos []PackageInfo
+		infos []buildtool.PackageInfo
 		err   error
 	)
 
 	go func() {
-		infos, err = Discover(fsMock.Mock, opts)
+		infos, err = buildtool.Discover(fsMock.Mock, opts)
 
 		close(done)
 	}()
@@ -384,11 +385,11 @@ func Sub() {}
 		t.Fatalf("expected package name build, got %q", info.Package)
 	}
 
-	if names := commandNamesByKind(info, CommandStruct); len(names) != 1 || names[0] != "Root" {
+	if names := commandNamesByKind(info, buildtool.CommandStruct); len(names) != 1 || names[0] != "Root" {
 		t.Fatalf("expected structs [Root], got %v", names)
 	}
 
-	if names := commandNamesByKind(info, CommandFunc); len(names) != 1 ||
+	if names := commandNamesByKind(info, buildtool.CommandFunc); len(names) != 1 ||
 		names[0] != buildTestCmdName {
 		t.Fatalf("expected funcs [%s], got %v", buildTestCmdName, names)
 	}
@@ -396,16 +397,16 @@ func Sub() {}
 
 func TestDiscover_FunctionDocComment(t *testing.T) {
 	fsMock := MockFileSystem(t)
-	opts := Options{StartDir: "/root"}
+	opts := buildtool.Options{StartDir: "/root"}
 	done := make(chan struct{})
 
 	var (
-		infos []PackageInfo
+		infos []buildtool.PackageInfo
 		err   error
 	)
 
 	go func() {
-		infos, err = Discover(fsMock.Mock, opts)
+		infos, err = buildtool.Discover(fsMock.Mock, opts)
 
 		close(done)
 	}()
@@ -437,7 +438,7 @@ func Build() {}
 	var desc string
 
 	for _, cmd := range info.Commands {
-		if cmd.Name == buildTestCmdName && cmd.Kind == CommandFunc {
+		if cmd.Name == buildTestCmdName && cmd.Kind == buildtool.CommandFunc {
 			desc = cmd.Description
 			break
 		}
@@ -450,16 +451,16 @@ func Build() {}
 
 func TestDiscover_FunctionNoDocComment(t *testing.T) {
 	fsMock := MockFileSystem(t)
-	opts := Options{StartDir: "/root"}
+	opts := buildtool.Options{StartDir: "/root"}
 	done := make(chan struct{})
 
 	var (
-		infos []PackageInfo
+		infos []buildtool.PackageInfo
 		err   error
 	)
 
 	go func() {
-		infos, err = Discover(fsMock.Mock, opts)
+		infos, err = buildtool.Discover(fsMock.Mock, opts)
 
 		close(done)
 	}()
@@ -490,7 +491,7 @@ func NoDocs() {}
 	var desc string
 
 	for _, cmd := range info.Commands {
-		if cmd.Name == "NoDocs" && cmd.Kind == CommandFunc {
+		if cmd.Name == "NoDocs" && cmd.Kind == buildtool.CommandFunc {
 			desc = cmd.Description
 			break
 		}
@@ -503,16 +504,16 @@ func NoDocs() {}
 
 func TestDiscover_FunctionWrappersOverrideFuncs(t *testing.T) {
 	fsMock := MockFileSystem(t)
-	opts := Options{StartDir: "/root"}
+	opts := buildtool.Options{StartDir: "/root"}
 	done := make(chan struct{})
 
 	var (
-		infos []PackageInfo
+		infos []buildtool.PackageInfo
 		err   error
 	)
 
 	go func() {
-		infos, err = Discover(fsMock.Mock, opts)
+		infos, err = buildtool.Discover(fsMock.Mock, opts)
 
 		close(done)
 	}()
@@ -542,11 +543,11 @@ func Build() {}
 
 	info := infos[0]
 	// Only the function from cmd.go should be found, not the struct from generated file
-	if names := commandNamesByKind(info, CommandStruct); len(names) != 0 {
+	if names := commandNamesByKind(info, buildtool.CommandStruct); len(names) != 0 {
 		t.Fatalf("expected no structs (generated file skipped), got %v", names)
 	}
 
-	if names := commandNamesByKind(info, CommandFunc); len(names) != 1 ||
+	if names := commandNamesByKind(info, buildtool.CommandFunc); len(names) != 1 ||
 		names[0] != buildTestCmdName {
 		t.Fatalf("expected funcs [%s], got %v", buildTestCmdName, names)
 	}
@@ -555,13 +556,13 @@ func Build() {}
 func TestDiscover_MultiplePackageNamesError(t *testing.T) {
 	// Two files with different package names in the same directory should error
 	fsMock := MockFileSystem(t)
-	opts := Options{StartDir: "/root"}
+	opts := buildtool.Options{StartDir: "/root"}
 	done := make(chan struct{})
 
 	var err error
 
 	go func() {
-		_, err = Discover(fsMock.Mock, opts)
+		_, err = buildtool.Discover(fsMock.Mock, opts)
 
 		close(done)
 	}()
@@ -599,16 +600,16 @@ func Build() {}
 func TestDiscover_PackageDoc(t *testing.T) {
 	// Package doc comment should be captured
 	fsMock := MockFileSystem(t)
-	opts := Options{StartDir: "/root"}
+	opts := buildtool.Options{StartDir: "/root"}
 	done := make(chan struct{})
 
 	var (
-		infos []PackageInfo
+		infos []buildtool.PackageInfo
 		err   error
 	)
 
 	go func() {
-		infos, err = Discover(fsMock.Mock, opts)
+		infos, err = buildtool.Discover(fsMock.Mock, opts)
 
 		close(done)
 	}()
@@ -642,13 +643,13 @@ func Run() {}
 
 func TestDiscover_RejectsMainFunction(t *testing.T) {
 	fsMock := MockFileSystem(t)
-	opts := Options{StartDir: "/root"}
+	opts := buildtool.Options{StartDir: "/root"}
 	done := make(chan struct{})
 
 	var err error
 
 	go func() {
-		_, err = Discover(fsMock.Mock, opts)
+		_, err = buildtool.Discover(fsMock.Mock, opts)
 
 		close(done)
 	}()
@@ -677,13 +678,13 @@ func main() {}
 
 func TestDiscover_RejectsNonErrorReturnFunctions(t *testing.T) {
 	fsMock := MockFileSystem(t)
-	opts := Options{StartDir: "/root"}
+	opts := buildtool.Options{StartDir: "/root"}
 	done := make(chan struct{})
 
 	var err error
 
 	go func() {
-		_, err = Discover(fsMock.Mock, opts)
+		_, err = buildtool.Discover(fsMock.Mock, opts)
 
 		close(done)
 	}()
@@ -708,13 +709,13 @@ func Bad() int { return 1 }
 
 func TestDiscover_RejectsNonNiladicFunctions(t *testing.T) {
 	fsMock := MockFileSystem(t)
-	opts := Options{StartDir: "/root"}
+	opts := buildtool.Options{StartDir: "/root"}
 	done := make(chan struct{})
 
 	var err error
 
 	go func() {
-		_, err = Discover(fsMock.Mock, opts)
+		_, err = buildtool.Discover(fsMock.Mock, opts)
 
 		close(done)
 	}()
@@ -740,8 +741,8 @@ func Bad(a int) {}
 		t.Fatalf("expected error to mention function name, got: %v", err)
 	}
 
-	if errors.Is(err, ErrNoTaggedFiles) {
-		t.Fatalf("unexpected ErrNoTaggedFiles: %v", err)
+	if errors.Is(err, buildtool.ErrNoTaggedFiles) {
+		t.Fatalf("unexpected buildtool.ErrNoTaggedFiles: %v", err)
 	}
 }
 
@@ -765,7 +766,7 @@ func Deploy() {}
 `))
 
 	// Build should be removed (wrapped by BuildCommand)
-	funcNames := commandNamesByKind(infos[0], CommandFunc)
+	funcNames := commandNamesByKind(infos[0], buildtool.CommandFunc)
 	for _, name := range funcNames {
 		if name == "Build" {
 			t.Fatal("Build function should have been removed (wrapped by BuildCommand)")
@@ -778,31 +779,31 @@ func Deploy() {}
 	}
 
 	// BuildCommand struct should be in structList
-	structNames := commandNamesByKind(infos[0], CommandStruct)
+	structNames := commandNamesByKind(infos[0], buildtool.CommandStruct)
 	if !slices.Contains(structNames, "BuildCommand") {
 		t.Fatalf("BuildCommand struct should be in structList, got: %v", structNames)
 	}
 }
 
 func TestDiscover_ReturnsAllTaggedDirs(t *testing.T) {
-	testMultipleTaggedPackages(t, func(fsMock *FileSystemMockHandle, opts Options) (int, error) {
-		infos, err := Discover(fsMock.Mock, opts)
+	testMultipleTaggedPackages(t, func(fsMock *FileSystemMockHandle, opts buildtool.Options) (int, error) {
+		infos, err := buildtool.Discover(fsMock.Mock, opts)
 		return len(infos), err
 	})
 }
 
 func TestDiscover_SkipsTargCacheDir(t *testing.T) {
 	fsMock := MockFileSystem(t)
-	opts := Options{StartDir: "/root"}
+	opts := buildtool.Options{StartDir: "/root"}
 	done := make(chan struct{})
 
 	var (
-		infos []PackageInfo
+		infos []buildtool.PackageInfo
 		err   error
 	)
 
 	go func() {
-		infos, err = Discover(fsMock.Mock, opts)
+		infos, err = buildtool.Discover(fsMock.Mock, opts)
 
 		close(done)
 	}()
@@ -830,81 +831,12 @@ func Build() {}
 	}
 }
 
-func TestHasBuildTag(t *testing.T) {
-	content := []byte(`//go:build targ
-
-package main
-`)
-	if !hasBuildTag(content, "targ") {
-		t.Fatal("expected build tag to match")
-	}
-
-	if hasBuildTag(content, "other") {
-		t.Fatal("expected build tag not to match other")
-	}
-}
-
-func TestHasBuildTag_CommentBeforeBuildTag(t *testing.T) {
-	content := []byte(`// Some comment
-//go:build targ
-
-package main
-`)
-	if !hasBuildTag(content, "targ") {
-		t.Fatal("expected match with comment before build tag")
-	}
-}
-
-func TestHasBuildTag_EmptyContent(t *testing.T) {
-	if hasBuildTag([]byte(""), "targ") {
-		t.Fatal("expected no match for empty content")
-	}
-}
-
-func TestHasBuildTag_EmptyLinesBeforeBuildTag(t *testing.T) {
-	content := []byte(`
-
-//go:build targ
-
-package main
-`)
-	if !hasBuildTag(content, "targ") {
-		t.Fatal("expected match with empty lines before build tag")
-	}
-}
-
-func TestHasBuildTag_InvalidBuildConstraint(t *testing.T) {
-	// Invalid constraint syntax - should fall back to string match
-	content := []byte(`//go:build !!!invalid
-
-package main
-`)
-	// When constraint parsing fails, it falls back to exact string match
-	if !hasBuildTag(content, "!!!invalid") {
-		t.Fatal("expected match for invalid constraint with exact string match")
-	}
-
-	if hasBuildTag(content, "targ") {
-		t.Fatal("expected no match for valid tag when constraint is invalid")
-	}
-}
-
-func TestHasBuildTag_NonCommentLineFirst(t *testing.T) {
-	content := []byte(`package main
-
-//go:build targ
-`)
-	if hasBuildTag(content, "targ") {
-		t.Fatal("expected no match when non-comment line comes first")
-	}
-}
-
 // --- OSFileSystem tests ---
 
 func TestOSFileSystem_ReadDir(t *testing.T) {
 	dir := t.TempDir()
 
-	fs := OSFileSystem{}
+	fs := buildtool.OSFileSystem{}
 
 	entries, err := fs.ReadDir(dir)
 	if err != nil {
@@ -927,7 +859,7 @@ func TestOSFileSystem_ReadFile(t *testing.T) {
 		t.Fatalf("setup failed: %v", err)
 	}
 
-	fs := OSFileSystem{}
+	fs := buildtool.OSFileSystem{}
 
 	content, err := fs.ReadFile(path)
 	if err != nil {
@@ -944,7 +876,7 @@ func TestOSFileSystem_WriteFile(t *testing.T) {
 	path := dir + "/out.txt"
 	expected := []byte("written content")
 
-	fs := OSFileSystem{}
+	fs := buildtool.OSFileSystem{}
 
 	err := fs.WriteFile(path, expected, 0o644)
 	if err != nil {
@@ -962,179 +894,11 @@ func TestOSFileSystem_WriteFile(t *testing.T) {
 	}
 }
 
-func TestReceiverTypeName_EmptyList(t *testing.T) {
-	// Defensive code path - empty field list
-	recv := &ast.FieldList{List: []*ast.Field{}}
-
-	result := receiverTypeName(recv)
-	if result != "" {
-		t.Fatalf("expected empty string for empty list, got %q", result)
-	}
-}
-
-func TestReceiverTypeName_Nil(t *testing.T) {
-	// Defensive code path - nil receiver
-	result := receiverTypeName(nil)
-	if result != "" {
-		t.Fatalf("expected empty string for nil receiver, got %q", result)
-	}
-}
-
-func TestReflectTagGet_Found(t *testing.T) {
-	tag := reflectTag(`json:"name" targ:"flag"`)
-	if got := tag.Get("targ"); got != "flag" {
-		t.Fatalf("expected 'flag', got '%s'", got)
-	}
-}
-
-func TestReflectTagGet_NoColon(t *testing.T) {
-	tag := reflectTag(`json`)
-	if got := tag.Get("json"); got != "" {
-		t.Fatalf("expected empty for malformed tag, got '%s'", got)
-	}
-}
-
-func TestReflectTagGet_NoQuoteAfterColon(t *testing.T) {
-	tag := reflectTag(`json:name`)
-	if got := tag.Get("json"); got != "" {
-		t.Fatalf("expected empty for missing quote, got '%s'", got)
-	}
-}
-
-func TestReflectTagGet_NotFound(t *testing.T) {
-	tag := reflectTag(`json:"name"`)
-	if got := tag.Get("targ"); got != "" {
-		t.Fatalf("expected empty, got '%s'", got)
-	}
-}
-
-func TestReflectTagGet_UnclosedQuote(t *testing.T) {
-	tag := reflectTag(`json:"name`)
-	if got := tag.Get("json"); got != "" {
-		t.Fatalf("expected empty for unclosed quote, got '%s'", got)
-	}
-}
-
-func TestReturnStringLiteral_EmptyBody(t *testing.T) {
-	body := &ast.BlockStmt{List: []ast.Stmt{}}
-
-	result, ok := returnStringLiteral(body)
-	if ok || result != "" {
-		t.Fatalf("expected false/empty for empty body, got %q/%v", result, ok)
-	}
-}
-
-func TestReturnStringLiteral_MultipleResults(t *testing.T) {
-	body := &ast.BlockStmt{
-		List: []ast.Stmt{
-			&ast.ReturnStmt{
-				Results: []ast.Expr{
-					&ast.Ident{Name: "a"},
-					&ast.Ident{Name: "b"},
-				},
-			},
-		},
-	}
-
-	result, ok := returnStringLiteral(body)
-	if ok || result != "" {
-		t.Fatalf("expected false/empty for multiple results, got %q/%v", result, ok)
-	}
-}
-
-func TestReturnStringLiteral_NilBody(t *testing.T) {
-	result, ok := returnStringLiteral(nil)
-	if ok || result != "" {
-		t.Fatalf("expected false/empty for nil body, got %q/%v", result, ok)
-	}
-}
-
-func TestReturnStringLiteral_NotBasicLit(t *testing.T) {
-	body := &ast.BlockStmt{
-		List: []ast.Stmt{
-			&ast.ReturnStmt{
-				Results: []ast.Expr{&ast.Ident{Name: "variable"}},
-			},
-		},
-	}
-
-	result, ok := returnStringLiteral(body)
-	if ok || result != "" {
-		t.Fatalf("expected false/empty for non-literal return, got %q/%v", result, ok)
-	}
-}
-
-func TestReturnStringLiteral_NotReturnStmt(t *testing.T) {
-	body := &ast.BlockStmt{
-		List: []ast.Stmt{
-			&ast.ExprStmt{X: &ast.Ident{Name: "foo"}},
-		},
-	}
-
-	result, ok := returnStringLiteral(body)
-	if ok || result != "" {
-		t.Fatalf("expected false/empty for non-return stmt, got %q/%v", result, ok)
-	}
-}
-
-func TestShouldSkipGoFile(t *testing.T) {
-	tests := []struct {
-		name     string
-		filename string
-		want     bool
-	}{
-		{"regular go file", "main.go", false},
-		{"test file", "main_test.go", true},
-		{"generated targ file", "generated_targ_bootstrap.go", true},
-		{"non-go file", "readme.md", true},
-		{"non-go file txt", "notes.txt", true},
-		{"go in name but wrong suffix", "go.mod", true},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := shouldSkipGoFile(tt.filename)
-			if got != tt.want {
-				t.Errorf("shouldSkipGoFile(%q) = %v, want %v", tt.filename, got, tt.want)
-			}
-		})
-	}
-}
-
 func TestTaggedFiles_ReturnsSelectedFiles(t *testing.T) {
-	testMultipleTaggedPackages(t, func(fsMock *FileSystemMockHandle, opts Options) (int, error) {
-		files, err := TaggedFiles(fsMock.Mock, opts)
+	testMultipleTaggedPackages(t, func(fsMock *FileSystemMockHandle, opts buildtool.Options) (int, error) {
+		files, err := buildtool.TaggedFiles(fsMock.Mock, opts)
 		return len(files), err
 	})
-}
-
-func TestTryReadTaggedFile_ReadFileError(t *testing.T) {
-	fsMock := MockFileSystem(t)
-	done := make(chan struct{})
-
-	var (
-		result taggedFile
-		ok     bool
-	)
-
-	go func() {
-		result, ok = tryReadTaggedFile(fsMock.Mock, "/test/file.go", "file.go", "targ")
-
-		close(done)
-	}()
-
-	fsMock.Method.ReadFile.ExpectCalledWithExactly("/test/file.go").
-		InjectReturnValues([]byte(nil), errors.New("read error"))
-
-	<-done
-
-	if ok {
-		t.Fatal("expected false, got true")
-	}
-
-	if result.Path != "" {
-		t.Fatalf("expected empty path, got %q", result.Path)
-	}
 }
 
 // unexported constants.
@@ -1173,7 +937,7 @@ func (f fakeFileInfo) Size() int64 { return 0 }
 
 func (f fakeFileInfo) Sys() any { return nil }
 
-func commandNamesByKind(info PackageInfo, kind CommandKind) []string {
+func commandNamesByKind(info buildtool.PackageInfo, kind buildtool.CommandKind) []string {
 	var names []string
 
 	for _, cmd := range info.Commands {
@@ -1186,7 +950,7 @@ func commandNamesByKind(info PackageInfo, kind CommandKind) []string {
 }
 
 // findCommandDesc finds the description of a command by name and kind.
-func findCommandDesc(info PackageInfo, name string, kind CommandKind) string {
+func findCommandDesc(info buildtool.PackageInfo, name string, kind buildtool.CommandKind) string {
 	for _, cmd := range info.Commands {
 		if cmd.Name == name && cmd.Kind == kind {
 			return cmd.Description
@@ -1198,19 +962,19 @@ func findCommandDesc(info PackageInfo, name string, kind CommandKind) string {
 
 // runDiscoverTest runs Discover and expects a single PackageInfo.
 // Returns the infos for further assertions.
-func runDiscoverTest(t *testing.T, fsMock *FileSystemMockHandle, fileContent []byte) []PackageInfo {
+func runDiscoverTest(t *testing.T, fsMock *FileSystemMockHandle, fileContent []byte) []buildtool.PackageInfo {
 	t.Helper()
 
-	opts := Options{StartDir: "/root"}
+	opts := buildtool.Options{StartDir: "/root"}
 	done := make(chan struct{})
 
 	var (
-		infos []PackageInfo
+		infos []buildtool.PackageInfo
 		err   error
 	)
 
 	go func() {
-		infos, err = Discover(fsMock.Mock, opts)
+		infos, err = buildtool.Discover(fsMock.Mock, opts)
 
 		close(done)
 	}()
@@ -1236,12 +1000,12 @@ func runDiscoverTest(t *testing.T, fsMock *FileSystemMockHandle, fileContent []b
 
 func testMultipleTaggedPackages(
 	t *testing.T,
-	testFunc func(*FileSystemMockHandle, Options) (int, error),
+	testFunc func(*FileSystemMockHandle, buildtool.Options) (int, error),
 ) {
 	t.Helper()
 
 	fsMock := MockFileSystem(t)
-	opts := Options{StartDir: "/root"}
+	opts := buildtool.Options{StartDir: "/root"}
 	done := make(chan struct{})
 
 	var (
@@ -1292,5 +1056,5 @@ func Hi() {}
 }
 
 func writeTestFile(path string, content []byte) error {
-	return OSFileSystem{}.WriteFile(path, content, 0o644)
+	return buildtool.OSFileSystem{}.WriteFile(path, content, 0o644)
 }

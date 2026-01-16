@@ -5,16 +5,15 @@ import (
 	"errors"
 	"fmt"
 	"go/ast"
-	"go/build/constraint"
 	"go/parser"
 	"go/token"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
-	"unicode"
+
+	"github.com/toejough/targ/buildtool/internal/parse"
 )
 
 // Exported constants.
@@ -28,9 +27,6 @@ var (
 	ErrDuplicateCommand       = errors.New("duplicate command name")
 	ErrMainFunctionNotAllowed = errors.New("tagged files must not declare main()")
 	ErrMultiplePackageNames   = errors.New("multiple package names")
-	ErrMustAcceptContext      = errors.New("must accept context.Context")
-	ErrMustReturnOnlyError    = errors.New("must return only error")
-	ErrNiladicOrContext       = errors.New("must be niladic or accept context")
 	ErrNoTaggedFiles          = errors.New("no tagged files found")
 )
 
@@ -123,7 +119,7 @@ type TaggedFile struct {
 }
 
 // Discover finds all packages with targ-tagged files and parses their commands.
-func Discover(fs FileSystem, opts Options) ([]PackageInfo, error) {
+func Discover(filesystem FileSystem, opts Options) ([]PackageInfo, error) {
 	startDir := opts.StartDir
 	if startDir == "" {
 		startDir = "."
@@ -134,7 +130,7 @@ func Discover(fs FileSystem, opts Options) ([]PackageInfo, error) {
 		tag = defaultBuildTag
 	}
 
-	dirs, err := findTaggedDirs(fs, startDir, tag)
+	dirs, err := findTaggedDirs(filesystem, startDir, tag)
 	if err != nil {
 		return nil, err
 	}
@@ -154,7 +150,7 @@ func Discover(fs FileSystem, opts Options) ([]PackageInfo, error) {
 }
 
 // SelectTaggedDirs returns directories containing targ-tagged files.
-func SelectTaggedDirs(fs FileSystem, opts Options) ([]TaggedDir, error) {
+func SelectTaggedDirs(filesystem FileSystem, opts Options) ([]TaggedDir, error) {
 	startDir := opts.StartDir
 	if startDir == "" {
 		startDir = "."
@@ -165,7 +161,7 @@ func SelectTaggedDirs(fs FileSystem, opts Options) ([]TaggedDir, error) {
 		tag = defaultBuildTag
 	}
 
-	dirs, err := findTaggedDirs(fs, startDir, tag)
+	dirs, err := findTaggedDirs(filesystem, startDir, tag)
 	if err != nil {
 		return nil, err
 	}
@@ -179,7 +175,7 @@ func SelectTaggedDirs(fs FileSystem, opts Options) ([]TaggedDir, error) {
 }
 
 // TaggedFiles returns all files with the specified build tag.
-func TaggedFiles(fs FileSystem, opts Options) ([]TaggedFile, error) {
+func TaggedFiles(filesystem FileSystem, opts Options) ([]TaggedFile, error) {
 	startDir := opts.StartDir
 	if startDir == "" {
 		startDir = "."
@@ -190,7 +186,7 @@ func TaggedFiles(fs FileSystem, opts Options) ([]TaggedFile, error) {
 		tag = defaultBuildTag
 	}
 
-	dirs, err := findTaggedDirs(fs, startDir, tag)
+	dirs, err := findTaggedDirs(filesystem, startDir, tag)
 	if err != nil {
 		return nil, err
 	}
@@ -317,11 +313,11 @@ func (p *packageInfoParser) checkDuplicates() error {
 	seen := make(map[string]string)
 
 	for _, name := range p.structList {
-		seen[camelToKebab(name)] = name
+		seen[parse.CamelToKebab(name)] = name
 	}
 
 	for _, name := range p.funcList {
-		cmd := camelToKebab(name)
+		cmd := parse.CamelToKebab(name)
 		if other, ok := seen[cmd]; ok {
 			return fmt.Errorf("%w: %q from %s and %s", ErrDuplicateCommand, cmd, other, name)
 		}
@@ -372,7 +368,7 @@ func (p *packageInfoParser) parseFile(file taggedFile) error {
 		return err
 	}
 
-	ctxAliases, ctxDotImport := contextImportInfo(parsed.Imports)
+	ctxAliases, ctxDotImport := parse.ContextImportInfo(parsed.Imports)
 
 	for _, decl := range parsed.Decls {
 		err := p.processDecl(decl, file.Path, ctxAliases, ctxDotImport)
@@ -420,7 +416,7 @@ func (p *packageInfoParser) processExportedFunc(
 	ctxAliases map[string]bool,
 	ctxDotImport bool,
 ) error {
-	err := validateFunctionSignature(node.Type, ctxAliases, ctxDotImport)
+	err := parse.ValidateFunctionSignature(node.Type, ctxAliases, ctxDotImport)
 	if err != nil {
 		return fmt.Errorf("function %s %w", node.Name.Name, err)
 	}
@@ -428,10 +424,10 @@ func (p *packageInfoParser) processExportedFunc(
 	name := node.Name.Name
 	p.funcs[name] = true
 	p.funcFiles[name] = filePath
-	p.funcUsesContext[name] = functionUsesContext(node.Type, ctxAliases, ctxDotImport)
-	p.funcReturnsError[name] = functionReturnsError(node.Type)
+	p.funcUsesContext[name] = parse.FunctionUsesContext(node.Type, ctxAliases, ctxDotImport)
+	p.funcReturnsError[name] = parse.FunctionReturnsError(node.Type)
 
-	if desc, ok := functionDocValue(node); ok {
+	if desc, ok := parse.FunctionDocValue(node); ok {
 		p.funcDescriptions[name] = desc
 	}
 
@@ -478,7 +474,7 @@ func (p *packageInfoParser) processGenDecl(node *ast.GenDecl, filePath string) {
 		p.structs[typeSpec.Name.Name] = true
 		p.structFiles[typeSpec.Name.Name] = filePath
 
-		if recordSubcommandRefs(structType, p.subcommandNames, p.subcommandTypes) {
+		if parse.RecordSubcommandRefs(structType, p.subcommandNames, p.subcommandTypes) {
 			p.structHasSubcommands[typeSpec.Name.Name] = true
 		}
 	}
@@ -486,14 +482,14 @@ func (p *packageInfoParser) processGenDecl(node *ast.GenDecl, filePath string) {
 
 // processMethod handles method declarations on structs.
 func (p *packageInfoParser) processMethod(node *ast.FuncDecl) {
-	if desc, ok := descriptionMethodValue(node); ok {
-		if recvName := receiverTypeName(node.Recv); recvName != "" {
+	if desc, ok := parse.DescriptionMethodValue(node); ok {
+		if recvName := parse.ReceiverTypeName(node.Recv); recvName != "" {
 			p.structDescriptions[recvName] = desc
 		}
 	}
 
 	if node.Name.Name == runMethodName {
-		if recvName := receiverTypeName(node.Recv); recvName != "" {
+		if recvName := parse.ReceiverTypeName(node.Recv); recvName != "" {
 			p.structHasRun[recvName] = true
 		}
 	}
@@ -539,41 +535,6 @@ func (p *packageInfoParser) validate() error {
 	return fmt.Errorf("%w: %s", ErrMainFunctionNotAllowed, strings.Join(p.mainFiles, ", "))
 }
 
-type reflectTag string
-
-func (tag reflectTag) Get(key string) string {
-	value := string(tag)
-	for value != "" {
-		i := strings.Index(value, ":")
-		if i < 0 {
-			break
-		}
-
-		name := strings.TrimSpace(value[:i])
-
-		value = strings.TrimSpace(value[i+1:])
-		if !strings.HasPrefix(value, "\"") {
-			break
-		}
-
-		value = value[1:]
-
-		j := strings.Index(value, "\"")
-		if j < 0 {
-			break
-		}
-
-		quoted := value[:j]
-		value = strings.TrimSpace(value[j+1:])
-
-		if name == key {
-			return quoted
-		}
-	}
-
-	return ""
-}
-
 type taggedDir struct {
 	Path  string
 	Depth int
@@ -585,95 +546,11 @@ type taggedFile struct {
 	Content []byte
 }
 
-func camelToKebab(s string) string {
-	var result strings.Builder
-
-	runes := []rune(s)
-	for i, r := range runes {
-		if i > 0 && unicode.IsUpper(r) {
-			prev := runes[i-1]
-			// Insert hyphen if previous is lowercase (e.g., fooBar -> foo-bar)
-			// OR if we're at the start of a new word after an acronym (e.g., APIServer -> api-server)
-			if unicode.IsLower(prev) || (i+1 < len(runes) && unicode.IsLower(runes[i+1])) {
-				result.WriteRune('-')
-			}
-		}
-
-		result.WriteRune(unicode.ToLower(r))
-	}
-
-	return result.String()
-}
-
-func contextImportInfo(imports []*ast.ImportSpec) (map[string]bool, bool) {
-	aliases := map[string]bool{}
-	dotImport := false
-
-	for _, spec := range imports {
-		path, err := strconv.Unquote(spec.Path.Value)
-		if err != nil || path != "context" {
-			continue
-		}
-
-		if spec.Name != nil {
-			if spec.Name.Name == "." {
-				dotImport = true
-				continue
-			}
-
-			if spec.Name.Name == "_" {
-				continue
-			}
-
-			aliases[spec.Name.Name] = true
-
-			continue
-		}
-
-		aliases["context"] = true
-	}
-
-	return aliases, dotImport
-}
-
-func descriptionMethodValue(node *ast.FuncDecl) (string, bool) {
-	if node.Name.Name != "Description" || node.Recv == nil {
-		return "", false
-	}
-
-	if node.Type.Params != nil && len(node.Type.Params.List) > 0 {
-		return "", false
-	}
-
-	if node.Type.Results == nil || len(node.Type.Results.List) != 1 {
-		return "", false
-	}
-
-	if !isStringExpr(node.Type.Results.List[0].Type) {
-		return "", false
-	}
-
-	return returnStringLiteral(node.Body)
-}
-
-func fieldTypeName(expr ast.Expr) string {
-	switch t := expr.(type) {
-	case *ast.Ident:
-		return t.Name
-	case *ast.StarExpr:
-		if ident, ok := t.X.(*ast.Ident); ok {
-			return ident.Name
-		}
-	}
-
-	return ""
-}
-
 func filterCommands(candidates, subcommandNames map[string]bool) []string {
 	var result []string
 
 	for name := range candidates {
-		cmd := camelToKebab(name)
+		cmd := parse.CamelToKebab(name)
 		if !subcommandNames[cmd] {
 			result = append(result, name)
 		}
@@ -702,7 +579,7 @@ func filterStructs(
 	return result
 }
 
-func findTaggedDirs(fs FileSystem, startDir, tag string) ([]taggedDir, error) {
+func findTaggedDirs(filesystem FileSystem, startDir, tag string) ([]taggedDir, error) {
 	queue := []dirQueueEntry{{path: startDir, depth: 0}}
 
 	var results []taggedDir
@@ -711,7 +588,7 @@ func findTaggedDirs(fs FileSystem, startDir, tag string) ([]taggedDir, error) {
 		current := queue[0]
 		queue = queue[1:]
 
-		tagged, newDirs, err := processDirectory(fs, current, tag)
+		tagged, newDirs, err := processDirectory(filesystem, current, tag)
 		if err != nil {
 			return nil, err
 		}
@@ -728,79 +605,6 @@ func findTaggedDirs(fs FileSystem, startDir, tag string) ([]taggedDir, error) {
 	}
 
 	return results, nil
-}
-
-func funcParamIsContext(expr ast.Expr, ctxAliases map[string]bool, ctxDotImport bool) bool {
-	switch t := expr.(type) {
-	case *ast.SelectorExpr:
-		if ident, ok := t.X.(*ast.Ident); ok && t.Sel != nil && t.Sel.Name == "Context" {
-			return ctxAliases[ident.Name]
-		}
-	case *ast.Ident:
-		if ctxDotImport && t.Name == "Context" {
-			return true
-		}
-	}
-
-	return false
-}
-
-func functionDocValue(node *ast.FuncDecl) (string, bool) {
-	if node.Doc == nil {
-		return "", false
-	}
-
-	text := strings.TrimSpace(node.Doc.Text())
-	if text == "" {
-		return "", false
-	}
-
-	return text, true
-}
-
-func functionUsesContext(fnType *ast.FuncType, ctxAliases map[string]bool, ctxDotImport bool) bool {
-	if fnType.Params == nil || len(fnType.Params.List) != 1 {
-		return false
-	}
-
-	return funcParamIsContext(fnType.Params.List[0].Type, ctxAliases, ctxDotImport)
-}
-
-func hasBuildTag(content []byte, tag string) bool {
-	lines := strings.SplitSeq(string(content), "\n")
-	for line := range lines {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-
-		if !strings.HasPrefix(line, "//") {
-			return false
-		}
-
-		if after, ok := strings.CutPrefix(line, "//go:build"); ok {
-			exprText := strings.TrimSpace(after)
-
-			expr, err := constraint.Parse(exprText)
-			if err != nil {
-				return exprText == tag
-			}
-
-			return expr.Eval(func(t string) bool { return t == tag })
-		}
-	}
-
-	return false
-}
-
-func isErrorExpr(expr ast.Expr) bool {
-	ident, ok := expr.(*ast.Ident)
-	return ok && ident.Name == "error"
-}
-
-func isStringExpr(expr ast.Expr) bool {
-	ident, ok := expr.(*ast.Ident)
-	return ok && ident.Name == "string"
 }
 
 // newPackageInfoParser creates a new parser with initialized state.
@@ -847,11 +651,11 @@ func parsePackageInfo(dir taggedDir) (PackageInfo, error) {
 }
 
 func processDirectory(
-	fs FileSystem,
+	filesystem FileSystem,
 	current dirQueueEntry,
 	tag string,
 ) ([]taggedFile, []dirQueueEntry, error) {
-	entries, err := fs.ReadDir(current.path)
+	entries, err := filesystem.ReadDir(current.path)
 	if err != nil {
 		return nil, nil, fmt.Errorf("reading directory %s: %w", current.path, err)
 	}
@@ -869,14 +673,14 @@ func processDirectory(
 		fullPath := filepath.Join(current.path, name)
 
 		if entry.IsDir() {
-			if !shouldSkipDir(name) {
+			if !parse.ShouldSkipDir(name) {
 				subdirs = append(subdirs, dirQueueEntry{path: fullPath, depth: current.depth + 1})
 			}
 
 			continue
 		}
 
-		if file, ok := tryReadTaggedFile(fs, fullPath, name, tag); ok {
+		if file, ok := tryReadTaggedFile(filesystem, fullPath, name, tag); ok {
 			tagged = append(tagged, file)
 		}
 	}
@@ -884,115 +688,17 @@ func processDirectory(
 	return tagged, subdirs, nil
 }
 
-func receiverTypeName(recv *ast.FieldList) string {
-	if recv == nil || len(recv.List) == 0 {
-		return ""
-	}
-
-	return fieldTypeName(recv.List[0].Type)
-}
-
-func recordSubcommandRefs(
-	structType *ast.StructType,
-	subcommandNames map[string]bool,
-	subcommandTypes map[string]bool,
-) bool {
-	hasSubcommand := false
-
-	for _, field := range structType.Fields.List {
-		if field.Tag == nil {
-			continue
-		}
-
-		tagValue := strings.Trim(field.Tag.Value, "`")
-		tag := reflectStructTag(tagValue)
-
-		targTag := tag.Get("targ")
-		if !strings.Contains(targTag, "subcommand") {
-			continue
-		}
-
-		hasSubcommand = true
-		nameOverride := ""
-
-		parts := strings.SplitSeq(targTag, ",")
-		for p := range parts {
-			p = strings.TrimSpace(p)
-			if after, ok := strings.CutPrefix(p, "name="); ok {
-				nameOverride = after
-			} else if after, ok := strings.CutPrefix(p, "subcommand="); ok {
-				nameOverride = after
-			}
-		}
-
-		if nameOverride != "" {
-			subcommandNames[nameOverride] = true
-		} else if len(field.Names) > 0 {
-			subcommandNames[camelToKebab(field.Names[0].Name)] = true
-		}
-
-		if typeName := fieldTypeName(field.Type); typeName != "" {
-			subcommandTypes[typeName] = true
-		}
-	}
-
-	return hasSubcommand
-}
-
-func reflectStructTag(tag string) reflectTag {
-	return reflectTag(tag)
-}
-
-func returnStringLiteral(body *ast.BlockStmt) (string, bool) {
-	if body == nil || len(body.List) != 1 {
-		return "", false
-	}
-
-	ret, ok := body.List[0].(*ast.ReturnStmt)
-	if !ok || len(ret.Results) != 1 {
-		return "", false
-	}
-
-	lit, ok := ret.Results[0].(*ast.BasicLit)
-	if !ok || lit.Kind != token.STRING {
-		return "", false
-	}
-
-	value, err := strconv.Unquote(lit.Value)
-	if err != nil {
-		return "", false
-	}
-
-	return strings.TrimSpace(value), true
-}
-
-func shouldSkipDir(name string) bool {
-	return name == ".git" || name == "vendor"
-}
-
-func shouldSkipGoFile(name string) bool {
-	if !strings.HasSuffix(name, ".go") {
-		return true
-	}
-
-	if strings.HasSuffix(name, "_test.go") {
-		return true
-	}
-
-	return strings.HasPrefix(name, "generated_targ_")
-}
-
-func tryReadTaggedFile(fs FileSystem, fullPath, name, tag string) (taggedFile, bool) {
-	if shouldSkipGoFile(name) {
+func tryReadTaggedFile(filesystem FileSystem, fullPath, name, tag string) (taggedFile, bool) {
+	if parse.ShouldSkipGoFile(name) {
 		return taggedFile{}, false
 	}
 
-	content, err := fs.ReadFile(fullPath)
+	content, err := filesystem.ReadFile(fullPath)
 	if err != nil {
 		return taggedFile{}, false
 	}
 
-	if !hasBuildTag(content, tag) {
+	if !parse.HasBuildTag(content, tag) {
 		return taggedFile{}, false
 	}
 
@@ -1000,34 +706,4 @@ func tryReadTaggedFile(fs FileSystem, fullPath, name, tag string) (taggedFile, b
 		Path:    fullPath,
 		Content: content,
 	}, true
-}
-
-func validateFunctionSignature(
-	fnType *ast.FuncType,
-	ctxAliases map[string]bool,
-	ctxDotImport bool,
-) error {
-	paramCount := 0
-	if fnType.Params != nil {
-		paramCount = len(fnType.Params.List)
-	}
-
-	if paramCount > 1 {
-		return ErrNiladicOrContext
-	}
-
-	if paramCount == 1 &&
-		!funcParamIsContext(fnType.Params.List[0].Type, ctxAliases, ctxDotImport) {
-		return ErrMustAcceptContext
-	}
-
-	if fnType.Results == nil || len(fnType.Results.List) == 0 {
-		return nil
-	}
-
-	if len(fnType.Results.List) == 1 && isErrorExpr(fnType.Results.List[0].Type) {
-		return nil
-	}
-
-	return ErrMustReturnOnlyError
 }

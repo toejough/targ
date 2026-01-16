@@ -13,6 +13,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/toejough/targ/buildtool/internal/parse"
 )
 
 // Exported variables.
@@ -89,13 +91,13 @@ func (g *wrapperGenerator) buildFunctionDoc(
 
 	usesContext := false
 	if node.Type.Params != nil && len(node.Type.Params.List) == 1 {
-		usesContext = funcParamIsContext(node.Type.Params.List[0].Type, ctxAliases, ctxDotImport)
+		usesContext = parse.FuncParamIsContext(node.Type.Params.List[0].Type, ctxAliases, ctxDotImport)
 	}
 
 	return functionDoc{
 		Name:         node.Name.Name,
 		Description:  desc,
-		ReturnsError: functionReturnsError(node.Type),
+		ReturnsError: parse.FunctionReturnsError(node.Type),
 		UsesContext:  usesContext,
 	}
 }
@@ -129,7 +131,7 @@ func (g *wrapperGenerator) checkWrapperConflicts() error {
 // collectFunctionNames builds the sorted list of functions to wrap.
 func (g *wrapperGenerator) collectFunctionNames() {
 	for name := range g.functions {
-		if g.subcommandNames[camelToKebab(name)] {
+		if g.subcommandNames[parse.CamelToKebab(name)] {
 			continue
 		}
 
@@ -175,7 +177,7 @@ func (g *wrapperGenerator) parseFile(fullPath string, content []byte) error {
 		return err
 	}
 
-	ctxAliases, ctxDotImport := contextImportInfo(parsed.Imports)
+	ctxAliases, ctxDotImport := parse.ContextImportInfo(parsed.Imports)
 
 	for _, decl := range parsed.Decls {
 		err := g.processDecl(decl, ctxAliases, ctxDotImport)
@@ -226,7 +228,7 @@ func (g *wrapperGenerator) processDecl(
 
 // processEntry processes a single directory entry.
 func (g *wrapperGenerator) processEntry(entry iofs.DirEntry) error {
-	if entry.IsDir() || !isGoSourceFile(entry.Name()) {
+	if entry.IsDir() || !parse.IsGoSourceFile(entry.Name()) {
 		return nil
 	}
 
@@ -237,7 +239,7 @@ func (g *wrapperGenerator) processEntry(entry iofs.DirEntry) error {
 		return fmt.Errorf("reading file %s: %w", fullPath, err)
 	}
 
-	if g.opts.OnlyTagged && !hasBuildTag(content, g.tag) {
+	if g.opts.OnlyTagged && !parse.HasBuildTag(content, g.tag) {
 		return nil
 	}
 
@@ -254,7 +256,7 @@ func (g *wrapperGenerator) processFuncDecl(
 		return nil
 	}
 
-	err := validateFunctionSignature(node.Type, ctxAliases, ctxDotImport)
+	err := parse.ValidateFunctionSignature(node.Type, ctxAliases, ctxDotImport)
 	if err != nil {
 		return fmt.Errorf("function %s %w", node.Name.Name, err)
 	}
@@ -284,7 +286,7 @@ func (g *wrapperGenerator) processGenDecl(node *ast.GenDecl) {
 			continue
 		}
 
-		recordSubcommandRefs(structType, g.subcommandNames, map[string]bool{})
+		parse.RecordSubcommandRefs(structType, g.subcommandNames, map[string]bool{})
 	}
 }
 
@@ -408,23 +410,6 @@ func (g *wrapperGenerator) writeWrappers(buf *bytes.Buffer) {
 
 		g.writeWrapper(buf, name, g.functions[name])
 	}
-}
-
-func functionReturnsError(fnType *ast.FuncType) bool {
-	if fnType.Results == nil || len(fnType.Results.List) == 0 {
-		return false
-	}
-
-	return len(fnType.Results.List) == 1 && isErrorExpr(fnType.Results.List[0].Type)
-}
-
-// isGoSourceFile checks if a filename is a non-generated Go source file.
-func isGoSourceFile(name string) bool {
-	if !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
-		return false
-	}
-
-	return !strings.HasPrefix(name, "generated_targ_")
 }
 
 // newWrapperGenerator creates a new wrapper generator with initialized state.

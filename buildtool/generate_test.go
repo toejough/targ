@@ -1,9 +1,11 @@
-package buildtool
+package buildtool_test
 
 import (
 	"io/fs"
 	"strings"
 	"testing"
+
+	"github.com/toejough/targ/buildtool"
 )
 
 // Test fixtures for expected generated code
@@ -77,7 +79,7 @@ func TestGenerateFunctionWrappers_BuildTagAndDescriptions(t *testing.T) {
 	)
 
 	go func() {
-		path, err = GenerateFunctionWrappers(fsMock.Mock, GenerateOptions{
+		path, err = buildtool.GenerateFunctionWrappers(fsMock.Mock, buildtool.GenerateOptions{
 			Dir:        "/root",
 			BuildTag:   "targ",
 			OnlyTagged: true,
@@ -137,7 +139,7 @@ func TestGenerateFunctionWrappers_ContextRun(t *testing.T) {
 	)
 
 	go func() {
-		path, err = GenerateFunctionWrappers(fsMock.Mock, GenerateOptions{
+		path, err = buildtool.GenerateFunctionWrappers(fsMock.Mock, buildtool.GenerateOptions{
 			Dir:        "/root",
 			BuildTag:   "targ",
 			OnlyTagged: true,
@@ -187,7 +189,7 @@ func TestGenerateFunctionWrappers_ErrorsOnNameCollision(t *testing.T) {
 	var err error
 
 	go func() {
-		_, err = GenerateFunctionWrappers(fsMock.Mock, GenerateOptions{
+		_, err = buildtool.GenerateFunctionWrappers(fsMock.Mock, buildtool.GenerateOptions{
 			Dir:        "/root",
 			BuildTag:   "targ",
 			OnlyTagged: true,
@@ -226,7 +228,7 @@ func TestGenerateFunctionWrappers_SkipsSubcommandFunctions(t *testing.T) {
 	)
 
 	go func() {
-		path, err = GenerateFunctionWrappers(fsMock.Mock, GenerateOptions{
+		path, err = buildtool.GenerateFunctionWrappers(fsMock.Mock, buildtool.GenerateOptions{
 			Dir:        "/root",
 			BuildTag:   "targ",
 			OnlyTagged: true,
@@ -269,7 +271,7 @@ func TestGenerateFunctionWrappers_MultiplePackageNames(t *testing.T) {
 	var err error
 
 	go func() {
-		_, err = GenerateFunctionWrappers(fsMock.Mock, GenerateOptions{
+		_, err = buildtool.GenerateFunctionWrappers(fsMock.Mock, buildtool.GenerateOptions{
 			Dir:        "/root",
 			BuildTag:   "targ",
 			OnlyTagged: true,
@@ -304,28 +306,6 @@ func Build() {}
 	}
 }
 
-func TestIsGoSourceFile(t *testing.T) {
-	tests := []struct {
-		name     string
-		filename string
-		want     bool
-	}{
-		{"valid go file", "main.go", true},
-		{"test file", "main_test.go", false},
-		{"generated file", "generated_targ_build.go", false},
-		{"non-go file", "main.txt", false},
-		{"go in name", "main.golang", false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := isGoSourceFile(tt.filename); got != tt.want {
-				t.Errorf("isGoSourceFile(%q) = %v, want %v", tt.filename, got, tt.want)
-			}
-		})
-	}
-}
-
 func TestGenerateFunctionWrappers_NoGoFiles(t *testing.T) {
 	fsMock := MockFileSystem(t)
 	done := make(chan struct{})
@@ -333,7 +313,7 @@ func TestGenerateFunctionWrappers_NoGoFiles(t *testing.T) {
 	var err error
 
 	go func() {
-		_, err = GenerateFunctionWrappers(fsMock.Mock, GenerateOptions{
+		_, err = buildtool.GenerateFunctionWrappers(fsMock.Mock, buildtool.GenerateOptions{
 			Dir:        "/root",
 			BuildTag:   "targ",
 			OnlyTagged: true,
@@ -366,7 +346,7 @@ func TestGenerateFunctionWrappers_DefaultDirAndTag(t *testing.T) {
 
 	go func() {
 		// Empty Dir and empty BuildTag with OnlyTagged=true should use defaults
-		_, err = GenerateFunctionWrappers(fsMock.Mock, GenerateOptions{
+		_, err = buildtool.GenerateFunctionWrappers(fsMock.Mock, buildtool.GenerateOptions{
 			Dir:        "",
 			BuildTag:   "",
 			OnlyTagged: true,
@@ -398,7 +378,7 @@ func TestGenerateFunctionWrappers_InvalidFunctionSignature(t *testing.T) {
 	var err error
 
 	go func() {
-		_, err = GenerateFunctionWrappers(fsMock.Mock, GenerateOptions{
+		_, err = buildtool.GenerateFunctionWrappers(fsMock.Mock, buildtool.GenerateOptions{
 			Dir:        "/root",
 			BuildTag:   "targ",
 			OnlyTagged: true,
