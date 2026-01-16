@@ -82,11 +82,6 @@ func DetectShell() string {
 	}
 }
 
-// NewOsEnv returns a runEnv that uses os.Args and real stdout/exit.
-func NewOsEnv() runEnv {
-	return osRunEnv{}
-}
-
 // RunWithEnv executes commands with a custom environment.
 func RunWithEnv(env runEnv, opts RunOptions, targets ...any) error {
 	exec := &runExecutor{
@@ -179,6 +174,11 @@ type runEnv interface {
 	Printf(format string, args ...any)
 	Println(args ...any)
 	Exit(code int)
+}
+
+// NewOsEnv returns a runEnv that uses os.Args and real stdout/exit.
+func NewOsEnv() runEnv {
+	return osRunEnv{}
 }
 
 // runExecutor holds state for executing commands.

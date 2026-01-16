@@ -437,6 +437,8 @@ func assignSubcommandValue(
 		newInst := reflect.New(fieldType).Elem()
 		fieldVal.Set(newInst)
 		sub.Value = newInst
+	default:
+		return fmt.Errorf("unsupported subcommand field type %s for %s", fieldType.Kind(), subName)
 	}
 
 	return nil

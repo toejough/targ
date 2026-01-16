@@ -134,7 +134,8 @@ func newerWithCache(inputs []string) (bool, error) {
 			changed = true
 		}
 
-		if err := writeCache(cachePath, next); err != nil {
+		err = writeCache(cachePath, next)
+		if err != nil {
 			return false, err
 		}
 	}
@@ -172,7 +173,9 @@ func readCache(path string) (*newerCache, error) {
 	}
 
 	var cache newerCache
-	if err := json.Unmarshal(data, &cache); err != nil {
+
+	err = json.Unmarshal(data, &cache)
+	if err != nil {
 		return nil, err
 	}
 

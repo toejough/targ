@@ -73,6 +73,8 @@ type VariadicFlagCmd struct {
 func (c *VariadicFlagCmd) Run() {}
 
 func TestCompletionChain_NilNode(t *testing.T) {
+	t.Parallel()
+
 	chain, err := completionChain(nil, []string{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -189,6 +191,8 @@ func TestDoCompletion_ChainedRootCommands(t *testing.T) {
 // --- doCompletion additional tests ---
 
 func TestDoCompletion_EmptyCommandLine(t *testing.T) {
+	t.Parallel()
+
 	cmd, err := parseCommand(&EnumCmd{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -736,7 +740,8 @@ func TestTokenizeCommandLine_NewlineSeparator(t *testing.T) {
 
 func TestTokenizeCommandLine_SimpleArgs(t *testing.T) {
 	parts, isNewArg := tokenizeCommandLine("foo bar baz")
-	if len(parts) != 3 || parts[0] != testStringFoo || parts[1] != testStringBar || parts[2] != "baz" {
+	if len(parts) != 3 || parts[0] != testStringFoo || parts[1] != testStringBar ||
+		parts[2] != "baz" {
 		t.Fatalf("unexpected parts: %v", parts)
 	}
 

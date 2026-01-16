@@ -322,8 +322,7 @@ func collectPositionalSpecs(node *commandNode, inst reflect.Value) ([]positional
 	}
 
 	typ := node.Type
-
-	var specs []positionalSpec
+	specs := make([]positionalSpec, 0, typ.NumField())
 
 	for i := range typ.NumField() {
 		field := typ.Field(i)

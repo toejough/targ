@@ -8,6 +8,7 @@ import (
 )
 
 func TestMatchBraceAndGlob(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 
 	files := []string{

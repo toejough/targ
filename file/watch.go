@@ -33,7 +33,7 @@ func Watch(
 
 	interval := opts.Interval
 	if interval == 0 {
-		interval = 250 * time.Millisecond
+		interval = defaultWatchInterval
 	}
 
 	prev, err := snapshot(patterns)
@@ -66,6 +66,11 @@ func Watch(
 		}
 	}
 }
+
+// unexported constants.
+const (
+	defaultWatchInterval = 250 * time.Millisecond
+)
 
 type fileSnapshot struct {
 	Files map[string]int64

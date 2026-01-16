@@ -43,6 +43,48 @@ func TestWatchDetectsAddModifyRemove(t *testing.T) {
 	}
 }
 
+func TestWatchReturnsErrorFromCallback(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "test.txt")
+	pattern := filepath.Join(dir, "*.txt")
+
+	requireNoError(t, os.WriteFile(file, []byte("initial"), 0o644))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	callbackErr := errors.New("callback error")
+	done := make(chan error, 1)
+
+	go func() {
+		done <- Watch(ctx, []string{pattern}, WatchOptions{Interval: 10 * time.Millisecond}, func(ChangeSet) error {
+			return callbackErr
+		})
+	}()
+
+	time.Sleep(20 * time.Millisecond)
+
+	// Modify file to trigger callback
+	requireNoError(t, os.WriteFile(file, []byte("modified"), 0o644))
+
+	select {
+	case err := <-done:
+		if !errors.Is(err, callbackErr) {
+			t.Fatalf("expected callback error, got: %v", err)
+		}
+	case <-time.After(500 * time.Millisecond):
+		cancel()
+		t.Fatal("watch did not return callback error")
+	}
+}
+
+func TestWatchReturnsErrorOnNoPatterns(t *testing.T) {
+	err := Watch(context.Background(), nil, WatchOptions{}, func(ChangeSet) error { return nil })
+	if err == nil || err.Error() != "no patterns provided" {
+		t.Fatalf("expected 'no patterns provided' error, got: %v", err)
+	}
+}
+
 // performFileOperations creates, modifies, and removes a test file.
 func performFileOperations(t *testing.T, file string) {
 	t.Helper()

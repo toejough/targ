@@ -351,7 +351,8 @@ func (p *packageInfoParser) parseFile(file taggedFile) error {
 		return err
 	}
 
-	if err := p.checkPackageName(parsed, file.Path); err != nil {
+	err = p.checkPackageName(parsed, file.Path)
+	if err != nil {
 		return err
 	}
 

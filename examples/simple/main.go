@@ -16,7 +16,7 @@ type AddCmd struct {
 	B int `targ:"positional"`
 }
 
-// Add two numbers.
+// Run adds two numbers.
 func (a *AddCmd) Run() {
 	fmt.Printf("%d + %d = %d\n", a.A, a.B, a.A+a.B)
 }
@@ -26,8 +26,7 @@ type Greet struct {
 	Age  int    `targ:"flag,name=age,desc=Age of the person"`
 }
 
-// Greet the user.
-// This command prints a greeting message.
+// Run greets the user.
 func (g *Greet) Run() {
 	fmt.Printf("Hello %s, you are %d years old!\n", g.Name, g.Age)
 }
@@ -37,17 +36,15 @@ type Math struct {
 	RunCmd *RunCmd `targ:"subcommand=run"`
 }
 
-// Math operations.
-// Provides basic math commands.
+// Run displays math options.
 func (m *Math) Run() {
 	fmt.Printf("example with just calling `math`!\n")
 }
 
-// Example of a subcommand named "run"
-// Usage: math run
+// RunCmd is a subcommand named "run" (usage: math run).
 type RunCmd struct{}
 
-// Execute the run command.
+// Run executes the run command.
 func (r *RunCmd) Run() {
 	fmt.Println("Math run command executed")
 }

@@ -837,11 +837,12 @@ func (r *targRunner) handleSingleModule(infos []buildtool.PackageInfo) int {
 }
 
 func (r *targRunner) logError(prefix string, err error) {
-	if prefix != "" && err != nil {
+	switch {
+	case prefix != "" && err != nil:
 		_, _ = fmt.Fprintf(r.errOut, "%s: %v\n", prefix, err)
-	} else if prefix != "" {
+	case prefix != "":
 		_, _ = fmt.Fprintln(r.errOut, prefix)
-	} else if err != nil {
+	case err != nil:
 		_, _ = fmt.Fprintf(r.errOut, "%v\n", err)
 	}
 }

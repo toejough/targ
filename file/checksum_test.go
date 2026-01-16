@@ -7,6 +7,7 @@ import (
 )
 
 func TestChecksumDetectsChanges(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	input := filepath.Join(dir, "a.txt")
 	dest := filepath.Join(dir, "hash.txt")
@@ -48,6 +49,7 @@ func TestChecksumDetectsChanges(t *testing.T) {
 }
 
 func TestChecksumDetectsMatchSetChanges(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	dest := filepath.Join(dir, "hash.txt")
 	pattern := filepath.Join(dir, "*.txt")
@@ -82,11 +84,15 @@ func TestChecksumDetectsMatchSetChanges(t *testing.T) {
 }
 
 func TestChecksumRequiresInputs(t *testing.T) {
-	if _, err := Checksum(nil, "dest"); err == nil {
+	t.Parallel()
+
+	_, err := Checksum(nil, "dest")
+	if err == nil {
 		t.Fatal("expected error for empty inputs")
 	}
 
-	if _, err := Checksum([]string{"file"}, ""); err == nil {
+	_, err = Checksum([]string{"file"}, "")
+	if err == nil {
 		t.Fatal("expected error for empty dest")
 	}
 }

@@ -20,31 +20,29 @@ type Build struct {
 	Linux  *BuildLinux  `targ:"subcommand,desc=Build Linux binary"`
 }
 
-// Building... This is the main build command.
+// Run prints a building message.
 func (b *Build) Run() { fmt.Println("Building...") }
 
 type BuildDocker struct {
 	Tag string `targ:"flag,desc=Docker image tag"`
 }
 
-// Build and tag a Docker image.
+// Run builds and tags a Docker image.
 func (b *BuildDocker) Run() { fmt.Println("Building Docker") }
 
 type BuildLinux struct{}
 
-// Build the Linux binary.
+// Run builds the Linux binary.
 func (b *BuildLinux) Run() { fmt.Println("Building Linux") }
 
 type Deploy struct {
 	Env string `targ:"flag,desc=Deployment environment"`
 }
 
-// Deploy the application to an environment.
+// Run deploys the application to an environment.
 func (d *Deploy) Run() { fmt.Println("Deploying...") }
 
-// --- The Manifest ---
-// Define a single Root struct that contains the entire tree structure.
-// This gives you a "Table of Contents" for your CLI.
+// Root is the manifest defining the entire tree structure ("Table of Contents" for your CLI).
 type Root struct {
 	// Top-level commands
 	Build  *Build  `targ:"subcommand,desc=Build related commands"`

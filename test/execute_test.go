@@ -121,6 +121,8 @@ func (c *TimeoutCmd) Run(ctx context.Context) error {
 }
 
 func TestExecuteWithOptions_AllowDefault(t *testing.T) {
+	t.Parallel()
+
 	cmd := &ExecuteDefaultCmd{}
 
 	_, err := targ.ExecuteWithOptions([]string{"app"}, targ.RunOptions{AllowDefault: true}, cmd)
@@ -134,6 +136,8 @@ func TestExecuteWithOptions_AllowDefault(t *testing.T) {
 }
 
 func TestExecuteWithOptions_NoDefaultShowsUsage(t *testing.T) {
+	t.Parallel()
+
 	cmd := &ExecuteDefaultCmd{}
 
 	_, err := targ.ExecuteWithOptions([]string{"app"}, targ.RunOptions{AllowDefault: false}, cmd)
@@ -147,6 +151,8 @@ func TestExecuteWithOptions_NoDefaultShowsUsage(t *testing.T) {
 }
 
 func TestExecute_CommandError(t *testing.T) {
+	t.Parallel()
+
 	cmd := &ExecuteErrorCmd{}
 
 	result, err := targ.Execute([]string{"app"}, cmd)
@@ -171,6 +177,8 @@ func TestExecute_CommandError(t *testing.T) {
 }
 
 func TestExecute_Success(t *testing.T) {
+	t.Parallel()
+
 	cmd := &ExecuteTestCmd{}
 
 	_, err := targ.Execute([]string{"app", "--name", testNameAlice}, cmd)
@@ -188,6 +196,8 @@ func TestExecute_Success(t *testing.T) {
 }
 
 func TestExecute_UnknownCommand(t *testing.T) {
+	t.Parallel()
+
 	cmd := &ExecuteTestCmd{}
 
 	result, err := targ.ExecuteWithOptions(

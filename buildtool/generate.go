@@ -22,12 +22,14 @@ var (
 	ErrPackageNameNotFound    = errors.New("package name not found")
 )
 
+// GenerateOptions configures function wrapper generation.
 type GenerateOptions struct {
 	Dir        string
 	BuildTag   string
 	OnlyTagged bool
 }
 
+// GenerateFunctionWrappers generates wrapper functions for the given directory.
 func GenerateFunctionWrappers(filesystem FileSystem, opts GenerateOptions) (string, error) {
 	g := newWrapperGenerator(filesystem, opts)
 
@@ -163,7 +165,8 @@ func (g *wrapperGenerator) parseFile(fullPath string, content []byte) error {
 
 	g.parsedFiles++
 
-	if err := g.checkPackageName(parsed.Name.Name); err != nil {
+	err = g.checkPackageName(parsed.Name.Name)
+	if err != nil {
 		return err
 	}
 

@@ -5,20 +5,27 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+)
+
+// Exported variables.
+var (
+	ErrEmptyDest       = errors.New("dest cannot be empty")
+	ErrNoInputPatterns = errors.New("no input patterns provided")
 )
 
 // Checksum reports whether the content hash of inputs differs from the stored hash at dest.
 // When the hash changes, the new hash is written to dest.
 func Checksum(inputs []string, dest string) (bool, error) {
 	if len(inputs) == 0 {
-		return false, errors.New("no input patterns provided")
+		return false, ErrNoInputPatterns
 	}
 
 	if dest == "" {
-		return false, errors.New("dest cannot be empty")
+		return false, ErrEmptyDest
 	}
 
 	matches, err := Match(inputs...)
@@ -40,7 +47,8 @@ func Checksum(inputs []string, dest string) (bool, error) {
 		return false, nil
 	}
 
-	if err := writeChecksum(dest, nextHash); err != nil {
+	err = writeChecksum(dest, nextHash)
+	if err != nil {
 		return false, err
 	}
 
@@ -50,26 +58,33 @@ func Checksum(inputs []string, dest string) (bool, error) {
 func computeChecksum(paths []string) (string, error) {
 	hasher := sha256.New()
 	for _, path := range paths {
-		if _, err := io.WriteString(hasher, path); err != nil {
-			return "", err
-		}
-
-		if _, err := io.WriteString(hasher, "\x00"); err != nil {
-			return "", err
-		}
-
-		file, err := os.Open(path)
+		_, err := io.WriteString(hasher, path)
 		if err != nil {
-			return "", err
+			return "", fmt.Errorf("writing path to hasher: %w", err)
 		}
 
-		if _, err := io.Copy(hasher, file); err != nil {
+		_, err = io.WriteString(hasher, "\x00")
+		if err != nil {
+			return "", fmt.Errorf("writing separator to hasher: %w", err)
+		}
+
+		file, err := os.Open(
+			path,
+		)
+		if err != nil {
+			return "", fmt.Errorf("opening %s: %w", path, err)
+		}
+
+		_, err = io.Copy(hasher, file)
+		if err != nil {
 			_ = file.Close()
-			return "", err
+
+			return "", fmt.Errorf("reading %s: %w", path, err)
 		}
 
-		if err := file.Close(); err != nil {
-			return "", err
+		err = file.Close()
+		if err != nil {
+			return "", fmt.Errorf("closing %s: %w", path, err)
 		}
 	}
 

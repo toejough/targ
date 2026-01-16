@@ -36,12 +36,13 @@ func Output(name string, args ...string) (string, error) {
 	cmd.Stdout = &buf
 	cmd.Stderr = &buf
 
-	if err := cmd.Start(); err != nil {
+	err := cmd.Start()
+	if err != nil {
 		return "", err
 	}
 
 	registerProcess(cmd.Process)
-	err := cmd.Wait()
+	err = cmd.Wait()
 	unregisterProcess(cmd.Process)
 
 	return buf.String(), err
@@ -55,12 +56,13 @@ func Run(name string, args ...string) error {
 	cmd.Stdin = stdin
 	setProcGroup(cmd)
 
-	if err := cmd.Start(); err != nil {
+	err := cmd.Start()
+	if err != nil {
 		return err
 	}
 
 	registerProcess(cmd.Process)
-	err := cmd.Wait()
+	err = cmd.Wait()
 	unregisterProcess(cmd.Process)
 
 	return err

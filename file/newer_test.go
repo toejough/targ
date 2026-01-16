@@ -8,7 +8,10 @@ import (
 )
 
 func TestNewerRequiresInputs(t *testing.T) {
-	if _, err := Newer(nil, nil); err == nil {
+	t.Parallel()
+
+	_, err := Newer(nil, nil)
+	if err == nil {
 		t.Fatal("expected error for empty inputs")
 	}
 }
@@ -20,7 +23,9 @@ func TestNewerWithCacheTracksChanges(t *testing.T) {
 	dir := t.TempDir()
 
 	file := filepath.Join(dir, "main.go")
-	if err := os.WriteFile(file, []byte("one"), 0o644); err != nil {
+
+	err := os.WriteFile(file, []byte("one"), 0o644)
+	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -44,12 +49,15 @@ func TestNewerWithCacheTracksChanges(t *testing.T) {
 
 	time.Sleep(10 * time.Millisecond)
 
-	if err := os.WriteFile(file, []byte("two"), 0o644); err != nil {
+	err = os.WriteFile(file, []byte("two"), 0o644)
+	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
 	future := time.Now().Add(2 * time.Second)
-	if err := os.Chtimes(file, future, future); err != nil {
+
+	err = os.Chtimes(file, future, future)
+	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -64,6 +72,7 @@ func TestNewerWithCacheTracksChanges(t *testing.T) {
 }
 
 func TestNewerWithOutputs(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	input := filepath.Join(dir, "input.txt")
 	output := filepath.Join(dir, "output.txt")
