@@ -2,6 +2,7 @@ package buildtool
 
 import (
 	"io/fs"
+	"strings"
 	"testing"
 )
 
@@ -257,5 +258,175 @@ func Build() {}
 
 	if path != "" {
 		t.Fatalf("expected no generated file, got %q", path)
+	}
+}
+
+func TestGenerateFunctionWrappers_MultiplePackageNames(t *testing.T) {
+	fsMock := MockFileSystem(t)
+
+	done := make(chan struct{})
+
+	var err error
+
+	go func() {
+		_, err = GenerateFunctionWrappers(fsMock.Mock, GenerateOptions{
+			Dir:        "/root",
+			BuildTag:   "targ",
+			OnlyTagged: true,
+		})
+
+		close(done)
+	}()
+
+	fsMock.Method.ReadDir.ExpectCalledWithExactly("/root").InjectReturnValues([]fs.DirEntry{
+		fakeDirEntry{name: "cmd1.go", dir: false},
+		fakeDirEntry{name: "cmd2.go", dir: false},
+	}, nil)
+	fsMock.Method.ReadFile.ExpectCalledWithExactly("/root/cmd1.go").
+		InjectReturnValues([]byte(`//go:build targ
+
+package foo
+
+func Run() {}
+`), nil)
+	fsMock.Method.ReadFile.ExpectCalledWithExactly("/root/cmd2.go").
+		InjectReturnValues([]byte(`//go:build targ
+
+package bar
+
+func Build() {}
+`), nil)
+
+	<-done
+
+	if err == nil {
+		t.Fatal("expected multiple package names error")
+	}
+}
+
+func TestIsGoSourceFile(t *testing.T) {
+	tests := []struct {
+		name     string
+		filename string
+		want     bool
+	}{
+		{"valid go file", "main.go", true},
+		{"test file", "main_test.go", false},
+		{"generated file", "generated_targ_build.go", false},
+		{"non-go file", "main.txt", false},
+		{"go in name", "main.golang", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isGoSourceFile(tt.filename); got != tt.want {
+				t.Errorf("isGoSourceFile(%q) = %v, want %v", tt.filename, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGenerateFunctionWrappers_NoGoFiles(t *testing.T) {
+	fsMock := MockFileSystem(t)
+	done := make(chan struct{})
+
+	var err error
+
+	go func() {
+		_, err = GenerateFunctionWrappers(fsMock.Mock, GenerateOptions{
+			Dir:        "/root",
+			BuildTag:   "targ",
+			OnlyTagged: true,
+		})
+
+		close(done)
+	}()
+
+	// Return empty directory - no .go files
+	fsMock.Method.ReadDir.ExpectCalledWithExactly("/root").InjectReturnValues([]fs.DirEntry{
+		fakeDirEntry{name: "readme.md", dir: false},
+	}, nil)
+
+	<-done
+
+	if err == nil {
+		t.Fatal("expected error for no Go files")
+	}
+
+	if !strings.Contains(err.Error(), "no Go files") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestGenerateFunctionWrappers_DefaultDirAndTag(t *testing.T) {
+	fsMock := MockFileSystem(t)
+	done := make(chan struct{})
+
+	var err error
+
+	go func() {
+		// Empty Dir and empty BuildTag with OnlyTagged=true should use defaults
+		_, err = GenerateFunctionWrappers(fsMock.Mock, GenerateOptions{
+			Dir:        "",
+			BuildTag:   "",
+			OnlyTagged: true,
+		})
+
+		close(done)
+	}()
+
+	// Dir defaults to "." and BuildTag defaults to "targ"
+	fsMock.Method.ReadDir.ExpectCalledWithExactly(".").InjectReturnValues([]fs.DirEntry{
+		fakeDirEntry{name: "readme.md", dir: false},
+	}, nil)
+
+	<-done
+
+	if err == nil {
+		t.Fatal("expected error for no Go files")
+	}
+
+	if !strings.Contains(err.Error(), "no Go files") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestGenerateFunctionWrappers_InvalidFunctionSignature(t *testing.T) {
+	fsMock := MockFileSystem(t)
+	done := make(chan struct{})
+
+	var err error
+
+	go func() {
+		_, err = GenerateFunctionWrappers(fsMock.Mock, GenerateOptions{
+			Dir:        "/root",
+			BuildTag:   "targ",
+			OnlyTagged: true,
+		})
+
+		close(done)
+	}()
+
+	// Function with too many parameters should fail validation
+	fsMock.Method.ReadDir.ExpectCalledWithExactly("/root").InjectReturnValues([]fs.DirEntry{
+		fakeDirEntry{name: "cmd.go", dir: false},
+	}, nil)
+	fsMock.Method.ReadFile.ExpectCalledWithExactly("/root/cmd.go").
+		InjectReturnValues([]byte(`//go:build targ
+
+package build
+
+// InvalidFunc has too many parameters.
+func InvalidFunc(a, b int) {}
+`), nil)
+
+	<-done
+
+	if err == nil {
+		t.Fatal("expected error for invalid function signature")
+	}
+
+	if !strings.Contains(err.Error(), "InvalidFunc") {
+		t.Fatalf("expected error to mention function name, got: %v", err)
 	}
 }

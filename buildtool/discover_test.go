@@ -4,6 +4,7 @@ import (
 	"errors"
 	"go/ast"
 	"io/fs"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -751,6 +752,94 @@ func Build() {}
 	}
 }
 
+func TestDiscover_MultiplePackageNamesError(t *testing.T) {
+	// Two files with different package names in the same directory should error
+	fsMock := MockFileSystem(t)
+	opts := Options{StartDir: "/root"}
+	done := make(chan struct{})
+
+	var err error
+
+	go func() {
+		_, err = Discover(fsMock.Mock, opts)
+
+		close(done)
+	}()
+
+	fsMock.Method.ReadDir.ExpectCalledWithExactly("/root").InjectReturnValues([]fs.DirEntry{
+		fakeDirEntry{name: "cmd1.go", dir: false},
+		fakeDirEntry{name: "cmd2.go", dir: false},
+	}, nil)
+	fsMock.Method.ReadFile.ExpectCalledWithExactly("/root/cmd1.go").
+		InjectReturnValues([]byte(`//go:build targ
+
+package foo
+
+func Run() {}
+`), nil)
+	fsMock.Method.ReadFile.ExpectCalledWithExactly("/root/cmd2.go").
+		InjectReturnValues([]byte(`//go:build targ
+
+package bar
+
+func Build() {}
+`), nil)
+
+	<-done
+
+	if err == nil {
+		t.Fatal("expected multiple package names error")
+	}
+
+	if !strings.Contains(err.Error(), "multiple package names") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestDiscover_PackageDoc(t *testing.T) {
+	// Package doc comment should be captured
+	fsMock := MockFileSystem(t)
+	opts := Options{StartDir: "/root"}
+	done := make(chan struct{})
+
+	var (
+		infos []PackageInfo
+		err   error
+	)
+
+	go func() {
+		infos, err = Discover(fsMock.Mock, opts)
+
+		close(done)
+	}()
+
+	fsMock.Method.ReadDir.ExpectCalledWithExactly("/root").InjectReturnValues([]fs.DirEntry{
+		fakeDirEntry{name: "cmd.go", dir: false},
+	}, nil)
+	fsMock.Method.ReadFile.ExpectCalledWithExactly("/root/cmd.go").
+		InjectReturnValues([]byte(`//go:build targ
+
+// Package build provides build commands.
+package build
+
+func Run() {}
+`), nil)
+
+	<-done
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(infos) != 1 {
+		t.Fatalf("expected 1 package info, got %d", len(infos))
+	}
+
+	if infos[0].Doc != "Package build provides build commands." {
+		t.Fatalf("expected package doc, got %q", infos[0].Doc)
+	}
+}
+
 func TestDiscover_RejectsMainFunction(t *testing.T) {
 	fsMock := MockFileSystem(t)
 	opts := Options{StartDir: "/root"}
@@ -853,6 +942,77 @@ func Bad(a int) {}
 
 	if errors.Is(err, ErrNoTaggedFiles) {
 		t.Fatalf("unexpected ErrNoTaggedFiles: %v", err)
+	}
+}
+
+func TestDiscover_RemovesWrappedFuncs(t *testing.T) {
+	// When a struct named BuildCommand exists, function Build should be removed
+	fsMock := MockFileSystem(t)
+	opts := Options{StartDir: "/root"}
+	done := make(chan struct{})
+
+	var (
+		infos []PackageInfo
+		err   error
+	)
+
+	go func() {
+		infos, err = Discover(fsMock.Mock, opts)
+
+		close(done)
+	}()
+
+	fsMock.Method.ReadDir.ExpectCalledWithExactly("/root").InjectReturnValues([]fs.DirEntry{
+		fakeDirEntry{name: "cmd.go", dir: false},
+	}, nil)
+	fsMock.Method.ReadFile.ExpectCalledWithExactly("/root/cmd.go").
+		InjectReturnValues([]byte(`//go:build targ
+
+package build
+
+// BuildCommand wraps Build function.
+type BuildCommand struct{}
+
+func (c *BuildCommand) Run() {}
+
+// Build does something.
+func Build() {}
+
+// Deploy does something else.
+func Deploy() {}
+`), nil)
+
+	<-done
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(infos) != 1 {
+		t.Fatalf("expected 1 package info, got %d", len(infos))
+	}
+
+	// Build should be removed (wrapped by BuildCommand)
+	funcNames := commandNamesByKind(infos[0], CommandFunc)
+	for _, name := range funcNames {
+		if name == "Build" {
+			t.Fatal("Build function should have been removed (wrapped by BuildCommand)")
+		}
+	}
+
+	// Deploy should remain (not wrapped)
+	found := slices.Contains(funcNames, "Deploy")
+
+	if !found {
+		t.Fatal("Deploy function should remain in funcList")
+	}
+
+	// BuildCommand struct should be in structList
+	structNames := commandNamesByKind(infos[0], CommandStruct)
+	found = slices.Contains(structNames, "BuildCommand")
+
+	if !found {
+		t.Fatalf("BuildCommand struct should be in structList, got: %v", structNames)
 	}
 }
 

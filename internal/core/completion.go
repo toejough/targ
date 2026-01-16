@@ -167,6 +167,381 @@ type completionFlagSpec struct {
 	Variadic   bool
 }
 
+// completionState holds state for shell completion.
+type completionState struct {
+	roots               []*commandNode
+	prefix              string
+	processedArgs       []string
+	isNewArg            bool
+	currentNode         *commandNode
+	chain               []commandInstance
+	singleRoot          bool
+	atRoot              bool
+	allowRootSuggests   bool
+	positionalsComplete bool
+	explicit            bool
+}
+
+// findRootByName finds a root command by name (case-insensitive).
+func (s *completionState) findRootByName(name string) *commandNode {
+	for _, r := range s.roots {
+		if strings.EqualFold(r.Name, name) {
+			return r
+		}
+	}
+
+	return nil
+}
+
+// followRemaining handles remaining args after parsing.
+func (s *completionState) followRemaining(result parseResult) bool {
+	if !s.singleRoot {
+		nextRoot := findCompletionRoot(s.roots, result.remaining[0])
+		if nextRoot == nil {
+			return false
+		}
+
+		s.currentNode = nextRoot
+		s.processedArgs = result.remaining[1:]
+		s.explicit = true
+		s.atRoot = false
+
+		return true
+	}
+
+	s.currentNode = s.roots[0]
+	s.processedArgs = result.remaining
+	s.explicit = false
+	s.atRoot = true
+
+	return true
+}
+
+// followSubcommand updates state to follow a subcommand.
+func (s *completionState) followSubcommand(result parseResult) {
+	s.currentNode = result.subcommand
+	s.processedArgs = result.remaining
+	s.explicit = true
+	s.atRoot = false
+}
+
+// resolveCommandChain follows subcommands to find the current context.
+func (s *completionState) resolveCommandChain() {
+	for {
+		nextChain, result, err := completionParse(s.currentNode, s.processedArgs, s.explicit)
+		if err != nil {
+			return
+		}
+
+		s.chain = nextChain
+		s.positionalsComplete = result.positionalsComplete
+
+		if result.subcommand != nil {
+			s.followSubcommand(result)
+			continue
+		}
+
+		if len(result.remaining) > 0 {
+			if s.followRemaining(result) {
+				continue
+			}
+
+			return
+		}
+
+		break
+	}
+}
+
+// resolveInitialRoot sets up the initial command node.
+func (s *completionState) resolveInitialRoot() bool {
+	if s.singleRoot {
+		s.currentNode = s.roots[0]
+		s.explicit = false
+
+		return false
+	}
+
+	if len(s.processedArgs) == 0 {
+		s.suggestRootsAndFlags()
+		return true
+	}
+
+	s.currentNode = s.findRootByName(s.processedArgs[0])
+	if s.currentNode == nil {
+		s.suggestMatchingRoots(s.processedArgs[0])
+		return true
+	}
+
+	s.processedArgs = s.processedArgs[1:]
+	s.atRoot = false
+	s.explicit = true
+
+	return false
+}
+
+// suggestCommands suggests subcommands, siblings, and special tokens.
+func (s *completionState) suggestCommands() {
+	if s.singleRoot && s.atRoot {
+		printIfPrefix(s.currentNode.Name, s.prefix)
+	}
+
+	for name := range s.currentNode.Subcommands {
+		printIfPrefix(name, s.prefix)
+	}
+
+	if s.currentNode.Parent != nil {
+		for name := range s.currentNode.Parent.Subcommands {
+			printIfPrefix(name, s.prefix)
+		}
+	}
+
+	if !s.atRoot {
+		printIfPrefix("^", s.prefix)
+	}
+}
+
+// suggestCompletions outputs completion suggestions.
+func (s *completionState) suggestCompletions() error {
+	s.suggestCommands()
+
+	done, err := s.suggestEnumValues()
+	if err != nil || done {
+		return err
+	}
+
+	if err := s.suggestFlagsIfNeeded(); err != nil {
+		return err
+	}
+
+	if strings.HasPrefix(s.prefix, "-") {
+		return nil
+	}
+
+	return s.suggestPositionalEnumsOrRoots()
+}
+
+// suggestEnumValues suggests enum values if expecting a flag value.
+func (s *completionState) suggestEnumValues() (bool, error) {
+	values, ok, err := enumValuesForArg(s.chain, s.processedArgs, s.prefix, s.isNewArg)
+	if err != nil {
+		return false, err
+	}
+
+	if !ok {
+		return false, nil
+	}
+
+	for _, value := range values {
+		printIfPrefix(value, s.prefix)
+	}
+
+	return true, nil
+}
+
+// suggestFlagsIfNeeded suggests flags if prefix starts with - or is empty.
+func (s *completionState) suggestFlagsIfNeeded() error {
+	if !strings.HasPrefix(s.prefix, "-") && s.prefix != "" {
+		return nil
+	}
+
+	return suggestFlags(s.chain, s.prefix, s.atRoot)
+}
+
+// suggestMatchingRoots suggests roots that match a partial prefix.
+func (s *completionState) suggestMatchingRoots(partial string) {
+	for _, r := range s.roots {
+		printIfPrefix(r.Name, partial)
+	}
+}
+
+// suggestPositionalEnums suggests enum values for the current positional.
+func (s *completionState) suggestPositionalEnums() (bool, error) {
+	posIndex, err := positionalIndex(s.currentNode, s.processedArgs, s.chain)
+	if err != nil {
+		return false, err
+	}
+
+	if len(s.chain) == 0 {
+		return false, nil
+	}
+
+	fields, err := positionalFields(s.chain[len(s.chain)-1].node, s.chain[len(s.chain)-1].value)
+	if err != nil {
+		return false, err
+	}
+
+	if posIndex >= len(fields) || fields[posIndex].Opts.Enum == "" {
+		return false, nil
+	}
+
+	for value := range strings.SplitSeq(fields[posIndex].Opts.Enum, "|") {
+		printIfPrefix(value, s.prefix)
+	}
+
+	return true, nil
+}
+
+// suggestPositionalEnumsOrRoots suggests positional enums or root commands.
+func (s *completionState) suggestPositionalEnumsOrRoots() error {
+	specs, err := completionFlagSpecs(s.chain)
+	if err != nil {
+		return err
+	}
+
+	if expectingFlagValue(s.processedArgs, specs) {
+		return nil
+	}
+
+	if suggested, err := s.suggestPositionalEnums(); err != nil || suggested {
+		return err
+	}
+
+	s.suggestRootsIfAllowed()
+
+	return nil
+}
+
+// suggestRootsAndFlags suggests all roots and targ flags at root level.
+func (s *completionState) suggestRootsAndFlags() {
+	for _, r := range s.roots {
+		printIfPrefix(r.Name, s.prefix)
+	}
+
+	for _, opt := range targGlobalFlags {
+		printIfPrefix(opt, s.prefix)
+	}
+
+	for _, opt := range targRootOnlyFlags {
+		printIfPrefix(opt, s.prefix)
+	}
+}
+
+// suggestRootsIfAllowed suggests root commands if conditions are met.
+func (s *completionState) suggestRootsIfAllowed() {
+	if !s.allowRootSuggests || !s.positionalsComplete || strings.HasPrefix(s.prefix, "-") {
+		return
+	}
+
+	for _, root := range s.roots {
+		printIfPrefix(root.Name, s.prefix)
+	}
+}
+
+// positionalCounter tracks state for counting positional arguments.
+type positionalCounter struct {
+	args  []string
+	specs map[string]completionFlagSpec
+	index int
+	count int
+}
+
+// countPositionals iterates through args and counts positional arguments.
+func (c *positionalCounter) countPositionals() {
+	for c.index < len(c.args) {
+		c.processArg()
+		c.index++
+	}
+}
+
+// processArg handles a single argument at the current index.
+func (c *positionalCounter) processArg() {
+	arg := c.args[c.index]
+
+	if arg == "--" {
+		return
+	}
+
+	if strings.HasPrefix(arg, "--") {
+		c.skipLongFlag(arg)
+		return
+	}
+
+	if strings.HasPrefix(arg, "-") && len(arg) > 1 {
+		c.skipShortFlag(arg)
+		return
+	}
+
+	c.count++
+}
+
+// skipFlagValues skips value arguments for a flag.
+func (c *positionalCounter) skipFlagValues(variadic bool) {
+	if variadic {
+		c.skipVariadicValues()
+	} else if c.index+1 < len(c.args) {
+		c.index++
+	}
+}
+
+// skipGroupedShortFlags handles grouped short flags like -abc.
+func (c *positionalCounter) skipGroupedShortFlags(arg string) {
+	group := strings.TrimPrefix(arg, "-")
+
+	for idx, ch := range group {
+		spec, ok := c.specs["-"+string(ch)]
+		if !ok || !spec.TakesValue {
+			continue
+		}
+
+		if idx == len(group)-1 && c.index+1 < len(c.args) {
+			c.index++
+		}
+
+		return
+	}
+}
+
+// skipLongFlag handles --flag style arguments.
+func (c *positionalCounter) skipLongFlag(arg string) {
+	if strings.Contains(arg, "=") {
+		return
+	}
+
+	spec, ok := c.specs[arg]
+	if !ok || !spec.TakesValue {
+		return
+	}
+
+	c.skipFlagValues(spec.Variadic)
+}
+
+// skipShortFlag handles -f and -abc style arguments.
+func (c *positionalCounter) skipShortFlag(arg string) {
+	if strings.Contains(arg, "=") {
+		return
+	}
+
+	if len(arg) == 2 {
+		c.skipSingleShortFlag(arg)
+		return
+	}
+
+	c.skipGroupedShortFlags(arg)
+}
+
+// skipSingleShortFlag handles single short flags like -f.
+func (c *positionalCounter) skipSingleShortFlag(arg string) {
+	spec, ok := c.specs[arg]
+	if !ok || !spec.TakesValue {
+		return
+	}
+
+	c.skipFlagValues(spec.Variadic)
+}
+
+// skipVariadicValues skips all values for a variadic flag.
+func (c *positionalCounter) skipVariadicValues() {
+	for c.index+1 < len(c.args) {
+		next := c.args[c.index+1]
+		if next == "--" || strings.HasPrefix(next, "-") {
+			break
+		}
+
+		c.index++
+	}
+}
+
 type positionalField struct {
 	Field reflect.StructField
 	Opts  TagOptions
@@ -316,24 +691,9 @@ func completionParse(
 	return chain, result, err
 }
 
-// completionState holds state for shell completion.
-type completionState struct {
-	roots               []*commandNode
-	prefix              string
-	processedArgs       []string
-	isNewArg            bool
-	currentNode         *commandNode
-	chain               []commandInstance
-	singleRoot          bool
-	atRoot              bool
-	allowRootSuggests   bool
-	positionalsComplete bool
-	explicit            bool
-}
-
 func doCompletion(roots []*commandNode, commandLine string) error {
 	state, done := prepareCompletionState(roots, commandLine)
-	if done {
+	if done || state == nil {
 		return nil
 	}
 
@@ -344,291 +704,6 @@ func doCompletion(roots []*commandNode, commandLine string) error {
 	state.resolveCommandChain()
 
 	return state.suggestCompletions()
-}
-
-// prepareCompletionState initializes completion state from command line.
-func prepareCompletionState(roots []*commandNode, commandLine string) (*completionState, bool) {
-	parts, isNewArg := tokenizeCommandLine(commandLine)
-	if len(parts) == 0 {
-		return nil, true
-	}
-
-	parts = parts[1:] // Remove binary name
-
-	prefix, processedArgs := extractPrefixAndArgs(parts, isNewArg)
-	processedArgs = skipTargFlags(processedArgs)
-
-	return &completionState{
-		roots:             roots,
-		prefix:            prefix,
-		processedArgs:     processedArgs,
-		isNewArg:          isNewArg,
-		singleRoot:        len(roots) == 1,
-		atRoot:            true,
-		allowRootSuggests: len(roots) > 1,
-	}, false
-}
-
-// extractPrefixAndArgs separates the current prefix from processed args.
-func extractPrefixAndArgs(parts []string, isNewArg bool) (string, []string) {
-	if !isNewArg && len(parts) > 0 {
-		return parts[len(parts)-1], parts[:len(parts)-1]
-	}
-
-	return "", parts
-}
-
-// resolveInitialRoot sets up the initial command node.
-func (s *completionState) resolveInitialRoot() bool {
-	if s.singleRoot {
-		s.currentNode = s.roots[0]
-		s.explicit = false
-
-		return false
-	}
-
-	if len(s.processedArgs) == 0 {
-		s.suggestRootsAndFlags()
-		return true
-	}
-
-	s.currentNode = s.findRootByName(s.processedArgs[0])
-	if s.currentNode == nil {
-		s.suggestMatchingRoots(s.processedArgs[0])
-		return true
-	}
-
-	s.processedArgs = s.processedArgs[1:]
-	s.atRoot = false
-	s.explicit = true
-
-	return false
-}
-
-// suggestRootsAndFlags suggests all roots and targ flags at root level.
-func (s *completionState) suggestRootsAndFlags() {
-	for _, r := range s.roots {
-		printIfPrefix(r.Name, s.prefix)
-	}
-
-	for _, opt := range targGlobalFlags {
-		printIfPrefix(opt, s.prefix)
-	}
-
-	for _, opt := range targRootOnlyFlags {
-		printIfPrefix(opt, s.prefix)
-	}
-}
-
-// findRootByName finds a root command by name (case-insensitive).
-func (s *completionState) findRootByName(name string) *commandNode {
-	for _, r := range s.roots {
-		if strings.EqualFold(r.Name, name) {
-			return r
-		}
-	}
-
-	return nil
-}
-
-// suggestMatchingRoots suggests roots that match a partial prefix.
-func (s *completionState) suggestMatchingRoots(partial string) {
-	for _, r := range s.roots {
-		printIfPrefix(r.Name, partial)
-	}
-}
-
-// resolveCommandChain follows subcommands to find the current context.
-func (s *completionState) resolveCommandChain() {
-	for {
-		nextChain, result, err := completionParse(s.currentNode, s.processedArgs, s.explicit)
-		if err != nil {
-			return
-		}
-
-		s.chain = nextChain
-		s.positionalsComplete = result.positionalsComplete
-
-		if result.subcommand != nil {
-			s.followSubcommand(result)
-			continue
-		}
-
-		if len(result.remaining) > 0 {
-			if s.followRemaining(result) {
-				continue
-			}
-
-			return
-		}
-
-		break
-	}
-}
-
-// followSubcommand updates state to follow a subcommand.
-func (s *completionState) followSubcommand(result parseResult) {
-	s.currentNode = result.subcommand
-	s.processedArgs = result.remaining
-	s.explicit = true
-	s.atRoot = false
-}
-
-// followRemaining handles remaining args after parsing.
-func (s *completionState) followRemaining(result parseResult) bool {
-	if !s.singleRoot {
-		nextRoot := findCompletionRoot(s.roots, result.remaining[0])
-		if nextRoot == nil {
-			return false
-		}
-
-		s.currentNode = nextRoot
-		s.processedArgs = result.remaining[1:]
-		s.explicit = true
-		s.atRoot = false
-
-		return true
-	}
-
-	s.currentNode = s.roots[0]
-	s.processedArgs = result.remaining
-	s.explicit = false
-	s.atRoot = true
-
-	return true
-}
-
-// suggestCompletions outputs completion suggestions.
-func (s *completionState) suggestCompletions() error {
-	s.suggestCommands()
-
-	done, err := s.suggestEnumValues()
-	if err != nil || done {
-		return err
-	}
-
-	if err := s.suggestFlagsIfNeeded(); err != nil {
-		return err
-	}
-
-	if strings.HasPrefix(s.prefix, "-") {
-		return nil
-	}
-
-	return s.suggestPositionalEnumsOrRoots()
-}
-
-// suggestCommands suggests subcommands, siblings, and special tokens.
-func (s *completionState) suggestCommands() {
-	if s.singleRoot && s.atRoot {
-		printIfPrefix(s.currentNode.Name, s.prefix)
-	}
-
-	for name := range s.currentNode.Subcommands {
-		printIfPrefix(name, s.prefix)
-	}
-
-	if s.currentNode.Parent != nil {
-		for name := range s.currentNode.Parent.Subcommands {
-			printIfPrefix(name, s.prefix)
-		}
-	}
-
-	if !s.atRoot {
-		printIfPrefix("^", s.prefix)
-	}
-}
-
-// suggestEnumValues suggests enum values if expecting a flag value.
-func (s *completionState) suggestEnumValues() (bool, error) {
-	values, ok, err := enumValuesForArg(s.chain, s.processedArgs, s.prefix, s.isNewArg)
-	if err != nil {
-		return false, err
-	}
-
-	if !ok {
-		return false, nil
-	}
-
-	for _, value := range values {
-		printIfPrefix(value, s.prefix)
-	}
-
-	return true, nil
-}
-
-// suggestFlagsIfNeeded suggests flags if prefix starts with - or is empty.
-func (s *completionState) suggestFlagsIfNeeded() error {
-	if !strings.HasPrefix(s.prefix, "-") && s.prefix != "" {
-		return nil
-	}
-
-	return suggestFlags(s.chain, s.prefix, s.atRoot)
-}
-
-// suggestPositionalEnumsOrRoots suggests positional enums or root commands.
-func (s *completionState) suggestPositionalEnumsOrRoots() error {
-	specs, err := completionFlagSpecs(s.chain)
-	if err != nil {
-		return err
-	}
-
-	if expectingFlagValue(s.processedArgs, specs) {
-		return nil
-	}
-
-	if suggested, err := s.suggestPositionalEnums(); err != nil || suggested {
-		return err
-	}
-
-	s.suggestRootsIfAllowed()
-
-	return nil
-}
-
-// suggestPositionalEnums suggests enum values for the current positional.
-func (s *completionState) suggestPositionalEnums() (bool, error) {
-	posIndex, err := positionalIndex(s.currentNode, s.processedArgs, s.chain)
-	if err != nil {
-		return false, err
-	}
-
-	if len(s.chain) == 0 {
-		return false, nil
-	}
-
-	fields, err := positionalFields(s.chain[len(s.chain)-1].node, s.chain[len(s.chain)-1].value)
-	if err != nil {
-		return false, err
-	}
-
-	if posIndex >= len(fields) || fields[posIndex].Opts.Enum == "" {
-		return false, nil
-	}
-
-	for value := range strings.SplitSeq(fields[posIndex].Opts.Enum, "|") {
-		printIfPrefix(value, s.prefix)
-	}
-
-	return true, nil
-}
-
-// suggestRootsIfAllowed suggests root commands if conditions are met.
-func (s *completionState) suggestRootsIfAllowed() {
-	if !s.allowRootSuggests || !s.positionalsComplete || strings.HasPrefix(s.prefix, "-") {
-		return
-	}
-
-	for _, root := range s.roots {
-		printIfPrefix(root.Name, s.prefix)
-	}
-}
-
-// printIfPrefix prints name if it has the given prefix.
-func printIfPrefix(name, prefix string) {
-	if strings.HasPrefix(name, prefix) {
-		fmt.Println(name)
-	}
 }
 
 func enumValuesForArg(
@@ -715,6 +790,15 @@ func expectingShortFlagValue(flag string, specs map[string]completionFlagSpec) b
 	return expectingGroupedShortFlagValue(flag, specs)
 }
 
+// extractPrefixAndArgs separates the current prefix from processed args.
+func extractPrefixAndArgs(parts []string, isNewArg bool) (string, []string) {
+	if !isNewArg && len(parts) > 0 {
+		return parts[len(parts)-1], parts[:len(parts)-1]
+	}
+
+	return "", parts
+}
+
 func findCompletionRoot(roots []*commandNode, name string) *commandNode {
 	for _, root := range roots {
 		if strings.EqualFold(root.Name, name) {
@@ -774,14 +858,6 @@ func positionalFields(node *commandNode, inst reflect.Value) ([]positionalField,
 	return fields, nil
 }
 
-// positionalCounter tracks state for counting positional arguments.
-type positionalCounter struct {
-	args  []string
-	specs map[string]completionFlagSpec
-	index int
-	count int
-}
-
 func positionalIndex(node *commandNode, args []string, chain []commandInstance) (int, error) {
 	specs, err := completionFlagSpecs(chain)
 	if err != nil {
@@ -794,109 +870,33 @@ func positionalIndex(node *commandNode, args []string, chain []commandInstance) 
 	return counter.count, nil
 }
 
-// countPositionals iterates through args and counts positional arguments.
-func (c *positionalCounter) countPositionals() {
-	for c.index < len(c.args) {
-		c.processArg()
-		c.index++
+// prepareCompletionState initializes completion state from command line.
+func prepareCompletionState(roots []*commandNode, commandLine string) (*completionState, bool) {
+	parts, isNewArg := tokenizeCommandLine(commandLine)
+	if len(parts) == 0 {
+		return nil, true
 	}
+
+	parts = parts[1:] // Remove binary name
+
+	prefix, processedArgs := extractPrefixAndArgs(parts, isNewArg)
+	processedArgs = skipTargFlags(processedArgs)
+
+	return &completionState{
+		roots:             roots,
+		prefix:            prefix,
+		processedArgs:     processedArgs,
+		isNewArg:          isNewArg,
+		singleRoot:        len(roots) == 1,
+		atRoot:            true,
+		allowRootSuggests: len(roots) > 1,
+	}, false
 }
 
-// processArg handles a single argument at the current index.
-func (c *positionalCounter) processArg() {
-	arg := c.args[c.index]
-
-	if arg == "--" {
-		return
-	}
-
-	if strings.HasPrefix(arg, "--") {
-		c.skipLongFlag(arg)
-		return
-	}
-
-	if strings.HasPrefix(arg, "-") && len(arg) > 1 {
-		c.skipShortFlag(arg)
-		return
-	}
-
-	c.count++
-}
-
-// skipLongFlag handles --flag style arguments.
-func (c *positionalCounter) skipLongFlag(arg string) {
-	if strings.Contains(arg, "=") {
-		return
-	}
-
-	spec, ok := c.specs[arg]
-	if !ok || !spec.TakesValue {
-		return
-	}
-
-	c.skipFlagValues(spec.Variadic)
-}
-
-// skipShortFlag handles -f and -abc style arguments.
-func (c *positionalCounter) skipShortFlag(arg string) {
-	if strings.Contains(arg, "=") {
-		return
-	}
-
-	if len(arg) == 2 {
-		c.skipSingleShortFlag(arg)
-		return
-	}
-
-	c.skipGroupedShortFlags(arg)
-}
-
-// skipSingleShortFlag handles single short flags like -f.
-func (c *positionalCounter) skipSingleShortFlag(arg string) {
-	spec, ok := c.specs[arg]
-	if !ok || !spec.TakesValue {
-		return
-	}
-
-	c.skipFlagValues(spec.Variadic)
-}
-
-// skipGroupedShortFlags handles grouped short flags like -abc.
-func (c *positionalCounter) skipGroupedShortFlags(arg string) {
-	group := strings.TrimPrefix(arg, "-")
-
-	for idx, ch := range group {
-		spec, ok := c.specs["-"+string(ch)]
-		if !ok || !spec.TakesValue {
-			continue
-		}
-
-		if idx == len(group)-1 && c.index+1 < len(c.args) {
-			c.index++
-		}
-
-		return
-	}
-}
-
-// skipFlagValues skips value arguments for a flag.
-func (c *positionalCounter) skipFlagValues(variadic bool) {
-	if variadic {
-		c.skipVariadicValues()
-	} else if c.index+1 < len(c.args) {
-		c.index++
-	}
-}
-
-// skipVariadicValues skips all values for a variadic flag.
-func (c *positionalCounter) skipVariadicValues() {
-	for c.index+1 < len(c.args) {
-		next := c.args[c.index+1]
-		if next == "--" || strings.HasPrefix(next, "-") {
-			break
-		}
-
-		c.index++
+// printIfPrefix prints name if it has the given prefix.
+func printIfPrefix(name, prefix string) {
+	if strings.HasPrefix(name, prefix) {
+		fmt.Println(name)
 	}
 }
 

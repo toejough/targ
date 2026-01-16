@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -33,6 +34,10 @@ func ErrorFunc() error {
 
 func HelloWorld() {
 	helloWorldCalled = true
+}
+
+func OtherFunc() {
+	// Another function for multi-root tests
 }
 
 func TestRunWithEnv_CaretResetsToRoot(t *testing.T) {
@@ -177,6 +182,73 @@ func TestRunWithEnv_FunctionWithHelpFlag(t *testing.T) {
 
 	if defaultFuncCalled {
 		t.Fatal("expected function not to be called in HelpOnly mode")
+	}
+}
+
+func TestRunWithEnv_GlobalHelpMultipleRoots(t *testing.T) {
+	// Test --help with multiple roots (no default) - shows usage
+	env := &executeEnv{args: []string{"cmd", "--help"}}
+
+	output := captureStdout(t, func() {
+		err := RunWithEnv(env, RunOptions{AllowDefault: false}, DefaultFunc, OtherFunc)
+		if err != nil {
+			t.Fatalf("expected no error for --help flag, got: %v", err)
+		}
+	})
+
+	// Should show both commands in usage
+	if !strings.Contains(output, "default-func") || !strings.Contains(output, "other-func") {
+		t.Fatalf("expected help to list all commands, got: %s", output)
+	}
+}
+
+func TestRunWithEnv_GlobalHelpShort(t *testing.T) {
+	// Test -h (short form) at global level with default command
+	env := &executeEnv{args: []string{"cmd", "-h"}}
+
+	output := captureStdout(t, func() {
+		err := RunWithEnv(env, RunOptions{AllowDefault: true}, DefaultFunc)
+		if err != nil {
+			t.Fatalf("expected no error for -h flag, got: %v", err)
+		}
+	})
+
+	if !strings.Contains(output, "default-func") {
+		t.Fatalf("expected help output to contain command name, got: %s", output)
+	}
+}
+
+func TestRunWithEnv_GlobalHelpWithArgs(t *testing.T) {
+	// Test --help with args after the flag - goes through handleGlobalHelp
+	env := &executeEnv{args: []string{"cmd", "--help", "default-func"}}
+
+	output := captureStdout(t, func() {
+		err := RunWithEnv(env, RunOptions{AllowDefault: true}, DefaultFunc)
+		if err != nil {
+			t.Fatalf("expected no error for --help with args, got: %v", err)
+		}
+	})
+
+	// Should show help for the default command
+	if !strings.Contains(output, "default-func") {
+		t.Fatalf("expected help output to contain command name, got: %s", output)
+	}
+}
+
+func TestRunWithEnv_GlobalHelpWithArgsMultiRoot(t *testing.T) {
+	// Test --help with args for multiple roots - goes through handleGlobalHelp else branch
+	env := &executeEnv{args: []string{"cmd", "--help", "something"}}
+
+	output := captureStdout(t, func() {
+		err := RunWithEnv(env, RunOptions{AllowDefault: false}, DefaultFunc, OtherFunc)
+		if err != nil {
+			t.Fatalf("expected no error for --help with args, got: %v", err)
+		}
+	})
+
+	// Should show usage listing all commands
+	if !strings.Contains(output, "default-func") || !strings.Contains(output, "other-func") {
+		t.Fatalf("expected help to list all commands, got: %s", output)
 	}
 }
 

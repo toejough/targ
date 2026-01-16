@@ -20,6 +20,33 @@ type GenerateOptions struct {
 	OnlyTagged bool
 }
 
+func GenerateFunctionWrappers(filesystem FileSystem, opts GenerateOptions) (string, error) {
+	g := newWrapperGenerator(filesystem, opts)
+
+	err := g.parseFiles()
+	if err != nil {
+		return "", err
+	}
+
+	err = g.validate()
+	if err != nil {
+		return "", err
+	}
+
+	if len(g.functionNames) == 0 {
+		return "", nil
+	}
+
+	return g.generateAndWrite()
+}
+
+type functionDoc struct {
+	Name         string
+	Description  string
+	ReturnsError bool
+	UsesContext  bool
+}
+
 // wrapperGenerator holds state for generating function wrappers.
 type wrapperGenerator struct {
 	filesystem         FileSystem
@@ -34,194 +61,6 @@ type wrapperGenerator struct {
 	parsedFiles        int
 	needsContextImport bool
 	functionNames      []string
-}
-
-func GenerateFunctionWrappers(filesystem FileSystem, opts GenerateOptions) (string, error) {
-	g := newWrapperGenerator(filesystem, opts)
-
-	if err := g.parseFiles(); err != nil {
-		return "", err
-	}
-
-	if err := g.validate(); err != nil {
-		return "", err
-	}
-
-	if len(g.functionNames) == 0 {
-		return "", nil
-	}
-
-	return g.generateAndWrite()
-}
-
-// newWrapperGenerator creates a new wrapper generator with initialized state.
-func newWrapperGenerator(filesystem FileSystem, opts GenerateOptions) *wrapperGenerator {
-	dir := opts.Dir
-	if dir == "" {
-		dir = "."
-	}
-
-	tag := opts.BuildTag
-	if opts.OnlyTagged && tag == "" {
-		tag = "targ"
-	}
-
-	return &wrapperGenerator{
-		filesystem:      filesystem,
-		opts:            opts,
-		dir:             dir,
-		tag:             tag,
-		fset:            token.NewFileSet(),
-		functions:       make(map[string]functionDoc),
-		typeNames:       make(map[string]bool),
-		subcommandNames: make(map[string]bool),
-	}
-}
-
-// parseFiles reads and parses all Go files in the directory.
-func (g *wrapperGenerator) parseFiles() error {
-	entries, err := g.filesystem.ReadDir(g.dir)
-	if err != nil {
-		return err
-	}
-
-	sort.Slice(entries, func(i, j int) bool {
-		return entries[i].Name() < entries[j].Name()
-	})
-
-	for _, entry := range entries {
-		if err := g.processEntry(entry); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-// processEntry processes a single directory entry.
-func (g *wrapperGenerator) processEntry(entry iofs.DirEntry) error {
-	if entry.IsDir() || !isGoSourceFile(entry.Name()) {
-		return nil
-	}
-
-	fullPath := filepath.Join(g.dir, entry.Name())
-
-	content, err := g.filesystem.ReadFile(fullPath)
-	if err != nil {
-		return err
-	}
-
-	if g.opts.OnlyTagged && !hasBuildTag(content, g.tag) {
-		return nil
-	}
-
-	return g.parseFile(fullPath, content)
-}
-
-// isGoSourceFile checks if a filename is a non-generated Go source file.
-func isGoSourceFile(name string) bool {
-	if !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
-		return false
-	}
-
-	return !strings.HasPrefix(name, "generated_targ_")
-}
-
-// parseFile parses a single Go file and extracts declarations.
-func (g *wrapperGenerator) parseFile(fullPath string, content []byte) error {
-	parsed, err := parser.ParseFile(g.fset, fullPath, content, parser.ParseComments)
-	if err != nil {
-		return err
-	}
-
-	g.parsedFiles++
-
-	if err := g.checkPackageName(parsed.Name.Name); err != nil {
-		return err
-	}
-
-	ctxAliases, ctxDotImport := contextImportInfo(parsed.Imports)
-
-	for _, decl := range parsed.Decls {
-		if err := g.processDecl(decl, ctxAliases, ctxDotImport); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-// checkPackageName validates and records the package name.
-func (g *wrapperGenerator) checkPackageName(name string) error {
-	if g.packageName == "" {
-		g.packageName = name
-		return nil
-	}
-
-	if g.packageName != name {
-		return fmt.Errorf("multiple package names in %s", g.dir)
-	}
-
-	return nil
-}
-
-// processDecl handles a single declaration.
-func (g *wrapperGenerator) processDecl(
-	decl ast.Decl,
-	ctxAliases map[string]bool,
-	ctxDotImport bool,
-) error {
-	switch node := decl.(type) {
-	case *ast.GenDecl:
-		g.processGenDecl(node)
-	case *ast.FuncDecl:
-		return g.processFuncDecl(node, ctxAliases, ctxDotImport)
-	}
-
-	return nil
-}
-
-// processGenDecl processes a general declaration (types, etc).
-func (g *wrapperGenerator) processGenDecl(node *ast.GenDecl) {
-	for _, spec := range node.Specs {
-		typeSpec, ok := spec.(*ast.TypeSpec)
-		if !ok {
-			continue
-		}
-
-		g.typeNames[typeSpec.Name.Name] = true
-
-		structType, ok := typeSpec.Type.(*ast.StructType)
-		if !ok {
-			continue
-		}
-
-		recordSubcommandRefs(structType, g.subcommandNames, map[string]bool{})
-	}
-}
-
-// processFuncDecl processes a function declaration.
-func (g *wrapperGenerator) processFuncDecl(
-	node *ast.FuncDecl,
-	ctxAliases map[string]bool,
-	ctxDotImport bool,
-) error {
-	if node.Recv != nil || !node.Name.IsExported() {
-		return nil
-	}
-
-	if err := validateFunctionSignature(node.Type, ctxAliases, ctxDotImport); err != nil {
-		return fmt.Errorf("function %s %w", node.Name.Name, err)
-	}
-
-	fn := g.buildFunctionDoc(node, ctxAliases, ctxDotImport)
-	if fn.UsesContext {
-		g.needsContextImport = true
-	}
-
-	g.functions[node.Name.Name] = fn
-
-	return nil
 }
 
 // buildFunctionDoc creates a functionDoc from a function declaration.
@@ -248,19 +87,30 @@ func (g *wrapperGenerator) buildFunctionDoc(
 	}
 }
 
-// validate checks that parsing produced valid results.
-func (g *wrapperGenerator) validate() error {
-	if g.parsedFiles == 0 {
-		return fmt.Errorf("no Go files found in %s", g.dir)
-	}
-
+// checkPackageName validates and records the package name.
+func (g *wrapperGenerator) checkPackageName(name string) error {
 	if g.packageName == "" {
-		return fmt.Errorf("package name not found in %s", g.dir)
+		g.packageName = name
+		return nil
 	}
 
-	g.collectFunctionNames()
+	if g.packageName != name {
+		return fmt.Errorf("multiple package names in %s", g.dir)
+	}
 
-	return g.checkWrapperConflicts()
+	return nil
+}
+
+// checkWrapperConflicts ensures generated names don't conflict with existing types.
+func (g *wrapperGenerator) checkWrapperConflicts() error {
+	for _, name := range g.functionNames {
+		wrapperName := name + "Command"
+		if g.typeNames[wrapperName] {
+			return fmt.Errorf("generated wrapper %s already exists", wrapperName)
+		}
+	}
+
+	return nil
 }
 
 // collectFunctionNames builds the sorted list of functions to wrap.
@@ -274,18 +124,6 @@ func (g *wrapperGenerator) collectFunctionNames() {
 	}
 
 	sort.Strings(g.functionNames)
-}
-
-// checkWrapperConflicts ensures generated names don't conflict with existing types.
-func (g *wrapperGenerator) checkWrapperConflicts() error {
-	for _, name := range g.functionNames {
-		wrapperName := name + "Command"
-		if g.typeNames[wrapperName] {
-			return fmt.Errorf("generated wrapper %s already exists", wrapperName)
-		}
-	}
-
-	return nil
 }
 
 // generateAndWrite generates the wrapper code and writes it to a file.
@@ -308,6 +146,157 @@ func (g *wrapperGenerator) generateAndWrite() (string, error) {
 	return filename, nil
 }
 
+// parseFile parses a single Go file and extracts declarations.
+func (g *wrapperGenerator) parseFile(fullPath string, content []byte) error {
+	parsed, err := parser.ParseFile(g.fset, fullPath, content, parser.ParseComments)
+	if err != nil {
+		return err
+	}
+
+	g.parsedFiles++
+
+	if err := g.checkPackageName(parsed.Name.Name); err != nil {
+		return err
+	}
+
+	ctxAliases, ctxDotImport := contextImportInfo(parsed.Imports)
+
+	for _, decl := range parsed.Decls {
+		err := g.processDecl(decl, ctxAliases, ctxDotImport)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// parseFiles reads and parses all Go files in the directory.
+func (g *wrapperGenerator) parseFiles() error {
+	entries, err := g.filesystem.ReadDir(g.dir)
+	if err != nil {
+		return err
+	}
+
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].Name() < entries[j].Name()
+	})
+
+	for _, entry := range entries {
+		err := g.processEntry(entry)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// processDecl handles a single declaration.
+func (g *wrapperGenerator) processDecl(
+	decl ast.Decl,
+	ctxAliases map[string]bool,
+	ctxDotImport bool,
+) error {
+	switch node := decl.(type) {
+	case *ast.GenDecl:
+		g.processGenDecl(node)
+	case *ast.FuncDecl:
+		return g.processFuncDecl(node, ctxAliases, ctxDotImport)
+	}
+
+	return nil
+}
+
+// processEntry processes a single directory entry.
+func (g *wrapperGenerator) processEntry(entry iofs.DirEntry) error {
+	if entry.IsDir() || !isGoSourceFile(entry.Name()) {
+		return nil
+	}
+
+	fullPath := filepath.Join(g.dir, entry.Name())
+
+	content, err := g.filesystem.ReadFile(fullPath)
+	if err != nil {
+		return err
+	}
+
+	if g.opts.OnlyTagged && !hasBuildTag(content, g.tag) {
+		return nil
+	}
+
+	return g.parseFile(fullPath, content)
+}
+
+// processFuncDecl processes a function declaration.
+func (g *wrapperGenerator) processFuncDecl(
+	node *ast.FuncDecl,
+	ctxAliases map[string]bool,
+	ctxDotImport bool,
+) error {
+	if node.Recv != nil || !node.Name.IsExported() {
+		return nil
+	}
+
+	err := validateFunctionSignature(node.Type, ctxAliases, ctxDotImport)
+	if err != nil {
+		return fmt.Errorf("function %s %w", node.Name.Name, err)
+	}
+
+	fn := g.buildFunctionDoc(node, ctxAliases, ctxDotImport)
+	if fn.UsesContext {
+		g.needsContextImport = true
+	}
+
+	g.functions[node.Name.Name] = fn
+
+	return nil
+}
+
+// processGenDecl processes a general declaration (types, etc).
+func (g *wrapperGenerator) processGenDecl(node *ast.GenDecl) {
+	for _, spec := range node.Specs {
+		typeSpec, ok := spec.(*ast.TypeSpec)
+		if !ok {
+			continue
+		}
+
+		g.typeNames[typeSpec.Name.Name] = true
+
+		structType, ok := typeSpec.Type.(*ast.StructType)
+		if !ok {
+			continue
+		}
+
+		recordSubcommandRefs(structType, g.subcommandNames, map[string]bool{})
+	}
+}
+
+// validate checks that parsing produced valid results.
+func (g *wrapperGenerator) validate() error {
+	if g.parsedFiles == 0 {
+		return fmt.Errorf("no Go files found in %s", g.dir)
+	}
+
+	if g.packageName == "" {
+		return fmt.Errorf("package name not found in %s", g.dir)
+	}
+
+	g.collectFunctionNames()
+
+	return g.checkWrapperConflicts()
+}
+
+// writeDescriptionMethod writes the Description method for a wrapper.
+func (g *wrapperGenerator) writeDescriptionMethod(buf *bytes.Buffer, wrapperName, desc string) {
+	buf.WriteString("func (c *")
+	buf.WriteString(wrapperName)
+	buf.WriteString(") Description() string {\n")
+	buf.WriteString("\treturn ")
+	buf.WriteString(strconv.Quote(desc))
+	buf.WriteString("\n}\n\n")
+}
+
 // writeHeader writes the file header (build tag, package, imports).
 func (g *wrapperGenerator) writeHeader(buf *bytes.Buffer) {
 	if g.opts.BuildTag != "" {
@@ -326,35 +315,14 @@ func (g *wrapperGenerator) writeHeader(buf *bytes.Buffer) {
 	}
 }
 
-// writeWrappers writes all function wrapper types and methods.
-func (g *wrapperGenerator) writeWrappers(buf *bytes.Buffer) {
-	for idx, name := range g.functionNames {
-		if idx > 0 {
-			buf.WriteString("\n")
-		}
-
-		g.writeWrapper(buf, name, g.functions[name])
-	}
-}
-
-// writeWrapper writes a single function wrapper.
-func (g *wrapperGenerator) writeWrapper(buf *bytes.Buffer, name string, fn functionDoc) {
-	wrapperName := name + "Command"
-
-	g.writeTypeDecl(buf, wrapperName)
-	g.writeRunMethod(buf, wrapperName, name, fn)
-	g.writeNameMethod(buf, wrapperName, name)
-
-	if fn.Description != "" {
-		g.writeDescriptionMethod(buf, wrapperName, fn.Description)
-	}
-}
-
-// writeTypeDecl writes the wrapper struct type declaration.
-func (g *wrapperGenerator) writeTypeDecl(buf *bytes.Buffer, wrapperName string) {
-	buf.WriteString("type ")
+// writeNameMethod writes the Name method for a wrapper.
+func (g *wrapperGenerator) writeNameMethod(buf *bytes.Buffer, wrapperName, funcName string) {
+	buf.WriteString("func (c *")
 	buf.WriteString(wrapperName)
-	buf.WriteString(" struct{}\n\n")
+	buf.WriteString(") Name() string {\n")
+	buf.WriteString("\treturn ")
+	buf.WriteString(strconv.Quote(funcName))
+	buf.WriteString("\n}\n\n")
 }
 
 // writeRunMethod writes the Run method for a wrapper.
@@ -395,31 +363,35 @@ func (g *wrapperGenerator) writeRunMethod(
 	buf.WriteString(")\n}\n\n")
 }
 
-// writeNameMethod writes the Name method for a wrapper.
-func (g *wrapperGenerator) writeNameMethod(buf *bytes.Buffer, wrapperName, funcName string) {
-	buf.WriteString("func (c *")
+// writeTypeDecl writes the wrapper struct type declaration.
+func (g *wrapperGenerator) writeTypeDecl(buf *bytes.Buffer, wrapperName string) {
+	buf.WriteString("type ")
 	buf.WriteString(wrapperName)
-	buf.WriteString(") Name() string {\n")
-	buf.WriteString("\treturn ")
-	buf.WriteString(strconv.Quote(funcName))
-	buf.WriteString("\n}\n\n")
+	buf.WriteString(" struct{}\n\n")
 }
 
-// writeDescriptionMethod writes the Description method for a wrapper.
-func (g *wrapperGenerator) writeDescriptionMethod(buf *bytes.Buffer, wrapperName, desc string) {
-	buf.WriteString("func (c *")
-	buf.WriteString(wrapperName)
-	buf.WriteString(") Description() string {\n")
-	buf.WriteString("\treturn ")
-	buf.WriteString(strconv.Quote(desc))
-	buf.WriteString("\n}\n\n")
+// writeWrapper writes a single function wrapper.
+func (g *wrapperGenerator) writeWrapper(buf *bytes.Buffer, name string, fn functionDoc) {
+	wrapperName := name + "Command"
+
+	g.writeTypeDecl(buf, wrapperName)
+	g.writeRunMethod(buf, wrapperName, name, fn)
+	g.writeNameMethod(buf, wrapperName, name)
+
+	if fn.Description != "" {
+		g.writeDescriptionMethod(buf, wrapperName, fn.Description)
+	}
 }
 
-type functionDoc struct {
-	Name         string
-	Description  string
-	ReturnsError bool
-	UsesContext  bool
+// writeWrappers writes all function wrapper types and methods.
+func (g *wrapperGenerator) writeWrappers(buf *bytes.Buffer) {
+	for idx, name := range g.functionNames {
+		if idx > 0 {
+			buf.WriteString("\n")
+		}
+
+		g.writeWrapper(buf, name, g.functions[name])
+	}
 }
 
 func functionReturnsError(fnType *ast.FuncType) bool {
@@ -428,4 +400,37 @@ func functionReturnsError(fnType *ast.FuncType) bool {
 	}
 
 	return len(fnType.Results.List) == 1 && isErrorExpr(fnType.Results.List[0].Type)
+}
+
+// isGoSourceFile checks if a filename is a non-generated Go source file.
+func isGoSourceFile(name string) bool {
+	if !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+		return false
+	}
+
+	return !strings.HasPrefix(name, "generated_targ_")
+}
+
+// newWrapperGenerator creates a new wrapper generator with initialized state.
+func newWrapperGenerator(filesystem FileSystem, opts GenerateOptions) *wrapperGenerator {
+	dir := opts.Dir
+	if dir == "" {
+		dir = "."
+	}
+
+	tag := opts.BuildTag
+	if opts.OnlyTagged && tag == "" {
+		tag = "targ"
+	}
+
+	return &wrapperGenerator{
+		filesystem:      filesystem,
+		opts:            opts,
+		dir:             dir,
+		tag:             tag,
+		fset:            token.NewFileSet(),
+		functions:       make(map[string]functionDoc),
+		typeNames:       make(map[string]bool),
+		subcommandNames: make(map[string]bool),
+	}
 }

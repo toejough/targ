@@ -9,6 +9,7 @@ package core
 import (
 	"context"
 	"errors"
+	"go/ast"
 	"reflect"
 	"strings"
 	"testing"
@@ -217,6 +218,58 @@ func TestApplyTagOptionsOverride_WrongSignature(t *testing.T) {
 	_, err := parseStruct(cmd)
 	g.Expect(err).To(HaveOccurred())
 	g.Expect(err.Error()).To(ContainSubstring("TagOptions"))
+}
+
+func TestApplyTimeout_DisableTimeout(t *testing.T) {
+	g := NewWithT(t)
+
+	ctx := context.Background()
+	args := []string{"--timeout", "5m", "arg"}
+
+	newCtx, remaining, cancel, err := applyTimeout(ctx, args, RunOptions{DisableTimeout: true})
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(newCtx).To(Equal(ctx))
+	g.Expect(remaining).To(Equal(args))
+	g.Expect(cancel).To(BeNil())
+}
+
+func TestApplyTimeout_Error(t *testing.T) {
+	g := NewWithT(t)
+
+	ctx := context.Background()
+	args := []string{"--timeout", "invalid"}
+
+	_, _, _, err := applyTimeout(ctx, args, RunOptions{})
+	g.Expect(err).To(HaveOccurred())
+}
+
+func TestApplyTimeout_NoTimeout(t *testing.T) {
+	g := NewWithT(t)
+
+	ctx := context.Background()
+	args := []string{"arg1", "arg2"}
+
+	newCtx, remaining, cancel, err := applyTimeout(ctx, args, RunOptions{})
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(newCtx).To(Equal(ctx))
+	g.Expect(remaining).To(Equal(args))
+	g.Expect(cancel).To(BeNil())
+}
+
+func TestApplyTimeout_WithTimeout(t *testing.T) {
+	g := NewWithT(t)
+
+	ctx := context.Background()
+	args := []string{"--timeout", "1h", "arg1"}
+
+	newCtx, remaining, cancel, err := applyTimeout(ctx, args, RunOptions{})
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(newCtx).NotTo(Equal(ctx)) // New context with deadline
+	g.Expect(remaining).To(Equal([]string{"arg1"}))
+	g.Expect(cancel).NotTo(BeNil())
+
+	// Clean up
+	cancel()
 }
 
 func TestAssignSubcommandField_FuncKindNil(t *testing.T) {
@@ -543,6 +596,30 @@ func TestCustomSetter_ValueTypeImplementsTextUnmarshaler(t *testing.T) {
 	// The non-addressable paths in customSetter are dead code in practice
 }
 
+func TestDetectCompletionShell_ExplicitShell(t *testing.T) {
+	g := NewWithT(t)
+
+	exec := &runExecutor{
+		rest: []string{"--completion", "fish"},
+	}
+
+	shell := exec.detectCompletionShell()
+	g.Expect(shell).To(Equal("fish"))
+}
+
+func TestDetectCompletionShell_FlagAfterCompletion(t *testing.T) {
+	g := NewWithT(t)
+
+	exec := &runExecutor{
+		rest: []string{"--completion", "--verbose"},
+	}
+
+	// When arg after --completion starts with "-", should detect shell
+	shell := exec.detectCompletionShell()
+	// Result depends on SHELL env var
+	g.Expect(shell).NotTo(Equal("--verbose"))
+}
+
 // --- detectShell tests ---
 
 func TestDetectShell_KnownShells(t *testing.T) {
@@ -664,6 +741,110 @@ func TestDoList_SingleCommand(t *testing.T) {
 	g.Expect(output).To(ContainSubstring(`"description": "Build the project"`))
 }
 
+func TestExecuteDefault_EmptyRestError(t *testing.T) {
+	g := NewWithT(t)
+
+	// Test error path when rest is empty
+	execErr := errors.New("root failed")
+	env := &executeEnv{args: []string{"cmd"}}
+	root := &commandNode{
+		Name: "root",
+		Func: reflect.ValueOf(func() error { return execErr }),
+	}
+
+	exec := &runExecutor{
+		env:        env,
+		ctx:        context.Background(),
+		roots:      []*commandNode{root},
+		rest:       []string{}, // empty rest triggers first branch
+		hasDefault: true,
+	}
+
+	err := exec.executeDefault()
+	g.Expect(err).To(BeAssignableToTypeOf(ExitError{}))
+	g.Expect(env.Output()).To(ContainSubstring("root failed"))
+}
+
+func TestExecuteDefault_LoopError(t *testing.T) {
+	g := NewWithT(t)
+
+	// Create a command that will fail during execution in the loop
+	type FailingSubCmd struct{}
+
+	failErr := errors.New("subcommand failed")
+
+	env := &executeEnv{args: []string{"cmd", "fail"}}
+	root := &commandNode{
+		Name: "root",
+		Subcommands: map[string]*commandNode{
+			"fail": {
+				Name: "fail",
+				Func: reflect.ValueOf(func() error { return failErr }),
+			},
+		},
+	}
+
+	exec := &runExecutor{
+		env:        env,
+		ctx:        context.Background(),
+		roots:      []*commandNode{root},
+		rest:       []string{"fail"},
+		hasDefault: true,
+	}
+
+	err := exec.executeDefault()
+	g.Expect(err).To(BeAssignableToTypeOf(ExitError{}))
+	g.Expect(env.Output()).To(ContainSubstring("subcommand failed"))
+}
+
+func TestExecuteDefault_SuccessPath(t *testing.T) {
+	g := NewWithT(t)
+
+	// Test the successful empty rest path
+	called := false
+	env := &executeEnv{args: []string{"cmd"}}
+	root := &commandNode{
+		Name: "root",
+		Func: reflect.ValueOf(func() { called = true }),
+	}
+
+	exec := &runExecutor{
+		env:        env,
+		ctx:        context.Background(),
+		roots:      []*commandNode{root},
+		rest:       []string{}, // empty rest
+		hasDefault: true,
+	}
+
+	err := exec.executeDefault()
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(called).To(BeTrue())
+}
+
+func TestExecuteDefault_UnknownCommand(t *testing.T) {
+	g := NewWithT(t)
+
+	// Test "Unknown command" path when no subcommand matches
+	env := &executeEnv{args: []string{"cmd", "nosuch"}}
+	root := &commandNode{
+		Name:        "root",
+		Func:        reflect.ValueOf(func() {}),
+		Subcommands: map[string]*commandNode{}, // no subcommands
+	}
+
+	exec := &runExecutor{
+		env:        env,
+		ctx:        context.Background(),
+		roots:      []*commandNode{root},
+		rest:       []string{"nosuch"},
+		hasDefault: true,
+	}
+
+	err := exec.executeDefault()
+	g.Expect(err).To(BeAssignableToTypeOf(ExitError{}))
+	g.Expect(env.Output()).To(ContainSubstring("unknown command"))
+}
+
 // --- executeEnv tests ---
 
 func TestExecuteEnv_ExitIsNoOp(t *testing.T) {
@@ -671,6 +852,49 @@ func TestExecuteEnv_ExitIsNoOp(t *testing.T) {
 	// Exit should be a no-op and not panic
 	env.Exit(1)
 	env.Exit(0)
+}
+
+func TestExecuteWithParents_HelpOnly(t *testing.T) {
+	g := NewWithT(t)
+
+	// Test that HelpOnly prints help and exits
+	node := &commandNode{
+		Name:        "test",
+		Description: "A test command",
+	}
+
+	remaining, err := node.executeWithParents(
+		context.Background(),
+		[]string{},
+		nil,
+		map[string]bool{},
+		false,
+		RunOptions{HelpOnly: true},
+	)
+
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(remaining).To(BeNil())
+}
+
+func TestExecuteWithParents_TimeoutError(t *testing.T) {
+	g := NewWithT(t)
+
+	// Invalid timeout should propagate error
+	node := &commandNode{
+		Name: "test",
+	}
+
+	_, err := node.executeWithParents(
+		context.Background(),
+		[]string{"--timeout", "invalid"},
+		nil,
+		map[string]bool{},
+		false,
+		RunOptions{},
+	)
+
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("invalid timeout"))
 }
 
 func TestExecute_MethodTooManyInputs(t *testing.T) {
@@ -1057,6 +1281,230 @@ func TestFlagParsing_UnknownShortFlag(t *testing.T) {
 	g.Expect(err.Error()).To(ContainSubstring("-x"))
 }
 
+func TestHandleComplete_ReturnsErrorFromCompleteFn(t *testing.T) {
+	g := NewWithT(t)
+
+	env := &executeEnv{args: []string{"cmd", "__complete", "sub"}}
+	completeErr := errors.New("completion failed")
+	exec := &runExecutor{
+		env:        env,
+		roots:      []*commandNode{{Name: "test"}},
+		rest:       []string{"__complete", "sub"},
+		completeFn: func(_ []*commandNode, _ string) error { return completeErr },
+	}
+
+	err := exec.handleComplete()
+	g.Expect(err).NotTo(HaveOccurred()) // handleComplete doesn't propagate errors
+	g.Expect(env.Output()).To(ContainSubstring("completion failed"))
+}
+
+func TestHandleComplete_ShortRest(t *testing.T) {
+	g := NewWithT(t)
+
+	// When rest has only one element, doCompletion is not called
+	env := &executeEnv{args: []string{"cmd", "__complete"}}
+	exec := &runExecutor{
+		env:  env,
+		rest: []string{"__complete"}, // only one element
+	}
+
+	err := exec.handleComplete()
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(env.Output()).To(BeEmpty()) // No error printed
+}
+
+func TestHandleHelpFlag_DisableHelp(t *testing.T) {
+	g := NewWithT(t)
+
+	node := &commandNode{Name: "test"}
+	remaining, handled := handleHelpFlag(node, []string{"--help"}, RunOptions{DisableHelp: true})
+	g.Expect(handled).To(BeFalse())
+	g.Expect(remaining).To(BeNil())
+}
+
+func TestHandleHelpFlag_HelpOnly(t *testing.T) {
+	g := NewWithT(t)
+
+	node := &commandNode{Name: "test"}
+	remaining, handled := handleHelpFlag(node, []string{"--help"}, RunOptions{HelpOnly: true})
+	g.Expect(handled).To(BeFalse())
+	g.Expect(remaining).To(BeNil())
+}
+
+func TestHandleHelpFlag_NoHelpFlag(t *testing.T) {
+	g := NewWithT(t)
+
+	node := &commandNode{Name: "test"}
+	remaining, handled := handleHelpFlag(node, []string{"arg1"}, RunOptions{})
+	g.Expect(handled).To(BeFalse())
+	g.Expect(remaining).To(BeNil())
+}
+
+func TestHandleHelpFlag_WithHelpFlag(t *testing.T) {
+	g := NewWithT(t)
+
+	node := &commandNode{Name: "test", Description: "A test command"}
+
+	out := captureStdout(t, func() {
+		remaining, handled := handleHelpFlag(node, []string{"--help", "arg1"}, RunOptions{})
+		g.Expect(handled).To(BeTrue())
+		g.Expect(remaining).To(Equal([]string{"arg1"}))
+	})
+
+	g.Expect(out).To(ContainSubstring("test"))
+}
+
+func TestHandleList_ReturnsErrorFromListFn(t *testing.T) {
+	g := NewWithT(t)
+
+	env := &executeEnv{args: []string{"cmd", "__list"}}
+	listErr := errors.New("list failed")
+
+	exec := &runExecutor{
+		env:    env,
+		roots:  []*commandNode{{Name: "test"}},
+		listFn: func(_ []*commandNode) error { return listErr },
+	}
+
+	err := exec.handleList()
+
+	g.Expect(err).To(BeAssignableToTypeOf(ExitError{}))
+	g.Expect(func() ExitError {
+		var target ExitError
+
+		_ = errors.As(err, &target)
+
+		return target
+	}().Code).To(Equal(1))
+	g.Expect(env.Output()).To(ContainSubstring("list failed"))
+}
+
+func TestMatchesReceiver_EmptyReceiverList(t *testing.T) {
+	g := NewWithT(t)
+
+	fnDecl := &ast.FuncDecl{
+		Name: ast.NewIdent("Run"),
+		Recv: &ast.FieldList{List: []*ast.Field{}},
+	}
+
+	g.Expect(matchesReceiver(fnDecl, "MyType")).To(BeFalse())
+}
+
+// --- matchesReceiver tests ---
+
+func TestMatchesReceiver_NoReceiver(t *testing.T) {
+	g := NewWithT(t)
+
+	// Function without receiver
+	fnDecl := &ast.FuncDecl{
+		Name: ast.NewIdent("Run"),
+		Recv: nil, // no receiver
+	}
+
+	g.Expect(matchesReceiver(fnDecl, "MyType")).To(BeFalse())
+}
+
+func TestMatchesReceiver_PointerReceiver(t *testing.T) {
+	g := NewWithT(t)
+
+	fnDecl := &ast.FuncDecl{
+		Name: ast.NewIdent("Run"),
+		Recv: &ast.FieldList{
+			List: []*ast.Field{
+				{Type: &ast.StarExpr{X: ast.NewIdent("MyType")}},
+			},
+		},
+	}
+
+	g.Expect(matchesReceiver(fnDecl, "MyType")).To(BeTrue())
+	g.Expect(matchesReceiver(fnDecl, "OtherType")).To(BeFalse())
+}
+
+func TestMatchesReceiver_ValueReceiver(t *testing.T) {
+	g := NewWithT(t)
+
+	fnDecl := &ast.FuncDecl{
+		Name: ast.NewIdent("Run"),
+		Recv: &ast.FieldList{
+			List: []*ast.Field{
+				{Type: ast.NewIdent("MyType")},
+			},
+		},
+	}
+
+	g.Expect(matchesReceiver(fnDecl, "MyType")).To(BeTrue())
+	g.Expect(matchesReceiver(fnDecl, "OtherType")).To(BeFalse())
+}
+
+func TestMissingPositionalError_Unit_WithName(t *testing.T) {
+	g := NewWithT(t)
+
+	// Direct unit test for when opts.Name is set
+	spec := positionalSpec{
+		opts:  TagOptions{Name: "target"},
+		field: reflect.StructField{Name: "Arg"},
+	}
+
+	err := missingPositionalError(spec)
+	g.Expect(err.Error()).To(ContainSubstring("target"))
+	g.Expect(err.Error()).NotTo(ContainSubstring("Arg"))
+}
+
+func TestMissingPositionalError_Unit_WithoutName(t *testing.T) {
+	g := NewWithT(t)
+
+	// Direct unit test for when opts.Name is empty (uses field name)
+	spec := positionalSpec{
+		opts:  TagOptions{Name: ""},
+		field: reflect.StructField{Name: "MyField"},
+	}
+
+	err := missingPositionalError(spec)
+	g.Expect(err.Error()).To(ContainSubstring("MyField"))
+}
+
+func TestMissingPositionalError_WithName(t *testing.T) {
+	g := NewWithT(t)
+
+	type RequiredPosCmd struct {
+		Arg string `targ:"positional,required,name=target"`
+	}
+
+	cmd := &RequiredPosCmd{}
+	node, err := parseStruct(cmd)
+	g.Expect(err).NotTo(HaveOccurred())
+
+	if node == nil {
+		t.Fatal("node should not be nil when err is nil")
+	}
+
+	// Execute without providing the required positional
+	err = node.execute(context.TODO(), []string{}, RunOptions{})
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("target"))
+}
+
+func TestMissingPositionalError_WithoutName(t *testing.T) {
+	g := NewWithT(t)
+
+	type RequiredPosCmd struct {
+		Arg string `targ:"positional,required"`
+	}
+
+	cmd := &RequiredPosCmd{}
+	node, err := parseStruct(cmd)
+	g.Expect(err).NotTo(HaveOccurred())
+
+	if node == nil {
+		t.Fatal("node should not be nil when err is nil")
+	}
+
+	// Execute without providing the required positional
+	err = node.execute(context.TODO(), []string{}, RunOptions{})
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("Arg"))
+}
+
 // --- NewOsEnv tests ---
 
 func TestNewOsEnv_ReturnsRunEnv(t *testing.T) {
@@ -1080,6 +1528,31 @@ func TestNonZeroSubcommandErrors(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for non-zero subcommand field")
 	}
+}
+
+func TestParseFlagAdvancesVariadicPositional(t *testing.T) {
+	g := NewWithT(t)
+
+	// Test that when parsing a flag after a variadic positional has values,
+	// the variadic positional is advanced
+	type VariadicThenFlag struct {
+		Args []string `targ:"positional"`
+		Flag string   `targ:"flag"`
+	}
+
+	cmd := &VariadicThenFlag{}
+	node, err := parseStruct(cmd)
+	g.Expect(err).NotTo(HaveOccurred())
+
+	if node == nil {
+		t.Fatal("node should not be nil when err is nil")
+	}
+
+	// "arg1" "arg2" go to variadic positional, then --flag triggers advancement
+	err = node.execute(context.TODO(), []string{"arg1", "arg2", "--flag", "value"}, RunOptions{})
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(cmd.Args).To(Equal([]string{"arg1", "arg2"}))
+	g.Expect(cmd.Flag).To(Equal("value"))
 }
 
 func TestParseFunc_NotFuncType(t *testing.T) {
@@ -1135,6 +1608,21 @@ func TestParseTarget_TooManyReturns(t *testing.T) {
 	_, err := parseTarget(TooManyReturnsFunc)
 	g.Expect(err).To(HaveOccurred())
 	g.Expect(err.Error()).To(ContainSubstring("return only error"))
+}
+
+func TestParseTargets_Error(t *testing.T) {
+	g := NewWithT(t)
+
+	env := &executeEnv{args: []string{"cmd"}}
+	exec := &runExecutor{
+		env: env,
+	}
+
+	// Pass an invalid target (non-func, non-struct)
+	err := exec.parseTargets([]any{123}) // int is not a valid target
+	g.Expect(err).NotTo(HaveOccurred())  // parseTargets doesn't return error, just logs
+	g.Expect(env.Output()).To(ContainSubstring("Error parsing target"))
+	g.Expect(exec.roots).To(BeEmpty()) // Invalid target not added
 }
 
 func TestPersistentFlagConflicts(t *testing.T) {
@@ -1355,6 +1843,51 @@ func TestPositionalIndex_VariadicFlag(t *testing.T) {
 	g.Expect(idx).To(BeNumerically(">=", 0))
 }
 
+func TestPositionalsComplete_AllFilled(t *testing.T) {
+	g := NewWithT(t)
+
+	specs := []positionalSpec{
+		{opts: TagOptions{Required: true}},
+		{opts: TagOptions{Required: true}},
+	}
+	counts := []int{1, 1} // both filled
+
+	g.Expect(positionalsComplete(specs, counts)).To(BeTrue())
+}
+
+func TestPositionalsComplete_EmptySpecs(t *testing.T) {
+	g := NewWithT(t)
+
+	specs := []positionalSpec{}
+	counts := []int{}
+
+	g.Expect(positionalsComplete(specs, counts)).To(BeTrue())
+}
+
+func TestPositionalsComplete_MissingRequired(t *testing.T) {
+	g := NewWithT(t)
+
+	specs := []positionalSpec{
+		{opts: TagOptions{Required: true}},
+		{opts: TagOptions{Required: true}},
+	}
+	counts := []int{1, 0} // second not filled
+
+	g.Expect(positionalsComplete(specs, counts)).To(BeFalse())
+}
+
+func TestPositionalsComplete_OptionalNotFilled(t *testing.T) {
+	g := NewWithT(t)
+
+	specs := []positionalSpec{
+		{opts: TagOptions{Required: true}},
+		{opts: TagOptions{Required: false}}, // optional
+	}
+	counts := []int{1, 0} // second not filled but optional
+
+	g.Expect(positionalsComplete(specs, counts)).To(BeTrue())
+}
+
 func TestPrintCommandHelp_FlagWithPlaceholder(t *testing.T) {
 	g := NewWithT(t)
 
@@ -1540,6 +2073,42 @@ func TestPrintCommandSummary_WithSubcommands(t *testing.T) {
 	}
 }
 
+func TestPrintCompletion_EmptyShell(t *testing.T) {
+	g := NewWithT(t)
+
+	env := &executeEnv{args: []string{"cmd"}}
+	exec := &runExecutor{env: env}
+
+	err := exec.printCompletion("")
+	g.Expect(err).To(BeAssignableToTypeOf(ExitError{}))
+	g.Expect(func() ExitError {
+		var target ExitError
+
+		_ = errors.As(err, &target)
+
+		return target
+	}().Code).To(Equal(1))
+	g.Expect(env.Output()).To(ContainSubstring("Could not detect shell"))
+}
+
+func TestPrintCompletion_UnsupportedShell(t *testing.T) {
+	g := NewWithT(t)
+
+	env := &executeEnv{args: []string{"cmd"}}
+	exec := &runExecutor{env: env}
+
+	err := exec.printCompletion("powershell")
+	g.Expect(err).To(BeAssignableToTypeOf(ExitError{}))
+	g.Expect(func() ExitError {
+		var target ExitError
+
+		_ = errors.As(err, &target)
+
+		return target
+	}().Code).To(Equal(1))
+	g.Expect(env.Output()).To(ContainSubstring("unsupported shell"))
+}
+
 // --- runCommand tests ---
 
 func TestRunCommand_NilNode(t *testing.T) {
@@ -1583,6 +2152,22 @@ func TestRunPersistentHooks_BeforeError(t *testing.T) {
 	g.Expect(err.Error()).To(ContainSubstring("persistent before failed"))
 }
 
+// --- Additional RunWithEnv tests ---
+
+func TestRunWithEnv_CompleteCommand(t *testing.T) {
+	g := NewWithT(t)
+
+	cmd := &simpleRunCmd{}
+	output := captureStdout(t, func() {
+		env := &executeEnv{args: []string{"cmd", "__complete", "cmd "}}
+		err := RunWithEnv(env, RunOptions{AllowDefault: true}, cmd)
+		g.Expect(err).NotTo(HaveOccurred())
+	})
+
+	// Should output completion suggestions (flags for the command)
+	g.Expect(output).To(ContainSubstring("--help"))
+}
+
 func TestRunWithEnv_CompletionFlag(t *testing.T) {
 	g := NewWithT(t)
 
@@ -1598,7 +2183,37 @@ func TestRunWithEnv_CompletionFlag(t *testing.T) {
 	g.Expect(output).To(ContainSubstring("complete"))
 }
 
-// --- Additional RunWithEnv tests ---
+func TestRunWithEnv_CompletionFlagInvalidShell(t *testing.T) {
+	g := NewWithT(t)
+
+	cmd := &simpleRunCmd{}
+	// --completion with invalid shell name
+	env := &executeEnv{args: []string{"cmd", "--completion", "invalid-shell"}}
+	err := RunWithEnv(env, RunOptions{AllowDefault: true}, cmd)
+
+	// Should return error for unknown shell
+	g.Expect(err).To(BeAssignableToTypeOf(ExitError{}))
+}
+
+func TestRunWithEnv_DefaultModeExecutionError(t *testing.T) {
+	g := NewWithT(t)
+
+	// A command that returns an error
+	cmd := &errorCmd{}
+	env := &executeEnv{args: []string{"cmd"}}
+	err := RunWithEnv(env, RunOptions{AllowDefault: true}, cmd)
+	g.Expect(err).To(BeAssignableToTypeOf(ExitError{}))
+}
+
+func TestRunWithEnv_DefaultModeUnknownCommand(t *testing.T) {
+	g := NewWithT(t)
+
+	cmd := &simpleRunCmd{}
+	env := &executeEnv{args: []string{"cmd", "unknown-subcommand"}}
+	err := RunWithEnv(env, RunOptions{AllowDefault: true}, cmd)
+	g.Expect(err).To(BeAssignableToTypeOf(ExitError{}))
+	g.Expect(env.Output()).To(ContainSubstring("unknown command"))
+}
 
 func TestRunWithEnv_ListCommand(t *testing.T) {
 	g := NewWithT(t)
@@ -1890,9 +2505,36 @@ func TestUsageLine_NoSubcommandWithRequiredPositional(t *testing.T) {
 	}
 }
 
+func TestVariadicPositionalStopsAtDoubleDash(t *testing.T) {
+	g := NewWithT(t)
+
+	type VariadicPosCmd struct {
+		Args []string `targ:"positional"`
+		Flag string   `targ:"flag"`
+	}
+
+	cmd := &VariadicPosCmd{}
+	node, err := parseStruct(cmd)
+	g.Expect(err).NotTo(HaveOccurred())
+
+	if node == nil {
+		t.Fatal("node should not be nil when err is nil")
+	}
+
+	// Test that variadic positional stops at -- and next args are parsed as flags
+	err = node.execute(context.TODO(), []string{"a", "b", "--", "--flag", "value"}, RunOptions{})
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(cmd.Args).To(Equal([]string{"a", "b"}))
+	g.Expect(cmd.Flag).To(Equal("value"))
+}
+
 func TooManyReturnsFunc() (int, error) {
 	return 42, nil
 }
+
+type errorCmd struct{}
+
+func (e *errorCmd) Run() error { return errors.New("command error") }
 
 type helpTestCmd struct {
 	Name string `targ:"flag"`

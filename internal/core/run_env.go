@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"strings"
@@ -21,6 +22,30 @@ func (e ExitError) Error() string {
 	return fmt.Sprintf("exit code %d", e.Code)
 }
 
+// DetectShell returns the current shell name (bash, zsh, fish) or empty string.
+func DetectShell() string {
+	shell := strings.TrimSpace(os.Getenv("SHELL"))
+	if shell == "" {
+		return ""
+	}
+
+	base := shell
+	if idx := strings.LastIndex(base, "/"); idx != -1 {
+		base = base[idx+1:]
+	}
+
+	if idx := strings.LastIndex(base, "\\"); idx != -1 {
+		base = base[idx+1:]
+	}
+
+	switch base {
+	case "bash", "zsh", "fish":
+		return base
+	default:
+		return ""
+	}
+}
+
 // NewExecuteEnv returns a runEnv that captures output for testing.
 func NewExecuteEnv(args []string) *executeEnv {
 	return &executeEnv{args: args}
@@ -31,27 +56,18 @@ func NewOsEnv() runEnv {
 	return osRunEnv{}
 }
 
-// runExecutor holds state for executing commands.
-type runExecutor struct {
-	env        runEnv
-	opts       RunOptions
-	ctx        context.Context
-	cancelFunc context.CancelFunc
-	roots      []*commandNode
-	args       []string
-	rest       []string
-	hasDefault bool
-}
-
 // RunWithEnv executes commands with a custom environment.
 func RunWithEnv(env runEnv, opts RunOptions, targets ...any) error {
 	exec := &runExecutor{
-		env:  env,
-		opts: opts,
-		args: env.Args(),
+		env:        env,
+		opts:       opts,
+		args:       env.Args(),
+		listFn:     doList,
+		completeFn: doCompletion,
 	}
 
-	if err := exec.setupContext(); err != nil {
+	err := exec.setupContext()
+	if err != nil {
 		return err
 	}
 
@@ -62,7 +78,8 @@ func RunWithEnv(env runEnv, opts RunOptions, targets ...any) error {
 	exec.extractHelpFlag()
 
 	return withDepTracker(exec.ctx, func() error {
-		if err := exec.parseTargets(targets); err != nil {
+		err := exec.parseTargets(targets)
+		if err != nil {
 			return err
 		}
 
@@ -91,162 +108,87 @@ func RunWithEnv(env runEnv, opts RunOptions, targets ...any) error {
 	})
 }
 
-// setupContext creates the execution context with optional signal handling and timeout.
-func (e *runExecutor) setupContext() error {
-	e.ctx = context.Background()
+// completeFunc is the function type for command completion.
+type completeFunc func([]*commandNode, string) error
 
-	if _, ok := e.env.(osRunEnv); ok {
-		ctx, cancel := signal.NotifyContext(e.ctx, os.Interrupt, syscall.SIGTERM)
-		e.ctx = ctx
-		e.cancelFunc = cancel
-	}
-
-	if e.opts.DisableTimeout {
-		return nil
-	}
-
-	timeout, remaining, err := extractTimeout(e.args)
-	if err != nil {
-		e.env.Printf("Error: %v\n", err)
-		return ExitError{Code: 1}
-	}
-
-	e.args = remaining
-
-	if timeout > 0 {
-		ctx, cancel := context.WithTimeout(e.ctx, timeout)
-		e.ctx = ctx
-
-		prevCancel := e.cancelFunc
-		e.cancelFunc = func() {
-			cancel()
-			if prevCancel != nil {
-				prevCancel()
-			}
-		}
-	}
-
-	return nil
+// executeEnv captures args and errors for testing.
+type executeEnv struct {
+	args   []string
+	output strings.Builder
 }
 
-// extractHelpFlag checks for --help and enters help-only mode.
-func (e *runExecutor) extractHelpFlag() {
-	if e.opts.DisableHelp {
-		return
-	}
-
-	if helpFound, remaining := extractHelpFlag(e.args); helpFound {
-		e.opts.HelpOnly = true
-		e.args = remaining
-	}
+func (e *executeEnv) Args() []string {
+	return e.args
 }
 
-// parseTargets parses all targets into command nodes.
-func (e *runExecutor) parseTargets(targets []any) error {
-	e.roots = make([]*commandNode, 0, len(targets))
-
-	for _, t := range targets {
-		node, err := parseTarget(t)
-		if err != nil {
-			e.env.Printf("Error parsing target: %v\n", err)
-			continue
-		}
-
-		e.roots = append(e.roots, node)
-	}
-
-	return nil
+func (e *executeEnv) Exit(_ int) {
+	_ = 0 // No-op stub for coverage
 }
 
-// handleNoArgs handles the case when no command arguments are provided.
-func (e *runExecutor) handleNoArgs() error {
-	if e.hasDefault {
-		if err := e.roots[0].execute(e.ctx, nil, e.opts); err != nil {
-			e.env.Printf("Error: %v\n", err)
-			return ExitError{Code: 1}
-		}
-
-		return nil
-	}
-
-	printUsage(e.roots, e.opts)
-
-	return nil
+// Output returns the captured output from command execution.
+func (e *executeEnv) Output() string {
+	return e.output.String()
 }
 
-// handleSpecialCommands handles __complete, __list, help, and completion flags.
-func (e *runExecutor) handleSpecialCommands() (bool, error) {
-	if e.rest[0] == "__complete" {
-		return true, e.handleComplete()
-	}
-
-	if e.rest[0] == "__list" {
-		return true, e.handleList()
-	}
-
-	if handled, err := e.handleGlobalHelp(); handled {
-		return true, err
-	}
-
-	return e.handleCompletionFlag()
+func (e *executeEnv) Printf(format string, args ...any) {
+	fmt.Fprintf(&e.output, format, args...)
 }
 
-// handleComplete handles the __complete hidden command.
-func (e *runExecutor) handleComplete() error {
-	if len(e.rest) > 1 {
-		if err := doCompletion(e.roots, e.rest[1]); err != nil {
-			e.env.Printf("Error: %v\n", err)
-		}
-	}
-
-	return nil
+func (e *executeEnv) Println(args ...any) {
+	fmt.Fprintln(&e.output, args...)
 }
 
-// handleList handles the __list hidden command.
-func (e *runExecutor) handleList() error {
-	if err := doList(e.roots); err != nil {
-		e.env.Printf("Error: %v\n", err)
-		return ExitError{Code: 1}
-	}
-
-	return nil
+// listCommandInfo represents a command in the __list output.
+type listCommandInfo struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
 }
 
-// handleGlobalHelp handles -h/--help at the start of args.
-func (e *runExecutor) handleGlobalHelp() (bool, error) {
-	if e.opts.DisableHelp {
-		return false, nil
-	}
+// listFunc is the function type for listing commands.
+type listFunc func([]*commandNode) error
 
-	if e.rest[0] != "-h" && e.rest[0] != "--help" {
-		return false, nil
-	}
-
-	if e.hasDefault {
-		printCommandHelp(e.roots[0])
-		printTargOptions(e.opts)
-	} else {
-		printUsage(e.roots, e.opts)
-	}
-
-	return true, nil
+// listOutput is the JSON structure returned by the __list command.
+type listOutput struct {
+	Commands []listCommandInfo `json:"commands"`
 }
 
-// handleCompletionFlag handles --completion flag.
-func (e *runExecutor) handleCompletionFlag() (bool, error) {
-	if e.opts.DisableCompletion {
-		return false, nil
-	}
+type osRunEnv struct{}
 
-	if e.rest[0] == "--completion" {
-		return true, e.printCompletion(e.detectCompletionShell())
-	}
+func (osRunEnv) Args() []string {
+	return os.Args
+}
 
-	if after, ok := strings.CutPrefix(e.rest[0], "--completion="); ok {
-		return true, e.printCompletion(after)
-	}
+func (osRunEnv) Exit(code int) {
+	os.Exit(code)
+}
 
-	return false, nil
+func (osRunEnv) Printf(format string, args ...any) {
+	fmt.Printf(format, args...)
+}
+
+func (osRunEnv) Println(args ...any) {
+	fmt.Println(args...)
+}
+
+type runEnv interface {
+	Args() []string
+	Printf(format string, args ...any)
+	Println(args ...any)
+	Exit(code int)
+}
+
+// runExecutor holds state for executing commands.
+type runExecutor struct {
+	env        runEnv
+	opts       RunOptions
+	ctx        context.Context
+	cancelFunc context.CancelFunc
+	roots      []*commandNode
+	args       []string
+	rest       []string
+	hasDefault bool
+	listFn     listFunc     // injectable for testing, defaults to doList
+	completeFn completeFunc // injectable for testing, defaults to doCompletion
 }
 
 // detectCompletionShell detects or extracts the shell for completion.
@@ -256,23 +198,6 @@ func (e *runExecutor) detectCompletionShell() string {
 	}
 
 	return DetectShell()
-}
-
-// printCompletion prints the completion script for the given shell.
-func (e *runExecutor) printCompletion(shell string) error {
-	if shell == "" {
-		e.env.Println("Usage: --completion [bash|zsh|fish]")
-		e.env.Println("Could not detect shell. Please specify one.")
-
-		return ExitError{Code: 1}
-	}
-
-	if err := PrintCompletionScript(shell, binaryName()); err != nil {
-		e.env.Printf("Error: %v\n", err)
-		return ExitError{Code: 1}
-	}
-
-	return nil
 }
 
 // executeDefault executes commands against a single default root.
@@ -346,6 +271,18 @@ func (e *runExecutor) executeMultiRoot() error {
 	return nil
 }
 
+// extractHelpFlag checks for --help and enters help-only mode.
+func (e *runExecutor) extractHelpFlag() {
+	if e.opts.DisableHelp {
+		return
+	}
+
+	if helpFound, remaining := extractHelpFlag(e.args); helpFound {
+		e.opts.HelpOnly = true
+		e.args = remaining
+	}
+}
+
 // findMatchingRoot finds a root command matching the given name.
 func (e *runExecutor) findMatchingRoot(name string) *commandNode {
 	for _, root := range e.roots {
@@ -357,67 +294,168 @@ func (e *runExecutor) findMatchingRoot(name string) *commandNode {
 	return nil
 }
 
-// executeEnv captures args and errors for testing.
-type executeEnv struct {
-	args   []string
-	output strings.Builder
+// handleComplete handles the __complete hidden command.
+func (e *runExecutor) handleComplete() error {
+	if len(e.rest) > 1 {
+		err := e.completeFn(e.roots, e.rest[1])
+		if err != nil {
+			e.env.Printf("Error: %v\n", err)
+		}
+	}
+
+	return nil
 }
 
-func (e *executeEnv) Args() []string {
-	return e.args
+// handleCompletionFlag handles --completion flag.
+func (e *runExecutor) handleCompletionFlag() (bool, error) {
+	if e.opts.DisableCompletion {
+		return false, nil
+	}
+
+	if e.rest[0] == "--completion" {
+		return true, e.printCompletion(e.detectCompletionShell())
+	}
+
+	if after, ok := strings.CutPrefix(e.rest[0], "--completion="); ok {
+		return true, e.printCompletion(after)
+	}
+
+	return false, nil
 }
 
-func (e *executeEnv) Exit(_ int) {
-	_ = 0 // No-op stub for coverage
+// handleGlobalHelp handles global help when HelpOnly mode is set.
+func (e *runExecutor) handleGlobalHelp() (bool, error) {
+	if !e.opts.HelpOnly {
+		return false, nil
+	}
+
+	if e.hasDefault {
+		printCommandHelp(e.roots[0])
+		printTargOptions(e.opts)
+	} else {
+		printUsage(e.roots, e.opts)
+	}
+
+	return true, nil
 }
 
-// Output returns the captured output from command execution.
-func (e *executeEnv) Output() string {
-	return e.output.String()
+// handleList handles the __list hidden command.
+func (e *runExecutor) handleList() error {
+	err := e.listFn(e.roots)
+	if err != nil {
+		e.env.Printf("Error: %v\n", err)
+		return ExitError{Code: 1}
+	}
+
+	return nil
 }
 
-func (e *executeEnv) Printf(format string, args ...any) {
-	fmt.Fprintf(&e.output, format, args...)
+// handleNoArgs handles the case when no command arguments are provided.
+func (e *runExecutor) handleNoArgs() error {
+	if e.hasDefault {
+		err := e.roots[0].execute(e.ctx, nil, e.opts)
+		if err != nil {
+			e.env.Printf("Error: %v\n", err)
+			return ExitError{Code: 1}
+		}
+
+		return nil
+	}
+
+	printUsage(e.roots, e.opts)
+
+	return nil
 }
 
-func (e *executeEnv) Println(args ...any) {
-	fmt.Fprintln(&e.output, args...)
+// handleSpecialCommands handles __complete, __list, help, and completion flags.
+func (e *runExecutor) handleSpecialCommands() (bool, error) {
+	if e.rest[0] == "__complete" {
+		return true, e.handleComplete()
+	}
+
+	if e.rest[0] == "__list" {
+		return true, e.handleList()
+	}
+
+	if handled, err := e.handleGlobalHelp(); handled {
+		return true, err
+	}
+
+	return e.handleCompletionFlag()
 }
 
-// listCommandInfo represents a command in the __list output.
-type listCommandInfo struct {
-	Name        string `json:"name"`
-	Description string `json:"description"`
+// parseTargets parses all targets into command nodes.
+func (e *runExecutor) parseTargets(targets []any) error {
+	e.roots = make([]*commandNode, 0, len(targets))
+
+	for _, t := range targets {
+		node, err := parseTarget(t)
+		if err != nil {
+			e.env.Printf("Error parsing target: %v\n", err)
+			continue
+		}
+
+		e.roots = append(e.roots, node)
+	}
+
+	return nil
 }
 
-// listOutput is the JSON structure returned by the __list command.
-type listOutput struct {
-	Commands []listCommandInfo `json:"commands"`
+// printCompletion prints the completion script for the given shell.
+func (e *runExecutor) printCompletion(shell string) error {
+	if shell == "" {
+		e.env.Println("Usage: --completion [bash|zsh|fish]")
+		e.env.Println("Could not detect shell. Please specify one.")
+
+		return ExitError{Code: 1}
+	}
+
+	err := PrintCompletionScript(shell, binaryName())
+	if err != nil {
+		e.env.Printf("Error: %v\n", err)
+		return ExitError{Code: 1}
+	}
+
+	return nil
 }
 
-type osRunEnv struct{}
+// setupContext creates the execution context with optional signal handling and timeout.
+func (e *runExecutor) setupContext() error {
+	e.ctx = context.Background()
 
-func (osRunEnv) Args() []string {
-	return os.Args
-}
+	if _, ok := e.env.(osRunEnv); ok {
+		ctx, cancel := signal.NotifyContext(e.ctx, os.Interrupt, syscall.SIGTERM)
+		e.ctx = ctx
+		e.cancelFunc = cancel
+	}
 
-func (osRunEnv) Exit(code int) {
-	os.Exit(code)
-}
+	if e.opts.DisableTimeout {
+		return nil
+	}
 
-func (osRunEnv) Printf(format string, args ...any) {
-	fmt.Printf(format, args...)
-}
+	timeout, remaining, err := extractTimeout(e.args)
+	if err != nil {
+		e.env.Printf("Error: %v\n", err)
+		return ExitError{Code: 1}
+	}
 
-func (osRunEnv) Println(args ...any) {
-	fmt.Println(args...)
-}
+	e.args = remaining
 
-type runEnv interface {
-	Args() []string
-	Printf(format string, args ...any)
-	Println(args ...any)
-	Exit(code int)
+	if timeout > 0 {
+		ctx, cancel := context.WithTimeout(e.ctx, timeout)
+		e.ctx = ctx
+
+		prevCancel := e.cancelFunc
+		e.cancelFunc = func() {
+			cancel()
+
+			if prevCancel != nil {
+				prevCancel()
+			}
+		}
+	}
+
+	return nil
 }
 
 // collectCommands recursively collects command info from a node and its subcommands.
@@ -438,32 +476,13 @@ func collectCommands(node *commandNode, prefix string, commands *[]listCommandIn
 	}
 }
 
-// DetectShell returns the current shell name (bash, zsh, fish) or empty string.
-func DetectShell() string {
-	shell := strings.TrimSpace(os.Getenv("SHELL"))
-	if shell == "" {
-		return ""
-	}
-
-	base := shell
-	if idx := strings.LastIndex(base, "/"); idx != -1 {
-		base = base[idx+1:]
-	}
-
-	if idx := strings.LastIndex(base, "\\"); idx != -1 {
-		base = base[idx+1:]
-	}
-
-	switch base {
-	case "bash", "zsh", "fish":
-		return base
-	default:
-		return ""
-	}
+// doList outputs JSON with command names and descriptions to stdout.
+func doList(roots []*commandNode) error {
+	return doListTo(os.Stdout, roots)
 }
 
-// doList outputs JSON with command names and descriptions.
-func doList(roots []*commandNode) error {
+// doListTo outputs JSON with command names and descriptions to the given writer.
+func doListTo(w io.Writer, roots []*commandNode) error {
 	output := listOutput{
 		Commands: make([]listCommandInfo, 0),
 	}
@@ -472,7 +491,7 @@ func doList(roots []*commandNode) error {
 		collectCommands(node, "", &output.Commands)
 	}
 
-	enc := json.NewEncoder(os.Stdout)
+	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 
 	return enc.Encode(output)

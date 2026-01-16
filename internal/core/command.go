@@ -54,79 +54,38 @@ func (n *commandNode) execute(ctx context.Context, args []string, opts RunOption
 	return err
 }
 
-func (n *commandNode) executeWithParents(
+// executeSiblings handles implicit sibling resolution for remaining args.
+func (n *commandNode) executeSiblings(
 	ctx context.Context,
-	args []string,
-	parents []commandInstance,
+	inst reflect.Value,
+	chain []commandInstance,
+	remaining []string,
 	visited map[string]bool,
-	explicit bool,
 	opts RunOptions,
 ) ([]string, error) {
-	if opts.HelpOnly {
-		printCommandHelp(n)
-		printTargOptions(opts)
-		fmt.Println()
+	for len(remaining) > 0 {
+		if remaining[0] == "^" {
+			return remaining[1:], nil
+		}
+
+		sibling := n.findSibling(remaining[0])
+		if sibling == nil {
+			break
+		}
+
+		if err := assignSubcommandField(n, inst, sibling.Name, sibling); err != nil {
+			return nil, err
+		}
+
+		var err error
+
+		remaining, err = sibling.executeWithParents(ctx, remaining[1:], chain, visited, true, opts)
+		if err != nil {
+			return nil, err
+		}
 	}
 
-	if remaining, done := handleHelpFlag(n, args, opts); done {
-		return remaining, nil
-	}
-
-	ctx, args, cancel, err := applyTimeout(ctx, args, opts)
-	if err != nil {
-		return nil, err
-	}
-
-	if cancel != nil {
-		defer cancel()
-	}
-
-	if n.Func.IsValid() {
-		return executeFunctionWithParents(ctx, args, n, parents, visited, explicit, opts)
-	}
-
-	return n.executeStructCommand(ctx, args, parents, visited, explicit, opts)
-}
-
-// handleHelpFlag checks for --help flag and prints help if requested.
-func handleHelpFlag(n *commandNode, args []string, opts RunOptions) ([]string, bool) {
-	if opts.DisableHelp || opts.HelpOnly {
-		return nil, false
-	}
-
-	helpRequested, remaining := extractHelpFlag(args)
-	if !helpRequested {
-		return nil, false
-	}
-
-	printCommandHelp(n)
-	printTargOptions(opts)
-
-	return remaining, true
-}
-
-// applyTimeout extracts timeout from args and creates context with deadline.
-func applyTimeout(
-	ctx context.Context,
-	args []string,
-	opts RunOptions,
-) (context.Context, []string, context.CancelFunc, error) {
-	if opts.DisableTimeout {
-		return ctx, args, nil, nil
-	}
-
-	timeout, remaining, err := extractTimeout(args)
-	if err != nil {
-		return ctx, args, nil, err
-	}
-
-	if timeout <= 0 {
-		return ctx, remaining, nil, nil
-	}
-
-	newCtx, cancel := context.WithTimeout(ctx, timeout)
-
-	return newCtx, remaining, cancel, nil
+	return remaining, nil
 }
 
 // executeStructCommand handles execution of struct-based commands.
@@ -194,38 +153,38 @@ func (n *commandNode) executeSubcommand(
 	return n.executeSiblings(ctx, inst, chain, remaining, visited, opts)
 }
 
-// executeSiblings handles implicit sibling resolution for remaining args.
-func (n *commandNode) executeSiblings(
+func (n *commandNode) executeWithParents(
 	ctx context.Context,
-	inst reflect.Value,
-	chain []commandInstance,
-	remaining []string,
+	args []string,
+	parents []commandInstance,
 	visited map[string]bool,
+	explicit bool,
 	opts RunOptions,
 ) ([]string, error) {
-	for len(remaining) > 0 {
-		if remaining[0] == "^" {
-			return remaining[1:], nil
-		}
-
-		sibling := n.findSibling(remaining[0])
-		if sibling == nil {
-			break
-		}
-
-		if err := assignSubcommandField(n, inst, sibling.Name, sibling); err != nil {
-			return nil, err
-		}
-
-		var err error
-
-		remaining, err = sibling.executeWithParents(ctx, remaining[1:], chain, visited, true, opts)
-		if err != nil {
-			return nil, err
-		}
+	if opts.HelpOnly {
+		printCommandHelp(n)
+		printTargOptions(opts)
+		fmt.Println()
 	}
 
-	return remaining, nil
+	if remaining, done := handleHelpFlag(n, args, opts); done {
+		return remaining, nil
+	}
+
+	ctx, args, cancel, err := applyTimeout(ctx, args, opts)
+	if err != nil {
+		return nil, err
+	}
+
+	if cancel != nil {
+		defer cancel()
+	}
+
+	if n.Func.IsValid() {
+		return executeFunctionWithParents(ctx, args, n, parents, visited, explicit, opts)
+	}
+
+	return n.executeStructCommand(ctx, args, parents, visited, explicit, opts)
 }
 
 // findSibling finds a sibling subcommand by name (case-insensitive).
@@ -248,23 +207,28 @@ func (n *commandNode) runCommandWithHooks(
 	visited map[string]bool,
 	remaining []string,
 ) ([]string, error) {
-	if err := applyDefaultsAndEnv(specs, visited); err != nil {
+	err := applyDefaultsAndEnv(specs, visited)
+	if err != nil {
 		return nil, err
 	}
 
-	if err := checkRequiredFlags(specs, visited); err != nil {
+	err = checkRequiredFlags(specs, visited)
+	if err != nil {
 		return nil, err
 	}
 
-	if err := runPersistentHooks(ctx, chain, "PersistentBefore"); err != nil {
+	err = runPersistentHooks(ctx, chain, "PersistentBefore")
+	if err != nil {
 		return nil, err
 	}
 
-	if err := runCommand(ctx, n, inst, nil, 0); err != nil {
+	err = runCommand(ctx, n, inst, nil, 0)
+	if err != nil {
 		return nil, err
 	}
 
-	if err := runPersistentHooks(ctx, reverseChain(chain), "PersistentAfter"); err != nil {
+	err = runPersistentHooks(ctx, reverseChain(chain), "PersistentAfter")
+	if err != nil {
 		return nil, err
 	}
 
@@ -330,6 +294,33 @@ func applyDefaultsAndEnv(specs []*flagSpec, visited map[string]bool) error {
 	return nil
 }
 
+// applyNameAndDescription overrides node name and description from methods.
+func applyNameAndDescription(node *commandNode, v reflect.Value, typ reflect.Type) {
+	if cmdName := getCommandName(v, typ); cmdName != "" {
+		node.Name = cmdName
+	}
+
+	if desc := getDescription(v, typ); desc != "" {
+		node.Description = desc
+	}
+}
+
+// applyRunMethodDoc extracts and applies Run method documentation.
+func applyRunMethodDoc(node *commandNode, typ reflect.Type) {
+	ptrType := reflect.PointerTo(typ)
+
+	runMethod, hasRun := ptrType.MethodByName("Run")
+	if !hasRun {
+		return
+	}
+
+	node.RunMethod = reflect.Value{} // Marker
+
+	if doc := getMethodDoc(runMethod); doc != "" {
+		node.Description = strings.TrimSpace(doc)
+	}
+}
+
 func applyTagOptionsOverride(
 	inst reflect.Value,
 	field reflect.StructField,
@@ -364,6 +355,30 @@ func applyTagPart(opts *TagOptions, p string) {
 	if p == "required" {
 		opts.Required = true
 	}
+}
+
+// applyTimeout extracts timeout from args and creates context with deadline.
+func applyTimeout(
+	ctx context.Context,
+	args []string,
+	opts RunOptions,
+) (context.Context, []string, context.CancelFunc, error) {
+	if opts.DisableTimeout {
+		return ctx, args, nil, nil
+	}
+
+	timeout, remaining, err := extractTimeout(args)
+	if err != nil {
+		return ctx, args, nil, err
+	}
+
+	if timeout <= 0 {
+		return ctx, remaining, nil, nil
+	}
+
+	newCtx, cancel := context.WithTimeout(ctx, timeout)
+
+	return newCtx, remaining, cancel, nil
 }
 
 func assignSubcommandField(
@@ -716,6 +731,16 @@ func copySubcommandFuncs(inst reflect.Value, node *commandNode) error {
 	return nil
 }
 
+// createCommandNode creates a new command node with default values.
+func createCommandNode(v reflect.Value, typ reflect.Type) *commandNode {
+	return &commandNode{
+		Name:        camelToKebab(typ.Name()),
+		Type:        typ,
+		Value:       v,
+		Subcommands: make(map[string]*commandNode),
+	}
+}
+
 func detectTagKind(opts *TagOptions, tag, fieldName string) {
 	if strings.Contains(tag, "subcommand") {
 		opts.Kind = TagKindSubcommand
@@ -1002,6 +1027,23 @@ func getDescription(v reflect.Value, typ reflect.Type) string {
 	return strings.TrimSpace(desc)
 }
 
+// handleHelpFlag checks for --help flag and prints help if requested.
+func handleHelpFlag(n *commandNode, args []string, opts RunOptions) ([]string, bool) {
+	if opts.DisableHelp || opts.HelpOnly {
+		return nil, false
+	}
+
+	helpRequested, remaining := extractHelpFlag(args)
+	if !helpRequested {
+		return nil, false
+	}
+
+	printCommandHelp(n)
+	printTargOptions(opts)
+
+	return remaining, true
+}
+
 func invokeMethod(method reflect.Value, args []reflect.Value) error {
 	results := method.Call(args)
 	if len(results) == 1 && !results[0].IsNil() {
@@ -1146,112 +1188,28 @@ func parseStruct(t any) (*commandNode, error) {
 	return node, nil
 }
 
-// resolveStructValue extracts the reflect.Value and Type from a target.
-func resolveStructValue(t any) (reflect.Value, reflect.Type, error) {
-	if t == nil {
-		return reflect.Value{}, nil, errors.New("nil target")
+// parseSubcommandField parses a single subcommand field.
+func parseSubcommandField(field reflect.StructField) (*commandNode, error) {
+	fieldType := field.Type
+	if fieldType.Kind() == reflect.Ptr {
+		fieldType = fieldType.Elem()
 	}
 
-	v := reflect.ValueOf(t)
-	typ := v.Type()
-
-	if typ.Kind() == reflect.Ptr {
-		if v.IsNil() {
-			return reflect.Value{}, nil, errors.New("nil pointer target")
-		}
-
-		typ = typ.Elem()
-		v = v.Elem()
-	}
-
-	if typ.Kind() != reflect.Struct {
-		return reflect.Value{}, nil, fmt.Errorf("expected struct, got %v", typ.Kind())
-	}
-
-	return v, typ, nil
-}
-
-// validateZeroFields ensures fields are zero-valued (defaults should use tags).
-func validateZeroFields(v reflect.Value, typ reflect.Type) error {
-	for i := 0; i < typ.NumField(); i++ {
-		field := typ.Field(i)
-
-		opts, ok, err := tagOptionsForField(v, field)
+	if fieldType.Kind() == reflect.Func {
+		err := validateFuncType(field.Type)
 		if err != nil {
-			return err
+			return nil, err
 		}
 
-		if !ok {
-			continue
-		}
-
-		if err := validateFieldValue(v.Field(i), opts, typ.Name(), field.Name); err != nil {
-			return err
-		}
+		return &commandNode{
+			Func:        reflect.Zero(field.Type),
+			Subcommands: make(map[string]*commandNode),
+		}, nil
 	}
 
-	return nil
-}
+	zeroVal := reflect.New(fieldType).Interface()
 
-// validateFieldValue checks that a field is properly zero-valued.
-func validateFieldValue(fieldVal reflect.Value, opts TagOptions, typeName, fieldName string) error {
-	if opts.Kind == TagKindSubcommand {
-		if fieldVal.Kind() == reflect.Func || fieldVal.IsZero() {
-			return nil
-		}
-
-		return fmt.Errorf(
-			"command %s must not prefill subcommand %s; use default tags instead",
-			typeName,
-			fieldName,
-		)
-	}
-
-	if !fieldVal.IsZero() {
-		return fmt.Errorf(
-			"command %s must be zero value; use default tags instead of prefilled fields",
-			typeName,
-		)
-	}
-
-	return nil
-}
-
-// createCommandNode creates a new command node with default values.
-func createCommandNode(v reflect.Value, typ reflect.Type) *commandNode {
-	return &commandNode{
-		Name:        camelToKebab(typ.Name()),
-		Type:        typ,
-		Value:       v,
-		Subcommands: make(map[string]*commandNode),
-	}
-}
-
-// applyRunMethodDoc extracts and applies Run method documentation.
-func applyRunMethodDoc(node *commandNode, typ reflect.Type) {
-	ptrType := reflect.PointerTo(typ)
-
-	runMethod, hasRun := ptrType.MethodByName("Run")
-	if !hasRun {
-		return
-	}
-
-	node.RunMethod = reflect.Value{} // Marker
-
-	if doc := getMethodDoc(runMethod); doc != "" {
-		node.Description = strings.TrimSpace(doc)
-	}
-}
-
-// applyNameAndDescription overrides node name and description from methods.
-func applyNameAndDescription(node *commandNode, v reflect.Value, typ reflect.Type) {
-	if cmdName := getCommandName(v, typ); cmdName != "" {
-		node.Name = cmdName
-	}
-
-	if desc := getDescription(v, typ); desc != "" {
-		node.Description = desc
-	}
+	return parseStruct(zeroVal)
 }
 
 // parseSubcommandFields parses all subcommand fields and adds them to the node.
@@ -1279,29 +1237,6 @@ func parseSubcommandFields(node *commandNode, v reflect.Value, typ reflect.Type)
 	}
 
 	return nil
-}
-
-// parseSubcommandField parses a single subcommand field.
-func parseSubcommandField(field reflect.StructField) (*commandNode, error) {
-	fieldType := field.Type
-	if fieldType.Kind() == reflect.Ptr {
-		fieldType = fieldType.Elem()
-	}
-
-	if fieldType.Kind() == reflect.Func {
-		if err := validateFuncType(field.Type); err != nil {
-			return nil, err
-		}
-
-		return &commandNode{
-			Func:        reflect.Zero(field.Type),
-			Subcommands: make(map[string]*commandNode),
-		}, nil
-	}
-
-	zeroVal := reflect.New(fieldType).Interface()
-
-	return parseStruct(zeroVal)
 }
 
 func parseTagParts(opts *TagOptions, tag string) {
@@ -1470,6 +1405,31 @@ func resolvePlaceholder(opts TagOptions, kind reflect.Kind) string {
 	}
 }
 
+// resolveStructValue extracts the reflect.Value and Type from a target.
+func resolveStructValue(t any) (reflect.Value, reflect.Type, error) {
+	if t == nil {
+		return reflect.Value{}, nil, errors.New("nil target")
+	}
+
+	v := reflect.ValueOf(t)
+	typ := v.Type()
+
+	if typ.Kind() == reflect.Ptr {
+		if v.IsNil() {
+			return reflect.Value{}, nil, errors.New("nil pointer target")
+		}
+
+		typ = typ.Elem()
+		v = v.Elem()
+	}
+
+	if typ.Kind() != reflect.Struct {
+		return reflect.Value{}, nil, fmt.Errorf("expected struct, got %v", typ.Kind())
+	}
+
+	return v, typ, nil
+}
+
 func reverseChain(chain []commandInstance) []commandInstance {
 	if len(chain) == 0 {
 		return nil
@@ -1591,6 +1551,30 @@ func tagOptionsMethod(inst reflect.Value) reflect.Value {
 	return target.MethodByName("TagOptions")
 }
 
+// validateFieldValue checks that a field is properly zero-valued.
+func validateFieldValue(fieldVal reflect.Value, opts TagOptions, typeName, fieldName string) error {
+	if opts.Kind == TagKindSubcommand {
+		if fieldVal.Kind() == reflect.Func || fieldVal.IsZero() {
+			return nil
+		}
+
+		return fmt.Errorf(
+			"command %s must not prefill subcommand %s; use default tags instead",
+			typeName,
+			fieldName,
+		)
+	}
+
+	if !fieldVal.IsZero() {
+		return fmt.Errorf(
+			"command %s must be zero value; use default tags instead of prefilled fields",
+			typeName,
+		)
+	}
+
+	return nil
+}
+
 func validateFuncType(typ reflect.Type) error {
 	if typ.NumIn() > 1 {
 		return errors.New("function command must be niladic or accept context")
@@ -1686,6 +1670,28 @@ func validateTagOptionsSignature(method reflect.Value) error {
 
 	if mtype.Out(0) != reflect.TypeFor[TagOptions]() || !isErrorType(mtype.Out(1)) {
 		return errors.New("TagOptions must return (TagOptions, error)")
+	}
+
+	return nil
+}
+
+// validateZeroFields ensures fields are zero-valued (defaults should use tags).
+func validateZeroFields(v reflect.Value, typ reflect.Type) error {
+	for i := 0; i < typ.NumField(); i++ {
+		field := typ.Field(i)
+
+		opts, ok, err := tagOptionsForField(v, field)
+		if err != nil {
+			return err
+		}
+
+		if !ok {
+			continue
+		}
+
+		if err := validateFieldValue(v.Field(i), opts, typ.Name(), field.Name); err != nil {
+			return err
+		}
 	}
 
 	return nil
