@@ -99,16 +99,16 @@ func DetectRootCommands(candidates ...any) []any {
 	// 2. Filter candidates
 	var roots []any
 
-	for _, c := range candidates {
-		v := reflect.ValueOf(c)
+	for _, candidate := range candidates {
+		val := reflect.ValueOf(candidate)
 
-		t := v.Type()
-		if t.Kind() == reflect.Ptr {
-			t = t.Elem()
+		typ := val.Type()
+		if typ.Kind() == reflect.Ptr {
+			typ = typ.Elem()
 		}
 
-		if !subcommandTypes[t] {
-			roots = append(roots, c)
+		if !subcommandTypes[typ] {
+			roots = append(roots, candidate)
 		}
 	}
 

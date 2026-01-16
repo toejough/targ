@@ -1,10 +1,17 @@
 package core
 
 import (
+	"errors"
 	"fmt"
 	"reflect"
 	"strings"
 )
+
+// Sentinel errors for err113 compliance.
+var errUnsupportedShell = errors.New("unsupported shell")
+
+// singleShortFlagLen is the length of a single short flag (e.g., "-f").
+const singleShortFlagLen = 2
 
 // PrintCompletionScript prints a shell completion script for the given shell.
 func PrintCompletionScript(shell, binName string) error {
@@ -16,7 +23,7 @@ func PrintCompletionScript(shell, binName string) error {
 	case fishShell:
 		fmt.Printf(_fishCompletion, binName, binName, binName, binName)
 	default:
-		return fmt.Errorf("unsupported shell: %s", shell)
+		return fmt.Errorf("%w: %s", errUnsupportedShell, shell)
 	}
 
 	return nil
@@ -316,7 +323,8 @@ func (s *completionState) suggestCompletions() error {
 		return err
 	}
 
-	if err := s.suggestFlagsIfNeeded(); err != nil {
+	err = s.suggestFlagsIfNeeded()
+	if err != nil {
 		return err
 	}
 
@@ -399,7 +407,8 @@ func (s *completionState) suggestPositionalEnumsOrRoots() error {
 		return nil
 	}
 
-	if suggested, err := s.suggestPositionalEnums(); err != nil || suggested {
+	suggested, err := s.suggestPositionalEnums()
+	if err != nil || suggested {
 		return err
 	}
 
@@ -518,7 +527,7 @@ func (c *positionalCounter) skipShortFlag(arg string) {
 		return
 	}
 
-	if len(arg) == 2 {
+	if len(arg) == singleShortFlagLen {
 		c.skipSingleShortFlag(arg)
 		return
 	}
@@ -787,7 +796,7 @@ func expectingLongFlagValue(flag string, specs map[string]completionFlagSpec) bo
 }
 
 func expectingShortFlagValue(flag string, specs map[string]completionFlagSpec) bool {
-	if len(flag) == 2 {
+	if len(flag) == singleShortFlagLen {
 		spec, ok := specs[flag]
 
 		return ok && spec.TakesValue

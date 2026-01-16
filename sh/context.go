@@ -26,7 +26,7 @@ func OutputContext(ctx context.Context, name string, args ...string) (string, er
 
 	err := cmd.Start()
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("starting command: %w", err)
 	}
 
 	go func() {
@@ -40,7 +40,7 @@ func OutputContext(ctx context.Context, name string, args ...string) (string, er
 		killProcessGroup(cmd)
 		<-done
 
-		return buf.String(), ctx.Err()
+		return buf.String(), fmt.Errorf("command cancelled: %w", ctx.Err())
 	}
 }
 
@@ -75,9 +75,14 @@ func (b *safeBuffer) String() string {
 	return b.buf.String()
 }
 
-func (b *safeBuffer) Write(p []byte) (n int, err error) {
+func (b *safeBuffer) Write(p []byte) (int, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	return b.buf.Write(p)
+	n, err := b.buf.Write(p)
+	if err != nil {
+		return n, fmt.Errorf("writing to buffer: %w", err)
+	}
+
+	return n, nil
 }

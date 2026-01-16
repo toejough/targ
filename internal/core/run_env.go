@@ -13,6 +13,12 @@ import (
 	"time"
 )
 
+// Sentinel errors for err113 compliance.
+var errTimeoutRequiresDuration = errors.New("--timeout requires a duration value (e.g., 10m, 1h)")
+
+// minArgsWithCommand is the minimum args count when a command is expected (binary + arg).
+const minArgsWithCommand = 2
+
 // ExecuteEnv captures args and errors for testing.
 type ExecuteEnv struct {
 	args   []string
@@ -116,13 +122,14 @@ func RunWithEnv(env runEnv, opts RunOptions, targets ...any) error {
 
 		exec.hasDefault = len(exec.roots) == 1 && opts.AllowDefault
 
-		if len(exec.args) < 2 {
+		if len(exec.args) < minArgsWithCommand {
 			return exec.handleNoArgs()
 		}
 
 		exec.rest = exec.args[1:]
 
-		if handled, err := exec.handleSpecialCommands(); handled || err != nil {
+		handled, err := exec.handleSpecialCommands()
+		if handled || err != nil {
 			return err
 		}
 
@@ -207,7 +214,8 @@ func (e *runExecutor) detectCompletionShell() string {
 // executeDefault executes commands against a single default root.
 func (e *runExecutor) executeDefault() error {
 	if len(e.rest) == 0 {
-		if _, err := e.roots[0].executeWithParents(e.ctx, nil, nil, map[string]bool{}, false, e.opts); err != nil {
+		_, err := e.roots[0].executeWithParents(e.ctx, nil, nil, map[string]bool{}, false, e.opts)
+		if err != nil {
 			e.env.Printf("Error: %v\n", err)
 			return ExitError{Code: 1}
 		}
@@ -497,7 +505,12 @@ func doListTo(w io.Writer, roots []*commandNode) error {
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 
-	return enc.Encode(output)
+	err := enc.Encode(output)
+	if err != nil {
+		return fmt.Errorf("encoding list output: %w", err)
+	}
+
+	return nil
 }
 
 // extractHelpFlag checks if -h or --help is in args and returns remaining args.
@@ -533,7 +546,7 @@ func extractTimeout(args []string) (time.Duration, []string, error) {
 
 		if arg == "--timeout" {
 			if i+1 >= len(args) {
-				return 0, nil, errors.New("--timeout requires a duration value (e.g., 10m, 1h)")
+				return 0, nil, errTimeoutRequiresDuration
 			}
 
 			d, err := time.ParseDuration(args[i+1])

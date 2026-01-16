@@ -80,8 +80,8 @@ func TestWatchReturnsErrorFromCallback(t *testing.T) {
 
 func TestWatchReturnsErrorOnNoPatterns(t *testing.T) {
 	err := Watch(context.Background(), nil, WatchOptions{}, func(ChangeSet) error { return nil })
-	if err == nil || err.Error() != "no patterns provided" {
-		t.Fatalf("expected 'no patterns provided' error, got: %v", err)
+	if !errors.Is(err, ErrNoPatterns) {
+		t.Fatalf("expected ErrNoPatterns error, got: %v", err)
 	}
 }
 

@@ -4,7 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -15,7 +15,7 @@ import (
 // whether the input match set or file modtimes changed since the last run.
 func Newer(inputs, outputs []string) (bool, error) {
 	if len(inputs) == 0 {
-		return false, errors.New("no input patterns provided")
+		return false, ErrNoPatterns
 	}
 
 	if len(outputs) > 0 {
@@ -74,14 +74,14 @@ func cacheEqual(a, b *newerCache) bool {
 func cacheFilePath(cwd, pattern string) (string, error) {
 	cacheDir, err := os.UserCacheDir()
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("getting user cache dir: %w", err)
 	}
 
 	encoded := hashString(cwd + "::" + pattern)
 
 	dir := filepath.Join(cacheDir, "targ", "newer")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return "", err
+		return "", fmt.Errorf("creating cache directory: %w", err)
 	}
 
 	return filepath.Join(dir, encoded+".json"), nil
@@ -112,7 +112,7 @@ func latestModTime(paths []string) (time.Time, bool) {
 func newerWithCache(inputs []string) (bool, error) {
 	cwd, err := os.Getwd()
 	if err != nil {
-		return false, err
+		return false, fmt.Errorf("getting working directory: %w", err)
 	}
 
 	changed := false
@@ -169,14 +169,14 @@ func newerWithOutputs(inputs, outputs []string) (bool, error) {
 func readCache(path string) (*newerCache, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("reading cache file: %w", err)
 	}
 
 	var cache newerCache
 
 	err = json.Unmarshal(data, &cache)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("unmarshaling cache: %w", err)
 	}
 
 	return &cache, nil
@@ -192,7 +192,7 @@ func snapshotPattern(cwd, pattern string) (*newerCache, error) {
 	for _, path := range matches {
 		info, err := os.Stat(path)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("getting file info for %s: %w", path, err)
 		}
 
 		files[path] = info.ModTime().UnixNano()
@@ -211,8 +211,13 @@ func snapshotPattern(cwd, pattern string) (*newerCache, error) {
 func writeCache(path string, cache *newerCache) error {
 	data, err := json.Marshal(cache)
 	if err != nil {
-		return err
+		return fmt.Errorf("marshaling cache: %w", err)
 	}
 
-	return os.WriteFile(path, data, 0o644)
+	err = os.WriteFile(path, data, 0o644)
+	if err != nil {
+		return fmt.Errorf("writing cache file: %w", err)
+	}
+
+	return nil
 }

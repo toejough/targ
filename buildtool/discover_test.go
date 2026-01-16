@@ -922,7 +922,8 @@ func TestOSFileSystem_ReadFile(t *testing.T) {
 	expected := []byte("hello world")
 
 	// Create file first using os package directly
-	if err := writeTestFile(path, expected); err != nil {
+	err := writeTestFile(path, expected)
+	if err != nil {
 		t.Fatalf("setup failed: %v", err)
 	}
 

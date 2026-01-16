@@ -12,10 +12,16 @@ import (
 	"github.com/bmatcuk/doublestar/v4"
 )
 
+// ErrNoPatterns is returned when Match is called with no patterns.
+var ErrNoPatterns = errors.New("no patterns provided")
+
+// ErrUnmatchedBrace is returned when a pattern has unmatched braces.
+var ErrUnmatchedBrace = errors.New("unmatched brace in pattern")
+
 // Match expands one or more patterns using fish-style globs (including ** and {a,b}).
 func Match(patterns ...string) ([]string, error) {
 	if len(patterns) == 0 {
-		return nil, errors.New("no patterns provided")
+		return nil, ErrNoPatterns
 	}
 
 	seen := make(map[string]bool)
@@ -24,7 +30,7 @@ func Match(patterns ...string) ([]string, error) {
 
 	for _, pattern := range patterns {
 		pattern = filepath.Clean(pattern)
-		fs, base := patternFS(pattern)
+		patternFileSys, base := patternFS(pattern)
 
 		expanded, err := expandBraces(pattern)
 		if err != nil {
@@ -36,9 +42,9 @@ func Match(patterns ...string) ([]string, error) {
 				exp = filepath.Clean(strings.TrimPrefix(exp, base))
 			}
 
-			list, err := doublestar.Glob(fs, exp)
+			list, err := doublestar.Glob(patternFileSys, exp)
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("matching pattern %q: %w", exp, err)
 			}
 
 			for _, match := range list {
@@ -68,16 +74,16 @@ func expandBraces(pattern string) ([]string, error) {
 
 	depth := 0
 
-	for i := start; i < len(pattern); i++ {
-		switch pattern[i] {
+	for idx := start; idx < len(pattern); idx++ {
+		switch pattern[idx] {
 		case '{':
 			depth++
 		case '}':
 			depth--
 			if depth == 0 {
 				before := pattern[:start]
-				after := pattern[i+1:]
-				parts := splitBraceOptions(pattern[start+1 : i])
+				after := pattern[idx+1:]
+				parts := splitBraceOptions(pattern[start+1 : idx])
 
 				var result []string
 
@@ -95,7 +101,7 @@ func expandBraces(pattern string) ([]string, error) {
 		}
 	}
 
-	return nil, fmt.Errorf("unmatched brace in pattern %q", pattern)
+	return nil, fmt.Errorf("%w: %q", ErrUnmatchedBrace, pattern)
 }
 
 func patternFS(pattern string) (fs.FS, string) {
@@ -115,8 +121,8 @@ func splitBraceOptions(content string) []string {
 	depth := 0
 	start := 0
 
-	for i := range len(content) {
-		switch content[i] {
+	for idx := range len(content) {
+		switch content[idx] {
 		case '{':
 			depth++
 		case '}':
@@ -125,8 +131,8 @@ func splitBraceOptions(content string) []string {
 			}
 		case ',':
 			if depth == 0 {
-				parts = append(parts, content[start:i])
-				start = i + 1
+				parts = append(parts, content[start:idx])
+				start = idx + 1
 			}
 		}
 	}

@@ -2,7 +2,7 @@ package file
 
 import (
 	"context"
-	"errors"
+	"fmt"
 	"os"
 	"sort"
 	"time"
@@ -20,15 +20,15 @@ type WatchOptions struct {
 	Interval time.Duration
 }
 
-// Watch polls patterns for changes and invokes fn with any detected changes.
+// Watch polls patterns for changes and invokes callback with any detected changes.
 func Watch(
 	ctx context.Context,
 	patterns []string,
 	opts WatchOptions,
-	fn func(ChangeSet) error,
+	callback func(ChangeSet) error,
 ) error {
 	if len(patterns) == 0 {
-		return errors.New("no patterns provided")
+		return ErrNoPatterns
 	}
 
 	interval := opts.Interval
@@ -47,7 +47,7 @@ func Watch(
 	for {
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			return fmt.Errorf("watch cancelled: %w", ctx.Err())
 		case <-ticker.C:
 			next, err := snapshot(patterns)
 			if err != nil {
@@ -56,7 +56,7 @@ func Watch(
 
 			changes := diffSnapshot(prev, next)
 			if changes != nil {
-				err := fn(*changes)
+				err := callback(*changes)
 				if err != nil {
 					return err
 				}
@@ -124,7 +124,7 @@ func snapshot(patterns []string) (*fileSnapshot, error) {
 	for _, path := range matches {
 		info, err := os.Stat(path)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("getting file info for %s: %w", path, err)
 		}
 
 		files[path] = info.ModTime().UnixNano()

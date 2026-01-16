@@ -22,6 +22,9 @@ var (
 	ErrPackageNameNotFound    = errors.New("package name not found")
 )
 
+// File permission constants.
+const fileModeRegular = 0o644
+
 // GenerateOptions configures function wrapper generation.
 type GenerateOptions struct {
 	Dir        string
@@ -145,12 +148,14 @@ func (g *wrapperGenerator) generateAndWrite() (string, error) {
 
 	formatted, err := format.Source(buf.Bytes())
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("formatting source: %w", err)
 	}
 
 	filename := filepath.Join(g.dir, fmt.Sprintf("generated_targ_%s.go", g.packageName))
-	if err := g.filesystem.WriteFile(filename, formatted, iofs.FileMode(0o644)); err != nil {
-		return "", err
+
+	err = g.filesystem.WriteFile(filename, formatted, iofs.FileMode(fileModeRegular))
+	if err != nil {
+		return "", fmt.Errorf("writing generated file: %w", err)
 	}
 
 	return filename, nil
@@ -160,7 +165,7 @@ func (g *wrapperGenerator) generateAndWrite() (string, error) {
 func (g *wrapperGenerator) parseFile(fullPath string, content []byte) error {
 	parsed, err := parser.ParseFile(g.fset, fullPath, content, parser.ParseComments)
 	if err != nil {
-		return err
+		return fmt.Errorf("parsing file %s: %w", fullPath, err)
 	}
 
 	g.parsedFiles++
@@ -186,7 +191,7 @@ func (g *wrapperGenerator) parseFile(fullPath string, content []byte) error {
 func (g *wrapperGenerator) parseFiles() error {
 	entries, err := g.filesystem.ReadDir(g.dir)
 	if err != nil {
-		return err
+		return fmt.Errorf("reading directory %s: %w", g.dir, err)
 	}
 
 	sort.Slice(entries, func(i, j int) bool {
@@ -229,7 +234,7 @@ func (g *wrapperGenerator) processEntry(entry iofs.DirEntry) error {
 
 	content, err := g.filesystem.ReadFile(fullPath)
 	if err != nil {
-		return err
+		return fmt.Errorf("reading file %s: %w", fullPath, err)
 	}
 
 	if g.opts.OnlyTagged && !hasBuildTag(content, g.tag) {

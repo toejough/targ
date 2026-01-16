@@ -8,6 +8,13 @@ import (
 	"sync"
 )
 
+// Sentinel errors for err113 compliance.
+var (
+	errDepsNotDuringRun   = errors.New("Deps must be called during targ.Run")
+	errDepTargetNil       = errors.New("dependency target cannot be nil")
+	errDepTargetInvalid   = errors.New("dependency target must be func or pointer to struct")
+)
+
 // DepsOption configures Deps behavior.
 type DepsOption interface {
 	applyDeps(cfg *depsConfig)
@@ -32,7 +39,7 @@ func Deps(args ...any) error {
 	depsMu.Unlock()
 
 	if tracker == nil {
-		return errors.New("Deps must be called during targ.Run")
+		return errDepsNotDuringRun
 	}
 
 	// Separate options from targets
@@ -163,7 +170,7 @@ func (o withContextOpt) applyDeps(c *depsConfig) { c.ctx = o.ctx }
 
 func depKeyFor(target any) (depKey, error) {
 	if target == nil {
-		return "", errors.New("dependency target cannot be nil")
+		return "", errDepTargetNil
 	}
 
 	v := reflect.ValueOf(target)
@@ -172,12 +179,12 @@ func depKeyFor(target any) (depKey, error) {
 		return depKey(fmt.Sprintf("func:%d:%s", v.Pointer(), v.Type().String())), nil
 	case reflect.Ptr:
 		if v.IsNil() {
-			return "", errors.New("dependency target cannot be nil")
+			return "", errDepTargetNil
 		}
 		// Include type name to distinguish zero-sized structs with same address
 		return depKey(fmt.Sprintf("ptr:%d:%s", v.Pointer(), v.Type().String())), nil
 	default:
-		return "", errors.New("dependency target must be func or pointer to struct")
+		return "", errDepTargetInvalid
 	}
 }
 
@@ -252,7 +259,7 @@ func serialRun(
 				return firstErr
 			}
 
-			return ctx.Err()
+			return fmt.Errorf("context canceled: %w", ctx.Err())
 		default:
 		}
 

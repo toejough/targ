@@ -9,6 +9,22 @@ import (
 	"strings"
 )
 
+// keyValueParts is the expected number of parts when splitting "key=value".
+const keyValueParts = 2
+
+// Sentinel errors for err113 compliance.
+var (
+	errUnknownCommand            = errors.New("unknown command")
+	errTextUnmarshalerFailed     = errors.New("type assertion to TextUnmarshaler failed")
+	errStringSetterFailed        = errors.New("type assertion to Set(string) error failed")
+	errMissingRequiredPositional = errors.New("missing required positional")
+	errFlagNotDefined            = errors.New("flag provided but not defined")
+	errFlagNeedsArgument         = errors.New("flag needs an argument")
+	errFlagAlreadyDefined        = errors.New("flag already defined")
+	errUnsupportedValueType      = errors.New("unsupported value type")
+	errInvalidMapValue           = errors.New("invalid map value, expected key=value")
+)
+
 // unexported variables.
 var (
 	stringSetterType    = reflect.TypeFor[interface{ Set(string) error }]()
@@ -133,7 +149,7 @@ func (ctx *parseContext) trySubcommandOrUnknown(i int, arg string) (*parseResult
 	}
 
 	if !ctx.explicit {
-		return nil, 0, fmt.Errorf("unknown command: %s", arg)
+		return nil, 0, fmt.Errorf("%w: %s", errUnknownCommand, arg)
 	}
 
 	return &parseResult{remaining: ctx.expandedArgs[i:]}, 0, nil
@@ -164,7 +180,7 @@ func addressableCustomSetter(fieldVal reflect.Value) (func(string) error, bool) 
 		return func(value string) error {
 			u, ok := ptr.Interface().(encoding.TextUnmarshaler)
 			if !ok {
-				return errors.New("type assertion to TextUnmarshaler failed")
+				return errTextUnmarshalerFailed
 			}
 
 			return u.UnmarshalText([]byte(value))
@@ -175,7 +191,7 @@ func addressableCustomSetter(fieldVal reflect.Value) (func(string) error, bool) 
 		return func(value string) error {
 			s, ok := ptr.Interface().(interface{ Set(s string) error })
 			if !ok {
-				return errors.New("type assertion to Set(string) error failed")
+				return errStringSetterFailed
 			}
 
 			return s.Set(value)
@@ -263,7 +279,8 @@ func collectFieldFlagSpec(
 		return nil, false, nil
 	}
 
-	if err := registerFlagName(spec, usedNames); err != nil {
+	err = registerFlagName(spec, usedNames)
+	if err != nil {
 		return nil, false, err
 	}
 
@@ -337,7 +354,7 @@ func collectPositionalSpecs(node *commandNode, inst reflect.Value) ([]positional
 		}
 
 		if !field.IsExported() {
-			return nil, fmt.Errorf("field %s must be exported", field.Name)
+			return nil, fmt.Errorf("%w: %s", errFieldNotExported, field.Name)
 		}
 
 		fieldVal := inst.Field(i)
@@ -396,7 +413,7 @@ func missingPositionalError(spec positionalSpec) error {
 		name = spec.field.Name
 	}
 
-	return fmt.Errorf("missing required positional %s", name)
+	return fmt.Errorf("%w: %s", errMissingRequiredPositional, name)
 }
 
 func parseBoolFlagValue(spec *flagSpec, argPosition *int) (int, error) {
@@ -469,7 +486,8 @@ func parseCommandArgsWithPosition(
 		return result, nil
 	}
 
-	if err := applyPositionalDefaults(ctx.posSpecs, ctx.posCounts, enforceRequired); err != nil {
+	err = applyPositionalDefaults(ctx.posSpecs, ctx.posCounts, enforceRequired)
+	if err != nil {
 		return parseResult{}, err
 	}
 
@@ -499,7 +517,7 @@ func parseFlagArgWithPosition(
 
 		spec := specByLong[name]
 		if spec == nil {
-			return 0, fmt.Errorf("flag provided but not defined: --%s", name)
+			return 0, fmt.Errorf("%w: --%s", errFlagNotDefined, name)
 		}
 
 		markFlagVisited(visited, spec)
@@ -523,7 +541,7 @@ func parseFlagArgWithPosition(
 
 	spec := specByShort[name]
 	if spec == nil {
-		return 0, fmt.Errorf("flag provided but not defined: -%s", name)
+		return 0, fmt.Errorf("%w: -%s", errFlagNotDefined, name)
 	}
 
 	markFlagVisited(visited, spec)
@@ -566,12 +584,12 @@ func parseSingleFlagValue(
 			return 0, nil
 		}
 
-		return 0, fmt.Errorf("flag needs an argument: --%s", spec.name)
+		return 0, fmt.Errorf("%w: --%s", errFlagNeedsArgument, spec.name)
 	}
 
 	next := args[index+1]
 	if next == "--" || strings.HasPrefix(next, "-") {
-		return 0, fmt.Errorf("flag needs an argument: --%s", spec.name)
+		return 0, fmt.Errorf("%w: --%s", errFlagNeedsArgument, spec.name)
 	}
 
 	err := setFieldWithPosition(spec.value, next, argPosition)
@@ -610,7 +628,7 @@ func parseSliceFlagValue(
 			return 0, nil
 		}
 
-		return 0, fmt.Errorf("flag needs an argument: --%s", spec.name)
+		return 0, fmt.Errorf("%w: --%s", errFlagNeedsArgument, spec.name)
 	}
 
 	return count, nil
@@ -652,7 +670,8 @@ func prepareParseContext(
 		return nil, err
 	}
 
-	if err := validateLongFlagArgs(expandedArgs, longNames); err != nil {
+	err = validateLongFlagArgs(expandedArgs, longNames)
+	if err != nil {
 		return nil, err
 	}
 
@@ -679,14 +698,14 @@ func prepareParseContext(
 
 func registerFlagName(spec *flagSpec, usedNames map[string]bool) error {
 	if usedNames[spec.name] {
-		return fmt.Errorf("flag %s already defined", spec.name)
+		return fmt.Errorf("%w: %s", errFlagAlreadyDefined, spec.name)
 	}
 
 	usedNames[spec.name] = true
 
 	if spec.short != "" {
 		if usedNames[spec.short] {
-			return fmt.Errorf("flag %s already defined", spec.short)
+			return fmt.Errorf("%w: %s", errFlagAlreadyDefined, spec.short)
 		}
 
 		usedNames[spec.short] = true
@@ -699,7 +718,7 @@ func registerFlagName(spec *flagSpec, usedNames map[string]bool) error {
 func setBoolField(fieldVal reflect.Value, value string) error {
 	parsed, err := strconv.ParseBool(value)
 	if err != nil {
-		return err
+		return fmt.Errorf("parsing bool %q: %w", value, err)
 	}
 
 	fieldVal.SetBool(parsed)
@@ -721,7 +740,7 @@ func setFieldByKind(fieldVal reflect.Value, value string, pos *int) error {
 	case reflect.Map:
 		return setMapField(fieldVal, value)
 	default:
-		return fmt.Errorf("unsupported value type %s", fieldVal.Type())
+		return fmt.Errorf("%w: %s", errUnsupportedValueType, fieldVal.Type())
 	}
 
 	return nil
@@ -758,7 +777,7 @@ func setFieldWithPosition(fieldVal reflect.Value, value string, pos *int) error 
 func setIntField(fieldVal reflect.Value, value string) error {
 	parsed, err := strconv.ParseInt(value, 10, 64)
 	if err != nil {
-		return err
+		return fmt.Errorf("parsing int %q: %w", value, err)
 	}
 
 	fieldVal.SetInt(parsed)
@@ -772,9 +791,9 @@ func setMapField(fieldVal reflect.Value, value string) error {
 		fieldVal.Set(reflect.MakeMap(fieldVal.Type()))
 	}
 
-	parts := strings.SplitN(value, "=", 2)
-	if len(parts) != 2 {
-		return fmt.Errorf("invalid map value %q, expected key=value", value)
+	parts := strings.SplitN(value, "=", keyValueParts)
+	if len(parts) != keyValueParts {
+		return fmt.Errorf("%w: %q", errInvalidMapValue, value)
 	}
 
 	keyVal := reflect.New(fieldVal.Type().Key()).Elem()
@@ -785,7 +804,8 @@ func setMapField(fieldVal reflect.Value, value string) error {
 		return err
 	}
 
-	if err = setFieldWithPosition(valVal, parts[1], nil); err != nil {
+	err = setFieldWithPosition(valVal, parts[1], nil)
+	if err != nil {
 		return err
 	}
 
@@ -821,12 +841,12 @@ func valueTypeCustomSetter(fieldVal reflect.Value) (func(string) error, bool) {
 
 			u, ok := next.Interface().(encoding.TextUnmarshaler)
 			if !ok {
-				return errors.New("type assertion to TextUnmarshaler failed")
+				return errTextUnmarshalerFailed
 			}
 
 			err := u.UnmarshalText([]byte(value))
 			if err != nil {
-				return err
+				return fmt.Errorf("unmarshaling text: %w", err)
 			}
 
 			fieldVal.Set(next)
@@ -841,7 +861,7 @@ func valueTypeCustomSetter(fieldVal reflect.Value) (func(string) error, bool) {
 
 			s, ok := next.Interface().(interface{ Set(s string) error })
 			if !ok {
-				return errors.New("type assertion to Set(string) error failed")
+				return errStringSetterFailed
 			}
 
 			err := s.Set(value)

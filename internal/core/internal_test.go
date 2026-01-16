@@ -289,7 +289,7 @@ func TestAssignSubcommandField_FuncKindNil(t *testing.T) {
 		t.Fatal("expected error")
 	}
 
-	g.Expect(err.Error()).To(ContainSubstring("subcommand sub is nil"))
+	g.Expect(err.Error()).To(ContainSubstring("subcommand is nil: sub"))
 }
 
 func TestAssignSubcommandField_FuncKindSet(t *testing.T) {
@@ -1584,7 +1584,9 @@ func TestParseFunc_NotFuncType(t *testing.T) {
 
 func TestParseNilPointer(t *testing.T) {
 	var cmd *MyCommandStruct
-	if _, err := parseStruct(cmd); err == nil {
+
+	_, err := parseStruct(cmd)
+	if err == nil {
 		t.Fatal("expected error for nil pointer target")
 	}
 }
@@ -1648,7 +1650,8 @@ func TestPersistentFlagConflicts(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if err := cmd.execute(context.TODO(), []string{"sub", "--flag", "ok"}, RunOptions{}); err == nil {
+	err = cmd.execute(context.TODO(), []string{"sub", "--flag", "ok"}, RunOptions{})
+	if err == nil {
 		t.Fatal("expected error for conflicting flag names")
 	}
 }
@@ -2482,8 +2485,10 @@ func TestUnexportedFieldError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+
 	// Error occurs at execution time, not parse time
-	if err := cmd.execute(context.TODO(), []string{}, RunOptions{}); err == nil {
+	err = cmd.execute(context.TODO(), []string{}, RunOptions{})
+	if err == nil {
 		t.Fatal("expected error for unexported tagged field")
 	}
 }

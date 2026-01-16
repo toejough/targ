@@ -38,14 +38,18 @@ func Output(name string, args ...string) (string, error) {
 
 	err := cmd.Start()
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("starting command: %w", err)
 	}
 
 	registerProcess(cmd.Process)
 	err = cmd.Wait()
 	unregisterProcess(cmd.Process)
 
-	return buf.String(), err
+	if err != nil {
+		return buf.String(), fmt.Errorf("waiting for command: %w", err)
+	}
+
+	return buf.String(), nil
 }
 
 // Run executes a command streaming stdout/stderr.
@@ -58,14 +62,18 @@ func Run(name string, args ...string) error {
 
 	err := cmd.Start()
 	if err != nil {
-		return err
+		return fmt.Errorf("starting command: %w", err)
 	}
 
 	registerProcess(cmd.Process)
 	err = cmd.Wait()
 	unregisterProcess(cmd.Process)
 
-	return err
+	if err != nil {
+		return fmt.Errorf("waiting for command: %w", err)
+	}
+
+	return nil
 }
 
 // RunV executes a command and prints it first.

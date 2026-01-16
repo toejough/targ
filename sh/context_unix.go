@@ -4,6 +4,7 @@ package sh
 
 import (
 	"context"
+	"fmt"
 	"os/exec"
 	"syscall"
 )
@@ -23,7 +24,7 @@ func runWithContext(ctx context.Context, cmd *exec.Cmd) error {
 
 	err := cmd.Start()
 	if err != nil {
-		return err
+		return fmt.Errorf("starting command: %w", err)
 	}
 
 	done := make(chan error, 1)
@@ -39,7 +40,7 @@ func runWithContext(ctx context.Context, cmd *exec.Cmd) error {
 		killProcessGroup(cmd)
 		<-done
 
-		return ctx.Err()
+		return fmt.Errorf("command cancelled: %w", ctx.Err())
 	}
 }
 

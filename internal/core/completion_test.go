@@ -389,9 +389,12 @@ func TestEnumValuesForArg_NoMatch(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if values, ok, err := enumValuesForArg(chain, []string{"--unknown"}, "", true); err != nil {
+	values, ok, err := enumValuesForArg(chain, []string{"--unknown"}, "", true)
+	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
-	} else if ok {
+	}
+
+	if ok {
 		t.Fatalf("expected no enum values, got %v", values)
 	}
 }
@@ -844,7 +847,9 @@ func captureStdout(t *testing.T, fn func()) string {
 	os.Stdout = orig
 
 	var buf bytes.Buffer
-	if _, err := io.Copy(&buf, r); err != nil {
+
+	_, err = io.Copy(&buf, r)
+	if err != nil {
 		t.Fatalf("unexpected stdout copy error: %v", err)
 	}
 

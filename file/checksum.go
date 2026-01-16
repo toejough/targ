@@ -39,7 +39,7 @@ func Checksum(inputs []string, dest string) (bool, error) {
 	}
 
 	prevHash, err := readChecksum(dest)
-	if err != nil && !os.IsNotExist(err) {
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return false, err
 	}
 
@@ -94,7 +94,7 @@ func computeChecksum(paths []string) (string, error) {
 func readChecksum(path string) (string, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("reading checksum file: %w", err)
 	}
 
 	return string(data), nil
@@ -105,9 +105,14 @@ func writeChecksum(path, sum string) error {
 	if dir != "." {
 		err := os.MkdirAll(dir, 0o755)
 		if err != nil {
-			return err
+			return fmt.Errorf("creating checksum directory: %w", err)
 		}
 	}
 
-	return os.WriteFile(path, []byte(sum), 0o644)
+	err := os.WriteFile(path, []byte(sum), 0o644)
+	if err != nil {
+		return fmt.Errorf("writing checksum file: %w", err)
+	}
+
+	return nil
 }

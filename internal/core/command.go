@@ -16,7 +16,38 @@ import (
 
 // unexported constants.
 const (
-	flagPlaceholder = "[flag]"
+	flagPlaceholder     = "[flag]"
+	tagOptsReturnCount  = 2 // TagOptions must return (TagOptions, error)
+)
+
+// Sentinel errors for err113 compliance.
+var (
+	errSubcommandNil             = errors.New("subcommand is nil")
+	errUnsupportedFieldType      = errors.New("unsupported subcommand field type")
+	errNilFunctionCommand        = errors.New("nil function command")
+	errMissingRequiredFlag       = errors.New("missing required flag")
+	errFieldNotExported          = errors.New("field must be exported")
+	errShortFlagGroupNotBool     = errors.New("short flag group must contain only boolean flags")
+	errTagOptsWrongValueCount    = errors.New("TagOptions method returned wrong number of values")
+	errTagOptsNonErrorType       = errors.New("TagOptions method returned non-error type")
+	errTagOptsWrongType          = errors.New("TagOptions method returned wrong type")
+	errExpectedFunc              = errors.New("expected func")
+	errUnableToDetermineFuncName = errors.New("unable to determine function name")
+	errNilTarget                 = errors.New("nil target")
+	errNilPointerTarget          = errors.New("nil pointer target")
+	errExpectedStruct            = errors.New("expected struct")
+	errSubcommandPrefilled       = errors.New("must not prefill subcommand; use default tags instead")
+	errFieldNotZero              = errors.New("must be zero value; use default tags instead of prefilled fields")
+	errFuncTooManyInputs         = errors.New("function command must be niladic or accept context")
+	errFuncMustAcceptContext     = errors.New("function command must accept context.Context")
+	errFuncMustReturnError       = errors.New("function command must return only error")
+	errLongFlagFormat            = errors.New("long flags must use --")
+	errMethodTooManyInputs       = errors.New("must accept context.Context or no args")
+	errMethodMustAcceptContext   = errors.New("must accept context.Context")
+	errMethodMustReturnError     = errors.New("must return only error")
+	errTagOptsInvalidSignature   = errors.New("TagOptions must accept (string, TagOptions) and return (TagOptions, error)")
+	errTagOptsInvalidInput       = errors.New("TagOptions must accept (string, TagOptions)")
+	errTagOptsInvalidOutput      = errors.New("TagOptions must return (TagOptions, error)")
 )
 
 // unexported variables.
@@ -79,11 +110,10 @@ func (n *commandNode) executeSiblings(
 			break
 		}
 
-		if err := assignSubcommandField(n, inst, sibling.Name, sibling); err != nil {
+		err := assignSubcommandField(n, inst, sibling.Name, sibling)
+		if err != nil {
 			return nil, err
 		}
-
-		var err error
 
 		remaining, err = sibling.executeWithParents(ctx, remaining[1:], chain, visited, true, opts)
 		if err != nil {
@@ -140,7 +170,8 @@ func (n *commandNode) executeSubcommand(
 	visited map[string]bool,
 	opts RunOptions,
 ) ([]string, error) {
-	if err := assignSubcommandField(n, inst, result.subcommand.Name, result.subcommand); err != nil {
+	err := assignSubcommandField(n, inst, result.subcommand.Name, result.subcommand)
+	if err != nil {
 		return nil, err
 	}
 
@@ -425,7 +456,7 @@ func assignSubcommandValue(
 	switch fieldType.Kind() {
 	case reflect.Func:
 		if fieldVal.IsNil() {
-			return fmt.Errorf("subcommand %s is nil", subName)
+			return fmt.Errorf("%w: %s", errSubcommandNil, subName)
 		}
 
 		sub.Func = fieldVal
@@ -438,7 +469,7 @@ func assignSubcommandValue(
 		fieldVal.Set(newInst)
 		sub.Value = newInst
 	default:
-		return fmt.Errorf("unsupported subcommand field type %s for %s", fieldType.Kind(), subName)
+		return fmt.Errorf("%w %s for %s", errUnsupportedFieldType, fieldType.Kind(), subName)
 	}
 
 	return nil
@@ -528,7 +559,7 @@ func buildUsageLine(node *commandNode) (string, error) {
 
 func callFunction(ctx context.Context, fn reflect.Value) error {
 	if !fn.IsValid() || (fn.Kind() == reflect.Func && fn.IsNil()) {
-		return errors.New("nil function command")
+		return errNilFunctionCommand
 	}
 
 	err := validateFuncType(fn.Type())
@@ -562,7 +593,8 @@ func callMethod(ctx context.Context, receiver reflect.Value, name string) error 
 		return err
 	}
 
-	if err := validateMethodOutputs(method, name); err != nil {
+	err = validateMethodOutputs(method, name)
+	if err != nil {
 		return err
 	}
 
@@ -630,7 +662,7 @@ func checkRequiredFlags(specs []*flagSpec, visited map[string]bool) error {
 			display = fmt.Sprintf("--%s, -%s", spec.name, spec.short)
 		}
 
-		return fmt.Errorf("missing required flag %s", display)
+		return fmt.Errorf("%w: %s", errMissingRequiredFlag, display)
 	}
 
 	return nil
@@ -707,7 +739,7 @@ func collectPositionalHelp(node *commandNode) ([]positionalHelp, error) {
 		}
 
 		if !field.IsExported() {
-			return nil, fmt.Errorf("field %s must be exported", field.Name)
+			return nil, fmt.Errorf("%w: %s", errFieldNotExported, field.Name)
 		}
 
 		placeholder := opts.Placeholder
@@ -801,23 +833,28 @@ func executeFunctionWithParents(
 		return result.remaining, nil
 	}
 
-	if err := applyDefaultsAndEnv(specs, visited); err != nil {
+	err = applyDefaultsAndEnv(specs, visited)
+	if err != nil {
 		return nil, err
 	}
 
-	if err := checkRequiredFlags(specs, visited); err != nil {
+	err = checkRequiredFlags(specs, visited)
+	if err != nil {
 		return nil, err
 	}
 
-	if err := runPersistentHooks(ctx, parents, "PersistentBefore"); err != nil {
+	err = runPersistentHooks(ctx, parents, "PersistentBefore")
+	if err != nil {
 		return nil, err
 	}
 
-	if err := callFunction(ctx, node.Func); err != nil {
+	err = callFunction(ctx, node.Func)
+	if err != nil {
 		return nil, err
 	}
 
-	if err := runPersistentHooks(ctx, reverseChain(parents), "PersistentAfter"); err != nil {
+	err = runPersistentHooks(ctx, reverseChain(parents), "PersistentAfter")
+	if err != nil {
 		return nil, err
 	}
 
@@ -848,7 +885,7 @@ func expandFlagGroup(arg, group string, shortInfo map[string]bool) ([]string, er
 	}
 
 	if !allBool {
-		return nil, fmt.Errorf("short flag group %q must contain only boolean flags", arg)
+		return nil, fmt.Errorf("%w: %q", errShortFlagGroupNotBool, arg)
 	}
 
 	expanded := make([]string, 0, len(group))
@@ -888,14 +925,14 @@ func expandShortFlagGroups(args []string, specs []*flagSpec) ([]string, error) {
 }
 
 func extractTagOptionsResult(results []reflect.Value, fallback TagOptions) (TagOptions, error) {
-	if len(results) < 2 {
-		return fallback, errors.New("TagOptions method returned wrong number of values")
+	if len(results) < tagOptsReturnCount {
+		return fallback, errTagOptsWrongValueCount
 	}
 
 	if !results[1].IsNil() {
 		err, ok := results[1].Interface().(error)
 		if !ok {
-			return fallback, errors.New("TagOptions method returned non-error type")
+			return fallback, errTagOptsNonErrorType
 		}
 
 		return fallback, err
@@ -903,7 +940,7 @@ func extractTagOptionsResult(results []reflect.Value, fallback TagOptions) (TagO
 
 	tagOpts, ok := results[0].Interface().(TagOptions)
 	if !ok {
-		return fallback, errors.New("TagOptions method returned wrong type")
+		return fallback, errTagOptsWrongType
 	}
 
 	return tagOpts, nil
@@ -920,7 +957,7 @@ func flagHelpForField(inst reflect.Value, field reflect.StructField) (flagHelp, 
 	}
 
 	if !field.IsExported() {
-		return flagHelp{}, false, fmt.Errorf("field %s must be exported", field.Name)
+		return flagHelp{}, false, fmt.Errorf("%w: %s", errFieldNotExported, field.Name)
 	}
 
 	placeholder := resolvePlaceholder(opts, field.Type.Kind())
@@ -948,7 +985,7 @@ func flagSpecForField(
 	}
 
 	if !field.IsExported() {
-		return nil, false, fmt.Errorf("field %s must be exported", field.Name)
+		return nil, false, fmt.Errorf("%w: %s", errFieldNotExported, field.Name)
 	}
 
 	if opts.Kind != TagKindFlag {
@@ -1159,7 +1196,7 @@ func nodeInstance(node *commandNode) (reflect.Value, error) {
 func parseFunc(v reflect.Value) (*commandNode, error) {
 	typ := v.Type()
 	if typ.Kind() != reflect.Func {
-		return nil, fmt.Errorf("expected func, got %v", typ.Kind())
+		return nil, fmt.Errorf("%w, got %v", errExpectedFunc, typ.Kind())
 	}
 
 	err := validateFuncType(typ)
@@ -1169,7 +1206,7 @@ func parseFunc(v reflect.Value) (*commandNode, error) {
 
 	name := functionName(v)
 	if name == "" {
-		return nil, errors.New("unable to determine function name")
+		return nil, errUnableToDetermineFuncName
 	}
 
 	return &commandNode{
@@ -1185,7 +1222,8 @@ func parseStruct(t any) (*commandNode, error) {
 		return nil, err
 	}
 
-	if err := validateZeroFields(v, typ); err != nil {
+	err = validateZeroFields(v, typ)
+	if err != nil {
 		return nil, err
 	}
 
@@ -1193,7 +1231,8 @@ func parseStruct(t any) (*commandNode, error) {
 	applyRunMethodDoc(node, typ)
 	applyNameAndDescription(node, v, typ)
 
-	if err := parseSubcommandFields(node, v, typ); err != nil {
+	err = parseSubcommandFields(node, v, typ)
+	if err != nil {
 		return nil, err
 	}
 
@@ -1262,7 +1301,7 @@ func parseTagParts(opts *TagOptions, tag string) {
 
 func parseTarget(t any) (*commandNode, error) {
 	if t == nil {
-		return nil, errors.New("nil target")
+		return nil, errNilTarget
 	}
 
 	v := reflect.ValueOf(t)
@@ -1420,7 +1459,7 @@ func resolvePlaceholder(opts TagOptions, kind reflect.Kind) string {
 // resolveStructValue extracts the reflect.Value and Type from a target.
 func resolveStructValue(t any) (reflect.Value, reflect.Type, error) {
 	if t == nil {
-		return reflect.Value{}, nil, errors.New("nil target")
+		return reflect.Value{}, nil, errNilTarget
 	}
 
 	v := reflect.ValueOf(t)
@@ -1428,7 +1467,7 @@ func resolveStructValue(t any) (reflect.Value, reflect.Type, error) {
 
 	if typ.Kind() == reflect.Ptr {
 		if v.IsNil() {
-			return reflect.Value{}, nil, errors.New("nil pointer target")
+			return reflect.Value{}, nil, errNilPointerTarget
 		}
 
 		typ = typ.Elem()
@@ -1436,7 +1475,7 @@ func resolveStructValue(t any) (reflect.Value, reflect.Type, error) {
 	}
 
 	if typ.Kind() != reflect.Struct {
-		return reflect.Value{}, nil, fmt.Errorf("expected struct, got %v", typ.Kind())
+		return reflect.Value{}, nil, fmt.Errorf("%w, got %v", errExpectedStruct, typ.Kind())
 	}
 
 	return v, typ, nil
@@ -1571,18 +1610,11 @@ func validateFieldValue(fieldVal reflect.Value, opts TagOptions, typeName, field
 			return nil
 		}
 
-		return fmt.Errorf(
-			"command %s must not prefill subcommand %s; use default tags instead",
-			typeName,
-			fieldName,
-		)
+		return fmt.Errorf("command %s %w: %s", typeName, errSubcommandPrefilled, fieldName)
 	}
 
 	if !fieldVal.IsZero() {
-		return fmt.Errorf(
-			"command %s must be zero value; use default tags instead of prefilled fields",
-			typeName,
-		)
+		return fmt.Errorf("command %s %w", typeName, errFieldNotZero)
 	}
 
 	return nil
@@ -1590,11 +1622,11 @@ func validateFieldValue(fieldVal reflect.Value, opts TagOptions, typeName, field
 
 func validateFuncType(typ reflect.Type) error {
 	if typ.NumIn() > 1 {
-		return errors.New("function command must be niladic or accept context")
+		return errFuncTooManyInputs
 	}
 
 	if typ.NumIn() == 1 && !isContextType(typ.In(0)) {
-		return errors.New("function command must accept context.Context")
+		return errFuncMustAcceptContext
 	}
 
 	if typ.NumOut() == 0 {
@@ -1605,7 +1637,7 @@ func validateFuncType(typ reflect.Type) error {
 		return nil
 	}
 
-	return errors.New("function command must return only error")
+	return errFuncMustReturnError
 }
 
 func validateLongFlagArgs(args []string, longNames map[string]bool) error {
@@ -1628,7 +1660,7 @@ func validateLongFlagArgs(args []string, longNames map[string]bool) error {
 		}
 
 		if longNames[name] {
-			return fmt.Errorf("long flags must use --%s (got -%s)", name, name)
+			return fmt.Errorf("%w%s (got -%s)", errLongFlagFormat, name, name)
 		}
 	}
 
@@ -1642,7 +1674,7 @@ func validateMethodInputs(
 ) ([]reflect.Value, error) {
 	mtype := method.Type()
 	if mtype.NumIn() > 1 {
-		return nil, fmt.Errorf("%s must accept context.Context or no args", name)
+		return nil, fmt.Errorf("%s %w", name, errMethodTooManyInputs)
 	}
 
 	if mtype.NumIn() == 0 {
@@ -1650,7 +1682,7 @@ func validateMethodInputs(
 	}
 
 	if !isContextType(mtype.In(0)) {
-		return nil, fmt.Errorf("%s must accept context.Context", name)
+		return nil, fmt.Errorf("%s %w", name, errMethodMustAcceptContext)
 	}
 
 	return []reflect.Value{reflect.ValueOf(ctx)}, nil
@@ -1659,11 +1691,11 @@ func validateMethodInputs(
 func validateMethodOutputs(method reflect.Value, name string) error {
 	mtype := method.Type()
 	if mtype.NumOut() > 1 {
-		return fmt.Errorf("%s must return only error", name)
+		return fmt.Errorf("%s %w", name, errMethodMustReturnError)
 	}
 
 	if mtype.NumOut() == 1 && !isErrorType(mtype.Out(0)) {
-		return fmt.Errorf("%s must return only error", name)
+		return fmt.Errorf("%s %w", name, errMethodMustReturnError)
 	}
 
 	return nil
@@ -1672,17 +1704,15 @@ func validateMethodOutputs(method reflect.Value, name string) error {
 func validateTagOptionsSignature(method reflect.Value) error {
 	mtype := method.Type()
 	if mtype.NumIn() != 2 || mtype.NumOut() != 2 {
-		return errors.New(
-			"TagOptions must accept (string, TagOptions) and return (TagOptions, error)",
-		)
+		return errTagOptsInvalidSignature
 	}
 
 	if mtype.In(0).Kind() != reflect.String || mtype.In(1) != reflect.TypeFor[TagOptions]() {
-		return errors.New("TagOptions must accept (string, TagOptions)")
+		return errTagOptsInvalidInput
 	}
 
 	if mtype.Out(0) != reflect.TypeFor[TagOptions]() || !isErrorType(mtype.Out(1)) {
-		return errors.New("TagOptions must return (TagOptions, error)")
+		return errTagOptsInvalidOutput
 	}
 
 	return nil
@@ -1698,7 +1728,8 @@ func validateZeroFields(v reflect.Value, typ reflect.Type) error {
 			return err
 		}
 
-		if err := validateFieldValue(v.Field(i), opts, typ.Name(), field.Name); err != nil {
+		err = validateFieldValue(v.Field(i), opts, typ.Name(), field.Name)
+		if err != nil {
 			return err
 		}
 	}

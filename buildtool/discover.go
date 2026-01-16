@@ -66,17 +66,32 @@ type OSFileSystem struct{}
 
 // ReadDir reads the named directory.
 func (OSFileSystem) ReadDir(name string) ([]fs.DirEntry, error) {
-	return os.ReadDir(name)
+	entries, err := os.ReadDir(name)
+	if err != nil {
+		return nil, fmt.Errorf("reading directory %s: %w", name, err)
+	}
+
+	return entries, nil
 }
 
 // ReadFile reads the named file.
 func (OSFileSystem) ReadFile(name string) ([]byte, error) {
-	return os.ReadFile(name)
+	data, err := os.ReadFile(name)
+	if err != nil {
+		return nil, fmt.Errorf("reading file %s: %w", name, err)
+	}
+
+	return data, nil
 }
 
 // WriteFile writes data to the named file.
 func (OSFileSystem) WriteFile(name string, data []byte, perm fs.FileMode) error {
-	return os.WriteFile(name, data, perm)
+	err := os.WriteFile(name, data, perm)
+	if err != nil {
+		return fmt.Errorf("writing file %s: %w", name, err)
+	}
+
+	return nil
 }
 
 // Options configures the Discover function.
@@ -348,7 +363,7 @@ func (p *packageInfoParser) filterCandidates() {
 func (p *packageInfoParser) parseFile(file taggedFile) error {
 	parsed, err := parser.ParseFile(p.fset, file.Path, file.Content, parser.ParseComments)
 	if err != nil {
-		return err
+		return fmt.Errorf("parsing file %s: %w", file.Path, err)
 	}
 
 	err = p.checkPackageName(parsed, file.Path)
@@ -837,7 +852,7 @@ func processDirectory(
 ) ([]taggedFile, []dirQueueEntry, error) {
 	entries, err := fs.ReadDir(current.path)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("reading directory %s: %w", current.path, err)
 	}
 
 	sort.Slice(entries, func(i, j int) bool {

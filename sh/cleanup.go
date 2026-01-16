@@ -8,6 +8,9 @@ import (
 	"syscall"
 )
 
+// Exit code for interrupted process (128 + SIGINT).
+const exitCodeSigInt = 130
+
 // EnableCleanup enables automatic cleanup of child processes on SIGINT/SIGTERM.
 // Call this once at program startup to ensure Ctrl-C kills all spawned processes.
 func EnableCleanup() {
@@ -28,7 +31,7 @@ func EnableCleanup() {
 		go func() {
 			<-sigCh
 			killAllProcesses()
-			os.Exit(130) // 128 + SIGINT(2)
+			os.Exit(exitCodeSigInt)
 		}()
 	}
 }

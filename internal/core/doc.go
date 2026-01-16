@@ -1,7 +1,7 @@
 package core
 
 import (
-	// "fmt"
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -81,7 +81,7 @@ func getParsedFile(path string) (*ast.File, error) {
 	// Mode: ParseComments is essential
 	f, err := parser.ParseFile(fset, path, nil, parser.ParseComments)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("parsing file %s: %w", path, err)
 	}
 
 	fileCache[path] = f

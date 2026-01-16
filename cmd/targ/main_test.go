@@ -126,7 +126,8 @@ func TestEnsureFallbackModuleRoot(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if _, err := os.Stat(filepath.Join(root, "go.mod")); err != nil {
+	_, err = os.Stat(filepath.Join(root, "go.mod"))
+	if err != nil {
 		t.Fatalf("expected go.mod, got error: %v", err)
 	}
 
@@ -317,15 +318,18 @@ func TestWriteBootstrapFileCleanup(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if _, err := os.Stat(path); err != nil {
+	_, err = os.Stat(path)
+	if err != nil {
 		t.Fatalf("expected bootstrap file to exist: %v", err)
 	}
 
-	if err := cleanup(); err != nil {
+	err = cleanup()
+	if err != nil {
 		t.Fatalf("unexpected cleanup error: %v", err)
 	}
 
-	if _, err := os.Stat(path); !os.IsNotExist(err) {
+	_, err = os.Stat(path)
+	if !os.IsNotExist(err) {
 		t.Fatalf("expected bootstrap file to be removed, got: %v", err)
 	}
 
@@ -334,11 +338,13 @@ func TestWriteBootstrapFileCleanup(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if err := cleanup(); err != nil {
+	err = cleanup()
+	if err != nil {
 		t.Fatalf("unexpected cleanup error: %v", err)
 	}
 
-	if _, err := os.Stat(path); err != nil {
+	_, err = os.Stat(path)
+	if err != nil {
 		t.Fatalf("expected bootstrap file to remain: %v", err)
 	}
 
