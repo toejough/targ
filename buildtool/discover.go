@@ -76,6 +76,7 @@ func (OSFileSystem) ReadDir(name string) ([]fs.DirEntry, error) {
 
 // ReadFile reads the named file.
 func (OSFileSystem) ReadFile(name string) ([]byte, error) {
+	//nolint:gosec // build tool reads user source files by design
 	data, err := os.ReadFile(name)
 	if err != nil {
 		return nil, fmt.Errorf("reading file %s: %w", name, err)

@@ -50,7 +50,7 @@ var (
 	errTagOptsInvalidOutput      = errors.New("TagOptions must return (TagOptions, error)")
 )
 
-// unexported variables.
+//nolint:gochecknoglobals // tag parser lookup table
 var (
 	tagPartSetters = []struct {
 		prefix string
@@ -453,7 +453,7 @@ func assignSubcommandValue(
 	sub *commandNode,
 	subName string,
 ) error {
-	switch fieldType.Kind() {
+	switch fieldType.Kind() { //nolint:exhaustive // default handles unsupported types
 	case reflect.Func:
 		if fieldVal.IsNil() {
 			return fmt.Errorf("%w: %s", errSubcommandNil, subName)
@@ -1444,7 +1444,7 @@ func resolvePlaceholder(opts TagOptions, kind reflect.Kind) string {
 		return opts.Placeholder
 	}
 
-	switch kind {
+	switch kind { //nolint:exhaustive // only common types have placeholders
 	case reflect.String:
 		return "<string>"
 	case reflect.Int:

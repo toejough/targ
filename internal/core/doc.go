@@ -10,7 +10,7 @@ import (
 	"sync"
 )
 
-// unexported variables.
+//nolint:gochecknoglobals // parser cache for performance
 var (
 	cacheLock sync.Mutex
 	fileCache = make(map[string]*ast.File)

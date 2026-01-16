@@ -25,8 +25,9 @@ var (
 	errInvalidMapValue           = errors.New("invalid map value, expected key=value")
 )
 
-// unexported variables.
+//nolint:gochecknoglobals // reflect types cached at init
 var (
+	//nolint:inamedparam // standard flag.Value interface pattern
 	stringSetterType    = reflect.TypeFor[interface{ Set(string) error }]()
 	textUnmarshalerType = reflect.TypeFor[encoding.TextUnmarshaler]()
 )
@@ -728,7 +729,7 @@ func setBoolField(fieldVal reflect.Value, value string) error {
 
 // setFieldByKind handles the type-specific field setting logic.
 func setFieldByKind(fieldVal reflect.Value, value string, pos *int) error {
-	switch fieldVal.Kind() {
+	switch fieldVal.Kind() { //nolint:exhaustive // default handles unsupported types
 	case reflect.String:
 		fieldVal.SetString(value)
 	case reflect.Int:

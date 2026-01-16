@@ -95,7 +95,7 @@ func WithExeSuffix(name string) string {
 	return name + ".exe"
 }
 
-// unexported variables.
+//nolint:gochecknoglobals // injectable for testing
 var (
 	execCommand           = exec.Command
 	stderr      io.Writer = os.Stderr

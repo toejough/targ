@@ -641,6 +641,7 @@ func (r *targRunner) buildAndRun(
 	}
 
 	buildArgs := []string{"build", "-tags", "targ", "-o", binaryPath, tempFile}
+	//nolint:gosec // build tool runs go build by design
 	buildCmd := exec.CommandContext(context.Background(), "go", buildArgs...)
 
 	var buildOutput bytes.Buffer
@@ -668,6 +669,7 @@ func (r *targRunner) buildAndRun(
 		_ = cleanupTemp()
 	}
 
+	//nolint:gosec // build tool runs compiled binary by design
 	cmd := exec.CommandContext(context.Background(), binaryPath, r.args...)
 
 	cmd.Env = append(os.Environ(), "TARG_BIN_NAME="+targBinName)
@@ -972,6 +974,7 @@ func (r *targRunner) setupBinaryPath(importRoot, cacheKey string) (string, error
 
 	cacheDir := filepath.Join(projCache, "bin")
 
+	//nolint:gosec,mnd // standard cache directory permissions
 	err := os.MkdirAll(cacheDir, 0o755)
 	if err != nil {
 		return "", fmt.Errorf("creating cache directory: %w", err)
@@ -986,6 +989,7 @@ func (r *targRunner) tryRunCached(binaryPath, targBinName string) (exitCode int,
 		return 0, false
 	}
 
+	//nolint:gosec // build tool runs cached binary by design
 	cmd := exec.CommandContext(context.Background(), binaryPath, r.args...)
 
 	cmd.Env = append(os.Environ(), "TARG_BIN_NAME="+targBinName)
@@ -1119,6 +1123,7 @@ func addShImportToContent(content string) string {
 
 // appendToFile appends content to a file.
 func appendToFile(path, content string) (err error) {
+	//nolint:gosec,mnd // standard file permissions for shell config
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o644)
 	if err != nil {
 		return fmt.Errorf("opening file for append: %w", err)
@@ -1481,6 +1486,7 @@ func collectModuleFiles(moduleRoot string) ([]buildtool.TaggedFile, error) {
 			return nil
 		}
 
+		//nolint:gosec // build tool reads source files by design
 		data, err := os.ReadFile(path)
 		if err != nil {
 			return fmt.Errorf("reading file %s: %w", path, err)
@@ -1662,6 +1668,7 @@ import "github.com/toejough/targ/sh"
 var _ = sh.Run
 `
 
+	//nolint:gosec,mnd // standard file permissions for targs.go
 	err = os.WriteFile(filename, []byte(content), 0o644)
 	if err != nil {
 		return "", fmt.Errorf("writing %s: %w", filename, err)
@@ -1708,6 +1715,7 @@ func dispatchCompletion(registry []moduleRegistry, args []string) error {
 	seen := make(map[string]bool)
 
 	for _, reg := range registry {
+		//nolint:gosec // build tool runs module binaries by design
 		cmd := exec.CommandContext(context.Background(), reg.BinaryPath, args...)
 
 		output, err := cmd.Output()
@@ -1732,6 +1740,7 @@ func ensureFallbackModuleRoot(startDir, modulePath string, dep targDependency) (
 
 	root := filepath.Join(projectCacheDir(startDir), "mod", hex.EncodeToString(hash[:8]))
 
+	//nolint:gosec,mnd // standard cache directory permissions
 	err := os.MkdirAll(root, 0o755)
 	if err != nil {
 		return "", fmt.Errorf("creating fallback module directory: %w", err)
@@ -1757,6 +1766,7 @@ func ensureFallbackModuleRoot(startDir, modulePath string, dep targDependency) (
 
 // ensureShImport ensures the file imports github.com/toejough/targ/sh.
 func ensureShImport(path string) error {
+	//nolint:gosec // build tool reads source files by design
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return fmt.Errorf("reading file for import check: %w", err)
@@ -1770,6 +1780,7 @@ func ensureShImport(path string) error {
 
 	result := addShImportToContent(content)
 
+	//nolint:gosec,mnd // standard file permissions for source files
 	err = os.WriteFile(path, []byte(result), 0o644)
 	if err != nil {
 		return fmt.Errorf("writing file with import: %w", err)
@@ -1780,6 +1791,7 @@ func ensureShImport(path string) error {
 
 // ensureTargDependency runs go get to ensure targ dependency is available.
 func ensureTargDependency(dep targDependency, importRoot string) {
+	//nolint:gosec // build tool runs go get by design
 	getCmd := exec.CommandContext(context.Background(), "go", "get", dep.ModulePath)
 	getCmd.Dir = importRoot
 	getCmd.Stdout = io.Discard
@@ -1870,6 +1882,7 @@ func findModuleForPath(path string) (string, string, bool, error) {
 	for {
 		modPath := filepath.Join(dir, "go.mod")
 
+		//nolint:gosec // build tool reads go.mod files by design
 		data, err := os.ReadFile(modPath)
 		if err == nil {
 			modulePath := parseModulePath(string(data))
@@ -2128,6 +2141,7 @@ func hasImportAhead(lines []string, index int) bool {
 
 // hasTargBuildTag checks if a file has the //go:build targ tag.
 func hasTargBuildTag(path string) bool {
+	//nolint:gosec // build tool reads source files by design
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return false
@@ -2615,6 +2629,7 @@ func runGoBuild(ctx buildContext, binaryPath, tempFile string, errOut io.Writer)
 
 	buildArgs = append(buildArgs, tempFile)
 
+	//nolint:gosec // build tool runs go build by design
 	buildCmd := exec.CommandContext(context.Background(), "go", buildArgs...)
 
 	var buildOutput bytes.Buffer
@@ -2726,6 +2741,7 @@ func setupBinaryPath(importRoot, _ string, bootstrap moduleBootstrap) (string, e
 	projCache := projectCacheDir(importRoot)
 	cacheDir := filepath.Join(projCache, "bin")
 
+	//nolint:gosec,mnd // standard cache directory permissions
 	err := os.MkdirAll(cacheDir, 0o755)
 	if err != nil {
 		return "", fmt.Errorf("creating cache directory: %w", err)
@@ -2828,6 +2844,7 @@ func toExportedName(name string) string {
 }
 
 func touchFile(path string) error {
+	//nolint:gosec,mnd // standard file permissions for go.sum
 	err := os.WriteFile(path, []byte{}, 0o644)
 	if err != nil {
 		return fmt.Errorf("touching file %s: %w", path, err)
@@ -2962,7 +2979,9 @@ func walkNamespaceTree(
 }
 
 func writeBootstrapFile(dir string, data []byte, keep bool) (string, func() error, error) {
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	//nolint:gosec,mnd // standard directory permissions for bootstrap
+	err := os.MkdirAll(dir, 0o755)
+	if err != nil {
 		return "", nil, fmt.Errorf("creating bootstrap directory: %w", err)
 	}
 
@@ -3023,5 +3042,11 @@ func writeFallbackGoMod(root, modulePath string, dep targDependency) error {
 
 	content := strings.Join(lines, "\n") + "\n"
 
-	return os.WriteFile(modPath, []byte(content), 0o644)
+	//nolint:gosec,mnd // standard file permissions for go.mod
+	err := os.WriteFile(modPath, []byte(content), 0o644)
+	if err != nil {
+		return fmt.Errorf("writing go.mod: %w", err)
+	}
+
+	return nil
 }

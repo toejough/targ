@@ -10,13 +10,15 @@ disable = [
 	'godox',          # saving todos till another validation step
 	'ireturn',        # I like generic return types
 	'nonamedreturns', # I like named returns
+	'paralleltest',   # not all tests can run in parallel (shared state)
+	'testpackage',    # white-box tests are valid for testing internals
 	'wsl',            # deprecated
 ]
 
 # Exclude certain linters from test files
 [[linters.exclusions.rules]]
 path = '_test\.go$'
-linters = ['dogsled', 'err113', 'wrapcheck']
+linters = ['dogsled', 'err113', 'gosec', 'mnd', 'noctx', 'noinlineerr', 'wrapcheck']
 
 # Allow dot imports in test files (gomega requires them)
 [[linters.exclusions.rules]]
@@ -38,7 +40,7 @@ block-size = 2
 # ignore-decls should work for conventional declarations like 't *testing.T' but doesn't
 # See: https://github.com/blizzy78/varnamelen/issues/5
 # Using ignore-names as workaround
-ignore-names = ['t', 'b', 'rt', 'a', 'g', 'i', 'j', 'fs', 'fn', 'ok', 'r', 'p', 'mt', 'f', 'v', 'w', 'pc', 'm', 'n', 'ch', 'wg']
+ignore-names = ['t', 'b', 'rt', 'a', 'g', 'i', 'j', 'fs', 'fn', 'ok', 'r', 'p', 'mt', 'f', 'v', 'w', 'pc', 'm', 'n', 'ch', 'wg', 'tc']
 
 [linters.settings.unused]
 field-writes-are-uses = false

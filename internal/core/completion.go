@@ -35,7 +35,7 @@ const (
 	zshShell  = "zsh"
 )
 
-// unexported variables.
+//nolint:gochecknoglobals // completion templates and flag maps
 var (
 	_bashCompletion = `
 _%s_completion() {

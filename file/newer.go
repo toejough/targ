@@ -80,7 +80,9 @@ func cacheFilePath(cwd, pattern string) (string, error) {
 	encoded := hashString(cwd + "::" + pattern)
 
 	dir := filepath.Join(cacheDir, "targ", "newer")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	//nolint:gosec,mnd // standard cache directory permissions
+	err = os.MkdirAll(dir, 0o755)
+	if err != nil {
 		return "", fmt.Errorf("creating cache directory: %w", err)
 	}
 
@@ -167,6 +169,7 @@ func newerWithOutputs(inputs, outputs []string) (bool, error) {
 }
 
 func readCache(path string) (*newerCache, error) {
+	//nolint:gosec // reading cache file by design
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("reading cache file: %w", err)
@@ -214,6 +217,7 @@ func writeCache(path string, cache *newerCache) error {
 		return fmt.Errorf("marshaling cache: %w", err)
 	}
 
+	//nolint:gosec,mnd // standard cache file permissions
 	err = os.WriteFile(path, data, 0o644)
 	if err != nil {
 		return fmt.Errorf("writing cache file: %w", err)

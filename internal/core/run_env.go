@@ -192,7 +192,7 @@ func NewOsEnv() runEnv {
 type runExecutor struct {
 	env        runEnv
 	opts       RunOptions
-	ctx        context.Context
+	ctx        context.Context //nolint:containedctx // stored for command execution
 	cancelFunc context.CancelFunc
 	roots      []*commandNode
 	args       []string

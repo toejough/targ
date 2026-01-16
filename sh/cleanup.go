@@ -36,7 +36,7 @@ func EnableCleanup() {
 	}
 }
 
-// unexported variables.
+//nolint:gochecknoglobals // required for signal handling
 var (
 	cleanupEnabled  bool
 	cleanupMu       sync.Mutex

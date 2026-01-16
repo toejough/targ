@@ -355,7 +355,7 @@ func TestSerialRun_ContinueOnErrorAccumulates(t *testing.T) {
 	}
 }
 
-// unexported variables.
+//nolint:gochecknoglobals // test state
 var (
 	depCount int
 )

@@ -149,7 +149,7 @@ func TestResetDeps(t *testing.T) {
 	}
 }
 
-// unexported variables.
+//nolint:gochecknoglobals // test state
 var (
 	resetTestError string
 	testCallCount  int32

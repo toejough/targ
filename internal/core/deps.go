@@ -88,7 +88,7 @@ func ResetDeps() {
 // Useful for cancellation in watch mode.
 func WithContext(ctx context.Context) DepsOption { return withContextOpt{ctx} }
 
-// unexported variables.
+//nolint:gochecknoglobals // dependency tracking state
 var (
 	currentDeps *depTracker
 	depsMu      sync.Mutex
@@ -101,8 +101,8 @@ func (continueOnErrorOpt) applyDeps(c *depsConfig) { c.continueOnError = true }
 type depKey string
 
 type depTracker struct {
-	ctx      context.Context
-	mu       sync.Mutex
+	ctx context.Context //nolint:containedctx // stored for async execution
+	mu  sync.Mutex
 	done     map[depKey]error
 	inFlight map[depKey]chan struct{}
 }
@@ -157,14 +157,14 @@ func (d *depTracker) run(ctx context.Context, target any) error {
 type depsConfig struct {
 	parallel        bool
 	continueOnError bool
-	ctx             context.Context
+	ctx             context.Context //nolint:containedctx // passed via functional options
 }
 
 type parallelOpt struct{}
 
 func (parallelOpt) applyDeps(c *depsConfig) { c.parallel = true }
 
-type withContextOpt struct{ ctx context.Context }
+type withContextOpt struct{ ctx context.Context } //nolint:containedctx // functional option carrier
 
 func (o withContextOpt) applyDeps(c *depsConfig) { c.ctx = o.ctx }
 
@@ -174,7 +174,7 @@ func depKeyFor(target any) (depKey, error) {
 	}
 
 	v := reflect.ValueOf(target)
-	switch v.Kind() {
+	switch v.Kind() { //nolint:exhaustive // only Func and Ptr supported
 	case reflect.Func:
 		return depKey(fmt.Sprintf("func:%d:%s", v.Pointer(), v.Type().String())), nil
 	case reflect.Ptr:

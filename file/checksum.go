@@ -68,9 +68,8 @@ func computeChecksum(paths []string) (string, error) {
 			return "", fmt.Errorf("writing separator to hasher: %w", err)
 		}
 
-		file, err := os.Open(
-			path,
-		)
+		//nolint:gosec // computing checksum of user files by design
+		file, err := os.Open(path)
 		if err != nil {
 			return "", fmt.Errorf("opening %s: %w", path, err)
 		}
@@ -92,6 +91,7 @@ func computeChecksum(paths []string) (string, error) {
 }
 
 func readChecksum(path string) (string, error) {
+	//nolint:gosec // reading cache file by design
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return "", fmt.Errorf("reading checksum file: %w", err)
@@ -103,12 +103,14 @@ func readChecksum(path string) (string, error) {
 func writeChecksum(path, sum string) error {
 	dir := filepath.Dir(path)
 	if dir != "." {
+		//nolint:gosec,mnd // standard cache directory permissions
 		err := os.MkdirAll(dir, 0o755)
 		if err != nil {
 			return fmt.Errorf("creating checksum directory: %w", err)
 		}
 	}
 
+	//nolint:gosec,mnd // standard cache file permissions
 	err := os.WriteFile(path, []byte(sum), 0o644)
 	if err != nil {
 		return fmt.Errorf("writing checksum file: %w", err)
