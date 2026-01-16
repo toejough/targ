@@ -1,3 +1,4 @@
+// Package buildtool provides utilities for discovering and generating code for targ commands.
 package buildtool
 
 import (
@@ -20,6 +21,8 @@ import (
 const (
 	CommandFunc   CommandKind = "func"
 	CommandStruct CommandKind = "struct"
+	defaultBuildTag            = "targ"
+	runMethodName              = "Run"
 )
 
 // Exported variables.
@@ -27,6 +30,7 @@ var (
 	ErrNoTaggedFiles = errors.New("no tagged files found")
 )
 
+// CommandInfo describes a discovered command within a targ file.
 type CommandInfo struct {
 	Name         string
 	Kind         CommandKind
@@ -36,39 +40,48 @@ type CommandInfo struct {
 	ReturnsError bool
 }
 
+// CommandKind indicates whether a command is a function or struct.
 type CommandKind string
 
+// FileInfo describes a file containing targ commands.
 type FileInfo struct {
 	Path     string
 	Base     string
 	Commands []CommandInfo
 }
 
+// FileSystem abstracts file operations for testability.
 type FileSystem interface {
 	ReadDir(name string) ([]fs.DirEntry, error)
 	ReadFile(name string) ([]byte, error)
 	WriteFile(name string, data []byte, perm fs.FileMode) error
 }
 
+// OSFileSystem implements FileSystem using the os package.
 type OSFileSystem struct{}
 
+// ReadDir reads the named directory.
 func (OSFileSystem) ReadDir(name string) ([]fs.DirEntry, error) {
 	return os.ReadDir(name)
 }
 
+// ReadFile reads the named file.
 func (OSFileSystem) ReadFile(name string) ([]byte, error) {
 	return os.ReadFile(name)
 }
 
+// WriteFile writes data to the named file.
 func (OSFileSystem) WriteFile(name string, data []byte, perm fs.FileMode) error {
 	return os.WriteFile(name, data, perm)
 }
 
+// Options configures the Discover function.
 type Options struct {
 	StartDir string
 	BuildTag string
 }
 
+// PackageInfo describes a package containing targ commands.
 type PackageInfo struct {
 	Dir      string
 	Package  string
@@ -77,16 +90,19 @@ type PackageInfo struct {
 	Files    []FileInfo
 }
 
+// TaggedDir represents a directory containing tagged files.
 type TaggedDir struct {
 	Path  string
 	Depth int
 }
 
+// TaggedFile represents a file with a targ build tag.
 type TaggedFile struct {
 	Path    string
 	Content []byte
 }
 
+// Discover finds all packages with targ-tagged files and parses their commands.
 func Discover(fs FileSystem, opts Options) ([]PackageInfo, error) {
 	startDir := opts.StartDir
 	if startDir == "" {
@@ -95,7 +111,7 @@ func Discover(fs FileSystem, opts Options) ([]PackageInfo, error) {
 
 	tag := opts.BuildTag
 	if tag == "" {
-		tag = "targ"
+		tag = defaultBuildTag
 	}
 
 	dirs, err := findTaggedDirs(fs, startDir, tag)
@@ -117,6 +133,7 @@ func Discover(fs FileSystem, opts Options) ([]PackageInfo, error) {
 	return infos, nil
 }
 
+// SelectTaggedDirs returns directories containing targ-tagged files.
 func SelectTaggedDirs(fs FileSystem, opts Options) ([]TaggedDir, error) {
 	startDir := opts.StartDir
 	if startDir == "" {
@@ -125,7 +142,7 @@ func SelectTaggedDirs(fs FileSystem, opts Options) ([]TaggedDir, error) {
 
 	tag := opts.BuildTag
 	if tag == "" {
-		tag = "targ"
+		tag = defaultBuildTag
 	}
 
 	dirs, err := findTaggedDirs(fs, startDir, tag)
@@ -141,6 +158,7 @@ func SelectTaggedDirs(fs FileSystem, opts Options) ([]TaggedDir, error) {
 	return paths, nil
 }
 
+// TaggedFiles returns all files with the specified build tag.
 func TaggedFiles(fs FileSystem, opts Options) ([]TaggedFile, error) {
 	startDir := opts.StartDir
 	if startDir == "" {
@@ -149,7 +167,7 @@ func TaggedFiles(fs FileSystem, opts Options) ([]TaggedFile, error) {
 
 	tag := opts.BuildTag
 	if tag == "" {
-		tag = "targ"
+		tag = defaultBuildTag
 	}
 
 	dirs, err := findTaggedDirs(fs, startDir, tag)
@@ -292,7 +310,7 @@ func (p *packageInfoParser) checkDuplicates() error {
 }
 
 // checkPackageName validates and records the package name.
-func (p *packageInfoParser) checkPackageName(parsed *ast.File, filePath string) error {
+func (p *packageInfoParser) checkPackageName(parsed *ast.File, _ string) error {
 	if p.packageName == "" {
 		p.packageName = parsed.Name.Name
 		if parsed.Doc != nil {
@@ -452,7 +470,7 @@ func (p *packageInfoParser) processMethod(node *ast.FuncDecl) {
 		}
 	}
 
-	if node.Name.Name == "Run" {
+	if node.Name.Name == runMethodName {
 		if recvName := receiverTypeName(node.Recv); recvName != "" {
 			p.structHasRun[recvName] = true
 		}

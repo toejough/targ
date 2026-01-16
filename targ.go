@@ -1,3 +1,4 @@
+// Package targ provides a declarative CLI framework using struct tags.
 package targ
 
 import (

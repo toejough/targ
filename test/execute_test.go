@@ -3,12 +3,15 @@ package targ_test
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/toejough/targ"
 )
+
+const testNameAlice = "Alice"
 
 type ExecuteDefaultCmd struct {
 	Called bool
@@ -39,7 +42,7 @@ type FastCmd struct {
 	Called bool
 }
 
-func (c *FastCmd) Run(ctx context.Context) error {
+func (c *FastCmd) Run(_ context.Context) error {
 	c.Called = true
 	return nil
 }
@@ -172,7 +175,7 @@ func TestExecute_CommandError(t *testing.T) {
 func TestExecute_Success(t *testing.T) {
 	cmd := &ExecuteTestCmd{}
 
-	_, err := targ.Execute([]string{"app", "--name", "Alice"}, cmd)
+	_, err := targ.Execute([]string{"app", "--name", testNameAlice}, cmd)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -181,8 +184,8 @@ func TestExecute_Success(t *testing.T) {
 		t.Fatal("expected command to be called")
 	}
 
-	if cmd.Name != "Alice" {
-		t.Fatalf("expected name=Alice, got %q", cmd.Name)
+	if cmd.Name != testNameAlice {
+		t.Fatalf("expected name=%s, got %q", testNameAlice, cmd.Name)
 	}
 }
 
@@ -246,13 +249,14 @@ func TestInterleavedFlags_ReconstructOrder(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
+	// Collect all items with their metadata
 	type item struct {
 		isInclude bool
 		value     string
 		position  int
 	}
 
-	var all []item
+	all := make([]item, 0, len(cmd.Include)+len(cmd.Exclude))
 	for _, inc := range cmd.Include {
 		all = append(all, item{true, inc.Value, inc.Position})
 	}
@@ -261,14 +265,7 @@ func TestInterleavedFlags_ReconstructOrder(t *testing.T) {
 		all = append(all, item{false, exc.Value, exc.Position})
 	}
 
-	// Sort by position
-	for i := range len(all) - 1 {
-		for j := i + 1; j < len(all); j++ {
-			if all[j].position < all[i].position {
-				all[i], all[j] = all[j], all[i]
-			}
-		}
-	}
+	slices.SortFunc(all, func(a, b item) int { return a.position - b.position })
 
 	expected := []item{
 		{false, "x", 0},
@@ -276,14 +273,9 @@ func TestInterleavedFlags_ReconstructOrder(t *testing.T) {
 		{true, "b", 2},
 		{false, "y", 3},
 	}
-	if len(all) != len(expected) {
-		t.Fatalf("expected %d items, got %d", len(expected), len(all))
-	}
 
-	for i, exp := range expected {
-		if all[i] != exp {
-			t.Fatalf("item[%d]: expected %+v, got %+v", i, exp, all[i])
-		}
+	if !slices.Equal(all, expected) {
+		t.Fatalf("expected %+v, got %+v", expected, all)
 	}
 }
 

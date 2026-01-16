@@ -18,6 +18,8 @@ import (
 	"pgregory.net/rapid"
 )
 
+const bashShell = "bash"
+
 type BadTagOptionsInputCmd struct {
 	Name string `targ:"flag"`
 }
@@ -25,7 +27,7 @@ type BadTagOptionsInputCmd struct {
 func (b *BadTagOptionsInputCmd) Run() {}
 
 // Wrong input types - accepts int instead of string
-func (b *BadTagOptionsInputCmd) TagOptions(field int, opts TagOptions) (TagOptions, error) {
+func (b *BadTagOptionsInputCmd) TagOptions(_ int, opts TagOptions) (TagOptions, error) {
 	return opts, nil
 }
 
@@ -36,7 +38,7 @@ type BadTagOptionsReturnCmd struct {
 func (b *BadTagOptionsReturnCmd) Run() {}
 
 // Wrong return type - returns string instead of TagOptions
-func (b *BadTagOptionsReturnCmd) TagOptions(field string, opts TagOptions) (string, error) {
+func (b *BadTagOptionsReturnCmd) TagOptions(_ string, _ TagOptions) (string, error) {
 	return "", nil
 }
 
@@ -49,7 +51,7 @@ type BadTagOptionsSignatureCmd struct {
 func (b *BadTagOptionsSignatureCmd) Run() {}
 
 // Wrong signature - should accept (string, TagOptions) and return (TagOptions, error)
-func (b *BadTagOptionsSignatureCmd) TagOptions(field string) TagOptions {
+func (b *BadTagOptionsSignatureCmd) TagOptions(_ string) TagOptions {
 	return TagOptions{}
 }
 
@@ -140,7 +142,7 @@ type TagOptionsErrorCmd struct {
 
 func (t *TagOptionsErrorCmd) Run() {}
 
-func (t *TagOptionsErrorCmd) TagOptions(field string, opts TagOptions) (TagOptions, error) {
+func (t *TagOptionsErrorCmd) TagOptions(_ string, opts TagOptions) (TagOptions, error) {
 	return opts, errors.New("tag options error")
 }
 
@@ -156,7 +158,7 @@ func (c *TestCmdStruct) Run() {
 
 type TooManyInputsMethod struct{}
 
-func (t *TooManyInputsMethod) Run(ctx context.Context, extra int) {}
+func (t *TooManyInputsMethod) Run(_ context.Context, _ int) {}
 
 type TooManyReturnsMethod struct{}
 
@@ -172,9 +174,9 @@ func (c *UnexportedFlag) Run() {}
 
 type WrongInputTypeMethod struct{}
 
-func (w *WrongInputTypeMethod) Run(notContext int) {}
+func (w *WrongInputTypeMethod) Run(_ int) {}
 
-func InvalidParamFunc(n int) {}
+func InvalidParamFunc(_ int) {}
 
 func InvalidReturnFunc() int {
 	return 42
@@ -182,7 +184,7 @@ func InvalidReturnFunc() int {
 
 // --- parseFunc tests ---
 
-func InvalidSigFunc(a, b int) {}
+func InvalidSigFunc(_, _ int) {}
 
 func TestApplyTagOptionsOverride_MethodReturnsError(t *testing.T) {
 	g := NewWithT(t)
@@ -746,7 +748,7 @@ func TestExecuteDefault_EmptyRestError(t *testing.T) {
 
 	// Test error path when rest is empty
 	execErr := errors.New("root failed")
-	env := &executeEnv{args: []string{"cmd"}}
+	env := &ExecuteEnv{args: []string{"cmd"}}
 	root := &commandNode{
 		Name: "root",
 		Func: reflect.ValueOf(func() error { return execErr }),
@@ -768,12 +770,9 @@ func TestExecuteDefault_EmptyRestError(t *testing.T) {
 func TestExecuteDefault_LoopError(t *testing.T) {
 	g := NewWithT(t)
 
-	// Create a command that will fail during execution in the loop
-	type FailingSubCmd struct{}
-
 	failErr := errors.New("subcommand failed")
 
-	env := &executeEnv{args: []string{"cmd", "fail"}}
+	env := &ExecuteEnv{args: []string{"cmd", "fail"}}
 	root := &commandNode{
 		Name: "root",
 		Subcommands: map[string]*commandNode{
@@ -802,7 +801,7 @@ func TestExecuteDefault_SuccessPath(t *testing.T) {
 
 	// Test the successful empty rest path
 	called := false
-	env := &executeEnv{args: []string{"cmd"}}
+	env := &ExecuteEnv{args: []string{"cmd"}}
 	root := &commandNode{
 		Name: "root",
 		Func: reflect.ValueOf(func() { called = true }),
@@ -825,7 +824,7 @@ func TestExecuteDefault_UnknownCommand(t *testing.T) {
 	g := NewWithT(t)
 
 	// Test "Unknown command" path when no subcommand matches
-	env := &executeEnv{args: []string{"cmd", "nosuch"}}
+	env := &ExecuteEnv{args: []string{"cmd", "nosuch"}}
 	root := &commandNode{
 		Name:        "root",
 		Func:        reflect.ValueOf(func() {}),
@@ -847,8 +846,8 @@ func TestExecuteDefault_UnknownCommand(t *testing.T) {
 
 // --- executeEnv tests ---
 
-func TestExecuteEnv_ExitIsNoOp(t *testing.T) {
-	env := &executeEnv{args: []string{"cmd"}}
+func TestExecuteEnv_ExitIsNoOp(_ *testing.T) {
+	env := &ExecuteEnv{args: []string{"cmd"}}
 	// Exit should be a no-op and not panic
 	env.Exit(1)
 	env.Exit(0)
@@ -1284,7 +1283,7 @@ func TestFlagParsing_UnknownShortFlag(t *testing.T) {
 func TestHandleComplete_ReturnsErrorFromCompleteFn(t *testing.T) {
 	g := NewWithT(t)
 
-	env := &executeEnv{args: []string{"cmd", "__complete", "sub"}}
+	env := &ExecuteEnv{args: []string{"cmd", "__complete", "sub"}}
 	completeErr := errors.New("completion failed")
 	exec := &runExecutor{
 		env:        env,
@@ -1302,7 +1301,7 @@ func TestHandleComplete_ShortRest(t *testing.T) {
 	g := NewWithT(t)
 
 	// When rest has only one element, doCompletion is not called
-	env := &executeEnv{args: []string{"cmd", "__complete"}}
+	env := &ExecuteEnv{args: []string{"cmd", "__complete"}}
 	exec := &runExecutor{
 		env:  env,
 		rest: []string{"__complete"}, // only one element
@@ -1357,7 +1356,7 @@ func TestHandleHelpFlag_WithHelpFlag(t *testing.T) {
 func TestHandleList_ReturnsErrorFromListFn(t *testing.T) {
 	g := NewWithT(t)
 
-	env := &executeEnv{args: []string{"cmd", "__list"}}
+	env := &ExecuteEnv{args: []string{"cmd", "__list"}}
 	listErr := errors.New("list failed")
 
 	exec := &runExecutor{
@@ -1613,7 +1612,7 @@ func TestParseTarget_TooManyReturns(t *testing.T) {
 func TestParseTargets_Error(t *testing.T) {
 	g := NewWithT(t)
 
-	env := &executeEnv{args: []string{"cmd"}}
+	env := &ExecuteEnv{args: []string{"cmd"}}
 	exec := &runExecutor{
 		env: env,
 	}
@@ -2076,7 +2075,7 @@ func TestPrintCommandSummary_WithSubcommands(t *testing.T) {
 func TestPrintCompletion_EmptyShell(t *testing.T) {
 	g := NewWithT(t)
 
-	env := &executeEnv{args: []string{"cmd"}}
+	env := &ExecuteEnv{args: []string{"cmd"}}
 	exec := &runExecutor{env: env}
 
 	err := exec.printCompletion("")
@@ -2094,7 +2093,7 @@ func TestPrintCompletion_EmptyShell(t *testing.T) {
 func TestPrintCompletion_UnsupportedShell(t *testing.T) {
 	g := NewWithT(t)
 
-	env := &executeEnv{args: []string{"cmd"}}
+	env := &ExecuteEnv{args: []string{"cmd"}}
 	exec := &runExecutor{env: env}
 
 	err := exec.printCompletion("powershell")
@@ -2159,7 +2158,7 @@ func TestRunWithEnv_CompleteCommand(t *testing.T) {
 
 	cmd := &simpleRunCmd{}
 	output := captureStdout(t, func() {
-		env := &executeEnv{args: []string{"cmd", "__complete", "cmd "}}
+		env := &ExecuteEnv{args: []string{"cmd", "__complete", "cmd "}}
 		err := RunWithEnv(env, RunOptions{AllowDefault: true}, cmd)
 		g.Expect(err).NotTo(HaveOccurred())
 	})
@@ -2173,7 +2172,7 @@ func TestRunWithEnv_CompletionFlag(t *testing.T) {
 
 	cmd := &simpleRunCmd{}
 	output := captureStdout(t, func() {
-		env := &executeEnv{args: []string{"cmd", "--completion", "bash"}}
+		env := &ExecuteEnv{args: []string{"cmd", "--completion", "bash"}}
 		err := RunWithEnv(env, RunOptions{AllowDefault: true}, cmd)
 		g.Expect(err).NotTo(HaveOccurred())
 	})
@@ -2188,7 +2187,7 @@ func TestRunWithEnv_CompletionFlagInvalidShell(t *testing.T) {
 
 	cmd := &simpleRunCmd{}
 	// --completion with invalid shell name
-	env := &executeEnv{args: []string{"cmd", "--completion", "invalid-shell"}}
+	env := &ExecuteEnv{args: []string{"cmd", "--completion", "invalid-shell"}}
 	err := RunWithEnv(env, RunOptions{AllowDefault: true}, cmd)
 
 	// Should return error for unknown shell
@@ -2200,7 +2199,7 @@ func TestRunWithEnv_DefaultModeExecutionError(t *testing.T) {
 
 	// A command that returns an error
 	cmd := &errorCmd{}
-	env := &executeEnv{args: []string{"cmd"}}
+	env := &ExecuteEnv{args: []string{"cmd"}}
 	err := RunWithEnv(env, RunOptions{AllowDefault: true}, cmd)
 	g.Expect(err).To(BeAssignableToTypeOf(ExitError{}))
 }
@@ -2209,7 +2208,7 @@ func TestRunWithEnv_DefaultModeUnknownCommand(t *testing.T) {
 	g := NewWithT(t)
 
 	cmd := &simpleRunCmd{}
-	env := &executeEnv{args: []string{"cmd", "unknown-subcommand"}}
+	env := &ExecuteEnv{args: []string{"cmd", "unknown-subcommand"}}
 	err := RunWithEnv(env, RunOptions{AllowDefault: true}, cmd)
 	g.Expect(err).To(BeAssignableToTypeOf(ExitError{}))
 	g.Expect(env.Output()).To(ContainSubstring("unknown command"))
@@ -2220,7 +2219,7 @@ func TestRunWithEnv_ListCommand(t *testing.T) {
 
 	cmd := &simpleRunCmd{}
 	output := captureStdout(t, func() {
-		env := &executeEnv{args: []string{"cmd", "__list"}}
+		env := &ExecuteEnv{args: []string{"cmd", "__list"}}
 		err := RunWithEnv(env, RunOptions{AllowDefault: true}, cmd)
 		g.Expect(err).NotTo(HaveOccurred())
 	})
@@ -2231,7 +2230,7 @@ func TestRunWithEnv_ListCommand(t *testing.T) {
 func TestRunWithEnv_NoCommands(t *testing.T) {
 	g := NewWithT(t)
 
-	env := &executeEnv{args: []string{"cmd"}}
+	env := &ExecuteEnv{args: []string{"cmd"}}
 	err := RunWithEnv(env, RunOptions{}, []any{}...)
 	g.Expect(err).NotTo(HaveOccurred())
 	g.Expect(env.Output()).To(ContainSubstring("No commands found"))
@@ -2241,7 +2240,7 @@ func TestRunWithEnv_TimeoutError(t *testing.T) {
 	g := NewWithT(t)
 
 	cmd := &simpleRunCmd{}
-	env := &executeEnv{args: []string{"cmd", "--timeout", "invalid"}}
+	env := &ExecuteEnv{args: []string{"cmd", "--timeout", "invalid"}}
 	err := RunWithEnv(env, RunOptions{AllowDefault: true}, cmd)
 	g.Expect(err).To(BeAssignableToTypeOf(ExitError{}))
 	g.Expect(env.Output()).To(ContainSubstring("invalid"))
@@ -2251,7 +2250,7 @@ func TestRunWithEnv_UnknownCommand(t *testing.T) {
 	g := NewWithT(t)
 
 	cmd := &simpleRunCmd{}
-	env := &executeEnv{args: []string{"cmd", "unknown-cmd"}}
+	env := &ExecuteEnv{args: []string{"cmd", "unknown-cmd"}}
 	err := RunWithEnv(env, RunOptions{AllowDefault: false}, cmd)
 	g.Expect(err).To(BeAssignableToTypeOf(ExitError{}))
 	g.Expect(env.Output()).To(ContainSubstring("Unknown command"))
@@ -2632,7 +2631,7 @@ type testValueStringSetter struct {
 	Value string
 }
 
-func (t testValueStringSetter) Set(s string) error {
+func (t testValueStringSetter) Set(_ string) error {
 	return nil
 }
 
@@ -2642,7 +2641,7 @@ type testValueTextUnmarshaler struct {
 	Value string
 }
 
-func (t testValueTextUnmarshaler) UnmarshalText(text []byte) error {
+func (t testValueTextUnmarshaler) UnmarshalText(_ []byte) error {
 	// With value receiver, the method can't modify t, but can still implement the interface
 	return nil
 }
@@ -2665,7 +2664,7 @@ func extractShellName(shell string) string {
 	}
 
 	switch base {
-	case "bash", "zsh", "fish":
+	case bashShell, "zsh", "fish":
 		return base
 	default:
 		return ""

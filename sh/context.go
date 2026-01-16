@@ -11,7 +11,7 @@ import (
 // OutputContext executes a command and returns combined output, with context support.
 // When ctx is cancelled, the process and all its children are killed.
 func OutputContext(ctx context.Context, name string, args ...string) (string, error) {
-	cmd := exec.Command(name, args...)
+	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Stdin = stdin
 
 	// Capture combined output
@@ -47,7 +47,7 @@ func OutputContext(ctx context.Context, name string, args ...string) (string, er
 // RunContext executes a command with context support.
 // When ctx is cancelled, the process and all its children are killed.
 func RunContext(ctx context.Context, name string, args ...string) error {
-	cmd := exec.Command(name, args...)
+	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 	cmd.Stdin = stdin

@@ -1,3 +1,4 @@
+// Package main demonstrates CLI mode usage.
 package main
 
 import "fmt"

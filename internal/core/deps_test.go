@@ -296,7 +296,7 @@ func TestSerialRun_ContextCancellation(t *testing.T) {
 
 	err := withDepTracker(context.Background(), func() error {
 		tracker := newDepTracker(ctx)
-		return serialRun(tracker, ctx, []any{func() {}}, false)
+		return serialRun(ctx, tracker, []any{func() {}}, false)
 	})
 
 	if !errors.Is(err, context.Canceled) {
@@ -310,7 +310,7 @@ func TestSerialRun_ContextCancelledWithPriorError(t *testing.T) {
 	err := withDepTracker(context.Background(), func() error {
 		tracker := newDepTracker(ctx)
 
-		return serialRun(tracker, ctx, []any{
+		return serialRun(ctx, tracker, []any{
 			func() error {
 				return errors.New("prior error")
 			},

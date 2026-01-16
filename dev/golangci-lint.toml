@@ -18,13 +18,18 @@ disable = [
 path = '_test\.go$'
 linters = ['dogsled', 'err113', 'wrapcheck']
 
+# Allow dot imports in test files (gomega requires them)
+[[linters.exclusions.rules]]
+path = '_test\.go$'
+text = 'dot-imports'
+
 [linters.settings.depguard.rules.all]
 files = ['$all', '!$test']
-allow = ['$gostd', 'github.com/dave/dst', 'github.com/toejough/imptest', 'github.com/toejough/targ', 'github.com/toejough/go-reorder']
+allow = ['$gostd', 'github.com/dave/dst', 'github.com/toejough/imptest', 'github.com/toejough/targ', 'github.com/toejough/go-reorder', 'github.com/bmatcuk/doublestar/v4']
 
 [linters.settings.depguard.rules.test]
 files = ['$test']
-allow = ['$gostd', 'github.com/dave/dst', 'github.com/toejough/imptest', 'github.com/onsi/gomega', 'pgregory.net/rapid']
+allow = ['$gostd', 'github.com/dave/dst', 'github.com/toejough/imptest', 'github.com/toejough/targ', 'github.com/onsi/gomega', 'pgregory.net/rapid']
 
 [linters.settings.nlreturn]
 block-size = 2

@@ -1,3 +1,4 @@
+// Package main demonstrates manifest-based targ usage.
 package main
 
 import (

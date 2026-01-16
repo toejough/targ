@@ -1,3 +1,4 @@
+// Package sh provides utilities for running shell commands in build scripts.
 package sh
 
 import (

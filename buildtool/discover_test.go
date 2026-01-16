@@ -10,6 +10,11 @@ import (
 	"time"
 )
 
+const (
+	buildTestCmdName = "Build"
+	runTestCmdName   = "Run"
+)
+
 func TestDiscover_AllowsContextFunctions(t *testing.T) {
 	fsMock := MockFileSystem(t)
 	opts := Options{StartDir: "/root"}
@@ -49,7 +54,7 @@ func Run(ctx context.Context) {}
 		t.Fatalf("expected 1 package info, got %d", len(infos))
 	}
 
-	if names := commandNamesByKind(infos[0], CommandFunc); len(names) != 1 || names[0] != "Run" {
+	if names := commandNamesByKind(infos[0], CommandFunc); len(names) != 1 || names[0] != runTestCmdName {
 		t.Fatalf("unexpected funcs: %v", names)
 	}
 }
@@ -135,324 +140,180 @@ func Run(c ctx.Context) {}
 		t.Fatalf("expected 1 package info, got %d", len(infos))
 	}
 
-	if names := commandNamesByKind(infos[0], CommandFunc); len(names) != 1 || names[0] != "Run" {
-		t.Fatalf("expected Run func to be detected with aliased context, got %v", names)
+	if names := commandNamesByKind(infos[0], CommandFunc); len(names) != 1 || names[0] != runTestCmdName {
+		t.Fatalf("expected %s func to be detected with aliased context, got %v", runTestCmdName, names)
 	}
 }
 
-func TestDiscover_ContextBlankImport(t *testing.T) {
-	fsMock := MockFileSystem(t)
-	opts := Options{StartDir: "/root"}
-	done := make(chan struct{})
+func TestDiscover_ContextImportVariations(t *testing.T) {
+	tests := []struct {
+		name       string
+		importLine string
+		funcLine   string
+		expectFunc string
+		comment    string
+	}{
+		{
+			name:       "blank import",
+			importLine: `import _ "context"`,
+			funcLine:   "func Run() {}",
+			expectFunc: "Run",
+			comment:    "// Run without context param because blank import doesn't allow usage",
+		},
+		{
+			name:       "dot import",
+			importLine: `import . "context"`,
+			funcLine:   "func Run(c Context) {}",
+			expectFunc: "Run",
+			comment:    "",
+		},
+	}
 
-	var (
-		infos []PackageInfo
-		err   error
-	)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			fsMock := MockFileSystem(t)
+			opts := Options{StartDir: "/root"}
+			done := make(chan struct{})
 
-	go func() {
-		infos, err = Discover(fsMock.Mock, opts)
+			var (
+				infos []PackageInfo
+				err   error
+			)
 
-		close(done)
-	}()
+			go func() {
+				infos, err = Discover(fsMock.Mock, opts)
 
-	fsMock.Method.ReadDir.ExpectCalledWithExactly("/root").InjectReturnValues([]fs.DirEntry{
-		fakeDirEntry{name: "cmd.go", dir: false},
-	}, nil)
-	fsMock.Method.ReadFile.ExpectCalledWithExactly("/root/cmd.go").
-		InjectReturnValues([]byte(`//go:build targ
+				close(done)
+			}()
+
+			commentSection := ""
+			if tc.comment != "" {
+				commentSection = tc.comment + "\n"
+			}
+
+			fsMock.Method.ReadDir.ExpectCalledWithExactly("/root").InjectReturnValues([]fs.DirEntry{
+				fakeDirEntry{name: "cmd.go", dir: false},
+			}, nil)
+			fsMock.Method.ReadFile.ExpectCalledWithExactly("/root/cmd.go").
+				InjectReturnValues([]byte(`//go:build targ
 
 package build
 
-import _ "context"
+`+tc.importLine+`
 
-// Run without context param because blank import doesn't allow usage
-func Run() {}
+`+commentSection+tc.funcLine+`
 `), nil)
 
-	<-done
+			<-done
 
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
 
-	if len(infos) != 1 {
-		t.Fatalf("expected 1 package info, got %d", len(infos))
-	}
-	// Blank import should be ignored for context detection
-	if names := commandNamesByKind(infos[0], CommandFunc); len(names) != 1 || names[0] != "Run" {
-		t.Fatalf("expected Run func to be detected, got %v", names)
+			if len(infos) != 1 {
+				t.Fatalf("expected 1 package info, got %d", len(infos))
+			}
+
+			if names := commandNamesByKind(infos[0], CommandFunc); len(names) != 1 || names[0] != tc.expectFunc {
+				t.Fatalf("expected %s func to be detected, got %v", tc.expectFunc, names)
+			}
+		})
 	}
 }
 
-func TestDiscover_ContextDotImport(t *testing.T) {
-	fsMock := MockFileSystem(t)
-	opts := Options{StartDir: "/root"}
-	done := make(chan struct{})
-
-	var (
-		infos []PackageInfo
-		err   error
-	)
-
-	go func() {
-		infos, err = Discover(fsMock.Mock, opts)
-
-		close(done)
-	}()
-
-	fsMock.Method.ReadDir.ExpectCalledWithExactly("/root").InjectReturnValues([]fs.DirEntry{
-		fakeDirEntry{name: "cmd.go", dir: false},
-	}, nil)
-	fsMock.Method.ReadFile.ExpectCalledWithExactly("/root/cmd.go").
-		InjectReturnValues([]byte(`//go:build targ
-
-package build
-
-import . "context"
-
-func Run(c Context) {}
-`), nil)
-
-	<-done
-
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+func TestDiscover_DescriptionMethodVariations(t *testing.T) {
+	tests := []struct {
+		name            string
+		descriptionFunc string
+		expectedDesc    string
+		failureReason   string
+	}{
+		{
+			name:            "valid description",
+			descriptionFunc: `func (b *Build) Description() string { return "Build the project" }`,
+			expectedDesc:    "Build the project",
+			failureReason:   "",
+		},
+		{
+			name:            "multiple returns",
+			descriptionFunc: `func (b *Build) Description() (string, error) { return "Build", nil }`,
+			expectedDesc:    "",
+			failureReason:   "multiple returns",
+		},
+		{
+			name:            "with params",
+			descriptionFunc: `func (b *Build) Description(locale string) string { return "Build the project" }`,
+			expectedDesc:    "",
+			failureReason:   "method has params",
+		},
+		{
+			name:            "wrong return type",
+			descriptionFunc: `func (b *Build) Description() int { return 42 }`,
+			expectedDesc:    "",
+			failureReason:   "wrong return type",
+		},
 	}
 
-	if len(infos) != 1 {
-		t.Fatalf("expected 1 package info, got %d", len(infos))
-	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			fsMock := MockFileSystem(t)
+			opts := Options{StartDir: "/root"}
+			done := make(chan struct{})
 
-	if names := commandNamesByKind(infos[0], CommandFunc); len(names) != 1 || names[0] != "Run" {
-		t.Fatalf("expected Run func to be detected with dot import context, got %v", names)
-	}
-}
+			var (
+				infos []PackageInfo
+				err   error
+			)
 
-func TestDiscover_DescriptionMethod(t *testing.T) {
-	fsMock := MockFileSystem(t)
-	opts := Options{StartDir: "/root"}
-	done := make(chan struct{})
+			go func() {
+				infos, err = Discover(fsMock.Mock, opts)
 
-	var (
-		infos []PackageInfo
-		err   error
-	)
+				close(done)
+			}()
 
-	go func() {
-		infos, err = Discover(fsMock.Mock, opts)
-
-		close(done)
-	}()
-
-	fsMock.Method.ReadDir.ExpectCalledWithExactly("/root").InjectReturnValues([]fs.DirEntry{
-		fakeDirEntry{name: "cmd.go", dir: false},
-	}, nil)
-	fsMock.Method.ReadFile.ExpectCalledWithExactly("/root/cmd.go").
-		InjectReturnValues([]byte(`//go:build targ
-
-package build
-
-type Build struct{}
-
-func (b *Build) Run() {}
-func (b *Build) Description() string { return "Build the project" }
-`), nil)
-
-	<-done
-
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if len(infos) != 1 {
-		t.Fatalf("expected 1 package info, got %d", len(infos))
-	}
-
-	info := infos[0]
-
-	var desc string
-
-	for _, cmd := range info.Commands {
-		if cmd.Name == "Build" && cmd.Kind == CommandStruct {
-			desc = cmd.Description
-			break
-		}
-	}
-
-	if desc != "Build the project" {
-		t.Fatalf("expected description, got %q", desc)
-	}
-}
-
-func TestDiscover_DescriptionMultipleReturns(t *testing.T) {
-	// Description method returning multiple values should be ignored
-	fsMock := MockFileSystem(t)
-	opts := Options{StartDir: "/root"}
-	done := make(chan struct{})
-
-	var (
-		infos []PackageInfo
-		err   error
-	)
-
-	go func() {
-		infos, err = Discover(fsMock.Mock, opts)
-
-		close(done)
-	}()
-
-	fsMock.Method.ReadDir.ExpectCalledWithExactly("/root").InjectReturnValues([]fs.DirEntry{
-		fakeDirEntry{name: "cmd.go", dir: false},
-	}, nil)
-	fsMock.Method.ReadFile.ExpectCalledWithExactly("/root/cmd.go").
-		InjectReturnValues([]byte(`//go:build targ
+			fsMock.Method.ReadDir.ExpectCalledWithExactly("/root").InjectReturnValues([]fs.DirEntry{
+				fakeDirEntry{name: "cmd.go", dir: false},
+			}, nil)
+			fsMock.Method.ReadFile.ExpectCalledWithExactly("/root/cmd.go").
+				InjectReturnValues([]byte(`//go:build targ
 
 package build
 
 type Build struct{}
 
 func (b *Build) Run() {}
-func (b *Build) Description() (string, error) { return "Build", nil }
+`+tc.descriptionFunc+`
 `), nil)
 
-	<-done
+			<-done
 
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
 
-	if len(infos) != 1 {
-		t.Fatalf("expected 1 package info, got %d", len(infos))
-	}
+			if len(infos) != 1 {
+				t.Fatalf("expected 1 package info, got %d", len(infos))
+			}
 
-	info := infos[0]
+			info := infos[0]
 
-	var desc string
+			var desc string
 
-	for _, cmd := range info.Commands {
-		if cmd.Name == "Build" && cmd.Kind == CommandStruct {
-			desc = cmd.Description
-			break
-		}
-	}
-	// Description returning multiple values should be ignored
-	if desc != "" {
-		t.Fatalf("expected no description (multiple returns), got %q", desc)
-	}
-}
+			for _, cmd := range info.Commands {
+				if cmd.Name == buildTestCmdName && cmd.Kind == CommandStruct {
+					desc = cmd.Description
+					break
+				}
+			}
 
-func TestDiscover_DescriptionWithParams(t *testing.T) {
-	// Description method with params should be ignored
-	fsMock := MockFileSystem(t)
-	opts := Options{StartDir: "/root"}
-	done := make(chan struct{})
-
-	var (
-		infos []PackageInfo
-		err   error
-	)
-
-	go func() {
-		infos, err = Discover(fsMock.Mock, opts)
-
-		close(done)
-	}()
-
-	fsMock.Method.ReadDir.ExpectCalledWithExactly("/root").InjectReturnValues([]fs.DirEntry{
-		fakeDirEntry{name: "cmd.go", dir: false},
-	}, nil)
-	fsMock.Method.ReadFile.ExpectCalledWithExactly("/root/cmd.go").
-		InjectReturnValues([]byte(`//go:build targ
-
-package build
-
-type Build struct{}
-
-func (b *Build) Run() {}
-func (b *Build) Description(locale string) string { return "Build the project" }
-`), nil)
-
-	<-done
-
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if len(infos) != 1 {
-		t.Fatalf("expected 1 package info, got %d", len(infos))
-	}
-
-	info := infos[0]
-
-	var desc string
-
-	for _, cmd := range info.Commands {
-		if cmd.Name == "Build" && cmd.Kind == CommandStruct {
-			desc = cmd.Description
-			break
-		}
-	}
-	// Description with params should be ignored, so no description
-	if desc != "" {
-		t.Fatalf("expected no description (method has params), got %q", desc)
-	}
-}
-
-func TestDiscover_DescriptionWrongReturnType(t *testing.T) {
-	// Description method returning int should be ignored
-	fsMock := MockFileSystem(t)
-	opts := Options{StartDir: "/root"}
-	done := make(chan struct{})
-
-	var (
-		infos []PackageInfo
-		err   error
-	)
-
-	go func() {
-		infos, err = Discover(fsMock.Mock, opts)
-
-		close(done)
-	}()
-
-	fsMock.Method.ReadDir.ExpectCalledWithExactly("/root").InjectReturnValues([]fs.DirEntry{
-		fakeDirEntry{name: "cmd.go", dir: false},
-	}, nil)
-	fsMock.Method.ReadFile.ExpectCalledWithExactly("/root/cmd.go").
-		InjectReturnValues([]byte(`//go:build targ
-
-package build
-
-type Build struct{}
-
-func (b *Build) Run() {}
-func (b *Build) Description() int { return 42 }
-`), nil)
-
-	<-done
-
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if len(infos) != 1 {
-		t.Fatalf("expected 1 package info, got %d", len(infos))
-	}
-
-	info := infos[0]
-
-	var desc string
-
-	for _, cmd := range info.Commands {
-		if cmd.Name == "Build" && cmd.Kind == CommandStruct {
-			desc = cmd.Description
-			break
-		}
-	}
-	// Description returning int should be ignored
-	if desc != "" {
-		t.Fatalf("expected no description (wrong return type), got %q", desc)
+			if desc != tc.expectedDesc {
+				if tc.failureReason != "" {
+					t.Fatalf("expected no description (%s), got %q", tc.failureReason, desc)
+				} else {
+					t.Fatalf("expected description %q, got %q", tc.expectedDesc, desc)
+				}
+			}
+		})
 	}
 }
 
@@ -590,8 +451,8 @@ func Sub() {}
 		t.Fatalf("expected structs [Root], got %v", names)
 	}
 
-	if names := commandNamesByKind(info, CommandFunc); len(names) != 1 || names[0] != "Build" {
-		t.Fatalf("expected funcs [Build], got %v", names)
+	if names := commandNamesByKind(info, CommandFunc); len(names) != 1 || names[0] != buildTestCmdName {
+		t.Fatalf("expected funcs [%s], got %v", buildTestCmdName, names)
 	}
 }
 
@@ -638,7 +499,7 @@ func Build() {}
 	var desc string
 
 	for _, cmd := range info.Commands {
-		if cmd.Name == "Build" && cmd.Kind == CommandFunc {
+		if cmd.Name == buildTestCmdName && cmd.Kind == CommandFunc {
 			desc = cmd.Description
 			break
 		}
@@ -747,8 +608,8 @@ func Build() {}
 		t.Fatalf("expected no structs (generated file skipped), got %v", names)
 	}
 
-	if names := commandNamesByKind(info, CommandFunc); len(names) != 1 || names[0] != "Build" {
-		t.Fatalf("expected funcs [Build], got %v", names)
+	if names := commandNamesByKind(info, CommandFunc); len(names) != 1 || names[0] != buildTestCmdName {
+		t.Fatalf("expected funcs [%s], got %v", buildTestCmdName, names)
 	}
 }
 
@@ -1017,55 +878,10 @@ func Deploy() {}
 }
 
 func TestDiscover_ReturnsAllTaggedDirs(t *testing.T) {
-	fsMock := MockFileSystem(t)
-	opts := Options{StartDir: "/root"}
-	done := make(chan struct{})
-
-	var (
-		infos []PackageInfo
-		err   error
-	)
-
-	go func() {
-		infos, err = Discover(fsMock.Mock, opts)
-
-		close(done)
-	}()
-
-	fsMock.Method.ReadDir.ExpectCalledWithExactly("/root").InjectReturnValues([]fs.DirEntry{
-		fakeDirEntry{name: "pkg1", dir: true},
-		fakeDirEntry{name: "pkg2", dir: true},
-	}, nil)
-	fsMock.Method.ReadDir.ExpectCalledWithExactly("/root/pkg1").InjectReturnValues([]fs.DirEntry{
-		fakeDirEntry{name: "cmd.go", dir: false},
-	}, nil)
-	fsMock.Method.ReadFile.ExpectCalledWithExactly("/root/pkg1/cmd.go").
-		InjectReturnValues([]byte(`//go:build targ
-
-package pkg1
-
-func Hello() {}
-`), nil)
-	fsMock.Method.ReadDir.ExpectCalledWithExactly("/root/pkg2").InjectReturnValues([]fs.DirEntry{
-		fakeDirEntry{name: "cmd.go", dir: false},
-	}, nil)
-	fsMock.Method.ReadFile.ExpectCalledWithExactly("/root/pkg2/cmd.go").
-		InjectReturnValues([]byte(`//go:build targ
-
-package pkg2
-
-func Hi() {}
-`), nil)
-
-	<-done
-
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if len(infos) != 2 {
-		t.Fatalf("expected 2 package infos, got %d", len(infos))
-	}
+	testMultipleTaggedPackages(t, func(fsMock *FileSystemMockHandle, opts Options) (int, error) {
+		infos, err := Discover(fsMock.Mock, opts)
+		return len(infos), err
+	})
 }
 
 func TestDiscover_SkipsTargCacheDir(t *testing.T) {
@@ -1378,51 +1194,10 @@ func TestShouldSkipGoFile(t *testing.T) {
 }
 
 func TestTaggedFiles_ReturnsSelectedFiles(t *testing.T) {
-	fsMock := MockFileSystem(t)
-	opts := Options{StartDir: "/root"}
-	done := make(chan struct{})
-
-	var (
-		files []TaggedFile
-		err   error
-	)
-
-	go func() {
-		files, err = TaggedFiles(fsMock.Mock, opts)
-
-		close(done)
-	}()
-
-	fsMock.Method.ReadDir.ExpectCalledWithExactly("/root").InjectReturnValues([]fs.DirEntry{
-		fakeDirEntry{name: "pkg1", dir: true},
-		fakeDirEntry{name: "pkg2", dir: true},
-	}, nil)
-	fsMock.Method.ReadDir.ExpectCalledWithExactly("/root/pkg1").InjectReturnValues([]fs.DirEntry{
-		fakeDirEntry{name: "cmd.go", dir: false},
-	}, nil)
-	fsMock.Method.ReadFile.ExpectCalledWithExactly("/root/pkg1/cmd.go").
-		InjectReturnValues([]byte(`//go:build targ
-
-package pkg1
-`), nil)
-	fsMock.Method.ReadDir.ExpectCalledWithExactly("/root/pkg2").InjectReturnValues([]fs.DirEntry{
-		fakeDirEntry{name: "cmd.go", dir: false},
-	}, nil)
-	fsMock.Method.ReadFile.ExpectCalledWithExactly("/root/pkg2/cmd.go").
-		InjectReturnValues([]byte(`//go:build targ
-
-package pkg2
-`), nil)
-
-	<-done
-
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if len(files) != 2 {
-		t.Fatalf("expected 2 tagged files, got %d", len(files))
-	}
+	testMultipleTaggedPackages(t, func(fsMock *FileSystemMockHandle, opts Options) (int, error) {
+		files, err := TaggedFiles(fsMock.Mock, opts)
+		return len(files), err
+	})
 }
 
 func TestTryReadTaggedFile_ReadFileError(t *testing.T) {
@@ -1498,4 +1273,56 @@ func commandNamesByKind(info PackageInfo, kind CommandKind) []string {
 
 func writeTestFile(path string, content []byte) error {
 	return OSFileSystem{}.WriteFile(path, content, 0o644)
+}
+
+func testMultipleTaggedPackages(t *testing.T, testFunc func(*FileSystemMockHandle, Options) (int, error)) {
+	fsMock := MockFileSystem(t)
+	opts := Options{StartDir: "/root"}
+	done := make(chan struct{})
+
+	var (
+		count int
+		err   error
+	)
+
+	go func() {
+		count, err = testFunc(fsMock, opts)
+
+		close(done)
+	}()
+
+	fsMock.Method.ReadDir.ExpectCalledWithExactly("/root").InjectReturnValues([]fs.DirEntry{
+		fakeDirEntry{name: "pkg1", dir: true},
+		fakeDirEntry{name: "pkg2", dir: true},
+	}, nil)
+	fsMock.Method.ReadDir.ExpectCalledWithExactly("/root/pkg1").InjectReturnValues([]fs.DirEntry{
+		fakeDirEntry{name: "cmd.go", dir: false},
+	}, nil)
+	fsMock.Method.ReadFile.ExpectCalledWithExactly("/root/pkg1/cmd.go").
+		InjectReturnValues([]byte(`//go:build targ
+
+package pkg1
+
+func Hello() {}
+`), nil)
+	fsMock.Method.ReadDir.ExpectCalledWithExactly("/root/pkg2").InjectReturnValues([]fs.DirEntry{
+		fakeDirEntry{name: "cmd.go", dir: false},
+	}, nil)
+	fsMock.Method.ReadFile.ExpectCalledWithExactly("/root/pkg2/cmd.go").
+		InjectReturnValues([]byte(`//go:build targ
+
+package pkg2
+
+func Hi() {}
+`), nil)
+
+	<-done
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if count != 2 {
+		t.Fatalf("expected 2 items, got %d", count)
+	}
 }

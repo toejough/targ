@@ -1,3 +1,4 @@
+// Package main demonstrates simple targ usage.
 package main
 
 import (

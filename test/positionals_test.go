@@ -6,6 +6,8 @@ import (
 	"github.com/toejough/targ"
 )
 
+const testNameBob = "Bob"
+
 type ChildCmd struct {
 	Name   string `targ:"flag"`
 	Called bool
@@ -134,13 +136,13 @@ func TestDetectRootCommands(t *testing.T) {
 func TestInterleavedFlagsAndPositionals(t *testing.T) {
 	cmd := &InterleavedFlagsPositionals{}
 
-	_, err := targ.Execute([]string{"app", "Bob", "--count", "2"}, cmd)
+	_, err := targ.Execute([]string{"app", testNameBob, "--count", "2"}, cmd)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if cmd.Name != "Bob" {
-		t.Fatalf("expected Name=Bob, got %q", cmd.Name)
+	if cmd.Name != testNameBob {
+		t.Fatalf("expected Name=%s, got %q", testNameBob, cmd.Name)
 	}
 
 	if cmd.Count != 2 {

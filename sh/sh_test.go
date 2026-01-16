@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-func TestEnableCleanup(t *testing.T) {
+func TestEnableCleanup(_ *testing.T) {
 	// EnableCleanup should be idempotent - calling multiple times is safe
 	EnableCleanup()
 	EnableCleanup() // Second call should not panic or cause issues
@@ -30,7 +30,7 @@ func TestExeSuffix(t *testing.T) {
 	}
 }
 
-func TestHelperProcess(t *testing.T) {
+func TestHelperProcess(_ *testing.T) {
 	if os.Getenv("GO_WANT_HELPER_PROCESS") != "1" {
 		return
 	}
@@ -43,7 +43,7 @@ func TestHelperProcess(t *testing.T) {
 	runHelperCommand(cmd, cmdArgs)
 }
 
-func TestIsWindows(t *testing.T) {
+func TestIsWindows(_ *testing.T) {
 	// Just verify it returns a bool and doesn't panic
 	_ = IsWindows()
 }

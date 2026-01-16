@@ -44,7 +44,7 @@ func TestRunWithEnv_CaretResetsToRoot(t *testing.T) {
 	multiSubOneCalls = 0
 	multiRootDiscoverCalls = 0
 
-	env := &executeEnv{args: []string{"cmd", "multi-sub-root", "one", "^", "discover"}}
+	env := &ExecuteEnv{args: []string{"cmd", "multi-sub-root", "one", "^", "discover"}}
 
 	err := RunWithEnv(env, RunOptions{AllowDefault: false}, &MultiSubRoot{}, &discoverRoot{})
 	if err != nil {
@@ -82,7 +82,7 @@ func TestRunWithEnv_ContextFunction(t *testing.T) {
 
 func TestRunWithEnv_DisableCompletion(t *testing.T) {
 	// With DisableCompletion, --completion should be passed through as unknown flag
-	env := &executeEnv{args: []string{"cmd", "--completion", "bash"}}
+	env := &ExecuteEnv{args: []string{"cmd", "--completion", "bash"}}
 
 	err := RunWithEnv(env, RunOptions{DisableCompletion: true}, DefaultFunc)
 	if err == nil {
@@ -92,7 +92,7 @@ func TestRunWithEnv_DisableCompletion(t *testing.T) {
 
 func TestRunWithEnv_DisableHelp(t *testing.T) {
 	// With DisableHelp, --help should be passed through as unknown flag
-	env := &executeEnv{args: []string{"cmd", "--help"}}
+	env := &ExecuteEnv{args: []string{"cmd", "--help"}}
 
 	err := RunWithEnv(env, RunOptions{DisableHelp: true}, DefaultFunc)
 	if err == nil {
@@ -111,7 +111,7 @@ func TestRunWithEnv_DisableHelp(t *testing.T) {
 
 func TestRunWithEnv_DisableTimeout(t *testing.T) {
 	// With DisableTimeout, --timeout should be passed through as unknown flag
-	env := &executeEnv{args: []string{"cmd", "--timeout", "5m"}}
+	env := &ExecuteEnv{args: []string{"cmd", "--timeout", "5m"}}
 
 	err := RunWithEnv(env, RunOptions{DisableTimeout: true}, DefaultFunc)
 	if err == nil {
@@ -120,7 +120,7 @@ func TestRunWithEnv_DisableTimeout(t *testing.T) {
 }
 
 func TestRunWithEnv_FunctionReturnsError(t *testing.T) {
-	env := &executeEnv{args: []string{"cmd"}}
+	env := &ExecuteEnv{args: []string{"cmd"}}
 
 	err := RunWithEnv(env, RunOptions{AllowDefault: true}, ErrorFunc)
 	if err == nil {
@@ -187,7 +187,7 @@ func TestRunWithEnv_FunctionWithHelpFlag(t *testing.T) {
 
 func TestRunWithEnv_GlobalHelpMultipleRoots(t *testing.T) {
 	// Test --help with multiple roots (no default) - shows usage
-	env := &executeEnv{args: []string{"cmd", "--help"}}
+	env := &ExecuteEnv{args: []string{"cmd", "--help"}}
 
 	output := captureStdout(t, func() {
 		err := RunWithEnv(env, RunOptions{AllowDefault: false}, DefaultFunc, OtherFunc)
@@ -204,7 +204,7 @@ func TestRunWithEnv_GlobalHelpMultipleRoots(t *testing.T) {
 
 func TestRunWithEnv_GlobalHelpShort(t *testing.T) {
 	// Test -h (short form) at global level with default command
-	env := &executeEnv{args: []string{"cmd", "-h"}}
+	env := &ExecuteEnv{args: []string{"cmd", "-h"}}
 
 	output := captureStdout(t, func() {
 		err := RunWithEnv(env, RunOptions{AllowDefault: true}, DefaultFunc)
@@ -220,7 +220,7 @@ func TestRunWithEnv_GlobalHelpShort(t *testing.T) {
 
 func TestRunWithEnv_GlobalHelpWithArgs(t *testing.T) {
 	// Test --help with args after the flag - goes through handleGlobalHelp
-	env := &executeEnv{args: []string{"cmd", "--help", "default-func"}}
+	env := &ExecuteEnv{args: []string{"cmd", "--help", "default-func"}}
 
 	output := captureStdout(t, func() {
 		err := RunWithEnv(env, RunOptions{AllowDefault: true}, DefaultFunc)
@@ -237,7 +237,7 @@ func TestRunWithEnv_GlobalHelpWithArgs(t *testing.T) {
 
 func TestRunWithEnv_GlobalHelpWithArgsMultiRoot(t *testing.T) {
 	// Test --help with args for multiple roots - goes through handleGlobalHelp else branch
-	env := &executeEnv{args: []string{"cmd", "--help", "something"}}
+	env := &ExecuteEnv{args: []string{"cmd", "--help", "something"}}
 
 	output := captureStdout(t, func() {
 		err := RunWithEnv(env, RunOptions{AllowDefault: false}, DefaultFunc, OtherFunc)

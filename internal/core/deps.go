@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"errors"
+	"fmt"
 	"reflect"
 	"sync"
 )
@@ -55,10 +56,10 @@ func Deps(args ...any) error {
 	}
 
 	if cfg.parallel {
-		return parallelRun(tracker, ctx, targets, cfg.continueOnError)
+		return parallelRun(ctx, tracker, targets, cfg.continueOnError)
 	}
 
-	return serialRun(tracker, ctx, targets, cfg.continueOnError)
+	return serialRun(ctx, tracker, targets, cfg.continueOnError)
 }
 
 // Parallel runs dependencies concurrently instead of sequentially.
@@ -90,11 +91,7 @@ type continueOnErrorOpt struct{}
 
 func (continueOnErrorOpt) applyDeps(c *depsConfig) { c.continueOnError = true }
 
-type depKey struct {
-	kind    string
-	id      uintptr
-	typName string
-}
+type depKey string
 
 type depTracker struct {
 	ctx      context.Context
@@ -166,21 +163,21 @@ func (o withContextOpt) applyDeps(c *depsConfig) { c.ctx = o.ctx }
 
 func depKeyFor(target any) (depKey, error) {
 	if target == nil {
-		return depKey{}, errors.New("dependency target cannot be nil")
+		return "", errors.New("dependency target cannot be nil")
 	}
 
 	v := reflect.ValueOf(target)
 	switch v.Kind() {
 	case reflect.Func:
-		return depKey{kind: "func", id: v.Pointer(), typName: v.Type().String()}, nil
+		return depKey(fmt.Sprintf("func:%d:%s", v.Pointer(), v.Type().String())), nil
 	case reflect.Ptr:
 		if v.IsNil() {
-			return depKey{}, errors.New("dependency target cannot be nil")
+			return "", errors.New("dependency target cannot be nil")
 		}
 		// Include type name to distinguish zero-sized structs with same address
-		return depKey{kind: "ptr", id: v.Pointer(), typName: v.Type().String()}, nil
+		return depKey(fmt.Sprintf("ptr:%d:%s", v.Pointer(), v.Type().String())), nil
 	default:
-		return depKey{}, errors.New("dependency target must be func or pointer to struct")
+		return "", errors.New("dependency target must be func or pointer to struct")
 	}
 }
 
@@ -193,8 +190,8 @@ func newDepTracker(ctx context.Context) *depTracker {
 }
 
 func parallelRun(
-	tracker *depTracker,
 	ctx context.Context,
+	tracker *depTracker,
 	targets []any,
 	continueOnError bool,
 ) error {
@@ -240,8 +237,8 @@ func parallelRun(
 }
 
 func serialRun(
-	tracker *depTracker,
 	ctx context.Context,
+	tracker *depTracker,
 	targets []any,
 	continueOnError bool,
 ) error {

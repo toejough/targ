@@ -253,21 +253,21 @@ func collectFieldFlagSpec(
 	field reflect.StructField,
 	fieldVal reflect.Value,
 	usedNames map[string]bool,
-) (*flagSpec, error) {
+) (*flagSpec, bool, error) {
 	spec, ok, err := flagSpecForField(inst.value, field, fieldVal)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
 	if !ok || spec == nil {
-		return nil, nil
+		return nil, false, nil
 	}
 
 	if err := registerFlagName(spec, usedNames); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
-	return spec, nil
+	return spec, true, nil
 }
 
 func collectFlagSpecs(chain []commandInstance) ([]*flagSpec, map[string]bool, error) {
@@ -303,12 +303,12 @@ func collectInstanceFlagSpecs(
 
 	typ := inst.node.Type
 	for i := 0; i < typ.NumField(); i++ {
-		spec, err := collectFieldFlagSpec(inst, typ.Field(i), inst.value.Field(i), usedNames)
+		spec, ok, err := collectFieldFlagSpec(inst, typ.Field(i), inst.value.Field(i), usedNames)
 		if err != nil {
 			return nil, err
 		}
 
-		if spec != nil {
+		if ok {
 			specs = append(specs, spec)
 		}
 	}
@@ -540,7 +540,7 @@ func parseFlagValueWithPosition(
 	spec *flagSpec,
 	args []string,
 	index int,
-	visited map[string]bool,
+	_ map[string]bool,
 	allowIncomplete bool,
 	argPosition *int,
 ) (int, error) {

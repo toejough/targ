@@ -13,6 +13,42 @@ import (
 	"time"
 )
 
+// ExecuteEnv captures args and errors for testing.
+type ExecuteEnv struct {
+	args   []string
+	output strings.Builder
+}
+
+// NewExecuteEnv returns a runEnv that captures output for testing.
+func NewExecuteEnv(args []string) *ExecuteEnv {
+	return &ExecuteEnv{args: args}
+}
+
+// Args returns the command line arguments.
+func (e *ExecuteEnv) Args() []string {
+	return e.args
+}
+
+// Exit is a no-op for testing environments.
+func (e *ExecuteEnv) Exit(_ int) {
+	_ = 0 // No-op stub for coverage
+}
+
+// Output returns the captured output from command execution.
+func (e *ExecuteEnv) Output() string {
+	return e.output.String()
+}
+
+// Printf writes formatted output to the captured buffer.
+func (e *ExecuteEnv) Printf(format string, args ...any) {
+	fmt.Fprintf(&e.output, format, args...)
+}
+
+// Println writes a line to the captured buffer.
+func (e *ExecuteEnv) Println(args ...any) {
+	fmt.Fprintln(&e.output, args...)
+}
+
 // ExitError is returned when a command exits with a non-zero code.
 type ExitError struct {
 	Code int
@@ -44,11 +80,6 @@ func DetectShell() string {
 	default:
 		return ""
 	}
-}
-
-// NewExecuteEnv returns a runEnv that captures output for testing.
-func NewExecuteEnv(args []string) *executeEnv {
-	return &executeEnv{args: args}
 }
 
 // NewOsEnv returns a runEnv that uses os.Args and real stdout/exit.
@@ -110,33 +141,6 @@ func RunWithEnv(env runEnv, opts RunOptions, targets ...any) error {
 
 // completeFunc is the function type for command completion.
 type completeFunc func([]*commandNode, string) error
-
-// executeEnv captures args and errors for testing.
-type executeEnv struct {
-	args   []string
-	output strings.Builder
-}
-
-func (e *executeEnv) Args() []string {
-	return e.args
-}
-
-func (e *executeEnv) Exit(_ int) {
-	_ = 0 // No-op stub for coverage
-}
-
-// Output returns the captured output from command execution.
-func (e *executeEnv) Output() string {
-	return e.output.String()
-}
-
-func (e *executeEnv) Printf(format string, args ...any) {
-	fmt.Fprintf(&e.output, format, args...)
-}
-
-func (e *executeEnv) Println(args ...any) {
-	fmt.Fprintln(&e.output, args...)
-}
 
 // listCommandInfo represents a command in the __list output.
 type listCommandInfo struct {

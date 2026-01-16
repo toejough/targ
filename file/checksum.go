@@ -1,3 +1,4 @@
+// Package file provides utilities for file operations in build scripts.
 package file
 
 import (

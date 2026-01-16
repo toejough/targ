@@ -1,3 +1,4 @@
+// Package core provides the internal implementation of targ command parsing and execution.
 package core
 
 import (
@@ -11,6 +12,11 @@ import (
 	"sort"
 	"strings"
 	"unicode"
+)
+
+// unexported constants.
+const (
+	flagPlaceholder = "[flag]"
 )
 
 // unexported variables.
@@ -392,7 +398,7 @@ func assignSubcommandField(
 	}
 
 	typ := parent.Type
-	for i := 0; i < typ.NumField(); i++ {
+	for i := range typ.NumField() {
 		field := typ.Field(i)
 
 		opts, ok, err := tagOptionsForField(parentInst, field)
@@ -549,7 +555,7 @@ func callMethod(ctx context.Context, receiver reflect.Value, name string) (bool,
 		return false, nil
 	}
 
-	callArgs, err := validateMethodInputs(method, ctx, name)
+	callArgs, err := validateMethodInputs(ctx, method, name)
 	if err != nil {
 		return true, err
 	}
@@ -630,7 +636,7 @@ func collectFlagHelp(node *commandNode) ([]flagHelp, error) {
 
 	var flags []flagHelp
 
-	for i := 0; i < typ.NumField(); i++ {
+	for i := range typ.NumField() {
 		field := typ.Field(i)
 
 		help, ok, err := flagHelpForField(inst, field)
@@ -678,7 +684,7 @@ func collectPositionalHelp(node *commandNode) ([]positionalHelp, error) {
 
 	var positionals []positionalHelp
 
-	for i := 0; i < typ.NumField(); i++ {
+	for i := range typ.NumField() {
 		field := typ.Field(i)
 
 		opts, ok, err := tagOptionsForField(inst, field)
@@ -715,7 +721,7 @@ func copySubcommandFuncs(inst reflect.Value, node *commandNode) error {
 	}
 
 	typ := node.Type
-	for i := 0; i < typ.NumField(); i++ {
+	for i := range typ.NumField() {
 		field := typ.Field(i)
 
 		opts, ok, err := tagOptionsForField(node.Value, field)
@@ -971,7 +977,7 @@ func formatFlagName(item flagHelp) string {
 		name = fmt.Sprintf("--%s, -%s", item.Name, item.Short)
 	}
 
-	if item.Placeholder != "" && item.Placeholder != "[flag]" {
+	if item.Placeholder != "" && item.Placeholder != flagPlaceholder {
 		name = fmt.Sprintf("%s %s", name, item.Placeholder)
 	}
 
@@ -984,7 +990,7 @@ func formatFlagUsage(item flagHelp) string {
 		name = fmt.Sprintf("{-%s|--%s}", item.Short, item.Name)
 	}
 
-	if item.Placeholder != "" && item.Placeholder != "[flag]" {
+	if item.Placeholder != "" && item.Placeholder != flagPlaceholder {
 		name = fmt.Sprintf("%s %s", name, item.Placeholder)
 	}
 
@@ -1214,7 +1220,7 @@ func parseSubcommandField(field reflect.StructField) (*commandNode, error) {
 
 // parseSubcommandFields parses all subcommand fields and adds them to the node.
 func parseSubcommandFields(node *commandNode, v reflect.Value, typ reflect.Type) error {
-	for i := 0; i < typ.NumField(); i++ {
+	for i := range typ.NumField() {
 		field := typ.Field(i)
 
 		opts, ok, err := tagOptionsForField(v, field)
@@ -1447,8 +1453,8 @@ func runCommand(
 	ctx context.Context,
 	node *commandNode,
 	inst reflect.Value,
-	args []string,
-	posArgIdx int,
+	_ []string,
+	_ int,
 ) error {
 	if node == nil {
 		return nil
@@ -1623,8 +1629,8 @@ func validateLongFlagArgs(args []string, longNames map[string]bool) error {
 }
 
 func validateMethodInputs(
-	method reflect.Value,
 	ctx context.Context,
+	method reflect.Value,
 	name string,
 ) ([]reflect.Value, error) {
 	mtype := method.Type()
@@ -1677,7 +1683,7 @@ func validateTagOptionsSignature(method reflect.Value) error {
 
 // validateZeroFields ensures fields are zero-valued (defaults should use tags).
 func validateZeroFields(v reflect.Value, typ reflect.Type) error {
-	for i := 0; i < typ.NumField(); i++ {
+	for i := range typ.NumField() {
 		field := typ.Field(i)
 
 		opts, ok, err := tagOptionsForField(v, field)

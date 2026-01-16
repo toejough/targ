@@ -599,7 +599,7 @@ func collectInstanceEnums(current commandInstance, enumByFlag map[string][]strin
 		return nil
 	}
 
-	for i := 0; i < current.node.Type.NumField(); i++ {
+	for i := range current.node.Type.NumField() {
 		err := collectFieldEnums(current, current.node.Type.Field(i), enumByFlag)
 		if err != nil {
 			return err
@@ -628,7 +628,7 @@ func completionFlagSpecs(chain []commandInstance) (map[string]completionFlagSpec
 		}
 
 		inst := current.value
-		for i := 0; i < current.node.Type.NumField(); i++ {
+		for i := range current.node.Type.NumField() {
 			field := current.node.Type.Field(i)
 
 			opts, ok, err := tagOptionsForField(inst, field)
@@ -840,7 +840,7 @@ func positionalFields(node *commandNode, inst reflect.Value) ([]positionalField,
 
 	var fields []positionalField
 
-	for i := 0; i < node.Type.NumField(); i++ {
+	for i := range node.Type.NumField() {
 		field := node.Type.Field(i)
 
 		opts, ok, err := tagOptionsForField(inst, field)
@@ -858,7 +858,7 @@ func positionalFields(node *commandNode, inst reflect.Value) ([]positionalField,
 	return fields, nil
 }
 
-func positionalIndex(node *commandNode, args []string, chain []commandInstance) (int, error) {
+func positionalIndex(_ *commandNode, args []string, chain []commandInstance) (int, error) {
 	specs, err := completionFlagSpecs(chain)
 	if err != nil {
 		return 0, err
@@ -1008,7 +1008,7 @@ func suggestInstanceFlags(current commandInstance, prefix string, seen map[strin
 	}
 
 	typ := current.node.Type
-	for i := 0; i < typ.NumField(); i++ {
+	for i := range typ.NumField() {
 		err := suggestFieldFlags(current, typ.Field(i), prefix, seen)
 		if err != nil {
 			return err
