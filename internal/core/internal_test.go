@@ -18,8 +18,6 @@ import (
 	"pgregory.net/rapid"
 )
 
-const bashShell = "bash"
-
 type BadTagOptionsInputCmd struct {
 	Name string `targ:"flag"`
 }
@@ -377,6 +375,26 @@ func TestBinaryName_FromOsArgs(t *testing.T) {
 	g.Expect(result).NotTo(BeEmpty())
 	// Should be stripped of path (at minimum, should not contain directory separators
 	// unless the binary name itself contains them, which is rare)
+}
+
+func TestCallStringMethod_NonExistentMethod(t *testing.T) {
+	g := NewWithT(t)
+	cmd := &callStringMethodNoMethod{}
+	v := reflect.ValueOf(cmd)
+	typ := v.Type()
+
+	result := callStringMethod(v, typ, "Name")
+	g.Expect(result).To(Equal(""))
+}
+
+func TestCallStringMethod_WrongSignature(t *testing.T) {
+	g := NewWithT(t)
+	cmd := &callStringMethodWrongSig{}
+	v := reflect.ValueOf(cmd)
+	typ := v.Type()
+
+	result := callStringMethod(v, typ, "Name")
+	g.Expect(result).To(Equal(""))
 }
 
 // --- camelToKebab ---
@@ -1292,8 +1310,7 @@ func TestHandleComplete_ReturnsErrorFromCompleteFn(t *testing.T) {
 		completeFn: func(_ []*commandNode, _ string) error { return completeErr },
 	}
 
-	err := exec.handleComplete()
-	g.Expect(err).NotTo(HaveOccurred()) // handleComplete doesn't propagate errors
+	exec.handleComplete()
 	g.Expect(env.Output()).To(ContainSubstring("completion failed"))
 }
 
@@ -1307,8 +1324,7 @@ func TestHandleComplete_ShortRest(t *testing.T) {
 		rest: []string{"__complete"}, // only one element
 	}
 
-	err := exec.handleComplete()
-	g.Expect(err).NotTo(HaveOccurred())
+	exec.handleComplete()
 	g.Expect(env.Output()).To(BeEmpty()) // No error printed
 }
 
@@ -2530,6 +2546,23 @@ func TestVariadicPositionalStopsAtDoubleDash(t *testing.T) {
 func TooManyReturnsFunc() (int, error) {
 	return 42, nil
 }
+
+// unexported constants.
+const (
+	bashShell = "bash"
+)
+
+// --- callStringMethod ---
+
+type callStringMethodNoMethod struct{}
+
+func (c *callStringMethodNoMethod) Run() {}
+
+type callStringMethodWrongSig struct{}
+
+func (c *callStringMethodWrongSig) Name(arg string) string { return arg }
+
+func (c *callStringMethodWrongSig) Run() {}
 
 type errorCmd struct{}
 

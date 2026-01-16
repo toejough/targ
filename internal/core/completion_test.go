@@ -8,11 +8,6 @@ import (
 	"testing"
 )
 
-const (
-	testStringBar    = "bar"
-	testStringBarBaz = "bar baz"
-)
-
 type CompletionDiscoverRoot struct{}
 
 func (c *CompletionDiscoverRoot) Name() string { return "discover" }
@@ -699,7 +694,7 @@ func TestTokenizeCommandLine_DoubleQuoteInsideSingle(t *testing.T) {
 
 func TestTokenizeCommandLine_DoubleQuotes(t *testing.T) {
 	parts, isNewArg := tokenizeCommandLine(`foo "bar baz"`)
-	if len(parts) != 2 || parts[0] != "foo" || parts[1] != testStringBarBaz {
+	if len(parts) != 2 || parts[0] != testStringFoo || parts[1] != testStringBarBaz {
 		t.Fatalf("unexpected parts: %v", parts)
 	}
 
@@ -717,7 +712,7 @@ func TestTokenizeCommandLine_EscapeInDoubleQuotes(t *testing.T) {
 
 func TestTokenizeCommandLine_EscapedSpace(t *testing.T) {
 	parts, isNewArg := tokenizeCommandLine(`foo bar\ baz`)
-	if len(parts) != 2 || parts[0] != "foo" || parts[1] != testStringBarBaz {
+	if len(parts) != 2 || parts[0] != testStringFoo || parts[1] != testStringBarBaz {
 		t.Fatalf("unexpected parts: %v", parts)
 	}
 
@@ -728,7 +723,7 @@ func TestTokenizeCommandLine_EscapedSpace(t *testing.T) {
 
 func TestTokenizeCommandLine_NewlineSeparator(t *testing.T) {
 	parts, isNewArg := tokenizeCommandLine("foo\nbar")
-	if len(parts) != 2 || parts[0] != "foo" || parts[1] != testStringBar {
+	if len(parts) != 2 || parts[0] != testStringFoo || parts[1] != testStringBar {
 		t.Fatalf("unexpected parts: %v", parts)
 	}
 
@@ -741,7 +736,7 @@ func TestTokenizeCommandLine_NewlineSeparator(t *testing.T) {
 
 func TestTokenizeCommandLine_SimpleArgs(t *testing.T) {
 	parts, isNewArg := tokenizeCommandLine("foo bar baz")
-	if len(parts) != 3 || parts[0] != "foo" || parts[1] != testStringBar || parts[2] != "baz" {
+	if len(parts) != 3 || parts[0] != testStringFoo || parts[1] != testStringBar || parts[2] != "baz" {
 		t.Fatalf("unexpected parts: %v", parts)
 	}
 
@@ -759,7 +754,7 @@ func TestTokenizeCommandLine_SingleQuoteInsideDouble(t *testing.T) {
 
 func TestTokenizeCommandLine_SingleQuotes(t *testing.T) {
 	parts, isNewArg := tokenizeCommandLine("foo 'bar baz'")
-	if len(parts) != 2 || parts[0] != "foo" || parts[1] != testStringBarBaz {
+	if len(parts) != 2 || parts[0] != testStringFoo || parts[1] != testStringBarBaz {
 		t.Fatalf("unexpected parts: %v", parts)
 	}
 
@@ -770,7 +765,7 @@ func TestTokenizeCommandLine_SingleQuotes(t *testing.T) {
 
 func TestTokenizeCommandLine_TabSeparator(t *testing.T) {
 	parts, isNewArg := tokenizeCommandLine("foo\tbar")
-	if len(parts) != 2 || parts[0] != "foo" || parts[1] != testStringBar {
+	if len(parts) != 2 || parts[0] != testStringFoo || parts[1] != testStringBar {
 		t.Fatalf("unexpected parts: %v", parts)
 	}
 
@@ -788,7 +783,7 @@ func TestTokenizeCommandLine_TrailingBackslash(t *testing.T) {
 
 func TestTokenizeCommandLine_TrailingSpace(t *testing.T) {
 	parts, isNewArg := tokenizeCommandLine("foo ")
-	if len(parts) != 1 || parts[0] != "foo" {
+	if len(parts) != 1 || parts[0] != testStringFoo {
 		t.Fatalf("unexpected parts: %v", parts)
 	}
 
@@ -799,7 +794,7 @@ func TestTokenizeCommandLine_TrailingSpace(t *testing.T) {
 
 func TestTokenizeCommandLine_UnclosedDoubleQuote(t *testing.T) {
 	parts, isNewArg := tokenizeCommandLine(`foo "bar`)
-	if len(parts) != 2 || parts[0] != "foo" || parts[1] != testStringBar {
+	if len(parts) != 2 || parts[0] != testStringFoo || parts[1] != testStringBar {
 		t.Fatalf("unexpected parts: %v", parts)
 	}
 
@@ -810,7 +805,7 @@ func TestTokenizeCommandLine_UnclosedDoubleQuote(t *testing.T) {
 
 func TestTokenizeCommandLine_UnclosedSingleQuote(t *testing.T) {
 	parts, isNewArg := tokenizeCommandLine("foo 'bar")
-	if len(parts) != 2 || parts[0] != "foo" || parts[1] != testStringBar {
+	if len(parts) != 2 || parts[0] != testStringFoo || parts[1] != testStringBar {
 		t.Fatalf("unexpected parts: %v", parts)
 	}
 
@@ -818,6 +813,13 @@ func TestTokenizeCommandLine_UnclosedSingleQuote(t *testing.T) {
 		t.Fatal("expected isNewArg=false for unclosed quote")
 	}
 }
+
+// unexported constants.
+const (
+	testStringBar    = "bar"
+	testStringBarBaz = "bar baz"
+	testStringFoo    = "foo"
+)
 
 func captureStdout(t *testing.T, fn func()) string {
 	t.Helper()

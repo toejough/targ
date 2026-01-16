@@ -11,8 +11,6 @@ import (
 	"github.com/toejough/targ"
 )
 
-const testNameAlice = "Alice"
-
 type ExecuteDefaultCmd struct {
 	Called bool
 }
@@ -532,3 +530,8 @@ func TestTimeout_PerCommandExceeded(t *testing.T) {
 		t.Fatal("expected timeout error")
 	}
 }
+
+// unexported constants.
+const (
+	testNameAlice = "Alice"
+)

@@ -15,7 +15,7 @@ import (
 	"strings"
 )
 
-// Error variables used by the wrapper generator.
+// Exported variables.
 var (
 	ErrGeneratedWrapperExists = errors.New("generated wrapper already exists")
 	ErrNoGoFilesFound         = errors.New("no Go files found")

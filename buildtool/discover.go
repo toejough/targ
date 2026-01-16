@@ -21,23 +21,17 @@ import (
 const (
 	CommandFunc   CommandKind = "func"
 	CommandStruct CommandKind = "struct"
-	defaultBuildTag            = "targ"
-	runMethodName              = "Run"
 )
 
 // Exported variables.
 var (
-	ErrNoTaggedFiles = errors.New("no tagged files found")
-)
-
-// Error variables used by the parser.
-var (
-	ErrDuplicateCommand      = errors.New("duplicate command name")
-	ErrMultiplePackageNames  = errors.New("multiple package names")
+	ErrDuplicateCommand       = errors.New("duplicate command name")
 	ErrMainFunctionNotAllowed = errors.New("tagged files must not declare main()")
-	ErrNiladicOrContext      = errors.New("must be niladic or accept context")
-	ErrMustAcceptContext     = errors.New("must accept context.Context")
-	ErrMustReturnOnlyError   = errors.New("must return only error")
+	ErrMultiplePackageNames   = errors.New("multiple package names")
+	ErrMustAcceptContext      = errors.New("must accept context.Context")
+	ErrMustReturnOnlyError    = errors.New("must return only error")
+	ErrNiladicOrContext       = errors.New("must be niladic or accept context")
+	ErrNoTaggedFiles          = errors.New("no tagged files found")
 )
 
 // CommandInfo describes a discovered command within a targ file.
@@ -195,6 +189,12 @@ func TaggedFiles(fs FileSystem, opts Options) ([]TaggedFile, error) {
 
 	return files, nil
 }
+
+// unexported constants.
+const (
+	defaultBuildTag = "targ"
+	runMethodName   = "Run"
+)
 
 type dirQueueEntry struct {
 	path  string

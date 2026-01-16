@@ -299,15 +299,13 @@ func (e *runExecutor) findMatchingRoot(name string) *commandNode {
 }
 
 // handleComplete handles the __complete hidden command.
-func (e *runExecutor) handleComplete() error {
+func (e *runExecutor) handleComplete() {
 	if len(e.rest) > 1 {
 		err := e.completeFn(e.roots, e.rest[1])
 		if err != nil {
 			e.env.Println(err.Error())
 		}
 	}
-
-	return nil
 }
 
 // handleCompletionFlag handles --completion flag.
@@ -374,7 +372,8 @@ func (e *runExecutor) handleNoArgs() error {
 // handleSpecialCommands handles __complete, __list, help, and completion flags.
 func (e *runExecutor) handleSpecialCommands() (bool, error) {
 	if e.rest[0] == "__complete" {
-		return true, e.handleComplete()
+		e.handleComplete()
+		return true, nil
 	}
 
 	if e.rest[0] == "__list" {

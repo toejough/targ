@@ -30,441 +30,8 @@ func main() {
 	os.Exit(runMain())
 }
 
-func runMain() int {
-	// Guard against nil os.Args (should never happen, but satisfies static analysis)
-	if len(os.Args) == 0 {
-		fmt.Fprintln(os.Stderr, "error: os.Args is empty")
-		return 1
-	}
-
-	r := &targRunner{
-		binArg: os.Args[0],
-		args:   os.Args[1:],
-		errOut: os.Stderr,
-	}
-
-	return r.run()
-}
-
-// targRunner holds state for a single targ invocation.
-type targRunner struct {
-	binArg            string
-	args              []string
-	errOut            io.Writer
-	startDir          string
-	generatedWrappers []string
-	noCache           bool
-	keepBootstrap     bool
-}
-
-func (r *targRunner) run() int {
-	// Handle --init and --alias early
-	if code, done := r.handleEarlyFlags(); done {
-		return code
-	}
-
-	// Setup quiet mode for completion
-	if len(r.args) > 0 && r.args[0] == completeCommand {
-		r.errOut = io.Discard
-	}
-
-	helpRequested, helpTargets := parseHelpRequest(r.args)
-	r.noCache, r.keepBootstrap, r.args = extractTargFlags(r.args)
-
-	var err error
-
-	r.startDir, err = os.Getwd()
-	if err != nil {
-		r.logError("Error resolving working directory", err)
-		return 1
-	}
-
-	// Discovery and wrapper generation
-	infos, err := r.discoverAndGenerateWrappers()
-	if err != nil {
-		r.logError("", err)
-		return 1
-	}
-
-	// Group packages by module
-	moduleGroups, err := groupByModule(infos, r.startDir)
-	if err != nil {
-		r.logError("Error grouping packages by module", err)
-		return r.exitWithCleanup(1)
-	}
-
-	// Handle multi-module cases
-	if len(moduleGroups) > 1 {
-		return r.handleMultiModule(moduleGroups, helpRequested, helpTargets)
-	}
-
-	// Single module case
-	return r.handleSingleModule(infos)
-}
-
-func (r *targRunner) handleEarlyFlags() (exitCode int, done bool) {
-	if result := handleInitFlag(r.args); result != nil {
-		if result.err != nil {
-			fmt.Fprintln(os.Stderr, result.err)
-			return 1, true
-		}
-
-		fmt.Println(result.message)
-
-		return 0, true
-	}
-
-	if result := handleAliasFlag(r.args); result != nil {
-		if result.err != nil {
-			fmt.Fprintln(os.Stderr, result.err)
-			return 1, true
-		}
-
-		fmt.Println(result.message)
-
-		return 0, true
-	}
-
-	return 0, false
-}
-
-func (r *targRunner) discoverAndGenerateWrappers() ([]buildtool.PackageInfo, error) {
-	taggedDirs, err := buildtool.SelectTaggedDirs(buildtool.OSFileSystem{}, buildtool.Options{
-		StartDir: r.startDir,
-		BuildTag: "targ",
-	})
-	if err != nil {
-		return nil, fmt.Errorf("error discovering commands: %w", err)
-	}
-
-	for _, dir := range taggedDirs {
-		wrapper, err := buildtool.GenerateFunctionWrappers(
-			buildtool.OSFileSystem{},
-			buildtool.GenerateOptions{
-				Dir:        dir.Path,
-				BuildTag:   "targ",
-				OnlyTagged: true,
-			},
-		)
-		if err != nil {
-			return nil, fmt.Errorf("error generating command wrappers: %w", err)
-		}
-
-		if wrapper != "" {
-			r.generatedWrappers = append(r.generatedWrappers, wrapper)
-		}
-	}
-
-	infos, err := buildtool.Discover(buildtool.OSFileSystem{}, buildtool.Options{
-		StartDir: r.startDir,
-		BuildTag: "targ",
-	})
-	if err != nil {
-		return nil, fmt.Errorf("error discovering commands: %w", err)
-	}
-
-	// Validate no package main in targ files
-	for _, info := range infos {
-		if info.Package == "main" {
-			return nil, fmt.Errorf(
-				"targ files cannot use 'package main' (found in %s)\n"+
-					"use a named package instead, e.g., 'package targets' or 'package dev'",
-				info.Dir,
-			)
-		}
-	}
-
-	return infos, nil
-}
-
-func (r *targRunner) handleMultiModule(moduleGroups []moduleTargets, helpRequested, helpTargets bool) int {
-	registry, err := buildMultiModuleBinaries(
-		moduleGroups,
-		r.startDir,
-		r.noCache,
-		r.keepBootstrap,
-		r.errOut,
-	)
-	if err != nil {
-		r.logError("Error building module binaries", err)
-		return r.exitWithCleanup(1)
-	}
-
-	r.cleanupWrappers()
-
-	if helpRequested && !helpTargets {
-		printMultiModuleHelp(registry)
-		return 0
-	}
-
-	if err := dispatchCommand(registry, r.args, r.errOut, r.binArg); err != nil {
-		exitErr := &exec.ExitError{}
-		if errors.As(err, &exitErr) {
-			return exitErr.ExitCode()
-		}
-
-		r.logError("Error", err)
-
-		return 1
-	}
-
-	return 0
-}
-
-func (r *targRunner) handleNoTargets() int {
-	if len(r.args) > 0 && r.args[0] == completeCommand {
-		printNoTargetsCompletion(r.args)
-		return 0
-	}
-
-	r.logError("Error: no target files found", nil)
-
-	return r.exitWithCleanup(1)
-}
-
-func (r *targRunner) handleSingleModule(infos []buildtool.PackageInfo) int {
-	filePaths := collectFilePaths(infos)
-
-	if len(filePaths) == 0 {
-		return r.handleNoTargets()
-	}
-
-	collapsedPaths, err := namespacePaths(filePaths, r.startDir)
-	if err != nil {
-		r.logError("Error computing namespace paths", err)
-		return r.exitWithCleanup(1)
-	}
-
-	importRoot, modulePath, moduleFound, err := findModuleForPath(filePaths[0])
-	if err != nil {
-		r.logError("Error checking for module", err)
-		return r.exitWithCleanup(1)
-	}
-
-	if !moduleFound {
-		importRoot = r.startDir
-		modulePath = targLocalModule
-	}
-
-	bootstrap, err := r.prepareBootstrap(infos, importRoot, modulePath, collapsedPaths)
-	if err != nil {
-		r.logError("", err)
-		return r.exitWithCleanup(1)
-	}
-
-	binaryPath, err := r.setupBinaryPath(importRoot, bootstrap.cacheKey)
-	if err != nil {
-		r.logError("Error creating cache directory", err)
-		return r.exitWithCleanup(1)
-	}
-
-	targBinName := extractBinName(r.binArg)
-
-	// Try cached binary first
-	if !r.noCache {
-		if code, ran := r.tryRunCached(binaryPath, targBinName); ran {
-			return code
-		}
-	}
-
-	// Build and run
-	return r.buildAndRun(importRoot, binaryPath, targBinName, bootstrap.code)
-}
-
-func (r *targRunner) prepareBootstrap(
-	infos []buildtool.PackageInfo,
-	importRoot, modulePath string,
-	collapsedPaths map[string][]string,
-) (moduleBootstrap, error) {
-	data, err := buildBootstrapData(infos, r.startDir, importRoot, modulePath, collapsedPaths)
-	if err != nil {
-		return moduleBootstrap{}, fmt.Errorf("error preparing bootstrap: %w", err)
-	}
-
-	tmpl := template.Must(template.New("main").Parse(bootstrapTemplate))
-
-	var buf bytes.Buffer
-	if err := tmpl.Execute(&buf, data); err != nil {
-		return moduleBootstrap{}, fmt.Errorf("error generating code: %w", err)
-	}
-
-	taggedFiles, err := buildtool.TaggedFiles(buildtool.OSFileSystem{}, buildtool.Options{
-		StartDir: r.startDir,
-		BuildTag: "targ",
-	})
-	if err != nil {
-		return moduleBootstrap{}, fmt.Errorf("error gathering tagged files: %w", err)
-	}
-
-	moduleFiles, err := collectModuleFiles(importRoot)
-	if err != nil {
-		return moduleBootstrap{}, fmt.Errorf("error gathering module files: %w", err)
-	}
-
-	cacheInputs := slices.Concat(taggedFiles, moduleFiles)
-
-	cacheKey, err := computeCacheKey(modulePath, importRoot, "targ", buf.Bytes(), cacheInputs)
-	if err != nil {
-		return moduleBootstrap{}, fmt.Errorf("error computing cache key: %w", err)
-	}
-
-	return moduleBootstrap{code: buf.Bytes(), cacheKey: cacheKey}, nil
-}
-
-func (r *targRunner) setupBinaryPath(importRoot, cacheKey string) (string, error) {
-	projCache := projectCacheDir(importRoot)
-
-	cacheDir := filepath.Join(projCache, "bin")
-
-	err := os.MkdirAll(cacheDir, 0o755)
-	if err != nil {
-		return "", err
-	}
-
-	return filepath.Join(cacheDir, "targ_"+cacheKey), nil
-}
-
-func (r *targRunner) tryRunCached(binaryPath, targBinName string) (exitCode int, ran bool) {
-	info, err := os.Stat(binaryPath)
-	if err != nil || !info.Mode().IsRegular() || info.Mode()&0o111 == 0 {
-		return 0, false
-	}
-
-	cmd := exec.CommandContext(context.Background(), binaryPath, r.args...)
-
-	cmd.Env = append(os.Environ(), "TARG_BIN_NAME="+targBinName)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = r.errOut
-	cmd.Stdin = os.Stdin
-
-	if err := cmd.Run(); err != nil {
-		exitErr := &exec.ExitError{}
-		if errors.As(err, &exitErr) {
-			return r.exitWithCleanup(exitErr.ExitCode()), true
-		}
-
-		r.logError("Error running command", err)
-
-		return r.exitWithCleanup(1), true
-	}
-
-	r.cleanupWrappers()
-
-	return 0, true
-}
-
-func (r *targRunner) buildAndRun(importRoot, binaryPath, targBinName string, bootstrapCode []byte) int {
-	projCache := projectCacheDir(importRoot)
-	bootstrapDir := filepath.Join(projCache, "tmp")
-
-	tempFile, cleanupTemp, err := writeBootstrapFile(bootstrapDir, bootstrapCode, r.keepBootstrap)
-	if err != nil {
-		r.logError("Error writing bootstrap file", err)
-		return r.exitWithCleanup(1)
-	}
-
-	if !r.keepBootstrap {
-		defer func() { _ = cleanupTemp() }()
-	}
-
-	buildArgs := []string{"build", "-tags", "targ", "-o", binaryPath, tempFile}
-	buildCmd := exec.CommandContext(context.Background(), "go", buildArgs...)
-
-	var buildOutput bytes.Buffer
-
-	buildCmd.Stdout = io.Discard
-	buildCmd.Stderr = &buildOutput
-	buildCmd.Dir = importRoot
-
-	if err := buildCmd.Run(); err != nil {
-		if !r.keepBootstrap {
-			_ = cleanupTemp()
-		}
-
-		if buildOutput.Len() > 0 {
-			_, _ = fmt.Fprint(r.errOut, buildOutput.String())
-		}
-
-		r.logError("Error building command", err)
-
-		return r.exitWithCleanup(1)
-	}
-
-	if !r.keepBootstrap {
-		_ = cleanupTemp()
-	}
-
-	cmd := exec.CommandContext(context.Background(), binaryPath, r.args...)
-
-	cmd.Env = append(os.Environ(), "TARG_BIN_NAME="+targBinName)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = r.errOut
-	cmd.Stdin = os.Stdin
-
-	if err := cmd.Run(); err != nil {
-		return r.exitWithCleanup(1)
-	}
-
-	r.cleanupWrappers()
-
-	return 0
-}
-
-func (r *targRunner) cleanupWrappers() {
-	for _, path := range r.generatedWrappers {
-		_ = os.Remove(path)
-	}
-}
-
-func (r *targRunner) exitWithCleanup(code int) int {
-	r.cleanupWrappers()
-	return code
-}
-
-func (r *targRunner) logError(prefix string, err error) {
-	if prefix != "" && err != nil {
-		_, _ = fmt.Fprintf(r.errOut, "%s: %v\n", prefix, err)
-	} else if prefix != "" {
-		_, _ = fmt.Fprintln(r.errOut, prefix)
-	} else if err != nil {
-		_, _ = fmt.Fprintf(r.errOut, "%v\n", err)
-	}
-}
-
-func collectFilePaths(infos []buildtool.PackageInfo) []string {
-	var filePaths []string
-
-	for _, info := range infos {
-		for _, f := range info.Files {
-			filePaths = append(filePaths, f.Path)
-		}
-	}
-
-	return filePaths
-}
-
-func extractBinName(binArg string) string {
-	if binArg == "" {
-		return "targ"
-	}
-
-	if idx := strings.LastIndex(binArg, "/"); idx != -1 {
-		return binArg[idx+1:]
-	}
-
-	if idx := strings.LastIndex(binArg, "\\"); idx != -1 {
-		return binArg[idx+1:]
-	}
-
-	return binArg
-}
-
 // unexported constants.
 const (
-	completeCommand   = "__complete"
-	targLocalModule   = "targ.local"
-	targsGoFilename   = "targs.go"
-	pkgNameDefault    = "pkg"
 	bootstrapTemplate = `
 package main
 
@@ -542,6 +109,10 @@ func main() {
 	targ.RunWithOptions(targ.RunOptions{AllowDefault: {{ .AllowDefault }}}, roots...)
 }
 `
+	completeCommand = "__complete"
+	pkgNameDefault  = "pkg"
+	targLocalModule = "targ.local"
+	targsGoFilename = "targs.go"
 )
 
 type aliasResult struct {
@@ -1011,6 +582,397 @@ type targDependency struct {
 	ReplaceDir string
 }
 
+// targRunner holds state for a single targ invocation.
+type targRunner struct {
+	binArg            string
+	args              []string
+	errOut            io.Writer
+	startDir          string
+	generatedWrappers []string
+	noCache           bool
+	keepBootstrap     bool
+}
+
+func (r *targRunner) buildAndRun(
+	importRoot, binaryPath, targBinName string,
+	bootstrapCode []byte,
+) int {
+	projCache := projectCacheDir(importRoot)
+	bootstrapDir := filepath.Join(projCache, "tmp")
+
+	tempFile, cleanupTemp, err := writeBootstrapFile(bootstrapDir, bootstrapCode, r.keepBootstrap)
+	if err != nil {
+		r.logError("Error writing bootstrap file", err)
+		return r.exitWithCleanup(1)
+	}
+
+	if !r.keepBootstrap {
+		defer func() { _ = cleanupTemp() }()
+	}
+
+	buildArgs := []string{"build", "-tags", "targ", "-o", binaryPath, tempFile}
+	buildCmd := exec.CommandContext(context.Background(), "go", buildArgs...)
+
+	var buildOutput bytes.Buffer
+
+	buildCmd.Stdout = io.Discard
+	buildCmd.Stderr = &buildOutput
+	buildCmd.Dir = importRoot
+
+	if err := buildCmd.Run(); err != nil {
+		if !r.keepBootstrap {
+			_ = cleanupTemp()
+		}
+
+		if buildOutput.Len() > 0 {
+			_, _ = fmt.Fprint(r.errOut, buildOutput.String())
+		}
+
+		r.logError("Error building command", err)
+
+		return r.exitWithCleanup(1)
+	}
+
+	if !r.keepBootstrap {
+		_ = cleanupTemp()
+	}
+
+	cmd := exec.CommandContext(context.Background(), binaryPath, r.args...)
+
+	cmd.Env = append(os.Environ(), "TARG_BIN_NAME="+targBinName)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = r.errOut
+	cmd.Stdin = os.Stdin
+
+	if err := cmd.Run(); err != nil {
+		return r.exitWithCleanup(1)
+	}
+
+	r.cleanupWrappers()
+
+	return 0
+}
+
+func (r *targRunner) cleanupWrappers() {
+	for _, path := range r.generatedWrappers {
+		_ = os.Remove(path)
+	}
+}
+
+func (r *targRunner) discoverAndGenerateWrappers() ([]buildtool.PackageInfo, error) {
+	taggedDirs, err := buildtool.SelectTaggedDirs(buildtool.OSFileSystem{}, buildtool.Options{
+		StartDir: r.startDir,
+		BuildTag: "targ",
+	})
+	if err != nil {
+		return nil, fmt.Errorf("error discovering commands: %w", err)
+	}
+
+	for _, dir := range taggedDirs {
+		wrapper, err := buildtool.GenerateFunctionWrappers(
+			buildtool.OSFileSystem{},
+			buildtool.GenerateOptions{
+				Dir:        dir.Path,
+				BuildTag:   "targ",
+				OnlyTagged: true,
+			},
+		)
+		if err != nil {
+			return nil, fmt.Errorf("error generating command wrappers: %w", err)
+		}
+
+		if wrapper != "" {
+			r.generatedWrappers = append(r.generatedWrappers, wrapper)
+		}
+	}
+
+	infos, err := buildtool.Discover(buildtool.OSFileSystem{}, buildtool.Options{
+		StartDir: r.startDir,
+		BuildTag: "targ",
+	})
+	if err != nil {
+		return nil, fmt.Errorf("error discovering commands: %w", err)
+	}
+
+	// Validate no package main in targ files
+	for _, info := range infos {
+		if info.Package == "main" {
+			return nil, fmt.Errorf(
+				"targ files cannot use 'package main' (found in %s)\n"+
+					"use a named package instead, e.g., 'package targets' or 'package dev'",
+				info.Dir,
+			)
+		}
+	}
+
+	return infos, nil
+}
+
+func (r *targRunner) exitWithCleanup(code int) int {
+	r.cleanupWrappers()
+	return code
+}
+
+func (r *targRunner) handleEarlyFlags() (exitCode int, done bool) {
+	if result := handleInitFlag(r.args); result != nil {
+		if result.err != nil {
+			fmt.Fprintln(os.Stderr, result.err)
+			return 1, true
+		}
+
+		fmt.Println(result.message)
+
+		return 0, true
+	}
+
+	if result := handleAliasFlag(r.args); result != nil {
+		if result.err != nil {
+			fmt.Fprintln(os.Stderr, result.err)
+			return 1, true
+		}
+
+		fmt.Println(result.message)
+
+		return 0, true
+	}
+
+	return 0, false
+}
+
+func (r *targRunner) handleMultiModule(
+	moduleGroups []moduleTargets,
+	helpRequested, helpTargets bool,
+) int {
+	registry, err := buildMultiModuleBinaries(
+		moduleGroups,
+		r.startDir,
+		r.noCache,
+		r.keepBootstrap,
+		r.errOut,
+	)
+	if err != nil {
+		r.logError("Error building module binaries", err)
+		return r.exitWithCleanup(1)
+	}
+
+	r.cleanupWrappers()
+
+	if helpRequested && !helpTargets {
+		printMultiModuleHelp(registry)
+		return 0
+	}
+
+	if err := dispatchCommand(registry, r.args, r.errOut, r.binArg); err != nil {
+		exitErr := &exec.ExitError{}
+		if errors.As(err, &exitErr) {
+			return exitErr.ExitCode()
+		}
+
+		r.logError("Error", err)
+
+		return 1
+	}
+
+	return 0
+}
+
+func (r *targRunner) handleNoTargets() int {
+	if len(r.args) > 0 && r.args[0] == completeCommand {
+		printNoTargetsCompletion(r.args)
+		return 0
+	}
+
+	r.logError("Error: no target files found", nil)
+
+	return r.exitWithCleanup(1)
+}
+
+func (r *targRunner) handleSingleModule(infos []buildtool.PackageInfo) int {
+	filePaths := collectFilePaths(infos)
+
+	if len(filePaths) == 0 {
+		return r.handleNoTargets()
+	}
+
+	collapsedPaths, err := namespacePaths(filePaths, r.startDir)
+	if err != nil {
+		r.logError("Error computing namespace paths", err)
+		return r.exitWithCleanup(1)
+	}
+
+	importRoot, modulePath, moduleFound, err := findModuleForPath(filePaths[0])
+	if err != nil {
+		r.logError("Error checking for module", err)
+		return r.exitWithCleanup(1)
+	}
+
+	if !moduleFound {
+		importRoot = r.startDir
+		modulePath = targLocalModule
+	}
+
+	bootstrap, err := r.prepareBootstrap(infos, importRoot, modulePath, collapsedPaths)
+	if err != nil {
+		r.logError("", err)
+		return r.exitWithCleanup(1)
+	}
+
+	binaryPath, err := r.setupBinaryPath(importRoot, bootstrap.cacheKey)
+	if err != nil {
+		r.logError("Error creating cache directory", err)
+		return r.exitWithCleanup(1)
+	}
+
+	targBinName := extractBinName(r.binArg)
+
+	// Try cached binary first
+	if !r.noCache {
+		if code, ran := r.tryRunCached(binaryPath, targBinName); ran {
+			return code
+		}
+	}
+
+	// Build and run
+	return r.buildAndRun(importRoot, binaryPath, targBinName, bootstrap.code)
+}
+
+func (r *targRunner) logError(prefix string, err error) {
+	if prefix != "" && err != nil {
+		_, _ = fmt.Fprintf(r.errOut, "%s: %v\n", prefix, err)
+	} else if prefix != "" {
+		_, _ = fmt.Fprintln(r.errOut, prefix)
+	} else if err != nil {
+		_, _ = fmt.Fprintf(r.errOut, "%v\n", err)
+	}
+}
+
+func (r *targRunner) prepareBootstrap(
+	infos []buildtool.PackageInfo,
+	importRoot, modulePath string,
+	collapsedPaths map[string][]string,
+) (moduleBootstrap, error) {
+	data, err := buildBootstrapData(infos, r.startDir, importRoot, modulePath, collapsedPaths)
+	if err != nil {
+		return moduleBootstrap{}, fmt.Errorf("error preparing bootstrap: %w", err)
+	}
+
+	tmpl := template.Must(template.New("main").Parse(bootstrapTemplate))
+
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, data); err != nil {
+		return moduleBootstrap{}, fmt.Errorf("error generating code: %w", err)
+	}
+
+	taggedFiles, err := buildtool.TaggedFiles(buildtool.OSFileSystem{}, buildtool.Options{
+		StartDir: r.startDir,
+		BuildTag: "targ",
+	})
+	if err != nil {
+		return moduleBootstrap{}, fmt.Errorf("error gathering tagged files: %w", err)
+	}
+
+	moduleFiles, err := collectModuleFiles(importRoot)
+	if err != nil {
+		return moduleBootstrap{}, fmt.Errorf("error gathering module files: %w", err)
+	}
+
+	cacheInputs := slices.Concat(taggedFiles, moduleFiles)
+
+	cacheKey, err := computeCacheKey(modulePath, importRoot, "targ", buf.Bytes(), cacheInputs)
+	if err != nil {
+		return moduleBootstrap{}, fmt.Errorf("error computing cache key: %w", err)
+	}
+
+	return moduleBootstrap{code: buf.Bytes(), cacheKey: cacheKey}, nil
+}
+
+func (r *targRunner) run() int {
+	// Handle --init and --alias early
+	if code, done := r.handleEarlyFlags(); done {
+		return code
+	}
+
+	// Setup quiet mode for completion
+	if len(r.args) > 0 && r.args[0] == completeCommand {
+		r.errOut = io.Discard
+	}
+
+	helpRequested, helpTargets := parseHelpRequest(r.args)
+	r.noCache, r.keepBootstrap, r.args = extractTargFlags(r.args)
+
+	var err error
+
+	r.startDir, err = os.Getwd()
+	if err != nil {
+		r.logError("Error resolving working directory", err)
+		return 1
+	}
+
+	// Discovery and wrapper generation
+	infos, err := r.discoverAndGenerateWrappers()
+	if err != nil {
+		r.logError("", err)
+		return 1
+	}
+
+	// Group packages by module
+	moduleGroups, err := groupByModule(infos, r.startDir)
+	if err != nil {
+		r.logError("Error grouping packages by module", err)
+		return r.exitWithCleanup(1)
+	}
+
+	// Handle multi-module cases
+	if len(moduleGroups) > 1 {
+		return r.handleMultiModule(moduleGroups, helpRequested, helpTargets)
+	}
+
+	// Single module case
+	return r.handleSingleModule(infos)
+}
+
+func (r *targRunner) setupBinaryPath(importRoot, cacheKey string) (string, error) {
+	projCache := projectCacheDir(importRoot)
+
+	cacheDir := filepath.Join(projCache, "bin")
+
+	err := os.MkdirAll(cacheDir, 0o755)
+	if err != nil {
+		return "", err
+	}
+
+	return filepath.Join(cacheDir, "targ_"+cacheKey), nil
+}
+
+func (r *targRunner) tryRunCached(binaryPath, targBinName string) (exitCode int, ran bool) {
+	info, err := os.Stat(binaryPath)
+	if err != nil || !info.Mode().IsRegular() || info.Mode()&0o111 == 0 {
+		return 0, false
+	}
+
+	cmd := exec.CommandContext(context.Background(), binaryPath, r.args...)
+
+	cmd.Env = append(os.Environ(), "TARG_BIN_NAME="+targBinName)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = r.errOut
+	cmd.Stdin = os.Stdin
+
+	if err := cmd.Run(); err != nil {
+		exitErr := &exec.ExitError{}
+		if errors.As(err, &exitErr) {
+			return r.exitWithCleanup(exitErr.ExitCode()), true
+		}
+
+		r.logError("Error running command", err)
+
+		return r.exitWithCleanup(1), true
+	}
+
+	r.cleanupWrappers()
+
+	return 0, true
+}
+
 // addAlias generates and appends alias code to the appropriate target file.
 func addAlias(name, command, targetFile string) (string, error) {
 	code, err := generateAlias(name, command)
@@ -1443,6 +1405,18 @@ func cleanupStaleModSymlinks(root string) {
 	}
 }
 
+func collectFilePaths(infos []buildtool.PackageInfo) []string {
+	var filePaths []string
+
+	for _, info := range infos {
+		for _, f := range info.Files {
+			filePaths = append(filePaths, f.Path)
+		}
+	}
+
+	return filePaths
+}
+
 // collectFileCommands collects commands from package infos into a map by file path.
 
 func collectModuleFiles(moduleRoot string) ([]buildtool.TaggedFile, error) {
@@ -1541,14 +1515,13 @@ func commandSummariesFromCommands(commands []buildtool.CommandInfo) []commandSum
 func commonPrefix(a, b []string) []string {
 	limit := min(len(b), len(a))
 
-	var i int
-	for i = 0; i < limit; i++ {
+	for i := range limit {
 		if a[i] != b[i] {
-			break
+			return a[:i]
 		}
 	}
 
-	return a[:i]
+	return a[:limit]
 }
 
 func compressNamespacePaths(paths map[string][]string) map[string][]string {
@@ -1760,6 +1733,22 @@ func ensureTargDependency(dep targDependency, importRoot string) {
 	getCmd.Stdout = io.Discard
 	getCmd.Stderr = io.Discard
 	_ = getCmd.Run()
+}
+
+func extractBinName(binArg string) string {
+	if binArg == "" {
+		return "targ"
+	}
+
+	if idx := strings.LastIndex(binArg, "/"); idx != -1 {
+		return binArg[idx+1:]
+	}
+
+	if idx := strings.LastIndex(binArg, "\\"); idx != -1 {
+		return binArg[idx+1:]
+	}
+
+	return binArg
 }
 
 // extractTargFlags extracts targ-specific flags (--no-cache, --keep) from args.
@@ -2015,47 +2004,6 @@ func groupByModule(infos []buildtool.PackageInfo, startDir string) ([]moduleTarg
 	return result, nil
 }
 
-// parseAliasArgs extracts alias name, command, and optional file from arguments.
-// Returns ok=false if this is not an alias invocation.
-// Returns ok=true with error if alias is malformed.
-func parseAliasArgs(args []string, i int, arg string) (name, command, targetFile string, ok bool, err error) {
-	if arg == "--alias" {
-		if i+2 >= len(args) {
-			err = errors.New("--alias requires at least two arguments: NAME \"COMMAND\" [FILE]")
-			return "", "", "", true, err
-		}
-
-		name = args[i+1]
-		command = args[i+2]
-		// Optional third argument for target file
-		if i+3 < len(args) && !strings.HasPrefix(args[i+3], "-") {
-			targetFile = args[i+3]
-		}
-
-		return name, command, targetFile, true, nil
-	}
-
-	after, found := strings.CutPrefix(arg, "--alias=")
-	if !found {
-		return "", "", "", false, nil
-	}
-
-	// --alias=name "command" [file] format
-	if i+1 >= len(args) {
-		err = errors.New("--alias requires a command argument")
-		return "", "", "", true, err
-	}
-
-	name = after
-
-	command = args[i+1]
-	if i+2 < len(args) && !strings.HasPrefix(args[i+2], "-") {
-		targetFile = args[i+2]
-	}
-
-	return name, command, targetFile, true, nil
-}
-
 // handleAliasFlag checks for --alias and generates target code.
 // Returns nil if --alias was not specified.
 func handleAliasFlag(args []string) *aliasResult {
@@ -2283,6 +2231,51 @@ func newBootstrapBuilder(absStart, moduleRoot, modulePath string) *bootstrapBuil
 		fileCommands: make(map[string][]bootstrapCommand),
 		wrapperNames: &nameGenerator{},
 	}
+}
+
+// parseAliasArgs extracts alias name, command, and optional file from arguments.
+// Returns ok=false if this is not an alias invocation.
+// Returns ok=true with error if alias is malformed.
+func parseAliasArgs(
+	args []string,
+	i int,
+	arg string,
+) (name, command, targetFile string, ok bool, err error) {
+	if arg == "--alias" {
+		if i+2 >= len(args) {
+			err = errors.New("--alias requires at least two arguments: NAME \"COMMAND\" [FILE]")
+			return "", "", "", true, err
+		}
+
+		name = args[i+1]
+		command = args[i+2]
+		// Optional third argument for target file
+		if i+3 < len(args) && !strings.HasPrefix(args[i+3], "-") {
+			targetFile = args[i+3]
+		}
+
+		return name, command, targetFile, true, nil
+	}
+
+	after, found := strings.CutPrefix(arg, "--alias=")
+	if !found {
+		return "", "", "", false, nil
+	}
+
+	// --alias=name "command" [file] format
+	if i+1 >= len(args) {
+		err = errors.New("--alias requires a command argument")
+		return "", "", "", true, err
+	}
+
+	name = after
+
+	command = args[i+1]
+	if i+2 < len(args) && !strings.HasPrefix(args[i+2], "-") {
+		targetFile = args[i+2]
+	}
+
+	return name, command, targetFile, true, nil
 }
 
 func parseHelpRequest(args []string) (bool, bool) {
@@ -2582,6 +2575,22 @@ func runGoBuild(ctx buildContext, binaryPath, tempFile string, errOut io.Writer)
 	}
 
 	return nil
+}
+
+func runMain() int {
+	// Guard against nil os.Args (should never happen, but satisfies static analysis)
+	if len(os.Args) == 0 {
+		fmt.Fprintln(os.Stderr, "error: os.Args is empty")
+		return 1
+	}
+
+	r := &targRunner{
+		binArg: os.Args[0],
+		args:   os.Args[1:],
+		errOut: os.Stderr,
+	}
+
+	return r.run()
 }
 
 // runModuleBinary executes a module binary with the given args.

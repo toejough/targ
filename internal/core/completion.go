@@ -22,12 +22,13 @@ func PrintCompletionScript(shell, binName string) error {
 	return nil
 }
 
-// unexported variables.
+// unexported constants.
 const (
-	zshShell  = "zsh"
 	fishShell = "fish"
+	zshShell  = "zsh"
 )
 
+// unexported variables.
 var (
 	_bashCompletion = `
 _%s_completion() {

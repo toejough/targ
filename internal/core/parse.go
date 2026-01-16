@@ -302,7 +302,7 @@ func collectInstanceFlagSpecs(
 	var specs []*flagSpec
 
 	typ := inst.node.Type
-	for i := 0; i < typ.NumField(); i++ {
+	for i := range typ.NumField() {
 		spec, ok, err := collectFieldFlagSpec(inst, typ.Field(i), inst.value.Field(i), usedNames)
 		if err != nil {
 			return nil, err
@@ -325,7 +325,7 @@ func collectPositionalSpecs(node *commandNode, inst reflect.Value) ([]positional
 
 	var specs []positionalSpec
 
-	for i := 0; i < typ.NumField(); i++ {
+	for i := range typ.NumField() {
 		field := typ.Field(i)
 
 		opts, err := tagOptionsForField(inst, field)

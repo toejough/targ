@@ -1,7 +1,6 @@
 package targ_test
 
 import (
-	"os"
 	"strings"
 	"testing"
 
@@ -147,9 +146,7 @@ func TestCustomTypes(t *testing.T) {
 }
 
 func TestDefaultEnvFlags_EnvOverrides(t *testing.T) {
-	_ = os.Setenv("TEST_DEFAULT_NAME_FLAG", "Bob")
-
-	defer func() { _ = os.Unsetenv("TEST_DEFAULT_NAME_FLAG") }()
+	t.Setenv("TEST_DEFAULT_NAME_FLAG", "Bob")
 
 	cmd := &DefaultEnvFlags{}
 
@@ -185,9 +182,7 @@ func TestDefaultFlags(t *testing.T) {
 }
 
 func TestEnvFlag(t *testing.T) {
-	_ = os.Setenv("TEST_USER_FLAG", "EnvAlice")
-
-	defer func() { _ = os.Unsetenv("TEST_USER_FLAG") }()
+	t.Setenv("TEST_USER_FLAG", "EnvAlice")
 
 	cmd := &EnvFlag{}
 

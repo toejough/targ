@@ -579,7 +579,7 @@ func callStringMethod(v reflect.Value, typ reflect.Type, method string) string {
 	}
 
 	out := m.Call(nil)
-	if len(out) != 1 {
+	if len(out) == 0 {
 		return ""
 	}
 

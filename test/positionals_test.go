@@ -6,8 +6,6 @@ import (
 	"github.com/toejough/targ"
 )
 
-const testNameBob = "Bob"
-
 type ChildCmd struct {
 	Name   string `targ:"flag"`
 	Called bool
@@ -222,3 +220,8 @@ func TestSubcommands(t *testing.T) {
 		t.Fatal("expected verbose to be set")
 	}
 }
+
+// unexported constants.
+const (
+	testNameBob = "Bob"
+)

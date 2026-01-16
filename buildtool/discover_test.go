@@ -10,58 +10,6 @@ import (
 	"time"
 )
 
-const (
-	buildTestCmdName = "Build"
-	runTestCmdName   = "Run"
-)
-
-// runDiscoverTest runs Discover and expects a single PackageInfo.
-// Returns the infos for further assertions.
-func runDiscoverTest(t *testing.T, fsMock *FileSystemMockHandle, fileContent []byte) []PackageInfo {
-	opts := Options{StartDir: "/root"}
-	done := make(chan struct{})
-
-	var (
-		infos []PackageInfo
-		err   error
-	)
-
-	go func() {
-		infos, err = Discover(fsMock.Mock, opts)
-
-		close(done)
-	}()
-
-	fsMock.Method.ReadDir.ExpectCalledWithExactly("/root").InjectReturnValues([]fs.DirEntry{
-		fakeDirEntry{name: "cmd.go", dir: false},
-	}, nil)
-	fsMock.Method.ReadFile.ExpectCalledWithExactly("/root/cmd.go").
-		InjectReturnValues(fileContent, nil)
-
-	<-done
-
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if len(infos) != 1 {
-		t.Fatalf("expected 1 package info, got %d", len(infos))
-	}
-
-	return infos
-}
-
-// findCommandDesc finds the description of a command by name and kind.
-func findCommandDesc(info PackageInfo, name string, kind CommandKind) string {
-	for _, cmd := range info.Commands {
-		if cmd.Name == name && cmd.Kind == kind {
-			return cmd.Description
-		}
-	}
-
-	return ""
-}
-
 func TestDiscover_AllowsContextFunctions(t *testing.T) {
 	fsMock := MockFileSystem(t)
 	opts := Options{StartDir: "/root"}
@@ -101,7 +49,8 @@ func Run(ctx context.Context) {}
 		t.Fatalf("expected 1 package info, got %d", len(infos))
 	}
 
-	if names := commandNamesByKind(infos[0], CommandFunc); len(names) != 1 || names[0] != runTestCmdName {
+	if names := commandNamesByKind(infos[0], CommandFunc); len(names) != 1 ||
+		names[0] != runTestCmdName {
 		t.Fatalf("unexpected funcs: %v", names)
 	}
 }
@@ -187,8 +136,13 @@ func Run(c ctx.Context) {}
 		t.Fatalf("expected 1 package info, got %d", len(infos))
 	}
 
-	if names := commandNamesByKind(infos[0], CommandFunc); len(names) != 1 || names[0] != runTestCmdName {
-		t.Fatalf("expected %s func to be detected with aliased context, got %v", runTestCmdName, names)
+	if names := commandNamesByKind(infos[0], CommandFunc); len(names) != 1 ||
+		names[0] != runTestCmdName {
+		t.Fatalf(
+			"expected %s func to be detected with aliased context, got %v",
+			runTestCmdName,
+			names,
+		)
 	}
 }
 
@@ -434,7 +388,8 @@ func Sub() {}
 		t.Fatalf("expected structs [Root], got %v", names)
 	}
 
-	if names := commandNamesByKind(info, CommandFunc); len(names) != 1 || names[0] != buildTestCmdName {
+	if names := commandNamesByKind(info, CommandFunc); len(names) != 1 ||
+		names[0] != buildTestCmdName {
 		t.Fatalf("expected funcs [%s], got %v", buildTestCmdName, names)
 	}
 }
@@ -591,7 +546,8 @@ func Build() {}
 		t.Fatalf("expected no structs (generated file skipped), got %v", names)
 	}
 
-	if names := commandNamesByKind(info, CommandFunc); len(names) != 1 || names[0] != buildTestCmdName {
+	if names := commandNamesByKind(info, CommandFunc); len(names) != 1 ||
+		names[0] != buildTestCmdName {
 		t.Fatalf("expected funcs [%s], got %v", buildTestCmdName, names)
 	}
 }
@@ -1180,6 +1136,12 @@ func TestTryReadTaggedFile_ReadFileError(t *testing.T) {
 	}
 }
 
+// unexported constants.
+const (
+	buildTestCmdName = "Build"
+	runTestCmdName   = "Run"
+)
+
 type fakeDirEntry struct {
 	name string
 	dir  bool
@@ -1222,11 +1184,61 @@ func commandNamesByKind(info PackageInfo, kind CommandKind) []string {
 	return names
 }
 
-func writeTestFile(path string, content []byte) error {
-	return OSFileSystem{}.WriteFile(path, content, 0o644)
+// findCommandDesc finds the description of a command by name and kind.
+func findCommandDesc(info PackageInfo, name string, kind CommandKind) string {
+	for _, cmd := range info.Commands {
+		if cmd.Name == name && cmd.Kind == kind {
+			return cmd.Description
+		}
+	}
+
+	return ""
 }
 
-func testMultipleTaggedPackages(t *testing.T, testFunc func(*FileSystemMockHandle, Options) (int, error)) {
+// runDiscoverTest runs Discover and expects a single PackageInfo.
+// Returns the infos for further assertions.
+func runDiscoverTest(t *testing.T, fsMock *FileSystemMockHandle, fileContent []byte) []PackageInfo {
+	t.Helper()
+
+	opts := Options{StartDir: "/root"}
+	done := make(chan struct{})
+
+	var (
+		infos []PackageInfo
+		err   error
+	)
+
+	go func() {
+		infos, err = Discover(fsMock.Mock, opts)
+
+		close(done)
+	}()
+
+	fsMock.Method.ReadDir.ExpectCalledWithExactly("/root").InjectReturnValues([]fs.DirEntry{
+		fakeDirEntry{name: "cmd.go", dir: false},
+	}, nil)
+	fsMock.Method.ReadFile.ExpectCalledWithExactly("/root/cmd.go").
+		InjectReturnValues(fileContent, nil)
+
+	<-done
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(infos) != 1 {
+		t.Fatalf("expected 1 package info, got %d", len(infos))
+	}
+
+	return infos
+}
+
+func testMultipleTaggedPackages(
+	t *testing.T,
+	testFunc func(*FileSystemMockHandle, Options) (int, error),
+) {
+	t.Helper()
+
 	fsMock := MockFileSystem(t)
 	opts := Options{StartDir: "/root"}
 	done := make(chan struct{})
@@ -1276,4 +1288,8 @@ func Hi() {}
 	if count != 2 {
 		t.Fatalf("expected 2 items, got %d", count)
 	}
+}
+
+func writeTestFile(path string, content []byte) error {
+	return OSFileSystem{}.WriteFile(path, content, 0o644)
 }

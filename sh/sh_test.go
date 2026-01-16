@@ -96,8 +96,9 @@ func TestOutput_ReturnsCombinedOutput(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if output != "stdout\nstderr\n" {
-		t.Fatalf("unexpected output: %q", output)
+	// Check for expected content (coverage mode may add extra output)
+	if !strings.Contains(output, "stdout\n") || !strings.Contains(output, "stderr\n") {
+		t.Fatalf("output missing expected content: %q", output)
 	}
 }
 
