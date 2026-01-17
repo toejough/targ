@@ -123,6 +123,9 @@ func main() {
 
 	opts := targ.RunOptions{
 		AllowDefault: {{ .AllowDefault }},
+{{- if .Description }}
+		Description: {{ printf "%q" .Description }},
+{{- end }}
 	}
 	targ.RunWithOptions(opts, roots...)
 }
@@ -258,6 +261,8 @@ func (b *bootstrapBuilder) buildResult(
 	}
 
 	bannerLit := ""
+	// Default description for targ build tool mode
+	description := "Targ discovers and runs build targets you write in Go."
 
 	if len(infos) == 1 {
 		bannerLit = strconv.Quote(singlePackageBanner(infos[0]))
@@ -266,6 +271,7 @@ func (b *bootstrapBuilder) buildResult(
 	return bootstrapData{
 		AllowDefault: false,
 		BannerLit:    bannerLit,
+		Description:  description,
 		Imports:      b.imports,
 		RootExprs:    rootExprs,
 		Nodes:        nodes,
@@ -391,6 +397,7 @@ type bootstrapCommand struct {
 type bootstrapData struct {
 	AllowDefault bool
 	BannerLit    string
+	Description  string
 	Imports      []bootstrapImport
 	RootExprs    []string
 	Nodes        []bootstrapNode
