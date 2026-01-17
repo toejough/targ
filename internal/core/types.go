@@ -8,6 +8,12 @@ const (
 	TagKindUnknown    TagKind = "unknown"
 )
 
+// Example represents a help example with a title and code block.
+type Example struct {
+	Title string // e.g., "Enable shell completion"
+	Code  string // e.g., "eval \"$(targ --completion)\""
+}
+
 // Interleaved wraps a value with its parse position for tracking flag ordering.
 // Use []Interleaved[T] when you need to know the relative order of flags
 // across multiple slice fields (e.g., interleaved --include and --exclude).
@@ -35,6 +41,11 @@ type RunOptions struct {
 	// MoreInfoText overrides the default "More info" section in help output.
 	// If set, this text is shown instead of the auto-generated repo URL line.
 	MoreInfoText string
+
+	// Examples to show in help output. If nil, built-in examples are shown.
+	// Use EmptyExamples() to disable examples entirely.
+	// Use AppendBuiltinExamples() to add custom examples alongside built-ins.
+	Examples []Example
 }
 
 // TagKind identifies the type of a struct field in command parsing.

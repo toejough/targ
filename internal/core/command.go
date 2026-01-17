@@ -16,6 +16,35 @@ import (
 	"unicode"
 )
 
+// AppendBuiltinExamples adds built-in examples after custom examples.
+func AppendBuiltinExamples(custom ...Example) []Example {
+	return append(custom, BuiltinExamples()...)
+}
+
+// BuiltinExamples returns the default targ examples (completion setup, chaining).
+func BuiltinExamples() []Example {
+	return []Example{
+		{
+			Title: "Enable shell completion",
+			Code:  "eval \"$(targ --completion)\"",
+		},
+		{
+			Title: "Chain commands (^ pops to root)",
+			Code:  "targ build ^ test ^ deploy",
+		},
+	}
+}
+
+// EmptyExamples returns an empty slice to disable examples in help.
+func EmptyExamples() []Example {
+	return []Example{}
+}
+
+// PrependBuiltinExamples adds built-in examples before custom examples.
+func PrependBuiltinExamples(custom ...Example) []Example {
+	return append(BuiltinExamples(), custom...)
+}
+
 // unexported constants.
 const (
 	flagPlaceholder    = "[flag]"
@@ -1501,7 +1530,8 @@ func printCommandHelp(node *commandNode, opts RunOptions, _ bool) {
 		printSubcommandList(node.Subcommands, "  ")
 	}
 
-	// More Info (at the very end)
+	// Examples and More Info (at the very end)
+	printExamples(opts)
 	printMoreInfo(opts)
 }
 
@@ -1529,6 +1559,24 @@ func printDescription(desc string) {
 	if desc != "" {
 		fmt.Println(desc)
 		fmt.Println()
+	}
+}
+
+func printExamples(opts RunOptions) {
+	examples := opts.Examples
+	if examples == nil {
+		examples = BuiltinExamples()
+	}
+
+	if len(examples) == 0 {
+		return
+	}
+
+	fmt.Println("\nExamples:")
+
+	for _, ex := range examples {
+		fmt.Printf("  %s:\n", ex.Title)
+		fmt.Printf("    %s\n", ex.Code)
 	}
 }
 
@@ -1733,6 +1781,7 @@ func printUsage(nodes []*commandNode, opts RunOptions) {
 		printTopLevelCommand(node, binName, opts)
 	}
 
+	printExamples(opts)
 	printMoreInfo(opts)
 }
 

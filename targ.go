@@ -22,6 +22,11 @@ const (
 // DepsOption configures Deps behavior.
 type DepsOption = core.DepsOption
 
+// --- Re-exported types from core ---
+
+// Example represents a help example with a title and code block.
+type Example = core.Example
+
 // ExecuteResult contains the result of executing commands.
 type ExecuteResult struct {
 	Output string
@@ -29,8 +34,6 @@ type ExecuteResult struct {
 
 // ExitError is returned when a command exits with a non-zero code.
 type ExitError = core.ExitError
-
-// --- Re-exported types from core ---
 
 // Interleaved wraps a value with its parse position for tracking flag ordering.
 type Interleaved[T any] = core.Interleaved[T]
@@ -44,11 +47,19 @@ type TagKind = core.TagKind
 // TagOptions contains parsed tag options for a struct field.
 type TagOptions = core.TagOptions
 
+// AppendBuiltinExamples adds built-in examples after custom examples.
+func AppendBuiltinExamples(
+	custom ...Example,
+) []Example {
+	return core.AppendBuiltinExamples(custom...)
+}
+
+// BuiltinExamples returns the default targ examples (completion setup, chaining).
+func BuiltinExamples() []Example { return core.BuiltinExamples() }
+
 // ContinueOnError runs all dependencies even if one fails.
 // Without this option, Deps fails fast (cancels remaining on first error).
 func ContinueOnError() DepsOption { return core.ContinueOnError() }
-
-// DetectShell returns the current shell name (bash, zsh, fish) or empty string.
 
 // Deps executes dependencies, each exactly once per CLI run.
 // Options can be mixed with targets in any order:
@@ -115,6 +126,9 @@ func DetectRootCommands(candidates ...any) []any {
 	return roots
 }
 
+// EmptyExamples returns an empty slice to disable examples in help.
+func EmptyExamples() []Example { return core.EmptyExamples() }
+
 // Execute runs commands with the given args and returns results instead of exiting.
 // This is useful for testing. Args should include the program name as the first element.
 func Execute(args []string, targets ...any) (ExecuteResult, error) {
@@ -136,6 +150,11 @@ func ExecuteWithOptions(
 
 // Parallel runs dependencies concurrently instead of sequentially.
 func Parallel() DepsOption { return core.Parallel() }
+
+// PrependBuiltinExamples adds built-in examples before custom examples.
+func PrependBuiltinExamples(custom ...Example) []Example {
+	return core.PrependBuiltinExamples(custom...)
+}
 
 // PrintCompletionScript outputs shell completion scripts for the given shell.
 

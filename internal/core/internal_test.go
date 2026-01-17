@@ -186,6 +186,18 @@ func InvalidReturnFunc() int {
 
 func InvalidSigFunc(_, _ int) {}
 
+func TestAppendBuiltinExamples(t *testing.T) {
+	g := NewWithT(t)
+
+	custom := Example{Title: "Custom", Code: "custom code"}
+	examples := AppendBuiltinExamples(custom)
+
+	g.Expect(examples).To(HaveLen(3))
+	g.Expect(examples[0].Title).To(Equal("Custom"))
+	g.Expect(examples[1].Title).To(Equal("Enable shell completion"))
+	g.Expect(examples[2].Title).To(ContainSubstring("Chain commands"))
+}
+
 func TestApplyTagOptionsOverride_MethodReturnsError(t *testing.T) {
 	g := NewWithT(t)
 
@@ -485,6 +497,20 @@ func TestBuildUsageLine_Error(t *testing.T) {
 	}
 	_, err := buildUsageLine(node)
 	g.Expect(err).To(HaveOccurred())
+}
+
+// --- Examples tests ---
+
+func TestBuiltinExamples(t *testing.T) {
+	g := NewWithT(t)
+
+	examples := BuiltinExamples()
+
+	g.Expect(examples).To(HaveLen(2))
+	g.Expect(examples[0].Title).To(Equal("Enable shell completion"))
+	g.Expect(examples[0].Code).To(ContainSubstring("--completion"))
+	g.Expect(examples[1].Title).To(ContainSubstring("Chain commands"))
+	g.Expect(examples[1].Code).To(ContainSubstring("^"))
 }
 
 func TestCallStringMethod_NonExistentMethod(t *testing.T) {
@@ -942,6 +968,15 @@ func TestDoList_SingleCommand(t *testing.T) {
 
 	g.Expect(output).To(ContainSubstring(`"name": "build"`))
 	g.Expect(output).To(ContainSubstring(`"description": "Build the project"`))
+}
+
+func TestEmptyExamples(t *testing.T) {
+	g := NewWithT(t)
+
+	examples := EmptyExamples()
+
+	g.Expect(examples).To(BeEmpty())
+	g.Expect(examples).NotTo(BeNil())
 }
 
 func TestExecuteDefault_EmptyRestError(t *testing.T) {
@@ -2232,6 +2267,21 @@ func TestPositionalsComplete_OptionalNotFilled(t *testing.T) {
 	g.Expect(positionalsComplete(specs, counts)).To(BeTrue())
 }
 
+func TestPrependBuiltinExamples(t *testing.T) {
+	g := NewWithT(t)
+
+	custom := Example{Title: "Custom", Code: "custom code"}
+	examples := PrependBuiltinExamples(custom)
+
+	g.Expect(examples).To(HaveLen(3))
+
+	if len(examples) >= 3 {
+		g.Expect(examples[0].Title).To(Equal("Enable shell completion"))
+		g.Expect(examples[1].Title).To(ContainSubstring("Chain commands"))
+		g.Expect(examples[2].Title).To(Equal("Custom"))
+	}
+}
+
 func TestPrintCommandHelp_FlagWithPlaceholder(t *testing.T) {
 	g := NewWithT(t)
 
@@ -2451,6 +2501,51 @@ func TestPrintCompletion_UnsupportedShell(t *testing.T) {
 		return target
 	}().Code).To(Equal(1))
 	g.Expect(env.Output()).To(ContainSubstring("unsupported shell"))
+}
+
+func TestPrintExamples_Custom(t *testing.T) {
+	g := NewWithT(t)
+
+	opts := RunOptions{
+		Examples: []Example{
+			{Title: "Run tests", Code: "targ test"},
+		},
+	}
+
+	output := captureStdout(t, func() {
+		printExamples(opts)
+	})
+
+	g.Expect(output).To(ContainSubstring("Examples:"))
+	g.Expect(output).To(ContainSubstring("Run tests:"))
+	g.Expect(output).To(ContainSubstring("targ test"))
+	g.Expect(output).NotTo(ContainSubstring("Enable shell completion"))
+}
+
+func TestPrintExamples_Empty(t *testing.T) {
+	g := NewWithT(t)
+
+	opts := RunOptions{Examples: EmptyExamples()}
+
+	output := captureStdout(t, func() {
+		printExamples(opts)
+	})
+
+	g.Expect(output).To(BeEmpty())
+}
+
+func TestPrintExamples_Nil(t *testing.T) {
+	g := NewWithT(t)
+
+	opts := RunOptions{Examples: nil}
+
+	output := captureStdout(t, func() {
+		printExamples(opts)
+	})
+
+	g.Expect(output).To(ContainSubstring("Examples:"))
+	g.Expect(output).To(ContainSubstring("Enable shell completion"))
+	g.Expect(output).To(ContainSubstring("Chain commands"))
 }
 
 func TestPrintFlagWithWrappedEnum(t *testing.T) {
