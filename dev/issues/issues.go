@@ -12,7 +12,7 @@ import (
 )
 
 type Create struct {
-	File       string `targ:"flag,default=dev/issues/issues.md,desc=Issue file to update"`
+	File       string `targ:"flag,default=issues.md,desc=Issue file to update"`
 	GitHub     bool   `targ:"flag,desc=Create issue on GitHub instead of locally"`
 	Title      string `targ:"flag,required,desc=Issue title"`
 	Status     string `targ:"flag,default=backlog,desc=Initial status,enum=backlog|selected|in-progress|review|done|cancelled|blocked"`
@@ -35,7 +35,8 @@ func (c *Create) Run() error {
 		return nil
 	}
 
-	content, issues, err := loadIssues(c.File)
+	filePath := findIssueFile(c.File)
+	content, issues, err := loadIssues(filePath)
 	if err != nil {
 		return err
 	}
@@ -77,11 +78,11 @@ func (c *Create) Run() error {
 		return err
 	}
 	fmt.Printf("Created local issue: %s\n", formatIssueID("local", newID))
-	return writeIssues(c.File, content.lines)
+	return writeIssues(filePath, content.lines)
 }
 
 type Dedupe struct {
-	File string `targ:"flag,default=dev/issues/issues.md,desc=Issue file to update"`
+	File string `targ:"flag,default=issues.md,desc=Issue file to update"`
 }
 
 func (c *Dedupe) Description() string {
@@ -89,7 +90,8 @@ func (c *Dedupe) Description() string {
 }
 
 func (c *Dedupe) Run() error {
-	content, _, err := loadIssues(c.File)
+	filePath := findIssueFile(c.File)
+	content, _, err := loadIssues(filePath)
 	if err != nil {
 		return err
 	}
@@ -107,11 +109,11 @@ func (c *Dedupe) Run() error {
 			file.remove(iss)
 		}
 	}
-	return writeIssues(c.File, file.lines)
+	return writeIssues(filePath, file.lines)
 }
 
 type List struct {
-	File   string `targ:"flag,default=dev/issues/issues.md,desc=Issue file to read"`
+	File   string `targ:"flag,default=issues.md,desc=Issue file to read"`
 	Status string `targ:"flag,desc=Filter by status,enum=backlog|selected|in-progress|review|done|cancelled|blocked"`
 	Query  string `targ:"flag,desc=Case-insensitive title filter"`
 	Source string `targ:"flag,default=all,desc=Issue source,enum=all|local|github"`
@@ -131,7 +133,7 @@ func (c *List) Run() error {
 
 	// Load local issues
 	if c.Source == "all" || c.Source == "local" {
-		file, issues, err := loadIssues(c.File)
+		file, issues, err := loadIssues(findIssueFile(c.File))
 		if err != nil && c.Source == "local" {
 			return err
 		}
@@ -183,7 +185,7 @@ func (c *List) Run() error {
 }
 
 type Move struct {
-	File   string `targ:"flag,default=dev/issues/issues.md,desc=Issue file to update"`
+	File   string `targ:"flag,default=issues.md,desc=Issue file to update"`
 	ID     string `targ:"positional,required,desc=Issue ID (e.g. 5 for local or gh#5 for GitHub)"`
 	Status string `targ:"flag,required,desc=New status,enum=backlog|selected|in-progress|review|done|cancelled|blocked"`
 }
@@ -216,7 +218,8 @@ func (c *Move) Run() error {
 	}
 
 	// Handle local issue
-	content, _, err := loadIssues(c.File)
+	filePath := findIssueFile(c.File)
+	content, _, err := loadIssues(filePath)
 	if err != nil {
 		return err
 	}
@@ -238,11 +241,11 @@ func (c *Move) Run() error {
 	}
 
 	fmt.Printf("Moved local issue %s to %s\n", formatIssueID("local", number), status)
-	return writeIssues(c.File, file.lines)
+	return writeIssues(filePath, file.lines)
 }
 
 type Update struct {
-	File       string `targ:"flag,default=dev/issues/issues.md,desc=Issue file to update"`
+	File       string `targ:"flag,default=issues.md,desc=Issue file to update"`
 	ID         string `targ:"positional,required,desc=Issue ID (e.g. 5 for local or gh#5 for GitHub)"`
 	Status     string `targ:"flag,desc=New status,enum=backlog|selected|in-progress|review|done|cancelled|blocked"`
 	Desc       string `targ:"flag,name=description,desc=Description text"`
@@ -291,7 +294,8 @@ func (c *Update) Run() error {
 	}
 
 	// Handle local issue update
-	file, _, err := loadIssues(c.File)
+	filePath := findIssueFile(c.File)
+	file, _, err := loadIssues(filePath)
 	if err != nil {
 		return err
 	}
@@ -323,11 +327,11 @@ func (c *Update) Run() error {
 		return err
 	}
 	fmt.Printf("Updated local issue: %s\n", formatIssueID("local", number))
-	return writeIssues(c.File, file.lines)
+	return writeIssues(filePath, file.lines)
 }
 
 type Validate struct {
-	File string `targ:"flag,default=dev/issues/issues.md,desc=Issue file to validate"`
+	File string `targ:"flag,default=issues.md,desc=Issue file to validate"`
 }
 
 func (c *Validate) Description() string {
@@ -335,7 +339,7 @@ func (c *Validate) Description() string {
 }
 
 func (c *Validate) Run() error {
-	_, issues, err := loadIssues(c.File)
+	_, issues, err := loadIssues(findIssueFile(c.File))
 	if err != nil {
 		return err
 	}
@@ -447,6 +451,43 @@ type issueUpdates struct {
 	Priority    *string
 	Acceptance  *string
 	Details     *string
+}
+
+// findIssueFile searches downward from the current directory for a file named
+// issues.md. Returns the path if found, or the original path if not found.
+func findIssueFile(path string) string {
+	// If the file exists at the given path, use it
+	if _, err := os.Stat(path); err == nil {
+		return path
+	}
+
+	// Search downward for issues.md
+	target := filepath.Base(path)
+	var found string
+
+	_ = filepath.WalkDir(".", func(p string, d os.DirEntry, err error) error {
+		if err != nil {
+			return nil // Skip errors
+		}
+		if d.IsDir() {
+			// Skip hidden directories and common non-source directories
+			name := d.Name()
+			if name != "." && (strings.HasPrefix(name, ".") || name == "vendor" || name == "node_modules") {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if d.Name() == target {
+			found = p
+			return filepath.SkipAll
+		}
+		return nil
+	})
+
+	if found != "" {
+		return found
+	}
+	return path
 }
 
 func insertAfter(lines []string, idx int, insert []string) []string {
