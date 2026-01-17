@@ -357,11 +357,9 @@ func (b *bootstrapBuilder) processPackage(info buildtool.PackageInfo) error {
 	return nil
 }
 
-func (b *bootstrapBuilder) setupImport(info buildtool.PackageInfo, local bool) string {
-	if local {
-		return ""
-	}
-
+func (b *bootstrapBuilder) setupImport(info buildtool.PackageInfo, _ bool) string {
+	// Always import and prefix - bootstrap is package main, so it can't
+	// access symbols from target packages without importing them
 	importPath := b.computeImportPath(info.Dir)
 	importName := uniqueImportName(info.Package, b.usedImports)
 

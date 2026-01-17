@@ -1433,3 +1433,25 @@ TBD
 
 **Details**
 Moved issues.md to dev/issues/issues.md and updated default file path in all issue commands.
+
+### 81. Bug: targ fails when run from inside a target directory
+
+#### Universal
+
+**Status**
+done
+
+**Description**
+When running targ from inside a target directory (e.g., dev/), the generated bootstrap calls functions without package qualifier. Bootstrap is package main but tries to call Check(ctx) instead of dev.Check(ctx).
+
+#### Planning
+
+**Priority**
+Medium
+
+**Acceptance**
+TBD
+
+
+**Details**
+Fixed setupImport to always import target packages. The local optimization was wrong - bootstrap is always package main, so it must import packages to access their symbols.
