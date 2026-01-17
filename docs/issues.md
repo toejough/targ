@@ -18,102 +18,6 @@ A simple md issue tracker.
 
 Issues to choose from for future work.
 
-### 54. Syscall helpers
-
-#### Universal
-
-**Status**
-cancelled
-
-**Description**
-Provide syscall helpers for common process control patterns beyond `targ/sh`.
-
-#### Planning
-
-**Priority**
-Low
-
-**Acceptance**
-Helpers cover common use cases without requiring direct syscall usage.
-
-**Note**
-Replaced with specific issues for individual helpers (59-64) based on Mage sh package analysis.
-
-### 56. Deterministic behavior across platforms
-
-#### Universal
-
-**Status**
-cancelled
-
-**Description**
-Ensure consistent behavior across supported platforms (paths, env, ordering).
-
-#### Planning
-
-**Priority**
-Medium
-
-**Note**
-No known issues. Platform-aware code already exists (sh.IsWindows, path handling). Reopen if specific issues arise.
-
-**Acceptance**
-Cross-platform test coverage proves deterministic behavior where expected.
-
-### 15. .env File Loading
-
-#### Universal
-
-**Status**
-cancelled
-
-**Description**
-Load `.env` files to populate env-backed flags.
-
-#### Planning
-
-**Priority**
-Medium
-
-**Acceptance**
-Add `targ.LoadEnv()` or auto-load in `Run()`.
-
-### 16. Interactive UI Helpers
-
-#### Universal
-
-**Status**
-cancelled
-
-**Description**
-Add basic CLI interaction helpers (confirm/select/prompt).
-
-#### Planning
-
-**Priority**
-Low
-
-**Acceptance**
-Provide a `ui` package for common prompts.
-
-### 43. Investigate markdown parsers for issuefile
-
-#### Universal
-
-**Status**
-cancelled
-
-**Description**
-Evaluate third-party markdown parsers (e.g., goldmark) to replace or augment the manual issuefile parser.
-
-#### Planning
-
-**Priority**
-Low
-
-**Acceptance**
-Shortlist parsers and document tradeoffs; decide whether to keep manual parser.
-
 ### 59. sh.RunWith - run command with custom environment
 
 #### Universal
@@ -473,6 +377,102 @@ Low
 
 **Acceptance**
 TBD
+
+### 54. Syscall helpers
+
+#### Universal
+
+**Status**
+cancelled
+
+**Description**
+Provide syscall helpers for common process control patterns beyond `targ/sh`.
+
+#### Planning
+
+**Priority**
+Low
+
+**Acceptance**
+Helpers cover common use cases without requiring direct syscall usage.
+
+**Note**
+Replaced with specific issues for individual helpers (59-64) based on Mage sh package analysis.
+
+### 56. Deterministic behavior across platforms
+
+#### Universal
+
+**Status**
+cancelled
+
+**Description**
+Ensure consistent behavior across supported platforms (paths, env, ordering).
+
+#### Planning
+
+**Priority**
+Medium
+
+**Note**
+No known issues. Platform-aware code already exists (sh.IsWindows, path handling). Reopen if specific issues arise.
+
+**Acceptance**
+Cross-platform test coverage proves deterministic behavior where expected.
+
+### 15. .env File Loading
+
+#### Universal
+
+**Status**
+cancelled
+
+**Description**
+Load `.env` files to populate env-backed flags.
+
+#### Planning
+
+**Priority**
+Medium
+
+**Acceptance**
+Add `targ.LoadEnv()` or auto-load in `Run()`.
+
+### 16. Interactive UI Helpers
+
+#### Universal
+
+**Status**
+cancelled
+
+**Description**
+Add basic CLI interaction helpers (confirm/select/prompt).
+
+#### Planning
+
+**Priority**
+Low
+
+**Acceptance**
+Provide a `ui` package for common prompts.
+
+### 43. Investigate markdown parsers for issuefile
+
+#### Universal
+
+**Status**
+cancelled
+
+**Description**
+Evaluate third-party markdown parsers (e.g., goldmark) to replace or augment the manual issuefile parser.
+
+#### Planning
+
+**Priority**
+Low
+
+**Acceptance**
+Shortlist parsers and document tradeoffs; decide whether to keep manual parser.
 
 ## Done
 
