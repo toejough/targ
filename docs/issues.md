@@ -467,7 +467,7 @@ TBD
 #### Universal
 
 **Status**
-backlog
+done
 
 **Description**
 Completion is shown as a targ option for subcommands, but it only works at the root level.
@@ -479,6 +479,13 @@ Low
 
 **Acceptance**
 TBD
+
+#### Implementation Notes
+
+**Details**
+- Completion example now only shows at top level help (`targ --help`), not for subcommands
+- Subcommand help still shows the command chaining example
+- Usage line updated to show chaining pattern: `<subcommand>... [^ <command>...]`
 
 ### 67. Consistent help message structure
 
