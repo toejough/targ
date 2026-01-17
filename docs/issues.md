@@ -126,24 +126,6 @@ Low
 **Acceptance**
 Can remove files/directories without using shell commands.
 
-### 65. Recursive help for all commands and subcommands
-
-#### Universal
-
-**Status**
-backlog
-
-**Description**
-Show help and usage recursively for all commands and subcommands.
-
-#### Planning
-
-**Priority**
-Low
-
-**Acceptance**
-TBD
-
 ### 68. Init targets from remote repo
 
 #### Universal
@@ -473,6 +455,24 @@ Low
 
 **Acceptance**
 Shortlist parsers and document tradeoffs; decide whether to keep manual parser.
+
+### 65. Recursive help for all commands and subcommands
+
+#### Universal
+
+**Status**
+cancelled
+
+**Description**
+Show help and usage recursively for all commands and subcommands.
+
+#### Planning
+
+**Priority**
+Low
+
+**Acceptance**
+TBD
 
 ## Done
 
