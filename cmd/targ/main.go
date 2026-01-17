@@ -2159,6 +2159,23 @@ var _ = sh.Run
 	return "Created " + filename, nil
 }
 
+// deriveNamespace extracts the namespace from a package's file path.
+// For "dev/targets.go", returns "targets" (filename without extension).
+func deriveNamespace(pkg *buildtool.PackageInfo, _ string) string {
+	if len(pkg.Files) == 0 {
+		return ""
+	}
+
+	// Use the first file to derive the namespace
+	filePath := pkg.Files[0].Path
+
+	// Get the filename without extension
+	base := filepath.Base(filePath)
+	ext := filepath.Ext(base)
+
+	return strings.TrimSuffix(base, ext)
+}
+
 // discoverSourcePackage finds the package matching pkgName.
 func discoverSourcePackage(
 	pkgName string,
@@ -2170,13 +2187,17 @@ func discoverSourcePackage(
 		return nil, nil, fmt.Errorf("discovering commands: %w", err)
 	}
 
-	for i := range infos {
-		if infos[i].Package == pkgName {
-			return infos, &infos[i], nil
-		}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return nil, nil, fmt.Errorf("getting working directory: %w", err)
 	}
 
-	return nil, nil, fmt.Errorf("%w: %s", errMovePackageNotFound, pkgName)
+	pkg := findSourcePackageByName(infos, pkgName, cwd)
+	if pkg == nil {
+		return nil, nil, fmt.Errorf("%w: %s", errMovePackageNotFound, pkgName)
+	}
+
+	return infos, pkg, nil
 }
 
 // dispatchCommand finds the right binary for a command and executes it.
@@ -2510,6 +2531,30 @@ func findRootParentCommand(
 	}
 
 	return nil, ""
+}
+
+// findSourcePackageByName finds a package by namespace or Go package name.
+// The namespace is derived from the file path (e.g., "targets" from "dev/targets.go").
+func findSourcePackageByName(
+	infos []buildtool.PackageInfo,
+	name, root string,
+) *buildtool.PackageInfo {
+	// First try matching by Go package name
+	for i := range infos {
+		if infos[i].Package == name {
+			return &infos[i]
+		}
+	}
+
+	// Then try matching by namespace (derived from file path)
+	for i := range infos {
+		namespace := deriveNamespace(&infos[i], root)
+		if namespace == name {
+			return &infos[i]
+		}
+	}
+
+	return nil
 }
 
 // findStructClosingBrace finds the closing brace position of a named struct.

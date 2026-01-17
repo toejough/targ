@@ -259,6 +259,38 @@ func TestFindModuleForPath_WithModule(t *testing.T) {
 	}
 }
 
+func TestFindSourcePackageByNamespace(t *testing.T) {
+	// Package is "dev" but namespace shown to user is "targets" (from filename)
+	// User should be able to use "targets" in --move pattern
+	infos := []buildtool.PackageInfo{
+		{
+			Dir:     "/repo/dev",
+			Package: "dev",
+			Files:   []buildtool.FileInfo{{Path: "/repo/dev/targets.go"}},
+			Commands: []buildtool.CommandInfo{
+				{Name: "Lint", Kind: buildtool.CommandFunc, File: "/repo/dev/targets.go"},
+				{Name: "LintFast", Kind: buildtool.CommandFunc, File: "/repo/dev/targets.go"},
+			},
+		},
+	}
+
+	// Should find package by namespace "targets", not just Go package name "dev"
+	pkg := findSourcePackageByName(infos, "targets", "/repo")
+	if pkg == nil {
+		t.Fatal("expected to find package by namespace 'targets'")
+	}
+
+	if pkg.Package != "dev" {
+		t.Fatalf("expected package 'dev', got %q", pkg.Package)
+	}
+
+	// Should also still work with Go package name
+	pkg = findSourcePackageByName(infos, "dev", "/repo")
+	if pkg == nil {
+		t.Fatal("expected to find package by Go package name 'dev'")
+	}
+}
+
 func TestNamespacePaths_CompressesSegments(t *testing.T) {
 	files := []string{
 		"/root/tools/issues/issues.go",
