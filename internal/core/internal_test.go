@@ -750,6 +750,26 @@ func TestDetectCompletionShell_FlagAfterCompletion(t *testing.T) {
 	g.Expect(shell).NotTo(Equal("--verbose"))
 }
 
+func TestDetectCurrentShell_EmptyShellEnv(t *testing.T) {
+	t.Setenv("SHELL", "")
+
+	result := detectCurrentShell()
+	if result != "unknown" {
+		t.Fatalf("expected 'unknown', got: %s", result)
+	}
+}
+
+// --- detectCurrentShell tests ---
+
+func TestDetectCurrentShell_WithShellEnv(t *testing.T) {
+	t.Setenv("SHELL", "/bin/bash")
+
+	result := detectCurrentShell()
+	if result != bashShell {
+		t.Fatalf("expected '%s', got: %s", bashShell, result)
+	}
+}
+
 // --- Git URL detection tests ---
 
 func TestDetectRepoURL(t *testing.T) {
@@ -1355,9 +1375,9 @@ func TestFlagDefaultPlaceholder(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// Default placeholder is empty string, so flag name should appear without placeholder
-	if !strings.Contains(usage, "--rate") {
-		t.Fatalf("expected flag in usage: %s", usage)
+	// Optional flags are now shown as [flags...] in the usage line
+	if !strings.Contains(usage, "[flags...]") {
+		t.Fatalf("expected [flags...] in usage for optional flag: %s", usage)
 	}
 }
 
@@ -1376,8 +1396,9 @@ func TestFlagEnumUsage(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if !strings.Contains(usage, "{dev|prod|test}") {
-		t.Fatalf("expected enum flag placeholder, got: %s", usage)
+	// Optional flags (including enums) are now shown as [flags...] in the usage line
+	if !strings.Contains(usage, "[flags...]") {
+		t.Fatalf("expected [flags...] in usage for optional enum flag, got: %s", usage)
 	}
 }
 
@@ -1975,12 +1996,14 @@ func TestPlaceholderTagInUsage(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if !strings.Contains(usage, "{-f|--file} FILE") {
-		t.Fatalf("expected flag placeholder in usage: %s", usage)
+	// Optional flags are summarized as [flags...] at end
+	if !strings.Contains(usage, "[flags...]") {
+		t.Fatalf("expected [flags...] in usage: %s", usage)
 	}
 
-	if !strings.HasSuffix(usage, "[DEST]") {
-		t.Fatalf("expected positional placeholder in usage: %s", usage)
+	// Optional positionals now have ... suffix
+	if !strings.Contains(usage, "[DEST...]") {
+		t.Fatalf("expected positional placeholder with ... in usage: %s", usage)
 	}
 }
 
@@ -2327,7 +2350,7 @@ func TestPrintCommandHelp_WithSubcommands(t *testing.T) {
 		printCommandHelp(node, RunOptions{}, true)
 	})
 
-	g.Expect(output).To(ContainSubstring("Commands:"))
+	g.Expect(output).To(ContainSubstring("Subcommands:"))
 	g.Expect(output).To(ContainSubstring("sub1"))
 	g.Expect(output).To(ContainSubstring("sub2"))
 }
@@ -2493,27 +2516,7 @@ func TestPrintMoreInfo_WithRepoURL(t *testing.T) {
 	g.Expect(output).To(ContainSubstring("https://example.com/repo"))
 }
 
-func TestPrintNestedSubcommands(t *testing.T) {
-	g := NewWithT(t)
-
-	subs := map[string]*commandNode{
-		"alpha": {Name: "alpha", Description: "Alpha command"},
-		"beta":  {Name: "beta", Description: "Beta command"},
-	}
-
-	output := captureStdout(t, func() {
-		printNestedSubcommands(subs, "targ", "parent", "    ")
-	})
-
-	g.Expect(output).To(ContainSubstring("alpha"))
-	g.Expect(output).To(ContainSubstring("Alpha command"))
-	g.Expect(output).To(ContainSubstring("beta"))
-	g.Expect(output).To(ContainSubstring("Beta command"))
-	g.Expect(output).To(ContainSubstring("Usage: targ parent alpha"))
-	g.Expect(output).To(ContainSubstring("Usage: targ parent beta"))
-}
-
-func TestPrintNestedSubcommands_NilSubcommand(t *testing.T) {
+func TestPrintSubcommandList_NilSubcommand(t *testing.T) {
 	g := NewWithT(t)
 
 	subs := map[string]*commandNode{
@@ -2522,7 +2525,7 @@ func TestPrintNestedSubcommands_NilSubcommand(t *testing.T) {
 	}
 
 	output := captureStdout(t, func() {
-		printNestedSubcommands(subs, "targ", "parent", "  ")
+		printSubcommandList(subs, "  ")
 	})
 
 	// Should skip the nil entry and only show realcmd
@@ -2530,7 +2533,7 @@ func TestPrintNestedSubcommands_NilSubcommand(t *testing.T) {
 	g.Expect(output).To(ContainSubstring("Real command"))
 }
 
-func TestPrintNestedSubcommands_NoDescription(t *testing.T) {
+func TestPrintSubcommandList_NoDescription(t *testing.T) {
 	g := NewWithT(t)
 
 	subs := map[string]*commandNode{
@@ -2538,146 +2541,30 @@ func TestPrintNestedSubcommands_NoDescription(t *testing.T) {
 	}
 
 	output := captureStdout(t, func() {
-		printNestedSubcommands(subs, "targ", "parent", "  ")
+		printSubcommandList(subs, "  ")
 	})
 
 	g.Expect(output).To(ContainSubstring("nodesc"))
-	g.Expect(output).To(ContainSubstring("Usage: targ parent nodesc"))
 }
 
-func TestPrintNestedSubcommands_WithFlags(t *testing.T) {
+// --- printSubcommandList tests ---
+
+func TestPrintSubcommandList_WithDescriptions(t *testing.T) {
 	g := NewWithT(t)
 
 	subs := map[string]*commandNode{
-		"flagcmd": {
-			Name:        "flagcmd",
-			Description: "Command with flags",
-			Type: reflect.TypeFor[struct {
-				Verbose bool `targ:"flag"`
-			}](),
-		},
+		"alpha": {Name: "alpha", Description: "Alpha command"},
+		"beta":  {Name: "beta", Description: "Beta command"},
 	}
 
 	output := captureStdout(t, func() {
-		printNestedSubcommands(subs, "targ", "parent", "  ")
+		printSubcommandList(subs, "  ")
 	})
 
-	g.Expect(output).To(ContainSubstring("flagcmd"))
-	g.Expect(output).To(ContainSubstring("Flags:"))
-	g.Expect(output).To(ContainSubstring("--verbose"))
-}
-
-func TestPrintNestedSubcommands_WithNestedSubs(t *testing.T) {
-	g := NewWithT(t)
-
-	subs := map[string]*commandNode{
-		"outer": {
-			Name:        "outer",
-			Description: "Outer command",
-			Subcommands: map[string]*commandNode{
-				"inner": {Name: "inner", Description: "Inner command"},
-			},
-		},
-	}
-
-	output := captureStdout(t, func() {
-		printNestedSubcommands(subs, "targ", "parent", "  ")
-	})
-
-	g.Expect(output).To(ContainSubstring("outer"))
-	g.Expect(output).To(ContainSubstring("Outer command"))
-	g.Expect(output).To(ContainSubstring("Subcommands:"))
-	g.Expect(output).To(ContainSubstring("inner"))
-	g.Expect(output).To(ContainSubstring("Inner command"))
-}
-
-func TestPrintSubcommandDetail_SourceFromSubcommand(t *testing.T) {
-	g := NewWithT(t)
-
-	node := &commandNode{
-		Name: "cmd",
-		Subcommands: map[string]*commandNode{
-			"sub": {Name: "sub", SourceFile: "/path/to/sub.go"},
-		},
-	}
-
-	output := captureStdout(t, func() {
-		printSubcommandDetail(node, "", "  ", RunOptions{}, true)
-	})
-
-	g.Expect(output).To(ContainSubstring("Source:"))
-}
-
-func TestPrintSubcommandDetail_WithDescription(t *testing.T) {
-	g := NewWithT(t)
-
-	node := &commandNode{
-		Name:        "cmd",
-		Description: "A helpful description",
-	}
-
-	output := captureStdout(t, func() {
-		printSubcommandDetail(node, "parent", "  ", RunOptions{}, false)
-	})
-
-	g.Expect(output).To(ContainSubstring("Usage:"))
-	g.Expect(output).To(ContainSubstring("A helpful description"))
-}
-
-func TestPrintSubcommandDetail_WithFlags(t *testing.T) {
-	g := NewWithT(t)
-
-	node := &commandNode{
-		Name: "cmd",
-		Type: reflect.TypeFor[struct {
-			Name   string `targ:"flag,desc=Name flag"`
-			Silent bool   `targ:"flag"`
-		}](),
-	}
-
-	output := captureStdout(t, func() {
-		printSubcommandDetail(node, "parent", "  ", RunOptions{}, false)
-	})
-
-	g.Expect(output).To(ContainSubstring("Flags:"))
-	g.Expect(output).To(ContainSubstring("--name"))
-	g.Expect(output).To(ContainSubstring("Name flag"))
-	g.Expect(output).To(ContainSubstring("--silent"))
-}
-
-func TestPrintSubcommandDetail_WithSourceFile(t *testing.T) {
-	g := NewWithT(t)
-
-	node := &commandNode{
-		Name:       "cmd",
-		SourceFile: "/path/to/file.go",
-	}
-
-	output := captureStdout(t, func() {
-		printSubcommandDetail(node, "", "  ", RunOptions{}, true)
-	})
-
-	g.Expect(output).To(ContainSubstring("Source:"))
-}
-
-func TestPrintSubcommandDetail_WithSubcommands(t *testing.T) {
-	g := NewWithT(t)
-
-	node := &commandNode{
-		Name: "cmd",
-		Subcommands: map[string]*commandNode{
-			"sub1": {Name: "sub1", Description: "Sub one"},
-			"sub2": {Name: "sub2", Description: "Sub two"},
-		},
-	}
-
-	output := captureStdout(t, func() {
-		printSubcommandDetail(node, "", "  ", RunOptions{}, false)
-	})
-
-	g.Expect(output).To(ContainSubstring("Subcommands:"))
-	g.Expect(output).To(ContainSubstring("sub1"))
-	g.Expect(output).To(ContainSubstring("sub2"))
+	g.Expect(output).To(ContainSubstring("alpha"))
+	g.Expect(output).To(ContainSubstring("Alpha command"))
+	g.Expect(output).To(ContainSubstring("beta"))
+	g.Expect(output).To(ContainSubstring("Beta command"))
 }
 
 // --- printUsage tests ---
@@ -2732,8 +2619,10 @@ func TestPrintUsage_WithNestedSubcommands(t *testing.T) {
 	})
 
 	g.Expect(output).To(ContainSubstring("parent:"))
+	// With progressive disclosure, only immediate subcommands shown in grid
 	g.Expect(output).To(ContainSubstring("child"))
-	g.Expect(output).To(ContainSubstring("grandchild"))
+	// Grandchild is NOT shown at top-level - only via child --help
+	g.Expect(output).NotTo(ContainSubstring("grandchild"))
 }
 
 func TestRelativeSourcePathWithGetwd_GetwdError(t *testing.T) {
@@ -3175,8 +3064,13 @@ func TestUsageLine_NoSubcommandWithRequiredPositional(t *testing.T) {
 		t.Fatalf("expected status flag in usage: %s", usage)
 	}
 
-	if !strings.HasSuffix(usage, "ID") {
-		t.Fatalf("expected ID positional at end: %s", usage)
+	if !strings.Contains(usage, "ID") {
+		t.Fatalf("expected ID positional in usage: %s", usage)
+	}
+
+	// Optional flags now appear as [flags...] at end
+	if !strings.HasSuffix(usage, "[flags...]") {
+		t.Fatalf("expected [flags...] at end: %s", usage)
 	}
 }
 

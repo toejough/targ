@@ -505,20 +505,6 @@ func binaryName() string {
 }
 
 // buildCommandPath builds the full command path from root to this node.
-func buildCommandPath(node *commandNode) string {
-	if node == nil {
-		return ""
-	}
-
-	chain := nodeChain(node)
-	parts := make([]string, 0, len(chain))
-
-	for _, n := range chain {
-		parts = append(parts, n.Name)
-	}
-
-	return strings.Join(parts, " ")
-}
 
 func buildFlagMaps(specs []*flagSpec) (shortInfo, longInfo map[string]bool) {
 	shortInfo = map[string]bool{}
@@ -532,6 +518,27 @@ func buildFlagMaps(specs []*flagSpec) (shortInfo, longInfo map[string]bool) {
 	}
 
 	return shortInfo, longInfo
+}
+
+// buildPositionalParts builds usage parts for positional arguments.
+func buildPositionalParts(node *commandNode) ([]string, error) {
+	positionals, err := collectPositionalHelp(node)
+	if err != nil {
+		return nil, err
+	}
+
+	parts := make([]string, 0, len(positionals))
+
+	for _, item := range positionals {
+		name := positionalName(item)
+		if item.Required {
+			parts = append(parts, name)
+		} else {
+			parts = append(parts, fmt.Sprintf("[%s...]", name))
+		}
+	}
+
+	return parts, nil
 }
 
 func buildUsageLine(node *commandNode) (string, error) {
@@ -560,38 +567,32 @@ func buildUsageParts(node *commandNode) ([]string, error) {
 		return nil, err
 	}
 
+	// Show required flags inline, count optional flags
+	hasOptionalFlags := false
+
 	for _, item := range flags {
 		if item.Required {
 			parts = append(parts, formatFlagUsage(item))
 		} else {
-			parts = append(parts, fmt.Sprintf("[%s]", formatFlagUsage(item)))
+			hasOptionalFlags = true
 		}
 	}
 
+	// If there are subcommands, show that
 	if len(node.Subcommands) > 0 {
-		parts = append(parts, "[subcommand]")
+		return append(parts, "<subcommand>", "[args...]"), nil
 	}
 
-	positionals, err := collectPositionalHelp(node)
+	positionalParts, err := buildPositionalParts(node)
 	if err != nil {
 		return nil, err
 	}
 
-	for _, item := range positionals {
-		name := item.Name
-		if item.Placeholder != "" {
-			name = item.Placeholder
-		}
+	parts = append(parts, positionalParts...)
 
-		if name == "" {
-			name = "ARG"
-		}
-
-		if item.Required {
-			parts = append(parts, name)
-		} else {
-			parts = append(parts, fmt.Sprintf("[%s]", name))
-		}
+	// Show [flags...] at end if there are optional flags
+	if hasOptionalFlags {
+		parts = append(parts, "[flags...]")
 	}
 
 	return parts, nil
@@ -870,6 +871,16 @@ func createCommandNode(v reflect.Value, typ reflect.Type) *commandNode {
 		Value:       v,
 		Subcommands: make(map[string]*commandNode),
 	}
+}
+
+// detectCurrentShell returns the name of the current shell.
+func detectCurrentShell() string {
+	shell := os.Getenv("SHELL")
+	if shell == "" {
+		return "unknown"
+	}
+
+	return filepath.Base(shell)
 }
 
 func detectTagKind(opts *TagOptions, tag, fieldName string) {
@@ -1189,19 +1200,6 @@ func getDescription(v reflect.Value, typ reflect.Type) string {
 }
 
 // getNodeSourceFile returns the source file for a node, falling back to subcommands.
-func getNodeSourceFile(node *commandNode) string {
-	if node.SourceFile != "" {
-		return node.SourceFile
-	}
-
-	for _, sub := range node.Subcommands {
-		if sub.SourceFile != "" {
-			return sub.SourceFile
-		}
-	}
-
-	return ""
-}
 
 // getStructSourceFile returns the source file for a struct, checking for a SourceFile() method first.
 func getStructSourceFile(v reflect.Value, typ reflect.Type) string {
@@ -1451,42 +1449,39 @@ func parseTarget(t any) (*commandNode, error) {
 	return parseStruct(t)
 }
 
-// printCommandFlags prints flags for a command with the given indent.
-func printCommandFlags(flags []flagHelp, indent string) {
-	for _, item := range flags {
-		name := formatFlagName(item)
-		if item.Usage != "" {
-			fmt.Printf("%s  %-24s %s\n", indent, name, item.Usage)
-		} else {
-			fmt.Printf("%s  %s\n", indent, name)
-		}
+// positionalName returns the display name for a positional argument.
+func positionalName(item positionalHelp) string {
+	if item.Placeholder != "" {
+		return item.Placeholder
 	}
+
+	if item.Name != "" {
+		return item.Name
+	}
+
+	return "ARG"
 }
 
-func printCommandHelp(node *commandNode, opts RunOptions, isRoot bool) {
+func printCommandHelp(node *commandNode, opts RunOptions, _ bool) {
 	binName := binaryName()
-	commandPath := buildCommandPath(node)
 
-	// Usage
+	// Description first (consistent with top-level)
+	printDescription(node.Description)
+
+	// Usage with targ flags and ... notation
 	usageParts, err := buildUsageParts(node)
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
 		return
 	}
 
-	// Prepend binName to usage parts
-	usageParts = append([]string{binName}, usageParts...)
+	// Insert "[targ flags...]" after binName
+	usageParts = append([]string{binName, "[targ flags...]"}, usageParts...)
 	printWrappedUsage("Usage: ", usageParts)
 	fmt.Println()
 
-	// Description
-	printDescription(node.Description)
-
-	// Targ Options (root only)
-	if isRoot {
-		printTargOptions(opts, true)
-		fmt.Println()
-	}
+	// Targ flags (not root, so no --completion)
+	printTargFlags(opts, false)
 
 	// Flags for this command
 	flags, err := collectFlagHelp(node)
@@ -1495,12 +1490,15 @@ func printCommandHelp(node *commandNode, opts RunOptions, isRoot bool) {
 		return
 	}
 
-	printFlags(flags)
+	if len(flags) > 0 {
+		fmt.Println("\nFlags:")
+		printFlagsIndented(flags, "  ")
+	}
 
-	// Commands (recursive with full details, show source for top-level)
+	// Subcommands (list, not recursive details)
 	if len(node.Subcommands) > 0 {
-		fmt.Println("\nCommands:")
-		printSubcommandsRecursive(node.Subcommands, commandPath, "  ", opts, true)
+		fmt.Println("\nSubcommands:")
+		printSubcommandList(node.Subcommands, "  ")
 	}
 
 	// More Info (at the very end)
@@ -1580,19 +1578,6 @@ func printFlagWithWrappedEnum(name, usage, placeholder, indent string) {
 	}
 }
 
-func printFlags(flags []flagHelp) {
-	if len(flags) == 0 {
-		return
-	}
-
-	fmt.Println("Flags:")
-
-	for _, item := range flags {
-		name := formatFlagName(item)
-		fmt.Printf("  %-24s %s\n", name, item.Usage)
-	}
-}
-
 // printFlagsIndented prints flags with proper indentation and enum wrapping.
 func printFlagsIndented(flags []flagHelp, indent string) {
 	for _, item := range flags {
@@ -1619,156 +1604,69 @@ func printMoreInfo(opts RunOptions) {
 	}
 }
 
-// printNestedSubcommands prints subcommands with their details.
-func printNestedSubcommands(subs map[string]*commandNode, binName, parentPath, indent string) {
+// printSubcommandGrid prints subcommands in a multi-column alphabetized grid.
+func printSubcommandGrid(subs map[string]*commandNode, indent string) {
 	names := sortedKeys(subs)
+	if len(names) == 0 {
+		return
+	}
 
+	// Calculate column width based on longest name
+	maxLen := 0
+	for _, name := range names {
+		if len(name) > maxLen {
+			maxLen = len(name)
+		}
+	}
+
+	const padding = 2
+
+	colWidth := maxLen + padding
+
+	// Determine number of columns (fit in ~60 chars after indent)
+	const availableWidth = 60
+
+	numCols := max(availableWidth/colWidth, 1)
+
+	// Print in columns
+	fmt.Printf("%sSubcommands: ", indent)
+
+	for i, name := range names {
+		if i > 0 && i%numCols == 0 {
+			fmt.Printf("\n%s             ", indent)
+		}
+
+		fmt.Printf("%-*s", colWidth, name)
+	}
+
+	fmt.Println()
+}
+
+// printSubcommandList prints subcommands with name and description only.
+//
+//nolint:unparam // indent kept for consistency with printSubcommandGrid
+func printSubcommandList(subs map[string]*commandNode, indent string) {
+	names := sortedKeys(subs)
 	for _, name := range names {
 		sub := subs[name]
 		if sub == nil {
 			continue
 		}
 
-		fullPath := parentPath + " " + sub.Name
-
-		// Name and description: "create      Description"
 		if sub.Description != "" {
-			fmt.Printf("%s%-12s%s\n", indent, sub.Name, sub.Description)
+			fmt.Printf("%s%-12s %s\n", indent, name, sub.Description)
 		} else {
-			fmt.Printf("%s%s\n", indent, sub.Name)
-		}
-
-		// Usage line with full path
-		usageParts := buildUsagePartsForPath(sub, binName, fullPath)
-		printWrappedUsage(indent+"  Usage: ", usageParts)
-
-		// Flags
-		flags, err := collectFlagHelp(sub)
-		if err == nil && len(flags) > 0 {
-			fmt.Println()
-			fmt.Printf("%s  Flags:\n", indent)
-			printFlagsIndented(flags, indent+"    ")
-		}
-
-		// Nested subcommands
-		if len(sub.Subcommands) > 0 {
-			fmt.Println()
-			fmt.Printf("%s  Subcommands:\n", indent)
-			printNestedSubcommands(sub.Subcommands, binName, fullPath, indent+"    ")
-		}
-
-		fmt.Println()
-	}
-}
-
-func printSubcommandDetail(
-	node *commandNode,
-	parentPath, indent string,
-	opts RunOptions,
-	showSource bool,
-) {
-	binName := binaryName()
-
-	commandPath := parentPath
-	if commandPath != "" {
-		commandPath += " "
-	}
-
-	commandPath += node.Name
-
-	// Usage
-	usageParts, err := buildUsageParts(node)
-	if err != nil {
-		usageParts = []string{node.Name}
-	}
-
-	// Prepend binName to usage parts
-	usageParts = append([]string{binName}, usageParts...)
-	printWrappedUsage(indent+"Usage: ", usageParts)
-
-	// Description
-	if node.Description != "" {
-		fmt.Printf("%s%s\n", indent, node.Description)
-	}
-
-	// Source file (relative path) - only for top-level commands
-	if showSource {
-		if sourceFile := getNodeSourceFile(node); sourceFile != "" {
-			relPath := relativeSourcePath(sourceFile)
-			fmt.Printf("%sSource: %s\n", indent, relPath)
-		}
-	}
-
-	// Flags for this command
-	flags, err := collectFlagHelp(node)
-	if err == nil && len(flags) > 0 {
-		fmt.Printf("%sFlags:\n", indent)
-		printCommandFlags(flags, indent)
-	}
-
-	// Recursively print subcommands (don't show source for nested commands)
-	if len(node.Subcommands) > 0 {
-		fmt.Printf("%sSubcommands:\n", indent)
-		printSubcommandsRecursive(node.Subcommands, commandPath, indent+"  ", opts, false)
-	}
-
-	fmt.Println() // Blank line between commands
-}
-
-func printSubcommandsRecursive(
-	subs map[string]*commandNode,
-	parentPath, indent string,
-	opts RunOptions,
-	showSource bool,
-) {
-	if len(subs) == 0 {
-		return
-	}
-
-	// Sort subcommands by name for consistent output
-	names := make([]string, 0, len(subs))
-	for name := range subs {
-		names = append(names, name)
-	}
-
-	sort.Strings(names)
-
-	for _, name := range names {
-		sub := subs[name]
-		if sub != nil {
-			printSubcommandDetail(sub, parentPath, indent, opts, showSource)
+			fmt.Printf("%s%s\n", indent, name)
 		}
 	}
 }
 
-func printTargOptions(opts RunOptions, isRoot bool) {
-	var flags []string
+// printTargFlags prints targ's built-in flags.
+func printTargFlags(opts RunOptions, isRoot bool) {
+	fmt.Println("Targ flags:")
 
-	// --completion is only valid at root level
 	if isRoot && !opts.DisableCompletion {
-		flags = append(flags, "  --completion [bash|zsh|fish]")
-	}
-
-	if !opts.DisableHelp {
-		flags = append(flags, "  --help")
-	}
-
-	if !opts.DisableTimeout {
-		flags = append(flags, "  --timeout <duration>")
-	}
-
-	if len(flags) > 0 {
-		fmt.Println("\nTarg options:")
-
-		for _, f := range flags {
-			fmt.Println(f)
-		}
-	}
-}
-
-func printTargOptionsInline(opts RunOptions, isRoot bool) {
-	if isRoot && !opts.DisableCompletion {
-		fmt.Println("  --completion [bash|zsh|fish]")
+		fmt.Println("  --completion [shell]")
 	}
 
 	if !opts.DisableHelp {
@@ -1781,7 +1679,7 @@ func printTargOptionsInline(opts RunOptions, isRoot bool) {
 }
 
 // printTopLevelCommand prints a top-level command (like "issues" or "targets").
-func printTopLevelCommand(node *commandNode, binName string, _ RunOptions) {
+func printTopLevelCommand(node *commandNode, _ string, _ RunOptions) {
 	// Command name and description on same line: "issues:    description"
 	if node.Description != "" {
 		fmt.Printf("  %s:    %s\n", node.Name, node.Description)
@@ -1805,15 +1703,9 @@ func printTopLevelCommand(node *commandNode, binName string, _ RunOptions) {
 		fmt.Printf("    Source: %s\n", relPath)
 	}
 
-	// Usage line
-	fmt.Println()
-	fmt.Printf("    Usage: %s %s <subcommand> [args]\n", binName, node.Name)
-
-	// Subcommands
+	// Subcommands as multi-column grid
 	if len(node.Subcommands) > 0 {
-		fmt.Println()
-		fmt.Println("    Subcommands:")
-		printNestedSubcommands(node.Subcommands, binName, node.Name, "        ")
+		printSubcommandGrid(node.Subcommands, "    ")
 	}
 
 	fmt.Println()
@@ -1822,26 +1714,43 @@ func printTopLevelCommand(node *commandNode, binName string, _ RunOptions) {
 func printUsage(nodes []*commandNode, opts RunOptions) {
 	binName := binaryName()
 
-	// Description at top (only for top-level help)
+	// Description first (consistent with command-level)
 	if opts.Description != "" {
 		fmt.Println(opts.Description)
 		fmt.Println()
 	}
 
-	fmt.Printf("Usage: %s <subcommand> [args]\n", binName)
+	fmt.Printf("Usage: %s [targ flags...] [(<command> [args...])...]\n\n", binName)
 
-	// Targ options
-	fmt.Println("\nTarg options:")
-	printTargOptionsInline(opts, true)
+	// Targ flags
+	printTargFlags(opts, true)
+	printValuesAndFormats(opts, true)
 
-	// Subcommands
-	fmt.Println("\nSubcommands:")
+	// Commands
+	fmt.Println("\nCommands:")
 
 	for _, node := range nodes {
 		printTopLevelCommand(node, binName, opts)
 	}
 
 	printMoreInfo(opts)
+}
+
+// printValuesAndFormats prints the Values and Formats help sections.
+func printValuesAndFormats(opts RunOptions, isRoot bool) {
+	// Values section (only if completion is shown)
+	if isRoot && !opts.DisableCompletion {
+		shell := detectCurrentShell()
+
+		fmt.Println("\nValues:")
+		fmt.Printf("  shell: bash, zsh, fish (default: current shell (detected: %s))\n", shell)
+	}
+
+	// Formats section (only if timeout is shown)
+	if !opts.DisableTimeout {
+		fmt.Println("\nFormats:")
+		fmt.Println("  duration: <int><unit> where unit is s (seconds), m (minutes), h (hours)")
+	}
 }
 
 // printWrappedUsage prints a usage line with wrapping at word boundaries.
