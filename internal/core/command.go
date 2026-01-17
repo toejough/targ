@@ -24,13 +24,10 @@ func AppendBuiltinExamples(custom ...Example) []Example {
 // BuiltinExamples returns the default targ examples (completion setup, chaining).
 func BuiltinExamples() []Example {
 	return []Example{
+		completionExample(),
 		{
-			Title: "Enable shell completion",
-			Code:  "eval \"$(targ --completion)\"",
-		},
-		{
-			Title: "Chain commands (^ pops to root)",
-			Code:  "targ build ^ test ^ deploy",
+			Title: "Chain nested commands (^ returns to root)",
+			Code:  "targ targets check ^ issues validate",
 		},
 	}
 }
@@ -868,6 +865,27 @@ func collectPositionalHelp(node *commandNode) ([]positionalHelp, error) {
 	}
 
 	return positionals, nil
+}
+
+// completionExample returns a shell-specific completion setup example.
+func completionExample() Example {
+	shell := detectCurrentShell()
+
+	var code string
+
+	switch shell {
+	case zshShell:
+		code = "source <(targ --completion)"
+	case fishShell:
+		code = "targ --completion | source"
+	default:
+		code = "eval \"$(targ --completion)\""
+	}
+
+	return Example{
+		Title: "Enable shell completion",
+		Code:  code,
+	}
 }
 
 func copySubcommandFuncs(inst reflect.Value, node *commandNode) error {
@@ -1734,6 +1752,8 @@ func printTopLevelCommand(node *commandNode, _ string, _ RunOptions) {
 	} else {
 		fmt.Printf("  %s:\n", node.Name)
 	}
+
+	fmt.Println()
 
 	// Source file (indented)
 	sourceFile := node.SourceFile

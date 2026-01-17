@@ -195,7 +195,7 @@ func TestAppendBuiltinExamples(t *testing.T) {
 	g.Expect(examples).To(HaveLen(3))
 	g.Expect(examples[0].Title).To(Equal("Custom"))
 	g.Expect(examples[1].Title).To(Equal("Enable shell completion"))
-	g.Expect(examples[2].Title).To(ContainSubstring("Chain commands"))
+	g.Expect(examples[2].Title).To(ContainSubstring("Chain nested"))
 }
 
 func TestApplyTagOptionsOverride_MethodReturnsError(t *testing.T) {
@@ -509,7 +509,7 @@ func TestBuiltinExamples(t *testing.T) {
 	g.Expect(examples).To(HaveLen(2))
 	g.Expect(examples[0].Title).To(Equal("Enable shell completion"))
 	g.Expect(examples[0].Code).To(ContainSubstring("--completion"))
-	g.Expect(examples[1].Title).To(ContainSubstring("Chain commands"))
+	g.Expect(examples[1].Title).To(ContainSubstring("Chain nested"))
 	g.Expect(examples[1].Code).To(ContainSubstring("^"))
 }
 
@@ -660,6 +660,33 @@ func TestCommandMetaOverrides(t *testing.T) {
 
 	if node.Description != "Custom description." {
 		t.Fatalf("expected description override, got %q", node.Description)
+	}
+}
+
+func TestCompletionExample_Bash(t *testing.T) {
+	t.Setenv("SHELL", "/bin/bash")
+
+	ex := completionExample()
+	if ex.Code != "eval \"$(targ --completion)\"" {
+		t.Fatalf("expected bash syntax, got: %s", ex.Code)
+	}
+}
+
+func TestCompletionExample_Fish(t *testing.T) {
+	t.Setenv("SHELL", "/usr/bin/fish")
+
+	ex := completionExample()
+	if ex.Code != "targ --completion | source" {
+		t.Fatalf("expected fish syntax, got: %s", ex.Code)
+	}
+}
+
+func TestCompletionExample_Zsh(t *testing.T) {
+	t.Setenv("SHELL", "/bin/zsh")
+
+	ex := completionExample()
+	if ex.Code != "source <(targ --completion)" {
+		t.Fatalf("expected zsh syntax, got: %s", ex.Code)
 	}
 }
 
@@ -2277,7 +2304,7 @@ func TestPrependBuiltinExamples(t *testing.T) {
 
 	if len(examples) >= 3 {
 		g.Expect(examples[0].Title).To(Equal("Enable shell completion"))
-		g.Expect(examples[1].Title).To(ContainSubstring("Chain commands"))
+		g.Expect(examples[1].Title).To(ContainSubstring("Chain nested"))
 		g.Expect(examples[2].Title).To(Equal("Custom"))
 	}
 }
@@ -2545,7 +2572,7 @@ func TestPrintExamples_Nil(t *testing.T) {
 
 	g.Expect(output).To(ContainSubstring("Examples:"))
 	g.Expect(output).To(ContainSubstring("Enable shell completion"))
-	g.Expect(output).To(ContainSubstring("Chain commands"))
+	g.Expect(output).To(ContainSubstring("Chain nested"))
 }
 
 func TestPrintFlagWithWrappedEnum(t *testing.T) {
@@ -3399,7 +3426,7 @@ func extractShellName(shell string) string {
 	}
 
 	switch base {
-	case bashShell, "zsh", "fish":
+	case bashShell, zshShell, fishShell:
 		return base
 	default:
 		return ""
