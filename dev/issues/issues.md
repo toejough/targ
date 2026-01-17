@@ -180,24 +180,6 @@ Low
 **Acceptance**
 TBD
 
-### 71. Recursively search for issues.md
-
-#### Universal
-
-**Status**
-backlog
-
-**Description**
-When no --file is specified, recursively search upward for an issues.md file and use the first one found. This matches how other tools find their config files (like .git, go.mod, etc.).
-
-#### Planning
-
-**Priority**
-Low
-
-**Acceptance**
-TBD
-
 ### 72. --nest: create struct-based hierarchy from flat commands
 
 #### Universal
@@ -1429,3 +1411,25 @@ TBD
 
 **Details**
 Help structure is now consistent between top-level and subcommand help: description, usage, targ flags, commands/subcommands, examples, more info.
+
+### 71. Recursively search for issues.md
+
+#### Universal
+
+**Status**
+done
+
+**Description**
+When no --file is specified, recursively search upward for an issues.md file and use the first one found. This matches how other tools find their config files (like .git, go.mod, etc.).
+
+#### Planning
+
+**Priority**
+Low
+
+**Acceptance**
+TBD
+
+
+**Details**
+Moved issues.md to dev/issues/issues.md and updated default file path in all issue commands.

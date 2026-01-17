@@ -12,7 +12,7 @@ import (
 )
 
 type Create struct {
-	File       string `targ:"flag,default=issues.md,desc=Issue file to update"`
+	File       string `targ:"flag,default=dev/issues/issues.md,desc=Issue file to update"`
 	GitHub     bool   `targ:"flag,desc=Create issue on GitHub instead of locally"`
 	Title      string `targ:"flag,required,desc=Issue title"`
 	Status     string `targ:"flag,default=backlog,desc=Initial status,enum=backlog|selected|in-progress|review|done|cancelled|blocked"`
@@ -81,7 +81,7 @@ func (c *Create) Run() error {
 }
 
 type Dedupe struct {
-	File string `targ:"flag,default=issues.md,desc=Issue file to update"`
+	File string `targ:"flag,default=dev/issues/issues.md,desc=Issue file to update"`
 }
 
 func (c *Dedupe) Description() string {
@@ -111,7 +111,7 @@ func (c *Dedupe) Run() error {
 }
 
 type List struct {
-	File   string `targ:"flag,default=issues.md,desc=Issue file to read"`
+	File   string `targ:"flag,default=dev/issues/issues.md,desc=Issue file to read"`
 	Status string `targ:"flag,desc=Filter by status,enum=backlog|selected|in-progress|review|done|cancelled|blocked"`
 	Query  string `targ:"flag,desc=Case-insensitive title filter"`
 	Source string `targ:"flag,default=all,desc=Issue source,enum=all|local|github"`
@@ -183,7 +183,7 @@ func (c *List) Run() error {
 }
 
 type Move struct {
-	File   string `targ:"flag,default=issues.md,desc=Issue file to update"`
+	File   string `targ:"flag,default=dev/issues/issues.md,desc=Issue file to update"`
 	ID     string `targ:"positional,required,desc=Issue ID (e.g. 5 for local or gh#5 for GitHub)"`
 	Status string `targ:"flag,required,desc=New status,enum=backlog|selected|in-progress|review|done|cancelled|blocked"`
 }
@@ -242,7 +242,7 @@ func (c *Move) Run() error {
 }
 
 type Update struct {
-	File       string `targ:"flag,default=issues.md,desc=Issue file to update"`
+	File       string `targ:"flag,default=dev/issues/issues.md,desc=Issue file to update"`
 	ID         string `targ:"positional,required,desc=Issue ID (e.g. 5 for local or gh#5 for GitHub)"`
 	Status     string `targ:"flag,desc=New status,enum=backlog|selected|in-progress|review|done|cancelled|blocked"`
 	Desc       string `targ:"flag,name=description,desc=Description text"`
@@ -327,7 +327,7 @@ func (c *Update) Run() error {
 }
 
 type Validate struct {
-	File string `targ:"flag,default=issues.md,desc=Issue file to validate"`
+	File string `targ:"flag,default=dev/issues/issues.md,desc=Issue file to validate"`
 }
 
 func (c *Validate) Description() string {
