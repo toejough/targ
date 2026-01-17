@@ -1034,6 +1034,7 @@ func targBooleanFlags() map[string]bool {
 func targExitEarlyFlags() map[string]bool {
 	return map[string]bool{
 		"--alias": true, // takes NAME "CMD" [FILE]
+		"--move":  true, // takes DEST SOURCE_PATTERN
 	}
 }
 
@@ -1052,7 +1053,7 @@ func targGlobalFlags() []string {
 
 // targRootOnlyFlags returns flags only valid at root level (before any command).
 func targRootOnlyFlags() []string {
-	return []string{"--no-cache", "--keep", "--completion", "--init", "--alias"}
+	return []string{"--no-cache", "--keep", "--completion", "--init", "--alias", "--move"}
 }
 
 func tokenizeCommandLine(commandLine string) ([]string, bool) {

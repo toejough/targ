@@ -9,6 +9,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"io"
 	"os"
 	"os/exec"
@@ -151,6 +154,9 @@ var (
 	)
 	errAliasRequiresCommand  = errors.New("--alias requires a command argument")
 	errCommandEmpty          = errors.New("command cannot be empty")
+	errMoveDestConflict      = errors.New("destination conflicts with existing command")
+	errMoveNoMatches         = errors.New("no commands match pattern")
+	errMoveRequiresArgs      = errors.New("--move requires: DEST SOURCE_PATTERN")
 	errDuplicateCommandName  = errors.New("duplicate command name")
 	errDuplicateNamespace    = errors.New("duplicate namespace field")
 	errFileExists            = errors.New("file already exists")
@@ -167,6 +173,22 @@ var (
 type aliasResult struct {
 	message string
 	err     error
+}
+
+type movedCommand struct {
+	info    buildtool.CommandInfo
+	newName string
+}
+
+type moveResult struct {
+	message string
+	err     error
+}
+
+type subcommandRef struct {
+	fieldName string
+	typeName  string
+	file      string
 }
 
 type bootstrapBuilder struct {
@@ -841,6 +863,17 @@ func (r *targRunner) handleEarlyFlags() (exitCode int, done bool) {
 	}
 
 	if result := handleAliasFlag(r.args); result != nil {
+		if result.err != nil {
+			fmt.Fprintln(os.Stderr, result.err)
+			return 1, true
+		}
+
+		fmt.Println(result.message)
+
+		return 0, true
+	}
+
+	if result := handleMoveFlag(r.args); result != nil {
 		if result.err != nil {
 			fmt.Fprintln(os.Stderr, result.err)
 			return 1, true
@@ -2769,6 +2802,18 @@ func printBuildToolUsage(out io.Writer) {
 		"add a shell command target to a targets file",
 	)
 	_, _ = fmt.Fprintf(out, "    %-28s %s\n", "", "(auto-creates targs.go if no targets exist)")
+	_, _ = fmt.Fprintf(
+		out,
+		"    %-28s %s\n",
+		"--move <dest_path> <source_pattern>",
+		"reorganize commands into a hierarchy",
+	)
+	_, _ = fmt.Fprintf(
+		out,
+		"    %-28s %s\n",
+		"",
+		"(e.g. 'targ --move lint dev.lint*' groups lint* commands)",
+	)
 	_, _ = fmt.Fprintf(out, "    %-28s %s\n", "--help", "Print help information")
 }
 
@@ -2861,6 +2906,7 @@ func printNoTargetsCompletion(args []string) {
 		"--completion",
 		"--init",
 		"--alias",
+		"--move",
 	}
 
 	for _, flag := range allFlags {
@@ -3496,4 +3542,617 @@ func writeIsolatedGoMod(tmpDir string, dep targDependency) error {
 	}
 
 	return nil
+}
+
+// generateMoveStruct creates a parent struct with moved subcommands.
+func generateMoveStruct(
+	destName string,
+	exactMatch *buildtool.CommandInfo,
+	subcommands []movedCommand,
+	sourceFile string,
+) string {
+	structName := toExportedName(destName)
+
+	var sb strings.Builder
+
+	// Generate struct with subcommand fields
+	// Use destName in wrapper name to avoid conflicts with targ's internal wrappers
+	sb.WriteString(fmt.Sprintf("\ntype %s struct {\n", structName))
+
+	for _, cmd := range subcommands {
+		wrapperName := structName + toExportedName(cmd.newName) + "Wrapper"
+		sb.WriteString(fmt.Sprintf("\t%s *%s `targ:\"subcommand\"`\n",
+			toExportedName(cmd.newName),
+			wrapperName))
+	}
+
+	sb.WriteString("}\n")
+
+	// Generate Run() method if there was an exact match
+	if exactMatch != nil {
+		if exactMatch.UsesContext {
+			sb.WriteString(
+				fmt.Sprintf("\nfunc (c *%s) Run(ctx context.Context) error {\n", structName),
+			)
+			sb.WriteString(fmt.Sprintf("\treturn %s(ctx)\n", exactMatch.Name))
+		} else {
+			sb.WriteString(fmt.Sprintf("\nfunc (c *%s) Run() error {\n", structName))
+			sb.WriteString(fmt.Sprintf("\treturn %s()\n", exactMatch.Name))
+		}
+
+		sb.WriteString("}\n")
+	}
+
+	// Generate wrapper structs for each subcommand
+	for _, cmd := range subcommands {
+		wrapperName := structName + toExportedName(cmd.newName) + "Wrapper"
+		sb.WriteString(fmt.Sprintf("\ntype %s struct{}\n", wrapperName))
+
+		if cmd.info.UsesContext {
+			sb.WriteString(
+				fmt.Sprintf("\nfunc (c *%s) Run(ctx context.Context) error {\n", wrapperName),
+			)
+			sb.WriteString(fmt.Sprintf("\treturn %s(ctx)\n", cmd.info.Name))
+		} else {
+			sb.WriteString(fmt.Sprintf("\nfunc (c *%s) Run() error {\n", wrapperName))
+			sb.WriteString(fmt.Sprintf("\treturn %s()\n", cmd.info.Name))
+		}
+
+		sb.WriteString("}\n")
+
+		// Add Name() method for CLI name
+		sb.WriteString(fmt.Sprintf("\nfunc (c *%s) Name() string {\n", wrapperName))
+		sb.WriteString(fmt.Sprintf("\treturn %q\n", cmd.newName))
+		sb.WriteString("}\n")
+
+		// Add SourceFile() method
+		sb.WriteString(fmt.Sprintf("\nfunc (c *%s) SourceFile() string {\n", wrapperName))
+		sb.WriteString(fmt.Sprintf("\treturn %q\n", sourceFile))
+		sb.WriteString("}\n")
+	}
+
+	return sb.String()
+}
+
+// handleMoveFlag checks for --move and generates hierarchy code.
+// Returns nil if --move was not specified.
+func handleMoveFlag(args []string) *moveResult {
+	for i, arg := range args {
+		if arg != "--move" {
+			continue
+		}
+
+		// Need at least 2 more args: DEST SOURCE_PATTERN
+		if i+2 >= len(args) {
+			return &moveResult{err: errMoveRequiresArgs}
+		}
+
+		dest := args[i+1]
+		sourcePattern := args[i+2]
+
+		msg, err := moveCommands(dest, sourcePattern)
+
+		return &moveResult{message: msg, err: err}
+	}
+
+	return nil
+}
+
+// findStructSubcommands parses a Go file and returns subcommand info for a struct.
+// Returns a map of subcommand kebab-name -> (field name, type name, uses context, file).
+func findStructSubcommands(filePath, structName string) (map[string]subcommandRef, error) {
+	//nolint:gosec // build tool reads source files by design
+	content, err := os.ReadFile(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("reading file %s: %w", filePath, err)
+	}
+
+	fset := token.NewFileSet()
+
+	file, err := parser.ParseFile(fset, filePath, content, parser.ParseComments)
+	if err != nil {
+		return nil, fmt.Errorf("parsing file %s: %w", filePath, err)
+	}
+
+	result := make(map[string]subcommandRef)
+
+	for _, decl := range file.Decls {
+		genDecl, ok := decl.(*ast.GenDecl)
+		if !ok || genDecl.Tok != token.TYPE {
+			continue
+		}
+
+		for _, spec := range genDecl.Specs {
+			typeSpec, ok := spec.(*ast.TypeSpec)
+			if !ok || typeSpec.Name.Name != structName {
+				continue
+			}
+
+			structType, ok := typeSpec.Type.(*ast.StructType)
+			if !ok {
+				continue
+			}
+
+			// Found the struct, now extract subcommand fields
+			for _, field := range structType.Fields.List {
+				if field.Tag == nil || len(field.Names) == 0 {
+					continue
+				}
+
+				tagValue := strings.Trim(field.Tag.Value, "`")
+				if !strings.Contains(tagValue, "subcommand") {
+					continue
+				}
+
+				fieldName := field.Names[0].Name
+				typeName := fieldTypeName(field.Type)
+
+				// Get subcommand name (from tag override or field name)
+				subName := toKebabCase(fieldName)
+				// Check for name override in tag
+				if _, after, ok0 := strings.Cut(tagValue, "subcommand="); ok0 {
+					rest := after
+					if before, _, ok0 := strings.Cut(rest, ","); ok0 {
+						subName = before
+					} else if before, _, ok0 := strings.Cut(rest, "\""); ok0 {
+						subName = before
+					} else {
+						subName = rest
+					}
+				}
+
+				result[subName] = subcommandRef{
+					fieldName: fieldName,
+					typeName:  typeName,
+					file:      filePath,
+				}
+			}
+		}
+	}
+
+	return result, nil
+}
+
+// fieldTypeName extracts the type name from an AST expression.
+func fieldTypeName(expr ast.Expr) string {
+	switch t := expr.(type) {
+	case *ast.Ident:
+		return t.Name
+	case *ast.StarExpr:
+		return fieldTypeName(t.X)
+	case *ast.SelectorExpr:
+		return fieldTypeName(t.Sel)
+	default:
+		return ""
+	}
+}
+
+// matchGlob matches a command name against a glob pattern.
+// Only supports trailing * for simplicity.
+func matchGlob(name, pattern string) bool {
+	if before, ok := strings.CutSuffix(pattern, "*"); ok {
+		return strings.HasPrefix(name, before)
+	}
+
+	return name == pattern
+}
+
+// moveCommands implements the --move flag logic.
+// Supports nested paths: source can be pkg.parent.pattern*, dest can be parent.child.
+func moveCommands(dest, sourcePattern string) (string, error) {
+	// Parse source pattern into segments
+	sourceParts := strings.Split(sourcePattern, ".")
+	if len(sourceParts) < 2 {
+		return "", errors.New(
+			"source pattern must include package path (e.g., dev.lint* or dev.check.coverage*)",
+		)
+	}
+
+	pkgName := sourceParts[0]
+	pattern := sourceParts[len(sourceParts)-1]
+	parentPath := sourceParts[1 : len(sourceParts)-1] // intermediate path segments
+
+	// Parse destination into segments
+	destParts := strings.Split(dest, ".")
+	destLeaf := destParts[len(destParts)-1]
+	destParentPath := destParts[:len(destParts)-1]
+
+	// Discover commands
+	filesystem := buildtool.OSFileSystem{}
+
+	infos, err := buildtool.Discover(filesystem, buildtool.Options{StartDir: "."})
+	if err != nil {
+		return "", fmt.Errorf("discovering commands: %w", err)
+	}
+
+	// Find source package
+	var sourcePackage *buildtool.PackageInfo
+
+	for i := range infos {
+		if infos[i].Package == pkgName {
+			sourcePackage = &infos[i]
+			break
+		}
+	}
+
+	if sourcePackage == nil {
+		return "", fmt.Errorf("package %q not found", pkgName)
+	}
+
+	// Find target file
+	if len(sourcePackage.Files) == 0 {
+		return "", fmt.Errorf("no source files found in package %q", pkgName)
+	}
+
+	targetFile := sourcePackage.Files[0].Path
+
+	// Navigate parent path to find commands
+	var matchingCommands []movedCommand
+
+	var exactMatch *buildtool.CommandInfo
+
+	prefix := strings.TrimSuffix(pattern, "*")
+
+	if len(parentPath) == 0 {
+		// No parent path - search top-level commands in package
+		for i := range sourcePackage.Commands {
+			cmd := &sourcePackage.Commands[i]
+			cmdKebab := toKebabCase(cmd.Name)
+
+			if !matchGlob(cmdKebab, pattern) {
+				continue
+			}
+
+			if cmdKebab == prefix {
+				exactMatch = cmd
+			} else {
+				newName := stripPrefix(cmdKebab, prefix)
+				matchingCommands = append(matchingCommands, movedCommand{
+					info:    *cmd,
+					newName: newName,
+				})
+			}
+		}
+	} else {
+		// Navigate through parent path to find subcommands
+		// First, find the root parent command
+		var currentFile string
+
+		var currentStruct string
+
+		for _, cmd := range sourcePackage.Commands {
+			if toKebabCase(cmd.Name) == parentPath[0] {
+				currentFile = cmd.File
+				currentStruct = cmd.Name
+				break
+			}
+		}
+
+		if currentStruct == "" {
+			return "", fmt.Errorf("command %q not found in package %q", parentPath[0], pkgName)
+		}
+
+		// Navigate deeper if there are more parent segments
+		for i := 1; i < len(parentPath); i++ {
+			subs, err := findStructSubcommands(currentFile, currentStruct)
+			if err != nil {
+				return "", fmt.Errorf("finding subcommands of %s: %w", currentStruct, err)
+			}
+
+			subRef, ok := subs[parentPath[i]]
+			if !ok {
+				return "", fmt.Errorf("subcommand %q not found in %s", parentPath[i], currentStruct)
+			}
+
+			currentFile = subRef.file
+			currentStruct = subRef.typeName
+		}
+
+		// Now find subcommands of the final parent that match the pattern
+		subs, err := findStructSubcommands(currentFile, currentStruct)
+		if err != nil {
+			return "", fmt.Errorf("finding subcommands of %s: %w", currentStruct, err)
+		}
+
+		for subName, subRef := range subs {
+			if !matchGlob(subName, pattern) {
+				continue
+			}
+
+			// Create a synthetic CommandInfo for the subcommand
+			cmdInfo := buildtool.CommandInfo{
+				Name: subRef.typeName,
+				Kind: buildtool.CommandStruct,
+				File: subRef.file,
+			}
+
+			if subName == prefix {
+				exactMatch = &cmdInfo
+			} else {
+				newName := stripPrefix(subName, prefix)
+				matchingCommands = append(matchingCommands, movedCommand{
+					info:    cmdInfo,
+					newName: newName,
+				})
+			}
+		}
+	}
+
+	if exactMatch == nil && len(matchingCommands) == 0 {
+		return "", errMoveNoMatches
+	}
+
+	// Handle nested destination
+	if len(destParentPath) > 0 {
+		return moveToNestedDest(
+			destParentPath,
+			destLeaf,
+			exactMatch,
+			matchingCommands,
+			targetFile,
+			infos,
+			sourcePackage,
+		)
+	}
+
+	// Simple case: create top-level struct
+	// Check for destination conflicts
+	for i := range infos {
+		for _, cmd := range infos[i].Commands {
+			if toKebabCase(cmd.Name) == destLeaf {
+				return "", fmt.Errorf("%w: %q already exists", errMoveDestConflict, destLeaf)
+			}
+		}
+	}
+
+	// Generate the struct
+	code := generateMoveStruct(destLeaf, exactMatch, matchingCommands, targetFile)
+
+	// Append to target file
+	err = appendToFile(targetFile, code)
+	if err != nil {
+		return "", err
+	}
+
+	// Build result message
+	movedNames := buildMovedNames(dest, exactMatch, matchingCommands)
+
+	return fmt.Sprintf("Added to %s:\n  %s", targetFile, strings.Join(movedNames, "\n  ")), nil
+}
+
+// moveToNestedDest handles moving commands to a nested destination like tools.lint.
+func moveToNestedDest(
+	destParentPath []string,
+	destLeaf string,
+	exactMatch *buildtool.CommandInfo,
+	subcommands []movedCommand,
+	targetFile string,
+	infos []buildtool.PackageInfo,
+	sourcePackage *buildtool.PackageInfo,
+) (string, error) {
+	// Find or create parent structs
+	// Start by looking for the root parent
+	rootParent := destParentPath[0]
+
+	var parentCmd *buildtool.CommandInfo
+
+	var parentFile string
+
+	for i := range infos {
+		for j := range infos[i].Commands {
+			if toKebabCase(infos[i].Commands[j].Name) == rootParent {
+				parentCmd = &infos[i].Commands[j]
+				parentFile = parentCmd.File
+				break
+			}
+		}
+	}
+
+	if parentCmd == nil {
+		// Parent doesn't exist - create the full hierarchy
+		return createNestedHierarchy(destParentPath, destLeaf, exactMatch, subcommands, targetFile)
+	}
+
+	// Parent exists - navigate to find the immediate parent and add field
+	currentFile := parentFile
+	currentStruct := parentCmd.Name
+
+	for i := 1; i < len(destParentPath); i++ {
+		subs, err := findStructSubcommands(currentFile, currentStruct)
+		if err != nil {
+			return "", fmt.Errorf("finding subcommands of %s: %w", currentStruct, err)
+		}
+
+		subRef, ok := subs[destParentPath[i]]
+		if !ok {
+			// This intermediate parent doesn't exist, need to create from here
+			return "", fmt.Errorf(
+				"intermediate parent %q not found in %s; create it first",
+				destParentPath[i],
+				currentStruct,
+			)
+		}
+
+		currentFile = subRef.file
+		currentStruct = subRef.typeName
+	}
+
+	// Now currentStruct is the immediate parent - add a field to it
+	newStructName := toExportedName(destLeaf)
+
+	// Generate the new struct
+	code := generateMoveStruct(destLeaf, exactMatch, subcommands, targetFile)
+
+	// Add field to parent struct
+	fieldCode := fmt.Sprintf("\t%s *%s `targ:\"subcommand\"`\n", newStructName, newStructName)
+
+	err := addFieldToStruct(currentFile, currentStruct, fieldCode)
+	if err != nil {
+		return "", fmt.Errorf("adding field to %s: %w", currentStruct, err)
+	}
+
+	// Append the new struct code
+	err = appendToFile(targetFile, code)
+	if err != nil {
+		return "", err
+	}
+
+	dest := strings.Join(append(destParentPath, destLeaf), ".")
+	movedNames := buildMovedNames(dest, exactMatch, subcommands)
+
+	return fmt.Sprintf(
+		"Added to %s (under %s):\n  %s",
+		targetFile,
+		currentStruct,
+		strings.Join(movedNames, "\n  "),
+	), nil
+}
+
+// createNestedHierarchy creates a full hierarchy of structs for nested destination.
+func createNestedHierarchy(
+	parentPath []string,
+	leaf string,
+	exactMatch *buildtool.CommandInfo,
+	subcommands []movedCommand,
+	targetFile string,
+) (string, error) {
+	var sb strings.Builder
+
+	// Generate leaf struct first
+	leafCode := generateMoveStruct(leaf, exactMatch, subcommands, targetFile)
+	sb.WriteString(leafCode)
+
+	// Generate parent structs from innermost to outermost
+	childName := toExportedName(leaf)
+
+	for i := len(parentPath) - 1; i >= 0; i-- {
+		parentName := toExportedName(parentPath[i])
+		sb.WriteString(fmt.Sprintf("\ntype %s struct {\n", parentName))
+		sb.WriteString(fmt.Sprintf("\t%s *%s `targ:\"subcommand\"`\n", childName, childName))
+		sb.WriteString("}\n")
+		childName = parentName
+	}
+
+	err := appendToFile(targetFile, sb.String())
+	if err != nil {
+		return "", err
+	}
+
+	dest := strings.Join(append(parentPath, leaf), ".")
+	movedNames := buildMovedNames(dest, exactMatch, subcommands)
+
+	return fmt.Sprintf("Added to %s:\n  %s", targetFile, strings.Join(movedNames, "\n  ")), nil
+}
+
+// addFieldToStruct adds a new field to an existing struct in a Go file.
+func addFieldToStruct(filePath, structName, fieldCode string) error {
+	//nolint:gosec // build tool reads source files by design
+	content, err := os.ReadFile(filePath)
+	if err != nil {
+		return fmt.Errorf("reading file: %w", err)
+	}
+
+	fset := token.NewFileSet()
+
+	file, err := parser.ParseFile(fset, filePath, content, parser.ParseComments)
+	if err != nil {
+		return fmt.Errorf("parsing file: %w", err)
+	}
+
+	// Find the struct and its closing brace position
+	var insertPos token.Pos
+
+	for _, decl := range file.Decls {
+		genDecl, ok := decl.(*ast.GenDecl)
+		if !ok || genDecl.Tok != token.TYPE {
+			continue
+		}
+
+		for _, spec := range genDecl.Specs {
+			typeSpec, ok := spec.(*ast.TypeSpec)
+			if !ok || typeSpec.Name.Name != structName {
+				continue
+			}
+
+			structType, ok := typeSpec.Type.(*ast.StructType)
+			if !ok {
+				continue
+			}
+
+			// Insert before the closing brace
+			insertPos = structType.Fields.Closing
+			break
+		}
+	}
+
+	if insertPos == 0 {
+		return fmt.Errorf("struct %s not found", structName)
+	}
+
+	// Convert position to byte offset
+	offset := fset.Position(insertPos).Offset
+
+	// Insert the field code
+	newContent := string(content[:offset]) + fieldCode + string(content[offset:])
+
+	//nolint:gosec // build tool writes source files by design
+	err = os.WriteFile(filePath, []byte(newContent), 0o644)
+	if err != nil {
+		return fmt.Errorf("writing file: %w", err)
+	}
+
+	return nil
+}
+
+// buildMovedNames creates the list of moved command names for output.
+func buildMovedNames(
+	dest string,
+	exactMatch *buildtool.CommandInfo,
+	subcommands []movedCommand,
+) []string {
+	var movedNames []string
+	if exactMatch != nil {
+		movedNames = append(movedNames, dest+" (parent)")
+	}
+
+	for _, cmd := range subcommands {
+		movedNames = append(movedNames, dest+" "+cmd.newName)
+	}
+
+	return movedNames
+}
+
+// stripPrefix removes the pattern prefix from a command name.
+// e.g., stripPrefix("lint-fast", "lint") → "fast"
+//
+//	stripPrefix("lint", "lint") → "lint" (exact match preserved)
+func stripPrefix(name, prefix string) string {
+	if name == prefix {
+		return name
+	}
+
+	if after, ok := strings.CutPrefix(name, prefix+"-"); ok {
+		return after
+	}
+
+	return name
+}
+
+// toKebabCase converts CamelCase to kebab-case.
+func toKebabCase(s string) string {
+	var result strings.Builder
+
+	runes := []rune(s)
+	for i, r := range runes {
+		if i > 0 && unicode.IsUpper(r) {
+			prev := runes[i-1]
+			if unicode.IsLower(prev) || (i+1 < len(runes) && unicode.IsLower(runes[i+1])) {
+				result.WriteRune('-')
+			}
+		}
+
+		result.WriteRune(unicode.ToLower(r))
+	}
+
+	return result.String()
 }
