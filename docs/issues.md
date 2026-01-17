@@ -18,146 +18,6 @@ A simple md issue tracker.
 
 Issues to choose from for future work.
 
-### 49. Repeated flags
-
-#### Universal
-
-**Status**
-done
-
-**Description**
-Allow flags to be specified multiple times and accumulate values (e.g. `--tag a --tag b`).
-
-#### Planning
-
-**Priority**
-Medium
-
-**Acceptance**
-Repeated flag values accumulate into slice fields with predictable ordering.
-
-#### Design
-
-**Basic repeated flags**: `[]T` fields accumulate values in order.
-```go
-type MyCmd struct {
-    Tag []string `targ:"flag"`
-}
-// --tag a --tag b → Tag = []string{"a", "b"}
-```
-
-**Interleaved repeated flags**: `[]targ.Interleaved[T]` tracks global position across all flags.
-```go
-type MyCmd struct {
-    Include []targ.Interleaved[string] `targ:"flag"`
-    Exclude []targ.Interleaved[string] `targ:"flag"`
-}
-// --include a --exclude b --include c →
-// Include = [{Value:"a", Position:0}, {Value:"c", Position:2}]
-// Exclude = [{Value:"b", Position:1}]
-```
-
-User can merge slices and sort by Position to reconstruct interleaved order.
-
-### 50. Variadic positionals
-
-#### Universal
-
-**Status**
-done
-
-**Description**
-Support variadic positional args (e.g. a `[]string` positional capturing remaining args).
-
-#### Planning
-
-**Priority**
-Medium
-
-**Acceptance**
-Trailing slice positional captures remaining args and appears clearly in usage/help.
-
-#### Implementation Notes
-
-**Details**
-Already implemented - slice positionals automatically capture remaining args. Usage line shows placeholder with brackets (e.g., `[FILES...]`).
-
-### 51. Map-type args
-
-#### Universal
-
-**Status**
-done
-
-**Description**
-Support map-type flags or positionals with `key=value` parsing.
-
-#### Planning
-
-**Priority**
-Low
-
-**Acceptance**
-Map fields can be populated via repeated `key=value` inputs with validation.
-
-#### Implementation Notes
-
-**Details**
-- Syntax: `--labels key=value` repeated for multiple entries
-- Supports `map[string]string`, `map[string]int`, etc.
-- Values containing `=` are handled correctly (splits on first `=` only)
-- Later values overwrite earlier ones for same key
-
-### 52. Multi-command invocation
-
-#### Universal
-
-**Status**
-done
-
-**Description**
-Allow invoking multiple commands in a single targ run (e.g. `targ build test deploy`).
-
-#### Planning
-
-**Priority**
-Medium
-
-**Acceptance**
-Multiple commands execute in order with shared dependency semantics.
-
-#### Implementation Notes
-
-**Details**
-Already implemented - commands execute in sequence and `Deps()` calls are shared across the entire run (dependencies only execute once).
-
-### 53. Timeouts for build tool runs
-
-#### Universal
-
-**Status**
-done
-
-**Description**
-Provide timeout controls for build-tool executions (CLI flag or API option).
-
-#### Planning
-
-**Priority**
-Low
-
-**Acceptance**
-Timeout cancels the run and surfaces a clear error/exit code.
-
-#### Implementation Notes
-
-**Details**
-- Added `--timeout <duration>` flag (e.g., `--timeout 10m`, `--timeout 1h`)
-- Supports both `--timeout 10m` and `--timeout=10m` syntax
-- Timeout is off by default (no timeout unless flag is specified)
-- Context is cancelled when timeout expires, propagating to commands
-- Clear error messages for missing/invalid duration values
-
 ### 54. Syscall helpers
 
 #### Universal
@@ -178,29 +38,6 @@ Helpers cover common use cases without requiring direct syscall usage.
 
 **Note**
 Replaced with specific issues for individual helpers (59-64) based on Mage sh package analysis.
-
-### 55. README examples in sync
-
-#### Universal
-
-**Status**
-done
-
-**Description**
-Add checks or tooling to keep README examples in sync with real behavior.
-
-#### Planning
-
-**Priority**
-Low
-
-**Acceptance**
-CI or tooling verifies README examples compile/run or match output.
-
-#### Implementation Notes
-
-**Details**
-Manually verified README examples. Fixed one issue: removed `sh.Which` example (function doesn't exist), replaced with `sh.RunV` example. Other examples verified correct.
 
 ### 56. Deterministic behavior across platforms
 
@@ -276,65 +113,6 @@ Low
 
 **Acceptance**
 Shortlist parsers and document tradeoffs; decide whether to keep manual parser.
-
-### 57. Default completion flag in direct-binary mode
-
-#### Universal
-
-**Status**
-done
-
-**Description**
-Expose a built-in --completion flag in direct-binary mode (like build-tool mode) so users don't need to wire it manually.
-
-#### Planning
-
-**Priority**
-Medium
-
-**Acceptance**
-- `./mycli --completion bash` prints completion script
-- `./mycli --completion=zsh` also works
-- Shows in help output
-- Errors if used after a command (like other unrecognized flags)
-
-### 58. Suppress automatic global flags
-
-#### Universal
-
-**Status**
-done
-
-**Description**
-Allow users to suppress automatic global flags (--help, --completion, --timeout) via RunOptions or similar mechanism.
-
-#### Planning
-
-**Priority**
-Low
-
-**Acceptance**
-- Add RunOptions fields to disable individual global flags: `DisableHelp`, `DisableTimeout`, `DisableCompletion`
-- Help output should not show disabled flags
-- Disabled flags are treated as unknown flags (error)
-
-#### Design
-
-**Option A**: Individual booleans
-```go
-RunOptions{
-    DisableHelp:       true,
-    DisableCompletion: true,
-    DisableTimeout:    true,
-}
-```
-
-**Option B**: String slice
-```go
-RunOptions{
-    DisableGlobalFlags: []string{"timeout", "completion"},
-}
-```
 
 ### 59. sh.RunWith - run command with custom environment
 
@@ -453,49 +231,6 @@ backlog
 
 **Description**
 Show help and usage recursively for all commands and subcommands.
-
-#### Planning
-
-**Priority**
-Low
-
-**Acceptance**
-TBD
-
-### 66. Bug: don't show completion in targ options for subcommands
-
-#### Universal
-
-**Status**
-done
-
-**Description**
-Completion is shown as a targ option for subcommands, but it only works at the root level.
-
-#### Planning
-
-**Priority**
-Low
-
-**Acceptance**
-TBD
-
-#### Implementation Notes
-
-**Details**
-- Completion example now only shows at top level help (`targ --help`), not for subcommands
-- Subcommand help still shows the command chaining example
-- Usage line updated to show chaining pattern: `<subcommand>... [^ <command>...]`
-
-### 67. Consistent help message structure
-
-#### Universal
-
-**Status**
-backlog
-
-**Description**
-Targ options show at the top for targ --help, but at the bottom for subcommands. Use a consistent structure: usage, description, options, subcommand help, for-more-info.
 
 #### Planning
 
@@ -1425,3 +1160,272 @@ Repository exists on GitHub and README link is valid.
 
 **Details**
 Needs GitHub repo creation and push permissions (github.com/toejough/targ). Awaiting user credentials or repo setup.
+
+### 49. Repeated flags
+
+#### Universal
+
+**Status**
+done
+
+**Description**
+Allow flags to be specified multiple times and accumulate values (e.g. `--tag a --tag b`).
+
+#### Planning
+
+**Priority**
+Medium
+
+**Acceptance**
+Repeated flag values accumulate into slice fields with predictable ordering.
+
+#### Design
+
+**Basic repeated flags**: `[]T` fields accumulate values in order.
+```go
+type MyCmd struct {
+    Tag []string `targ:"flag"`
+}
+// --tag a --tag b → Tag = []string{"a", "b"}
+```
+
+**Interleaved repeated flags**: `[]targ.Interleaved[T]` tracks global position across all flags.
+```go
+type MyCmd struct {
+    Include []targ.Interleaved[string] `targ:"flag"`
+    Exclude []targ.Interleaved[string] `targ:"flag"`
+}
+// --include a --exclude b --include c →
+// Include = [{Value:"a", Position:0}, {Value:"c", Position:2}]
+// Exclude = [{Value:"b", Position:1}]
+```
+
+User can merge slices and sort by Position to reconstruct interleaved order.
+
+### 50. Variadic positionals
+
+#### Universal
+
+**Status**
+done
+
+**Description**
+Support variadic positional args (e.g. a `[]string` positional capturing remaining args).
+
+#### Planning
+
+**Priority**
+Medium
+
+**Acceptance**
+Trailing slice positional captures remaining args and appears clearly in usage/help.
+
+#### Implementation Notes
+
+**Details**
+Already implemented - slice positionals automatically capture remaining args. Usage line shows placeholder with brackets (e.g., `[FILES...]`).
+
+### 51. Map-type args
+
+#### Universal
+
+**Status**
+done
+
+**Description**
+Support map-type flags or positionals with `key=value` parsing.
+
+#### Planning
+
+**Priority**
+Low
+
+**Acceptance**
+Map fields can be populated via repeated `key=value` inputs with validation.
+
+#### Implementation Notes
+
+**Details**
+- Syntax: `--labels key=value` repeated for multiple entries
+- Supports `map[string]string`, `map[string]int`, etc.
+- Values containing `=` are handled correctly (splits on first `=` only)
+- Later values overwrite earlier ones for same key
+
+### 52. Multi-command invocation
+
+#### Universal
+
+**Status**
+done
+
+**Description**
+Allow invoking multiple commands in a single targ run (e.g. `targ build test deploy`).
+
+#### Planning
+
+**Priority**
+Medium
+
+**Acceptance**
+Multiple commands execute in order with shared dependency semantics.
+
+#### Implementation Notes
+
+**Details**
+Already implemented - commands execute in sequence and `Deps()` calls are shared across the entire run (dependencies only execute once).
+
+### 53. Timeouts for build tool runs
+
+#### Universal
+
+**Status**
+done
+
+**Description**
+Provide timeout controls for build-tool executions (CLI flag or API option).
+
+#### Planning
+
+**Priority**
+Low
+
+**Acceptance**
+Timeout cancels the run and surfaces a clear error/exit code.
+
+#### Implementation Notes
+
+**Details**
+- Added `--timeout <duration>` flag (e.g., `--timeout 10m`, `--timeout 1h`)
+- Supports both `--timeout 10m` and `--timeout=10m` syntax
+- Timeout is off by default (no timeout unless flag is specified)
+- Context is cancelled when timeout expires, propagating to commands
+- Clear error messages for missing/invalid duration values
+
+### 55. README examples in sync
+
+#### Universal
+
+**Status**
+done
+
+**Description**
+Add checks or tooling to keep README examples in sync with real behavior.
+
+#### Planning
+
+**Priority**
+Low
+
+**Acceptance**
+CI or tooling verifies README examples compile/run or match output.
+
+#### Implementation Notes
+
+**Details**
+Manually verified README examples. Fixed one issue: removed `sh.Which` example (function doesn't exist), replaced with `sh.RunV` example. Other examples verified correct.
+
+### 57. Default completion flag in direct-binary mode
+
+#### Universal
+
+**Status**
+done
+
+**Description**
+Expose a built-in --completion flag in direct-binary mode (like build-tool mode) so users don't need to wire it manually.
+
+#### Planning
+
+**Priority**
+Medium
+
+**Acceptance**
+- `./mycli --completion bash` prints completion script
+- `./mycli --completion=zsh` also works
+- Shows in help output
+- Errors if used after a command (like other unrecognized flags)
+
+### 58. Suppress automatic global flags
+
+#### Universal
+
+**Status**
+done
+
+**Description**
+Allow users to suppress automatic global flags (--help, --completion, --timeout) via RunOptions or similar mechanism.
+
+#### Planning
+
+**Priority**
+Low
+
+**Acceptance**
+- Add RunOptions fields to disable individual global flags: `DisableHelp`, `DisableTimeout`, `DisableCompletion`
+- Help output should not show disabled flags
+- Disabled flags are treated as unknown flags (error)
+
+#### Design
+
+**Option A**: Individual booleans
+```go
+RunOptions{
+    DisableHelp:       true,
+    DisableCompletion: true,
+    DisableTimeout:    true,
+}
+```
+
+**Option B**: String slice
+```go
+RunOptions{
+    DisableGlobalFlags: []string{"timeout", "completion"},
+}
+```
+
+### 66. Bug: don't show completion in targ options for subcommands
+
+#### Universal
+
+**Status**
+done
+
+**Description**
+Completion is shown as a targ option for subcommands, but it only works at the root level.
+
+#### Planning
+
+**Priority**
+Low
+
+**Acceptance**
+TBD
+
+#### Implementation Notes
+
+**Details**
+- Completion example now only shows at top level help (`targ --help`), not for subcommands
+- Subcommand help still shows the command chaining example
+- Usage line updated to show chaining pattern: `<subcommand>... [^ <command>...]`
+
+### 67. Consistent help message structure
+
+#### Universal
+
+**Status**
+done
+
+**Description**
+Targ options show at the top for targ --help, but at the bottom for subcommands. Use a consistent structure: usage, description, options, subcommand help, for-more-info.
+
+#### Planning
+
+**Priority**
+Low
+
+**Acceptance**
+TBD
+
+
+**Details**
+Help structure is now consistent between top-level and subcommand help: description, usage, targ flags, commands/subcommands, examples, more info.
