@@ -2317,7 +2317,7 @@ func TestPrintCommandHelp_FlagWithPlaceholder(t *testing.T) {
 	g.Expect(err).NotTo(HaveOccurred())
 
 	output := captureStdout(t, func() {
-		printCommandHelp(node, RunOptions{}, true)
+		printCommandHelp(node, RunOptions{})
 	})
 
 	g.Expect(output).To(ContainSubstring("--output <file>"))
@@ -2331,7 +2331,7 @@ func TestPrintCommandHelp_FlagWithShortName(t *testing.T) {
 	g.Expect(err).NotTo(HaveOccurred())
 
 	output := captureStdout(t, func() {
-		printCommandHelp(node, RunOptions{}, true)
+		printCommandHelp(node, RunOptions{})
 	})
 
 	g.Expect(output).To(ContainSubstring("--verbose, -v"))
@@ -2345,7 +2345,7 @@ func TestPrintCommandHelp_FlagWithUsage(t *testing.T) {
 	g.Expect(err).NotTo(HaveOccurred())
 
 	output := captureStdout(t, func() {
-		printCommandHelp(node, RunOptions{}, true)
+		printCommandHelp(node, RunOptions{})
 	})
 
 	g.Expect(output).To(ContainSubstring("Output format"))
@@ -2363,7 +2363,7 @@ func TestPrintCommandHelp_FunctionNode(t *testing.T) {
 	}
 
 	output := captureStdout(t, func() {
-		printCommandHelp(node, RunOptions{}, true)
+		printCommandHelp(node, RunOptions{})
 	})
 
 	g.Expect(output).To(ContainSubstring("Usage:"))
@@ -2385,7 +2385,7 @@ func TestPrintCommandHelp_WithDescription(t *testing.T) {
 	node.Description = "A command with description"
 
 	output := captureStdout(t, func() {
-		printCommandHelp(node, RunOptions{}, true)
+		printCommandHelp(node, RunOptions{})
 	})
 
 	g.Expect(output).To(ContainSubstring("A command with description"))
@@ -2399,7 +2399,7 @@ func TestPrintCommandHelp_WithFlags(t *testing.T) {
 	g.Expect(err).NotTo(HaveOccurred())
 
 	output := captureStdout(t, func() {
-		printCommandHelp(node, RunOptions{}, true)
+		printCommandHelp(node, RunOptions{})
 	})
 
 	g.Expect(output).To(ContainSubstring("Usage:"))
@@ -2424,7 +2424,7 @@ func TestPrintCommandHelp_WithSubcommands(t *testing.T) {
 	}
 
 	output := captureStdout(t, func() {
-		printCommandHelp(node, RunOptions{}, true)
+		printCommandHelp(node, RunOptions{})
 	})
 
 	g.Expect(output).To(ContainSubstring("Subcommands:"))
@@ -2540,7 +2540,7 @@ func TestPrintExamples_Custom(t *testing.T) {
 	}
 
 	output := captureStdout(t, func() {
-		printExamples(opts)
+		printExamples(opts, true)
 	})
 
 	g.Expect(output).To(ContainSubstring("Examples:"))
@@ -2555,7 +2555,7 @@ func TestPrintExamples_Empty(t *testing.T) {
 	opts := RunOptions{Examples: EmptyExamples()}
 
 	output := captureStdout(t, func() {
-		printExamples(opts)
+		printExamples(opts, true)
 	})
 
 	g.Expect(output).To(BeEmpty())
@@ -2567,11 +2567,25 @@ func TestPrintExamples_Nil(t *testing.T) {
 	opts := RunOptions{Examples: nil}
 
 	output := captureStdout(t, func() {
-		printExamples(opts)
+		printExamples(opts, true)
 	})
 
 	g.Expect(output).To(ContainSubstring("Examples:"))
 	g.Expect(output).To(ContainSubstring("Enable shell completion"))
+	g.Expect(output).To(ContainSubstring("Chain nested"))
+}
+
+func TestPrintExamples_NotRoot(t *testing.T) {
+	g := NewWithT(t)
+
+	opts := RunOptions{Examples: nil}
+
+	output := captureStdout(t, func() {
+		printExamples(opts, false)
+	})
+
+	g.Expect(output).To(ContainSubstring("Examples:"))
+	g.Expect(output).NotTo(ContainSubstring("Enable shell completion"))
 	g.Expect(output).To(ContainSubstring("Chain nested"))
 }
 

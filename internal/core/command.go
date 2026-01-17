@@ -217,7 +217,7 @@ func (n *commandNode) executeWithParents(
 	opts RunOptions,
 ) ([]string, error) {
 	if opts.HelpOnly {
-		printCommandHelp(n, opts, n.Parent == nil)
+		printCommandHelp(n, opts)
 		fmt.Println()
 	}
 
@@ -604,9 +604,9 @@ func buildUsageParts(node *commandNode) ([]string, error) {
 		}
 	}
 
-	// If there are subcommands, show that
+	// If there are subcommands, show chaining pattern
 	if len(node.Subcommands) > 0 {
-		return append(parts, "<subcommand>", "[args...]"), nil
+		return append(parts, "<subcommand>...", "[^", "<command>...]"), nil
 	}
 
 	positionalParts, err := buildPositionalParts(node)
@@ -1270,7 +1270,7 @@ func handleHelpFlag(n *commandNode, args []string, opts RunOptions) ([]string, b
 		return nil, false
 	}
 
-	printCommandHelp(n, opts, n.Parent == nil)
+	printCommandHelp(n, opts)
 
 	return remaining, true
 }
@@ -1509,7 +1509,7 @@ func positionalName(item positionalHelp) string {
 	return "ARG"
 }
 
-func printCommandHelp(node *commandNode, opts RunOptions, _ bool) {
+func printCommandHelp(node *commandNode, opts RunOptions) {
 	binName := binaryName()
 
 	// Description first (consistent with top-level)
@@ -1549,7 +1549,7 @@ func printCommandHelp(node *commandNode, opts RunOptions, _ bool) {
 	}
 
 	// Examples and More Info (at the very end)
-	printExamples(opts)
+	printExamples(opts, false)
 	printMoreInfo(opts)
 }
 
@@ -1580,10 +1580,15 @@ func printDescription(desc string) {
 	}
 }
 
-func printExamples(opts RunOptions) {
+func printExamples(opts RunOptions, isRoot bool) {
 	examples := opts.Examples
 	if examples == nil {
-		examples = BuiltinExamples()
+		if isRoot {
+			examples = BuiltinExamples()
+		} else {
+			// At subcommand level, only show chaining example
+			examples = []Example{BuiltinExamples()[1]}
+		}
 	}
 
 	if len(examples) == 0 {
@@ -1801,7 +1806,7 @@ func printUsage(nodes []*commandNode, opts RunOptions) {
 		printTopLevelCommand(node, binName, opts)
 	}
 
-	printExamples(opts)
+	printExamples(opts, true)
 	printMoreInfo(opts)
 }
 

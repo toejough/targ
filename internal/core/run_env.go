@@ -356,7 +356,7 @@ func (e *runExecutor) handleGlobalHelp() bool {
 
 	// Show global help
 	if e.hasDefault {
-		printCommandHelp(e.roots[0], e.opts, true)
+		printCommandHelp(e.roots[0], e.opts)
 	} else {
 		printUsage(e.roots, e.opts)
 	}
