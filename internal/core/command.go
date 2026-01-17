@@ -1793,7 +1793,7 @@ func printUsage(nodes []*commandNode, opts RunOptions) {
 		fmt.Println()
 	}
 
-	fmt.Printf("Usage: %s [targ flags...] [(<command> [args...])...]\n\n", binName)
+	fmt.Printf("Usage: %s [targ flags...] [<command>...]\n\n", binName)
 
 	// Targ flags
 	printTargFlags(opts, true)
