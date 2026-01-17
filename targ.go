@@ -169,3 +169,8 @@ func RunWithOptions(opts RunOptions, targets ...any) {
 // WithContext passes a custom context to dependencies.
 // Useful for cancellation in watch mode.
 func WithContext(ctx context.Context) DepsOption { return core.WithContext(ctx) }
+
+// RepoURL returns the repository URL detected from .git/config.
+// This is useful when you want to use the auto-detected repo URL in your
+// own MoreInfoText or other help customization.
+// Returns empty string if no .git/config is found or origin URL cannot be parsed.

@@ -10,6 +10,8 @@ import (
 	"context"
 	"errors"
 	"go/ast"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -377,6 +379,114 @@ func TestBinaryName_FromOsArgs(t *testing.T) {
 	// unless the binary name itself contains them, which is rare)
 }
 
+func TestBuildUsageLineForPath(t *testing.T) {
+	g := NewWithT(t)
+
+	node := &commandNode{
+		Name: "cmd",
+	}
+
+	result := buildUsageLineForPath(node, "targ", "parent cmd")
+	g.Expect(result).To(Equal("targ parent cmd"))
+}
+
+func TestBuildUsageLineForPath_WithFlags(t *testing.T) {
+	g := NewWithT(t)
+
+	node := &commandNode{
+		Name: "cmd",
+		Type: reflect.TypeFor[struct {
+			Name string `targ:"flag,required"`
+		}](),
+	}
+
+	result := buildUsageLineForPath(node, "targ", "parent cmd")
+	g.Expect(result).To(ContainSubstring("targ parent cmd"))
+	g.Expect(result).To(ContainSubstring("--name"))
+}
+
+func TestBuildUsageLineForPath_WithOptionalFlags(t *testing.T) {
+	g := NewWithT(t)
+
+	node := &commandNode{
+		Name: "cmd",
+		Type: reflect.TypeFor[struct {
+			Verbose bool `targ:"flag"`
+		}](),
+	}
+
+	result := buildUsageLineForPath(node, "targ", "cmd")
+	g.Expect(result).To(ContainSubstring("[--verbose]"))
+}
+
+func TestBuildUsageLineForPath_WithOptionalPositionals(t *testing.T) {
+	g := NewWithT(t)
+
+	node := &commandNode{
+		Name: "cmd",
+		Type: reflect.TypeFor[struct {
+			File string `targ:"positional"`
+		}](),
+	}
+
+	result := buildUsageLineForPath(node, "targ", "cmd")
+	g.Expect(result).To(ContainSubstring("[File]"))
+}
+
+func TestBuildUsageLineForPath_WithPlaceholder(t *testing.T) {
+	g := NewWithT(t)
+
+	node := &commandNode{
+		Name: "cmd",
+		Type: reflect.TypeFor[struct {
+			File string `targ:"positional,placeholder=<file>"`
+		}](),
+	}
+
+	result := buildUsageLineForPath(node, "targ", "cmd")
+	g.Expect(result).To(ContainSubstring("[<file>]"))
+}
+
+func TestBuildUsageLineForPath_WithPositionals(t *testing.T) {
+	g := NewWithT(t)
+
+	node := &commandNode{
+		Name: "cmd",
+		Type: reflect.TypeFor[struct {
+			File string `targ:"positional,required"`
+		}](),
+	}
+
+	result := buildUsageLineForPath(node, "targ", "cmd")
+	g.Expect(result).To(ContainSubstring("File"))
+}
+
+func TestBuildUsageLineForPath_WithSubcommands(t *testing.T) {
+	g := NewWithT(t)
+
+	node := &commandNode{
+		Name: "cmd",
+		Subcommands: map[string]*commandNode{
+			"sub": {Name: "sub"},
+		},
+	}
+
+	result := buildUsageLineForPath(node, "targ", "cmd")
+	g.Expect(result).To(ContainSubstring("[subcommand]"))
+}
+
+func TestBuildUsageLine_Error(t *testing.T) {
+	g := NewWithT(t)
+	// Create a node with a type that will cause collectFlagHelpChain to error
+	node := &commandNode{
+		Name:  "test",
+		Type:  reflect.TypeFor[BadTagOptionsInputCmd](),
+		Value: reflect.ValueOf(&BadTagOptionsInputCmd{}),
+	}
+	_, err := buildUsageLine(node)
+	g.Expect(err).To(HaveOccurred())
+}
+
 func TestCallStringMethod_NonExistentMethod(t *testing.T) {
 	g := NewWithT(t)
 	cmd := &callStringMethodNoMethod{}
@@ -638,6 +748,59 @@ func TestDetectCompletionShell_FlagAfterCompletion(t *testing.T) {
 	shell := exec.detectCompletionShell()
 	// Result depends on SHELL env var
 	g.Expect(shell).NotTo(Equal("--verbose"))
+}
+
+// --- Git URL detection tests ---
+
+func TestDetectRepoURL(t *testing.T) {
+	g := NewWithT(t)
+
+	// Running in the targ repo, should find a URL
+	url := DetectRepoURL()
+	// The repo has an origin, so we should get something back
+	// Can't guarantee exact URL (SSH vs HTTPS), but should contain "targ"
+	g.Expect(url).To(ContainSubstring("targ"))
+}
+
+func TestDetectRepoURLFromDir_NoGit(t *testing.T) {
+	g := NewWithT(t)
+
+	// Use a temp dir with no .git
+	tmpDir := t.TempDir()
+	url := detectRepoURLFromDir(tmpDir)
+	g.Expect(url).To(BeEmpty())
+}
+
+func TestDetectRepoURLFromDir_WithGit(t *testing.T) {
+	g := NewWithT(t)
+
+	// Create a temp dir with a fake .git/config
+	tmpDir := t.TempDir()
+	gitDir := filepath.Join(tmpDir, ".git")
+	g.Expect(os.MkdirAll(gitDir, 0o755)).To(Succeed())
+
+	config := `[core]
+	repositoryformatversion = 0
+[remote "origin"]
+	url = https://github.com/example/repo.git
+	fetch = +refs/heads/*:refs/remotes/origin/*
+`
+	g.Expect(os.WriteFile(filepath.Join(gitDir, "config"), []byte(config), 0o644)).To(Succeed())
+
+	url := detectRepoURLFromDir(tmpDir)
+	g.Expect(url).To(Equal("https://github.com/example/repo"))
+}
+
+func TestDetectRepoURLWithGetwd_Error(t *testing.T) {
+	g := NewWithT(t)
+
+	// Mock a failing getwd function
+	failingGetwd := func() (string, error) {
+		return "", errors.New("getwd failed")
+	}
+
+	url := detectRepoURLWithGetwd(failingGetwd)
+	g.Expect(url).To(BeEmpty())
 }
 
 // --- detectShell tests ---
@@ -1298,6 +1461,69 @@ func TestFlagParsing_UnknownShortFlag(t *testing.T) {
 	g.Expect(err.Error()).To(ContainSubstring("-x"))
 }
 
+func TestFormatFlagUsageWrapped(t *testing.T) {
+	g := NewWithT(t)
+
+	item := flagHelp{
+		Name:        "verbose",
+		Short:       "v",
+		Placeholder: "[flag]",
+	}
+
+	result := formatFlagUsageWrapped(item)
+	g.Expect(result).To(Equal("--verbose, -v"))
+}
+
+func TestFuncSourceFile_InvalidValue(t *testing.T) {
+	g := NewWithT(t)
+	result := funcSourceFile(reflect.Value{})
+	g.Expect(result).To(Equal(""))
+}
+
+func TestFuncSourceFile_NilFunc(t *testing.T) {
+	g := NewWithT(t)
+
+	var f func()
+
+	v := reflect.ValueOf(f)
+	result := funcSourceFile(v)
+	g.Expect(result).To(Equal(""))
+}
+
+func TestFuncSourceFile_NotFunc(t *testing.T) {
+	g := NewWithT(t)
+	v := reflect.ValueOf(42)
+	result := funcSourceFile(v)
+	g.Expect(result).To(Equal(""))
+}
+
+func TestFuncSourceFile_ValidFunc(t *testing.T) {
+	g := NewWithT(t)
+	v := reflect.ValueOf(TestFuncSourceFile_ValidFunc)
+	result := funcSourceFile(v)
+	g.Expect(result).To(ContainSubstring("internal_test.go"))
+}
+
+func TestGetStructSourceFile_WithSourceFileMethod(t *testing.T) {
+	g := NewWithT(t)
+	s := &structWithSourceFile{}
+	v := reflect.ValueOf(s).Elem()
+	typ := v.Type()
+	result := getStructSourceFile(v, typ)
+	g.Expect(result).To(Equal("/custom/source/path.go"))
+}
+
+func TestGetStructSourceFile_WithoutSourceFileMethod(t *testing.T) {
+	g := NewWithT(t)
+	// BadTagOptionsInputCmd doesn't have a SourceFile() method
+	s := &BadTagOptionsInputCmd{}
+	v := reflect.ValueOf(s).Elem()
+	typ := v.Type()
+	result := getStructSourceFile(v, typ)
+	// Should fall back to runtime detection, returning path to this test file
+	g.Expect(result).To(ContainSubstring("internal_test.go"))
+}
+
 func TestHandleComplete_ReturnsErrorFromCompleteFn(t *testing.T) {
 	g := NewWithT(t)
 
@@ -1545,6 +1771,27 @@ func TestNonZeroSubcommandErrors(t *testing.T) {
 	}
 }
 
+func TestNormalizeGitURL_HTTPS(t *testing.T) {
+	g := NewWithT(t)
+
+	url := normalizeGitURL("https://github.com/user/repo.git")
+	g.Expect(url).To(Equal("https://github.com/user/repo"))
+}
+
+func TestNormalizeGitURL_NoGitSuffix(t *testing.T) {
+	g := NewWithT(t)
+
+	url := normalizeGitURL("https://github.com/user/repo")
+	g.Expect(url).To(Equal("https://github.com/user/repo"))
+}
+
+func TestNormalizeGitURL_SSH(t *testing.T) {
+	g := NewWithT(t)
+
+	url := normalizeGitURL("git@github.com:user/repo.git")
+	g.Expect(url).To(Equal("https://github.com/user/repo"))
+}
+
 func TestParseFlagAdvancesVariadicPositional(t *testing.T) {
 	g := NewWithT(t)
 
@@ -1578,6 +1825,62 @@ func TestParseFunc_NotFuncType(t *testing.T) {
 	_, err := parseFunc(v)
 	g.Expect(err).To(HaveOccurred())
 	g.Expect(err.Error()).To(ContainSubstring("expected func"))
+}
+
+func TestParseGitConfigOriginURL_NoFile(t *testing.T) {
+	g := NewWithT(t)
+
+	url := parseGitConfigOriginURL("/nonexistent/path/config")
+	g.Expect(url).To(BeEmpty())
+}
+
+func TestParseGitConfigOriginURL_NoOrigin(t *testing.T) {
+	g := NewWithT(t)
+
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config")
+
+	config := `[core]
+	repositoryformatversion = 0
+[remote "upstream"]
+	url = https://github.com/other/repo.git
+`
+	g.Expect(os.WriteFile(configPath, []byte(config), 0o644)).To(Succeed())
+
+	url := parseGitConfigOriginURL(configPath)
+	g.Expect(url).To(BeEmpty())
+}
+
+func TestParseGitConfigOriginURL_OriginFollowedByOtherSection(t *testing.T) {
+	g := NewWithT(t)
+
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config")
+
+	config := `[remote "origin"]
+	url = https://github.com/user/repo.git
+[branch "main"]
+	remote = origin
+`
+	g.Expect(os.WriteFile(configPath, []byte(config), 0o644)).To(Succeed())
+
+	url := parseGitConfigOriginURL(configPath)
+	g.Expect(url).To(Equal("https://github.com/user/repo"))
+}
+
+func TestParseGitConfigOriginURL_OriginWithSSH(t *testing.T) {
+	g := NewWithT(t)
+
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config")
+
+	config := `[remote "origin"]
+	url = git@github.com:user/repo.git
+`
+	g.Expect(os.WriteFile(configPath, []byte(config), 0o644)).To(Succeed())
+
+	url := parseGitConfigOriginURL(configPath)
+	g.Expect(url).To(Equal("https://github.com/user/repo"))
 }
 
 // --- Parsing Edge Cases ---
@@ -1914,7 +2217,7 @@ func TestPrintCommandHelp_FlagWithPlaceholder(t *testing.T) {
 	g.Expect(err).NotTo(HaveOccurred())
 
 	output := captureStdout(t, func() {
-		printCommandHelp(node)
+		printCommandHelp(node, RunOptions{}, true)
 	})
 
 	g.Expect(output).To(ContainSubstring("--output <file>"))
@@ -1928,7 +2231,7 @@ func TestPrintCommandHelp_FlagWithShortName(t *testing.T) {
 	g.Expect(err).NotTo(HaveOccurred())
 
 	output := captureStdout(t, func() {
-		printCommandHelp(node)
+		printCommandHelp(node, RunOptions{}, true)
 	})
 
 	g.Expect(output).To(ContainSubstring("--verbose, -v"))
@@ -1942,7 +2245,7 @@ func TestPrintCommandHelp_FlagWithUsage(t *testing.T) {
 	g.Expect(err).NotTo(HaveOccurred())
 
 	output := captureStdout(t, func() {
-		printCommandHelp(node)
+		printCommandHelp(node, RunOptions{}, true)
 	})
 
 	g.Expect(output).To(ContainSubstring("Output format"))
@@ -1960,7 +2263,7 @@ func TestPrintCommandHelp_FunctionNode(t *testing.T) {
 	}
 
 	output := captureStdout(t, func() {
-		printCommandHelp(node)
+		printCommandHelp(node, RunOptions{}, true)
 	})
 
 	g.Expect(output).To(ContainSubstring("Usage:"))
@@ -1982,7 +2285,7 @@ func TestPrintCommandHelp_WithDescription(t *testing.T) {
 	node.Description = "A command with description"
 
 	output := captureStdout(t, func() {
-		printCommandHelp(node)
+		printCommandHelp(node, RunOptions{}, true)
 	})
 
 	g.Expect(output).To(ContainSubstring("A command with description"))
@@ -1996,7 +2299,7 @@ func TestPrintCommandHelp_WithFlags(t *testing.T) {
 	g.Expect(err).NotTo(HaveOccurred())
 
 	output := captureStdout(t, func() {
-		printCommandHelp(node)
+		printCommandHelp(node, RunOptions{}, true)
 	})
 
 	g.Expect(output).To(ContainSubstring("Usage:"))
@@ -2021,10 +2324,10 @@ func TestPrintCommandHelp_WithSubcommands(t *testing.T) {
 	}
 
 	output := captureStdout(t, func() {
-		printCommandHelp(node)
+		printCommandHelp(node, RunOptions{}, true)
 	})
 
-	g.Expect(output).To(ContainSubstring("Subcommands:"))
+	g.Expect(output).To(ContainSubstring("Commands:"))
 	g.Expect(output).To(ContainSubstring("sub1"))
 	g.Expect(output).To(ContainSubstring("sub2"))
 }
@@ -2125,6 +2428,345 @@ func TestPrintCompletion_UnsupportedShell(t *testing.T) {
 		return target
 	}().Code).To(Equal(1))
 	g.Expect(env.Output()).To(ContainSubstring("unsupported shell"))
+}
+
+func TestPrintFlagWithWrappedEnum(t *testing.T) {
+	g := NewWithT(t)
+
+	// Short enum - should not wrap
+	output := captureStdout(t, func() {
+		printFlagWithWrappedEnum("--status {a|b|c}", "Status", "{a|b|c}", "  ")
+	})
+	g.Expect(output).To(ContainSubstring("--status {a|b|c}"))
+	g.Expect(output).To(ContainSubstring("Status"))
+}
+
+func TestPrintFlagWithWrappedEnum_LongEnum(t *testing.T) {
+	g := NewWithT(t)
+
+	longEnum := "{backlog|selected|in-progress|review|done|cancelled|blocked}"
+	output := captureStdout(t, func() {
+		printFlagWithWrappedEnum("--status "+longEnum, "Status", longEnum, "  ")
+	})
+
+	// Should wrap across multiple lines
+	g.Expect(output).To(ContainSubstring("backlog"))
+	g.Expect(output).To(ContainSubstring("blocked"))
+}
+
+func TestPrintFlagsIndented(t *testing.T) {
+	g := NewWithT(t)
+
+	flags := []flagHelp{
+		{Name: "output", Placeholder: "<string>", Usage: "Output file"},
+		{Name: "verbose", Placeholder: "[flag]"},
+	}
+
+	output := captureStdout(t, func() {
+		printFlagsIndented(flags, "  ")
+	})
+
+	g.Expect(output).To(ContainSubstring("--output <string>"))
+	g.Expect(output).To(ContainSubstring("Output file"))
+	g.Expect(output).To(ContainSubstring("--verbose"))
+}
+
+func TestPrintMoreInfo_WithMoreInfoText(t *testing.T) {
+	g := NewWithT(t)
+
+	output := captureStdout(t, func() {
+		printMoreInfo(RunOptions{MoreInfoText: "Custom info"})
+	})
+
+	g.Expect(output).To(ContainSubstring("More info:"))
+	g.Expect(output).To(ContainSubstring("Custom info"))
+}
+
+func TestPrintMoreInfo_WithRepoURL(t *testing.T) {
+	g := NewWithT(t)
+
+	output := captureStdout(t, func() {
+		printMoreInfo(RunOptions{RepoURL: "https://example.com/repo"})
+	})
+
+	g.Expect(output).To(ContainSubstring("More info:"))
+	g.Expect(output).To(ContainSubstring("https://example.com/repo"))
+}
+
+func TestPrintNestedSubcommands(t *testing.T) {
+	g := NewWithT(t)
+
+	subs := map[string]*commandNode{
+		"alpha": {Name: "alpha", Description: "Alpha command"},
+		"beta":  {Name: "beta", Description: "Beta command"},
+	}
+
+	output := captureStdout(t, func() {
+		printNestedSubcommands(subs, "targ", "parent", "    ")
+	})
+
+	g.Expect(output).To(ContainSubstring("alpha"))
+	g.Expect(output).To(ContainSubstring("Alpha command"))
+	g.Expect(output).To(ContainSubstring("beta"))
+	g.Expect(output).To(ContainSubstring("Beta command"))
+	g.Expect(output).To(ContainSubstring("Usage: targ parent alpha"))
+	g.Expect(output).To(ContainSubstring("Usage: targ parent beta"))
+}
+
+func TestPrintNestedSubcommands_NilSubcommand(t *testing.T) {
+	g := NewWithT(t)
+
+	subs := map[string]*commandNode{
+		"nilcmd":  nil,
+		"realcmd": {Name: "realcmd", Description: "Real command"},
+	}
+
+	output := captureStdout(t, func() {
+		printNestedSubcommands(subs, "targ", "parent", "  ")
+	})
+
+	// Should skip the nil entry and only show realcmd
+	g.Expect(output).To(ContainSubstring("realcmd"))
+	g.Expect(output).To(ContainSubstring("Real command"))
+}
+
+func TestPrintNestedSubcommands_NoDescription(t *testing.T) {
+	g := NewWithT(t)
+
+	subs := map[string]*commandNode{
+		"nodesc": {Name: "nodesc"}, // No description
+	}
+
+	output := captureStdout(t, func() {
+		printNestedSubcommands(subs, "targ", "parent", "  ")
+	})
+
+	g.Expect(output).To(ContainSubstring("nodesc"))
+	g.Expect(output).To(ContainSubstring("Usage: targ parent nodesc"))
+}
+
+func TestPrintNestedSubcommands_WithFlags(t *testing.T) {
+	g := NewWithT(t)
+
+	subs := map[string]*commandNode{
+		"flagcmd": {
+			Name:        "flagcmd",
+			Description: "Command with flags",
+			Type: reflect.TypeFor[struct {
+				Verbose bool `targ:"flag"`
+			}](),
+		},
+	}
+
+	output := captureStdout(t, func() {
+		printNestedSubcommands(subs, "targ", "parent", "  ")
+	})
+
+	g.Expect(output).To(ContainSubstring("flagcmd"))
+	g.Expect(output).To(ContainSubstring("Flags:"))
+	g.Expect(output).To(ContainSubstring("--verbose"))
+}
+
+func TestPrintNestedSubcommands_WithNestedSubs(t *testing.T) {
+	g := NewWithT(t)
+
+	subs := map[string]*commandNode{
+		"outer": {
+			Name:        "outer",
+			Description: "Outer command",
+			Subcommands: map[string]*commandNode{
+				"inner": {Name: "inner", Description: "Inner command"},
+			},
+		},
+	}
+
+	output := captureStdout(t, func() {
+		printNestedSubcommands(subs, "targ", "parent", "  ")
+	})
+
+	g.Expect(output).To(ContainSubstring("outer"))
+	g.Expect(output).To(ContainSubstring("Outer command"))
+	g.Expect(output).To(ContainSubstring("Subcommands:"))
+	g.Expect(output).To(ContainSubstring("inner"))
+	g.Expect(output).To(ContainSubstring("Inner command"))
+}
+
+func TestPrintSubcommandDetail_SourceFromSubcommand(t *testing.T) {
+	g := NewWithT(t)
+
+	node := &commandNode{
+		Name: "cmd",
+		Subcommands: map[string]*commandNode{
+			"sub": {Name: "sub", SourceFile: "/path/to/sub.go"},
+		},
+	}
+
+	output := captureStdout(t, func() {
+		printSubcommandDetail(node, "", "  ", RunOptions{}, true)
+	})
+
+	g.Expect(output).To(ContainSubstring("Source:"))
+}
+
+func TestPrintSubcommandDetail_WithDescription(t *testing.T) {
+	g := NewWithT(t)
+
+	node := &commandNode{
+		Name:        "cmd",
+		Description: "A helpful description",
+	}
+
+	output := captureStdout(t, func() {
+		printSubcommandDetail(node, "parent", "  ", RunOptions{}, false)
+	})
+
+	g.Expect(output).To(ContainSubstring("Usage:"))
+	g.Expect(output).To(ContainSubstring("A helpful description"))
+}
+
+func TestPrintSubcommandDetail_WithFlags(t *testing.T) {
+	g := NewWithT(t)
+
+	node := &commandNode{
+		Name: "cmd",
+		Type: reflect.TypeFor[struct {
+			Name   string `targ:"flag,desc=Name flag"`
+			Silent bool   `targ:"flag"`
+		}](),
+	}
+
+	output := captureStdout(t, func() {
+		printSubcommandDetail(node, "parent", "  ", RunOptions{}, false)
+	})
+
+	g.Expect(output).To(ContainSubstring("Flags:"))
+	g.Expect(output).To(ContainSubstring("--name"))
+	g.Expect(output).To(ContainSubstring("Name flag"))
+	g.Expect(output).To(ContainSubstring("--silent"))
+}
+
+func TestPrintSubcommandDetail_WithSourceFile(t *testing.T) {
+	g := NewWithT(t)
+
+	node := &commandNode{
+		Name:       "cmd",
+		SourceFile: "/path/to/file.go",
+	}
+
+	output := captureStdout(t, func() {
+		printSubcommandDetail(node, "", "  ", RunOptions{}, true)
+	})
+
+	g.Expect(output).To(ContainSubstring("Source:"))
+}
+
+func TestPrintSubcommandDetail_WithSubcommands(t *testing.T) {
+	g := NewWithT(t)
+
+	node := &commandNode{
+		Name: "cmd",
+		Subcommands: map[string]*commandNode{
+			"sub1": {Name: "sub1", Description: "Sub one"},
+			"sub2": {Name: "sub2", Description: "Sub two"},
+		},
+	}
+
+	output := captureStdout(t, func() {
+		printSubcommandDetail(node, "", "  ", RunOptions{}, false)
+	})
+
+	g.Expect(output).To(ContainSubstring("Subcommands:"))
+	g.Expect(output).To(ContainSubstring("sub1"))
+	g.Expect(output).To(ContainSubstring("sub2"))
+}
+
+// --- printUsage tests ---
+
+func TestPrintUsage_WithDescription(t *testing.T) {
+	g := NewWithT(t)
+
+	nodes := []*commandNode{
+		{
+			Name:        "test",
+			Description: "Test command",
+			Subcommands: map[string]*commandNode{
+				"sub": {Name: "sub", Description: "Sub command"},
+			},
+		},
+	}
+
+	opts := RunOptions{Description: "Top level description"}
+
+	output := captureStdout(t, func() {
+		printUsage(nodes, opts)
+	})
+
+	g.Expect(output).To(ContainSubstring("Top level description"))
+	g.Expect(output).To(ContainSubstring("test:"))
+	g.Expect(output).To(ContainSubstring("Test command"))
+	g.Expect(output).To(ContainSubstring("Subcommands:"))
+}
+
+func TestPrintUsage_WithNestedSubcommands(t *testing.T) {
+	g := NewWithT(t)
+
+	nodes := []*commandNode{
+		{
+			Name:        "parent",
+			Description: "Parent command",
+			SourceFile:  "/test/path.go",
+			Subcommands: map[string]*commandNode{
+				"child": {
+					Name:        "child",
+					Description: "Child command",
+					Subcommands: map[string]*commandNode{
+						"grandchild": {Name: "grandchild", Description: "Grandchild"},
+					},
+				},
+			},
+		},
+	}
+
+	output := captureStdout(t, func() {
+		printUsage(nodes, RunOptions{})
+	})
+
+	g.Expect(output).To(ContainSubstring("parent:"))
+	g.Expect(output).To(ContainSubstring("child"))
+	g.Expect(output).To(ContainSubstring("grandchild"))
+}
+
+func TestRelativeSourcePathWithGetwd_GetwdError(t *testing.T) {
+	g := NewWithT(t)
+
+	failingGetwd := func() (string, error) {
+		return "", errors.New("getwd failed")
+	}
+
+	result := relativeSourcePathWithGetwd("/some/path/file.go", failingGetwd)
+	g.Expect(result).To(Equal("/some/path/file.go"))
+}
+
+func TestRelativeSourcePath_Empty(t *testing.T) {
+	g := NewWithT(t)
+	result := relativeSourcePath("")
+	g.Expect(result).To(Equal(""))
+}
+
+func TestRelativeSourcePath_SubPath(t *testing.T) {
+	g := NewWithT(t)
+	cwd, _ := os.Getwd()
+	testPath := filepath.Join(cwd, "sub", "testfile.go")
+	result := relativeSourcePath(testPath)
+	g.Expect(result).To(Equal(filepath.Join("sub", "testfile.go")))
+}
+
+func TestRelativeSourcePath_ValidPath(t *testing.T) {
+	g := NewWithT(t)
+	cwd, _ := os.Getwd()
+	testPath := filepath.Join(cwd, "testfile.go")
+	result := relativeSourcePath(testPath)
+	g.Expect(result).To(Equal("testfile.go"))
 }
 
 // --- runCommand tests ---
@@ -2438,6 +3080,19 @@ func TestSliceFlagStopsAtFlag(t *testing.T) {
 	g.Expect(cmd.Verbose).To(BeTrue())
 }
 
+func TestSortedKeys(t *testing.T) {
+	g := NewWithT(t)
+
+	m := map[string]*commandNode{
+		"charlie": {Name: "charlie"},
+		"alpha":   {Name: "alpha"},
+		"bravo":   {Name: "bravo"},
+	}
+
+	keys := sortedKeys(m)
+	g.Expect(keys).To(Equal([]string{"alpha", "bravo", "charlie"}))
+}
+
 func TestTagOptionsInstance_Empty(t *testing.T) {
 	g := NewWithT(t)
 
@@ -2548,6 +3203,50 @@ func TestVariadicPositionalStopsAtDoubleDash(t *testing.T) {
 	g.Expect(cmd.Flag).To(Equal("value"))
 }
 
+func TestWriteWrappedUsage_EmptyParts(t *testing.T) {
+	g := NewWithT(t)
+
+	var buf strings.Builder
+	writeWrappedUsage(&buf, "Usage: ", nil)
+	g.Expect(buf.String()).To(Equal("Usage: \n"))
+}
+
+func TestWriteWrappedUsage_MultiplePartsNoWrap(t *testing.T) {
+	g := NewWithT(t)
+
+	var buf strings.Builder
+	writeWrappedUsage(&buf, "Usage: ", []string{"cmd", "sub", "[--flag]"})
+	g.Expect(buf.String()).To(Equal("Usage: cmd sub [--flag]\n"))
+}
+
+func TestWriteWrappedUsage_SinglePart(t *testing.T) {
+	g := NewWithT(t)
+
+	var buf strings.Builder
+	writeWrappedUsage(&buf, "Usage: ", []string{"cmd"})
+	g.Expect(buf.String()).To(Equal("Usage: cmd\n"))
+}
+
+func TestWriteWrappedUsage_Wrapping(t *testing.T) {
+	g := NewWithT(t)
+
+	var buf strings.Builder
+	// Create parts that will exceed 80 chars
+	parts := []string{
+		"targ", "issues", "create", "[--file <string>]", "[--github]",
+		"--title <string>", "[--status {backlog|selected|in-progress|review|done|cancelled|blocked}]",
+	}
+	writeWrappedUsage(&buf, "Usage: ", parts)
+	output := buf.String()
+	// Should have multiple lines
+	lines := strings.Split(strings.TrimSuffix(output, "\n"), "\n")
+	g.Expect(len(lines)).To(BeNumerically(">", 1))
+	// Each line should be <= 80 chars
+	for _, line := range lines {
+		g.Expect(len(line)).To(BeNumerically("<=", usageLineWidth))
+	}
+}
+
 func TooManyReturnsFunc() (int, error) {
 	return 42, nil
 }
@@ -2618,6 +3317,15 @@ func (p *posIdxCmd) Run() {}
 type simpleRunCmd struct{}
 
 func (s *simpleRunCmd) Run() {}
+
+// Type with SourceFile() method for testing getStructSourceFile.
+type structWithSourceFile struct{}
+
+func (s *structWithSourceFile) Run() {}
+
+func (s *structWithSourceFile) SourceFile() string {
+	return "/custom/source/path.go"
+}
 
 type subFuncCmd struct {
 	Sub func() `targ:"subcommand"`

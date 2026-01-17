@@ -78,6 +78,11 @@ func (c *{{ .TypeName }}) Run({{ if .UsesContext }}ctx context.Context{{ end }})
 func (c *{{ .TypeName }}) Name() string {
 	return "{{ .Name }}"
 }
+{{- if .SourceFile }}
+func (c *{{ .TypeName }}) SourceFile() string {
+	return {{ printf "%q" .SourceFile }}
+}
+{{- end }}
 {{- end }}
 
 {{- range .Nodes }}
@@ -86,6 +91,16 @@ type {{ .TypeName }} struct {
 	{{ .Name }} {{ .TypeExpr }} ` + "`{{ .TagLit }}`" + `
 {{- end }}
 }
+{{- if .Description }}
+func (c *{{ .TypeName }}) Description() string {
+	return {{ printf "%q" .Description }}
+}
+{{- end }}
+{{- if .SourceFile }}
+func (c *{{ .TypeName }}) SourceFile() string {
+	return {{ printf "%q" .SourceFile }}
+}
+{{- end }}
 {{- end }}
 
 func main() {
@@ -106,7 +121,13 @@ func main() {
 {{- end }}
 	}
 
-	targ.RunWithOptions(targ.RunOptions{AllowDefault: {{ .AllowDefault }}}, roots...)
+	opts := targ.RunOptions{
+		AllowDefault: {{ .AllowDefault }},
+{{- if .Description }}
+		Description: {{ printf "%q" .Description }},
+{{- end }}
+	}
+	targ.RunWithOptions(opts, roots...)
 }
 `
 	commandNamePadding    = 2 // Padding after command name column
@@ -158,6 +179,7 @@ type bootstrapBuilder struct {
 	funcWrappers []bootstrapFuncWrapper
 	usesContext  bool
 	wrapperNames *nameGenerator
+	pathMapping  map[string]string // maps isolated paths to original paths
 }
 
 func (b *bootstrapBuilder) addFuncCommand(
@@ -172,6 +194,7 @@ func (b *bootstrapBuilder) addFuncCommand(
 		TypeName:     typeName,
 		Name:         cmd.Name,
 		FuncExpr:     prefix + cmd.Name,
+		SourceFile:   cmd.File,
 		UsesContext:  cmd.UsesContext,
 		ReturnsError: cmd.ReturnsError,
 	})
@@ -211,14 +234,36 @@ func (b *bootstrapBuilder) buildResult(
 
 	rootExprs := b.collectRootExprs(filePaths, paths, tree)
 
+	// Build map from file path to package doc
+	// Also map by directory for namespace nodes (which may have any file from the package)
+	pkgDocs := make(map[string]string)
+
+	for _, info := range infos {
+		doc := strings.TrimSpace(info.Doc)
+		if doc == "" {
+			continue
+		}
+
+		for _, cmd := range info.Commands {
+			pkgDocs[cmd.File] = doc
+		}
+		// Also map by directory for files not in commands (namespace nodes use one file)
+		for _, f := range info.Files {
+			pkgDocs[f.Path] = doc
+		}
+	}
+
 	var nodes []bootstrapNode
 
-	err = collectNamespaceNodes(tree, b.fileCommands, &nodes)
+	err = collectNamespaceNodes(tree, b.fileCommands, pkgDocs, b.pathMapping, &nodes)
 	if err != nil {
 		return bootstrapData{}, err
 	}
 
 	bannerLit := ""
+	// Default description for targ build tool mode
+	description := "Targ discovers and runs build targets you write in Go."
+
 	if len(infos) == 1 {
 		bannerLit = strconv.Quote(singlePackageBanner(infos[0]))
 	}
@@ -226,6 +271,7 @@ func (b *bootstrapBuilder) buildResult(
 	return bootstrapData{
 		AllowDefault: false,
 		BannerLit:    bannerLit,
+		Description:  description,
 		Imports:      b.imports,
 		RootExprs:    rootExprs,
 		Nodes:        nodes,
@@ -351,6 +397,7 @@ type bootstrapCommand struct {
 type bootstrapData struct {
 	AllowDefault bool
 	BannerLit    string
+	Description  string
 	Imports      []bootstrapImport
 	RootExprs    []string
 	Nodes        []bootstrapNode
@@ -370,6 +417,7 @@ type bootstrapFuncWrapper struct {
 	TypeName     string
 	Name         string
 	FuncExpr     string
+	SourceFile   string
 	UsesContext  bool
 	ReturnsError bool
 }
@@ -380,10 +428,12 @@ type bootstrapImport struct {
 }
 
 type bootstrapNode struct {
-	Name     string
-	TypeName string
-	VarName  string
-	Fields   []bootstrapField
+	Name        string
+	TypeName    string
+	VarName     string
+	Description string
+	SourceFile  string
+	Fields      []bootstrapField
 }
 
 type buildContext struct {
@@ -821,7 +871,7 @@ func (r *targRunner) handleIsolatedModule(infos []buildtool.PackageInfo) int {
 	}
 
 	// Remap package infos to point to isolated directory
-	isolatedInfos, err := remapPackageInfosToIsolated(infos, r.startDir, isolatedDir)
+	isolatedInfos, pathMapping, err := remapPackageInfosToIsolated(infos, r.startDir, isolatedDir)
 	if err != nil {
 		r.logError("Error remapping package infos", err)
 		return r.exitWithCleanup(1)
@@ -835,11 +885,12 @@ func (r *targRunner) handleIsolatedModule(infos []buildtool.PackageInfo) int {
 		return r.exitWithCleanup(1)
 	}
 
-	bootstrap, err := r.prepareBootstrap(
+	bootstrap, err := r.prepareBootstrapWithMapping(
 		isolatedInfos,
 		isolatedDir,
 		isolatedModuleName,
 		collapsedPaths,
+		pathMapping,
 	)
 	if err != nil {
 		r.logError("", err)
@@ -987,6 +1038,51 @@ func (r *targRunner) prepareBootstrap(
 	collapsedPaths map[string][]string,
 ) (moduleBootstrap, error) {
 	data, err := buildBootstrapData(infos, r.startDir, importRoot, modulePath, collapsedPaths)
+	if err != nil {
+		return moduleBootstrap{}, fmt.Errorf("error preparing bootstrap: %w", err)
+	}
+
+	tmpl := template.Must(template.New("main").Parse(bootstrapTemplate))
+
+	var buf bytes.Buffer
+
+	err = tmpl.Execute(&buf, data)
+	if err != nil {
+		return moduleBootstrap{}, fmt.Errorf("error generating code: %w", err)
+	}
+
+	taggedFiles, err := buildtool.TaggedFiles(buildtool.OSFileSystem{}, buildtool.Options{
+		StartDir: r.startDir,
+		BuildTag: "targ",
+	})
+	if err != nil {
+		return moduleBootstrap{}, fmt.Errorf("error gathering tagged files: %w", err)
+	}
+
+	moduleFiles, err := collectModuleFiles(importRoot)
+	if err != nil {
+		return moduleBootstrap{}, fmt.Errorf("error gathering module files: %w", err)
+	}
+
+	cacheInputs := slices.Concat(taggedFiles, moduleFiles)
+
+	cacheKey, err := computeCacheKey(modulePath, importRoot, "targ", buf.Bytes(), cacheInputs)
+	if err != nil {
+		return moduleBootstrap{}, fmt.Errorf("error computing cache key: %w", err)
+	}
+
+	return moduleBootstrap{code: buf.Bytes(), cacheKey: cacheKey}, nil
+}
+
+func (r *targRunner) prepareBootstrapWithMapping(
+	infos []buildtool.PackageInfo,
+	importRoot, modulePath string,
+	collapsedPaths map[string][]string,
+	pathMapping map[string]string,
+) (moduleBootstrap, error) {
+	data, err := buildBootstrapDataWithMapping(
+		infos, r.startDir, importRoot, modulePath, collapsedPaths, pathMapping,
+	)
 	if err != nil {
 		return moduleBootstrap{}, fmt.Errorf("error preparing bootstrap: %w", err)
 	}
@@ -1321,12 +1417,24 @@ func buildBootstrapData(
 	modulePath string,
 	_ map[string][]string,
 ) (bootstrapData, error) {
+	return buildBootstrapDataWithMapping(infos, startDir, moduleRoot, modulePath, nil, nil)
+}
+
+func buildBootstrapDataWithMapping(
+	infos []buildtool.PackageInfo,
+	startDir string,
+	moduleRoot string,
+	modulePath string,
+	_ map[string][]string,
+	pathMapping map[string]string,
+) (bootstrapData, error) {
 	absStart, err := filepath.Abs(startDir)
 	if err != nil {
 		return bootstrapData{}, fmt.Errorf("getting absolute path: %w", err)
 	}
 
 	builder := newBootstrapBuilder(absStart, moduleRoot, modulePath)
+	builder.pathMapping = pathMapping
 
 	for _, info := range infos {
 		err := builder.processPackage(info)
@@ -1639,9 +1747,11 @@ func collectModuleTaggedFiles(mt moduleTargets) ([]buildtool.TaggedFile, error) 
 func collectNamespaceNodes(
 	root *namespaceNode,
 	fileCommands map[string][]bootstrapCommand,
+	pkgDocs map[string]string,
+	pathMapping map[string]string,
 	out *[]bootstrapNode,
 ) error {
-	return walkNamespaceTree(root, root, fileCommands, out)
+	return walkNamespaceTree(root, root, fileCommands, pkgDocs, pathMapping, out)
 }
 
 // collectPackageFilePaths extracts all file paths from module packages.
@@ -2793,18 +2903,20 @@ func queryModuleCommands(binaryPath string) ([]commandInfo, error) {
 }
 
 // remapPackageInfosToIsolated creates new package infos with paths pointing to isolated dir.
+// Returns the remapped infos and a mapping from new paths to original paths.
 func remapPackageInfosToIsolated(
 	infos []buildtool.PackageInfo,
 	startDir, isolatedDir string,
-) ([]buildtool.PackageInfo, error) {
+) ([]buildtool.PackageInfo, map[string]string, error) {
 	filePaths := collectFilePaths(infos)
 
 	paths, err := namespacePaths(filePaths, startDir)
 	if err != nil {
-		return nil, fmt.Errorf("computing namespace paths: %w", err)
+		return nil, nil, fmt.Errorf("computing namespace paths: %w", err)
 	}
 
 	result := make([]buildtool.PackageInfo, 0, len(infos))
+	pathMapping := make(map[string]string) // newPath -> originalPath
 
 	for _, info := range infos {
 		newInfo := buildtool.PackageInfo{
@@ -2833,6 +2945,7 @@ func remapPackageInfosToIsolated(
 		newFiles := make([]buildtool.FileInfo, 0, len(info.Files))
 		for _, f := range info.Files {
 			newPath := filepath.Join(newDir, filepath.Base(f.Path))
+			pathMapping[newPath] = f.Path // Track original path
 			newFiles = append(newFiles, buildtool.FileInfo{
 				Path:     newPath,
 				Base:     f.Base,
@@ -2844,7 +2957,7 @@ func remapPackageInfosToIsolated(
 		result = append(result, newInfo)
 	}
 
-	return result, nil
+	return result, pathMapping, nil
 }
 
 func resolveTargDependency() targDependency {
@@ -3215,6 +3328,8 @@ func validateNoPackageMain(mt moduleTargets) error {
 func walkNamespaceTree(
 	node, root *namespaceNode,
 	fileCommands map[string][]bootstrapCommand,
+	pkgDocs map[string]string,
+	pathMapping map[string]string,
 	out *[]bootstrapNode,
 ) error {
 	names := sortedChildNames(node)
@@ -3225,7 +3340,7 @@ func walkNamespaceTree(
 			continue
 		}
 
-		err := walkNamespaceTree(child, root, fileCommands, out)
+		err := walkNamespaceTree(child, root, fileCommands, pkgDocs, pathMapping, out)
 		if err != nil {
 			return err
 		}
@@ -3240,11 +3355,27 @@ func walkNamespaceTree(
 		return err
 	}
 
+	// Look up package doc for this namespace
+	description := ""
+
+	sourceFile := node.File
+	if node.File != "" {
+		description = pkgDocs[node.File]
+		// Map isolated path to original path if available
+		if pathMapping != nil {
+			if original, ok := pathMapping[node.File]; ok {
+				sourceFile = original
+			}
+		}
+	}
+
 	*out = append(*out, bootstrapNode{
-		Name:     node.Name,
-		TypeName: node.TypeName,
-		VarName:  node.VarName,
-		Fields:   fields,
+		Name:        node.Name,
+		TypeName:    node.TypeName,
+		VarName:     node.VarName,
+		Description: description,
+		SourceFile:  sourceFile,
+		Fields:      fields,
 	})
 
 	return nil

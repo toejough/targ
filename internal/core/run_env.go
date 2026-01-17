@@ -338,14 +338,25 @@ func (e *runExecutor) handleCompletionFlag() (bool, error) {
 }
 
 // handleGlobalHelp handles global help when HelpOnly mode is set.
+// Returns true if help was printed and command processing should stop.
 func (e *runExecutor) handleGlobalHelp() bool {
 	if !e.opts.HelpOnly {
 		return false
 	}
 
+	// For multi-root mode: if arg matches a root command, let command handle help
+	// This allows `targ <cmd> --help` to show command-specific help
+	if !e.hasDefault && len(e.rest) > 0 && !strings.HasPrefix(e.rest[0], "-") {
+		for _, root := range e.roots {
+			if strings.EqualFold(root.Name, e.rest[0]) {
+				return false // Let command execution handle help
+			}
+		}
+	}
+
+	// Show global help
 	if e.hasDefault {
-		printCommandHelp(e.roots[0])
-		printTargOptions(e.opts)
+		printCommandHelp(e.roots[0], e.opts, true)
 	} else {
 		printUsage(e.roots, e.opts)
 	}

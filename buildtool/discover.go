@@ -330,11 +330,11 @@ func (p *packageInfoParser) checkDuplicates() error {
 func (p *packageInfoParser) checkPackageName(parsed *ast.File, _ string) error {
 	if p.packageName == "" {
 		p.packageName = parsed.Name.Name
-		if parsed.Doc != nil {
-			p.packageDoc = strings.TrimSpace(parsed.Doc.Text())
-		}
+	}
 
-		return nil
+	// Capture package doc from any file that has it (first one wins)
+	if p.packageDoc == "" && parsed.Doc != nil {
+		p.packageDoc = strings.TrimSpace(parsed.Doc.Text())
 	}
 
 	if p.packageName != parsed.Name.Name {
