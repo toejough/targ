@@ -7,12 +7,6 @@ import (
 	"strings"
 )
 
-// Sentinel errors for err113 compliance.
-var errUnsupportedShell = errors.New("unsupported shell")
-
-// singleShortFlagLen is the length of a single short flag (e.g., "-f").
-const singleShortFlagLen = 2
-
 // PrintCompletionScript prints a shell completion script for the given shell.
 func PrintCompletionScript(shell, binName string) error {
 	switch shell {
@@ -31,18 +25,12 @@ func PrintCompletionScript(shell, binName string) error {
 
 // unexported constants.
 const (
-	fishShell = "fish"
-	zshShell  = "zsh"
-)
-
-//nolint:gochecknoglobals // completion templates and flag maps
-var (
 	_bashCompletion = `
 _%s_completion() {
     local request="${COMP_LINE}"
     local completions
     completions=$(%s __complete "$request")
-    
+
     COMPREPLY=( $(compgen -W "$completions" -- "${COMP_WORDS[COMP_CWORD]}") )
 }
 complete -F _%s_completion %s
@@ -61,33 +49,19 @@ _%s_completion() {
     local request="${words[*]}"
     local completions
     completions=("${(@f)$(%s __complete "$request")}")
-    
+
     compadd -a completions
 }
 compdef _%s_completion %s
 `
-	// targBooleanFlags are flags that don't take a value.
-	targBooleanFlags = map[string]bool{
-		"--no-cache": true,
-		"--keep":     true,
-		"--help":     true,
-		"-h":         true,
-		"--init":     true, // can also use --init=FILE syntax
-	}
-	// targExitEarlyFlags cause targ to exit without running commands.
-	// Everything after these flags is consumed by them.
-	targExitEarlyFlags = map[string]bool{
-		"--alias": true, // takes NAME "CMD" [FILE]
-	}
-	// targFlagsWithValues are flags that consume the next argument as a value.
-	targFlagsWithValues = map[string]bool{
-		"--timeout":    true,
-		"--completion": true,
-	}
-	// targGlobalFlags are flags valid at any command level.
-	targGlobalFlags = []string{"--help", "--timeout"}
-	// targRootOnlyFlags are flags only valid at root level (before any command).
-	targRootOnlyFlags = []string{"--no-cache", "--keep", "--completion", "--init", "--alias"}
+	fishShell          = "fish"
+	singleShortFlagLen = 2
+	zshShell           = "zsh"
+)
+
+// unexported variables.
+var (
+	errUnsupportedShell = errors.New("unsupported shell")
 )
 
 type cmdLineTokenizer struct {
@@ -423,11 +397,11 @@ func (s *completionState) suggestRootsAndFlags() {
 		printIfPrefix(r.Name, s.prefix)
 	}
 
-	for _, opt := range targGlobalFlags {
+	for _, opt := range targGlobalFlags() {
 		printIfPrefix(opt, s.prefix)
 	}
 
-	for _, opt := range targRootOnlyFlags {
+	for _, opt := range targRootOnlyFlags() {
 		printIfPrefix(opt, s.prefix)
 	}
 }
@@ -825,7 +799,7 @@ func findCompletionRoot(roots []*commandNode, name string) *commandNode {
 }
 
 func hasExitEarlyFlagPrefix(arg string) bool {
-	for flag := range targExitEarlyFlags {
+	for flag := range targExitEarlyFlags() {
 		if strings.HasPrefix(arg, flag+"=") {
 			return true
 		}
@@ -920,6 +894,10 @@ func printIfPrefix(name, prefix string) {
 func skipTargFlags(args []string) []string {
 	result := make([]string, 0, len(args))
 
+	exitEarly := targExitEarlyFlags()
+	flagsWithValues := targFlagsWithValues()
+	booleanFlags := targBooleanFlags()
+
 	skip := false
 	for _, arg := range args {
 		if skip {
@@ -927,20 +905,20 @@ func skipTargFlags(args []string) []string {
 			continue
 		}
 		// Exit-early flags consume all remaining args
-		if targExitEarlyFlags[arg] || hasExitEarlyFlagPrefix(arg) {
+		if exitEarly[arg] || hasExitEarlyFlagPrefix(arg) {
 			break
 		}
 		// Flags that take a value - skip flag and next arg
-		if targFlagsWithValues[arg] {
+		if flagsWithValues[arg] {
 			skip = true
 			continue
 		}
 		// Flags with --flag=value syntax
-		if hasFlagValuePrefix(arg, targFlagsWithValues) {
+		if hasFlagValuePrefix(arg, flagsWithValues) {
 			continue
 		}
 		// Boolean flags (may also have --flag=value syntax for some like --init)
-		if targBooleanFlags[arg] || hasFlagValuePrefix(arg, targBooleanFlags) {
+		if booleanFlags[arg] || hasFlagValuePrefix(arg, booleanFlags) {
 			continue
 		}
 
@@ -1007,10 +985,10 @@ func suggestFlags(chain []commandInstance, prefix string, atRoot bool) error {
 		return err
 	}
 
-	suggestMatchingFlags(targGlobalFlags, prefix, seen)
+	suggestMatchingFlags(targGlobalFlags(), prefix, seen)
 
 	if atRoot {
-		suggestMatchingFlags(targRootOnlyFlags, prefix, seen)
+		suggestMatchingFlags(targRootOnlyFlags(), prefix, seen)
 	}
 
 	return nil
@@ -1038,6 +1016,43 @@ func suggestMatchingFlags(flags []string, prefix string, seen map[string]bool) {
 	for _, flag := range flags {
 		suggestFlag(flag, prefix, seen)
 	}
+}
+
+// targBooleanFlags returns flags that don't take a value.
+func targBooleanFlags() map[string]bool {
+	return map[string]bool{
+		"--no-cache": true,
+		"--keep":     true,
+		"--help":     true,
+		"-h":         true,
+		"--init":     true, // can also use --init=FILE syntax
+	}
+}
+
+// targExitEarlyFlags returns flags that cause targ to exit without running commands.
+// Everything after these flags is consumed by them.
+func targExitEarlyFlags() map[string]bool {
+	return map[string]bool{
+		"--alias": true, // takes NAME "CMD" [FILE]
+	}
+}
+
+// targFlagsWithValues returns flags that consume the next argument as a value.
+func targFlagsWithValues() map[string]bool {
+	return map[string]bool{
+		"--timeout":    true,
+		"--completion": true,
+	}
+}
+
+// targGlobalFlags returns flags valid at any command level.
+func targGlobalFlags() []string {
+	return []string{"--help", "--timeout"}
+}
+
+// targRootOnlyFlags returns flags only valid at root level (before any command).
+func targRootOnlyFlags() []string {
+	return []string{"--no-cache", "--keep", "--completion", "--init", "--alias"}
 }
 
 func tokenizeCommandLine(commandLine string) ([]string, bool) {

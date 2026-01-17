@@ -16,56 +16,44 @@ import (
 
 // unexported constants.
 const (
-	flagPlaceholder     = "[flag]"
-	tagOptsReturnCount  = 2 // TagOptions must return (TagOptions, error)
+	flagPlaceholder    = "[flag]"
+	tagOptsReturnCount = 2
 )
 
-// Sentinel errors for err113 compliance.
+// unexported variables.
 var (
-	errSubcommandNil             = errors.New("subcommand is nil")
-	errUnsupportedFieldType      = errors.New("unsupported subcommand field type")
-	errNilFunctionCommand        = errors.New("nil function command")
-	errMissingRequiredFlag       = errors.New("missing required flag")
-	errFieldNotExported          = errors.New("field must be exported")
-	errShortFlagGroupNotBool     = errors.New("short flag group must contain only boolean flags")
-	errTagOptsWrongValueCount    = errors.New("TagOptions method returned wrong number of values")
+	errExpectedFunc     = errors.New("expected func")
+	errExpectedStruct   = errors.New("expected struct")
+	errFieldNotExported = errors.New("field must be exported")
+	errFieldNotZero     = errors.New(
+		"must be zero value; use default tags instead of prefilled fields",
+	)
+	errFuncMustAcceptContext   = errors.New("function command must accept context.Context")
+	errFuncMustReturnError     = errors.New("function command must return only error")
+	errFuncTooManyInputs       = errors.New("function command must be niladic or accept context")
+	errLongFlagFormat          = errors.New("long flags must use --")
+	errMethodMustAcceptContext = errors.New("must accept context.Context")
+	errMethodMustReturnError   = errors.New("must return only error")
+	errMethodTooManyInputs     = errors.New("must accept context.Context or no args")
+	errMissingRequiredFlag     = errors.New("missing required flag")
+	errNilFunctionCommand      = errors.New("nil function command")
+	errNilPointerTarget        = errors.New("nil pointer target")
+	errNilTarget               = errors.New("nil target")
+	errShortFlagGroupNotBool   = errors.New("short flag group must contain only boolean flags")
+	errSubcommandNil           = errors.New("subcommand is nil")
+	errSubcommandPrefilled     = errors.New(
+		"must not prefill subcommand; use default tags instead",
+	)
+	errTagOptsInvalidInput     = errors.New("TagOptions must accept (string, TagOptions)")
+	errTagOptsInvalidOutput    = errors.New("TagOptions must return (TagOptions, error)")
+	errTagOptsInvalidSignature = errors.New(
+		"TagOptions must accept (string, TagOptions) and return (TagOptions, error)",
+	)
 	errTagOptsNonErrorType       = errors.New("TagOptions method returned non-error type")
 	errTagOptsWrongType          = errors.New("TagOptions method returned wrong type")
-	errExpectedFunc              = errors.New("expected func")
+	errTagOptsWrongValueCount    = errors.New("TagOptions method returned wrong number of values")
 	errUnableToDetermineFuncName = errors.New("unable to determine function name")
-	errNilTarget                 = errors.New("nil target")
-	errNilPointerTarget          = errors.New("nil pointer target")
-	errExpectedStruct            = errors.New("expected struct")
-	errSubcommandPrefilled       = errors.New("must not prefill subcommand; use default tags instead")
-	errFieldNotZero              = errors.New("must be zero value; use default tags instead of prefilled fields")
-	errFuncTooManyInputs         = errors.New("function command must be niladic or accept context")
-	errFuncMustAcceptContext     = errors.New("function command must accept context.Context")
-	errFuncMustReturnError       = errors.New("function command must return only error")
-	errLongFlagFormat            = errors.New("long flags must use --")
-	errMethodTooManyInputs       = errors.New("must accept context.Context or no args")
-	errMethodMustAcceptContext   = errors.New("must accept context.Context")
-	errMethodMustReturnError     = errors.New("must return only error")
-	errTagOptsInvalidSignature   = errors.New("TagOptions must accept (string, TagOptions) and return (TagOptions, error)")
-	errTagOptsInvalidInput       = errors.New("TagOptions must accept (string, TagOptions)")
-	errTagOptsInvalidOutput      = errors.New("TagOptions must return (TagOptions, error)")
-)
-
-//nolint:gochecknoglobals // tag parser lookup table
-var (
-	tagPartSetters = []struct {
-		prefix string
-		apply  func(opts *TagOptions, val string)
-	}{
-		{"name=", func(opts *TagOptions, val string) { opts.Name = val }},
-		{"subcommand=", func(opts *TagOptions, val string) { opts.Name = val }},
-		{"short=", func(opts *TagOptions, val string) { opts.Short = val }},
-		{"env=", func(opts *TagOptions, val string) { opts.Env = val }},
-		{"default=", func(opts *TagOptions, val string) { opts.Default = &val }},
-		{"enum=", func(opts *TagOptions, val string) { opts.Enum = val }},
-		{"placeholder=", func(opts *TagOptions, val string) { opts.Placeholder = val }},
-		{"desc=", func(opts *TagOptions, val string) { opts.Desc = val }},
-		{"description=", func(opts *TagOptions, val string) { opts.Desc = val }},
-	}
+	errUnsupportedFieldType      = errors.New("unsupported subcommand field type")
 )
 
 type commandInstance struct {
@@ -382,7 +370,22 @@ func applyTagOptionsOverride(
 }
 
 func applyTagPart(opts *TagOptions, p string) {
-	for _, setter := range tagPartSetters {
+	setters := []struct {
+		prefix string
+		apply  func(opts *TagOptions, val string)
+	}{
+		{"name=", func(opts *TagOptions, val string) { opts.Name = val }},
+		{"subcommand=", func(opts *TagOptions, val string) { opts.Name = val }},
+		{"short=", func(opts *TagOptions, val string) { opts.Short = val }},
+		{"env=", func(opts *TagOptions, val string) { opts.Env = val }},
+		{"default=", func(opts *TagOptions, val string) { opts.Default = &val }},
+		{"enum=", func(opts *TagOptions, val string) { opts.Enum = val }},
+		{"placeholder=", func(opts *TagOptions, val string) { opts.Placeholder = val }},
+		{"desc=", func(opts *TagOptions, val string) { opts.Desc = val }},
+		{"description=", func(opts *TagOptions, val string) { opts.Desc = val }},
+	}
+
+	for _, setter := range setters {
 		if after, ok := strings.CutPrefix(p, setter.prefix); ok {
 			setter.apply(opts, after)
 			return

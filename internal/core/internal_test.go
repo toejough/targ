@@ -1520,12 +1520,12 @@ func TestMissingPositionalError_WithoutName(t *testing.T) {
 	g.Expect(err.Error()).To(ContainSubstring("Arg"))
 }
 
-// --- NewOsEnv tests ---
+// --- NewOsRunEnv tests ---
 
-func TestNewOsEnv_ReturnsRunEnv(t *testing.T) {
+func TestNewOsRunEnv_ReturnsRunEnv(t *testing.T) {
 	g := NewWithT(t)
 
-	env := NewOsEnv()
+	env := NewOsRunEnv()
 	g.Expect(env).NotTo(BeNil())
 	// Just verify it implements runEnv interface
 	_ = env

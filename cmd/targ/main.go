@@ -26,34 +26,6 @@ import (
 	"github.com/toejough/targ/buildtool"
 )
 
-// Sentinel errors for err113 compliance.
-var (
-	errUnknownCommandKind    = errors.New("unknown command kind")
-	errNoCommandsInPackage   = errors.New("no commands found in package")
-	errUnclosedQuote         = errors.New("unclosed quote")
-	errPackageMainNotAllowed = errors.New("targ files cannot use 'package main'")
-	errMultipleTargetFiles   = errors.New("multiple target files found")
-	errDuplicateCommandName  = errors.New("duplicate command name")
-	errDuplicateNamespace    = errors.New("duplicate namespace field")
-	errInvalidUTF8Path       = errors.New("invalid utf-8 path in tagged file")
-	errFileExists            = errors.New("file already exists")
-	errUnknownCommand        = errors.New("unknown command")
-	errModulePathNotFound    = errors.New("module path not found")
-	errAliasNameEmpty        = errors.New("alias name cannot be empty")
-	errCommandEmpty          = errors.New("command cannot be empty")
-	errAliasRequiresArgs     = errors.New("--alias requires at least two arguments: NAME \"COMMAND\" [FILE]")
-	errAliasRequiresCommand  = errors.New("--alias requires a command argument")
-)
-
-// Numeric constants for mnd linter compliance.
-const (
-	importExtraLines       = 3  // Extra line capacity when adding import statement
-	minArgsForCompletion   = 2  // Minimum args for __complete (binary + arg)
-	minCommandNameWidth    = 10 // Minimum column width for command names in help output
-	commandNamePadding     = 2  // Padding after command name column
-	helpIndentWidth        = 4  // Leading spaces in help output
-)
-
 func main() {
 	os.Exit(runMain())
 }
@@ -137,10 +109,36 @@ func main() {
 	targ.RunWithOptions(targ.RunOptions{AllowDefault: {{ .AllowDefault }}}, roots...)
 }
 `
-	completeCommand = "__complete"
-	pkgNameDefault  = "pkg"
-	targLocalModule = "targ.local"
-	targsGoFilename = "targs.go"
+	commandNamePadding   = 2 // Padding after command name column
+	completeCommand      = "__complete"
+	helpIndentWidth      = 4  // Leading spaces in help output
+	importExtraLines     = 3  // Extra line capacity when adding import statement
+	minArgsForCompletion = 2  // Minimum args for __complete (binary + arg)
+	minCommandNameWidth  = 10 // Minimum column width for command names in help output
+	pkgNameDefault       = "pkg"
+	targLocalModule      = "targ.local"
+	targsGoFilename      = "targs.go"
+)
+
+// unexported variables.
+var (
+	errAliasNameEmpty    = errors.New("alias name cannot be empty")
+	errAliasRequiresArgs = errors.New(
+		"--alias requires at least two arguments: NAME \"COMMAND\" [FILE]",
+	)
+	errAliasRequiresCommand  = errors.New("--alias requires a command argument")
+	errCommandEmpty          = errors.New("command cannot be empty")
+	errDuplicateCommandName  = errors.New("duplicate command name")
+	errDuplicateNamespace    = errors.New("duplicate namespace field")
+	errFileExists            = errors.New("file already exists")
+	errInvalidUTF8Path       = errors.New("invalid utf-8 path in tagged file")
+	errModulePathNotFound    = errors.New("module path not found")
+	errMultipleTargetFiles   = errors.New("multiple target files found")
+	errNoCommandsInPackage   = errors.New("no commands found in package")
+	errPackageMainNotAllowed = errors.New("targ files cannot use 'package main'")
+	errUnclosedQuote         = errors.New("unclosed quote")
+	errUnknownCommand        = errors.New("unknown command")
+	errUnknownCommandKind    = errors.New("unknown command kind")
 )
 
 type aliasResult struct {

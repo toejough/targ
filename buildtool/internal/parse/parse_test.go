@@ -110,6 +110,32 @@ func TestHasBuildTag_NonCommentLineFirst(t *testing.T) {
 	}
 }
 
+func TestIsGoSourceFile(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		filename string
+		want     bool
+	}{
+		{"valid go file", "main.go", true},
+		{"test file", "main_test.go", false},
+		{"generated file", "generated_targ_build.go", false},
+		{"non-go file", "main.txt", false},
+		{"go in name", "main.golang", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := parse.IsGoSourceFile(tt.filename); got != tt.want {
+				t.Errorf("IsGoSourceFile(%q) = %v, want %v", tt.filename, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestReceiverTypeName_EmptyList(t *testing.T) {
 	t.Parallel()
 
@@ -291,32 +317,6 @@ func TestShouldSkipGoFile(t *testing.T) {
 			got := parse.ShouldSkipGoFile(tt.filename)
 			if got != tt.want {
 				t.Errorf("ShouldSkipGoFile(%q) = %v, want %v", tt.filename, got, tt.want)
-			}
-		})
-	}
-}
-
-func TestIsGoSourceFile(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name     string
-		filename string
-		want     bool
-	}{
-		{"valid go file", "main.go", true},
-		{"test file", "main_test.go", false},
-		{"generated file", "generated_targ_build.go", false},
-		{"non-go file", "main.txt", false},
-		{"go in name", "main.golang", false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			if got := parse.IsGoSourceFile(tt.filename); got != tt.want {
-				t.Errorf("IsGoSourceFile(%q) = %v, want %v", tt.filename, got, tt.want)
 			}
 		})
 	}

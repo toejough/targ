@@ -363,7 +363,7 @@ func TestRunWithEnv_SingleFunction_NoDefault(t *testing.T) {
 	}
 }
 
-//nolint:gochecknoglobals // test state
+// unexported variables.
 var (
 	defaultFuncCalled      bool
 	errFuncError           = errors.New("function error")

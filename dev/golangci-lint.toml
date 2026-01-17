@@ -17,7 +17,7 @@ disable = [
 # Exclude certain linters from test files
 [[linters.exclusions.rules]]
 path = '_test\.go$'
-linters = ['dogsled', 'err113', 'gosec', 'mnd', 'noctx', 'noinlineerr', 'testpackage', 'wrapcheck']
+linters = ['dogsled', 'err113', 'gochecknoglobals', 'gosec', 'mnd', 'noctx', 'noinlineerr', 'testpackage', 'wrapcheck']
 
 # Allow dot imports in test files (gomega requires them)
 [[linters.exclusions.rules]]

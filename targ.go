@@ -155,7 +155,7 @@ func Run(targets ...any) {
 
 // RunWithOptions executes the CLI using os.Args and exits on error.
 func RunWithOptions(opts RunOptions, targets ...any) {
-	err := core.RunWithEnv(core.NewOsEnv(), opts, targets...)
+	err := core.RunWithEnv(core.NewOsRunEnv(), opts, targets...)
 	if err != nil {
 		var exitErr ExitError
 		if errors.As(err, &exitErr) {

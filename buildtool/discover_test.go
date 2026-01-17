@@ -93,7 +93,8 @@ func Fail() error { return nil }
 		t.Fatalf("expected 1 package info, got %d", len(infos))
 	}
 
-	if names := commandNamesByKind(infos[0], buildtool.CommandFunc); len(names) != 1 || names[0] != "Fail" {
+	if names := commandNamesByKind(infos[0], buildtool.CommandFunc); len(names) != 1 ||
+		names[0] != "Fail" {
 		t.Fatalf("unexpected funcs: %v", names)
 	}
 }
@@ -331,7 +332,8 @@ type SubCmd struct{}
 	}
 
 	info := infos[0]
-	if names := commandNamesByKind(info, buildtool.CommandStruct); len(names) != 1 || names[0] != "Root" {
+	if names := commandNamesByKind(info, buildtool.CommandStruct); len(names) != 1 ||
+		names[0] != "Root" {
 		t.Fatalf("expected structs [Root], got %v", names)
 	}
 }
@@ -385,7 +387,8 @@ func Sub() {}
 		t.Fatalf("expected package name build, got %q", info.Package)
 	}
 
-	if names := commandNamesByKind(info, buildtool.CommandStruct); len(names) != 1 || names[0] != "Root" {
+	if names := commandNamesByKind(info, buildtool.CommandStruct); len(names) != 1 ||
+		names[0] != "Root" {
 		t.Fatalf("expected structs [Root], got %v", names)
 	}
 
@@ -786,10 +789,13 @@ func Deploy() {}
 }
 
 func TestDiscover_ReturnsAllTaggedDirs(t *testing.T) {
-	testMultipleTaggedPackages(t, func(fsMock *FileSystemMockHandle, opts buildtool.Options) (int, error) {
-		infos, err := buildtool.Discover(fsMock.Mock, opts)
-		return len(infos), err
-	})
+	testMultipleTaggedPackages(
+		t,
+		func(fsMock *FileSystemMockHandle, opts buildtool.Options) (int, error) {
+			infos, err := buildtool.Discover(fsMock.Mock, opts)
+			return len(infos), err
+		},
+	)
 }
 
 func TestDiscover_SkipsTargCacheDir(t *testing.T) {
@@ -848,6 +854,15 @@ func TestOSFileSystem_ReadDir(t *testing.T) {
 	}
 }
 
+func TestOSFileSystem_ReadDir_Error(t *testing.T) {
+	fs := buildtool.OSFileSystem{}
+
+	_, err := fs.ReadDir("/nonexistent/path/that/does/not/exist")
+	if err == nil {
+		t.Fatal("expected error for nonexistent directory")
+	}
+}
+
 func TestOSFileSystem_ReadFile(t *testing.T) {
 	dir := t.TempDir()
 	path := dir + "/test.txt"
@@ -868,6 +883,15 @@ func TestOSFileSystem_ReadFile(t *testing.T) {
 
 	if string(content) != string(expected) {
 		t.Fatalf("expected %q, got %q", expected, content)
+	}
+}
+
+func TestOSFileSystem_ReadFile_Error(t *testing.T) {
+	fs := buildtool.OSFileSystem{}
+
+	_, err := fs.ReadFile("/nonexistent/file/that/does/not/exist.txt")
+	if err == nil {
+		t.Fatal("expected error for nonexistent file")
 	}
 }
 
@@ -894,11 +918,70 @@ func TestOSFileSystem_WriteFile(t *testing.T) {
 	}
 }
 
+func TestOSFileSystem_WriteFile_Error(t *testing.T) {
+	fs := buildtool.OSFileSystem{}
+
+	err := fs.WriteFile("/nonexistent/path/that/does/not/exist/file.txt", []byte("data"), 0o644)
+	if err == nil {
+		t.Fatal("expected error for invalid path")
+	}
+}
+
 func TestTaggedFiles_ReturnsSelectedFiles(t *testing.T) {
-	testMultipleTaggedPackages(t, func(fsMock *FileSystemMockHandle, opts buildtool.Options) (int, error) {
-		files, err := buildtool.TaggedFiles(fsMock.Mock, opts)
-		return len(files), err
-	})
+	testMultipleTaggedPackages(
+		t,
+		func(fsMock *FileSystemMockHandle, opts buildtool.Options) (int, error) {
+			files, err := buildtool.TaggedFiles(fsMock.Mock, opts)
+			return len(files), err
+		},
+	)
+}
+
+func TestTaggedFiles_SkipsUnreadableFiles(t *testing.T) {
+	fsMock := MockFileSystem(t)
+	opts := buildtool.Options{StartDir: "/root"}
+	done := make(chan struct{})
+
+	var (
+		files []buildtool.TaggedFile
+		err   error
+	)
+
+	go func() {
+		files, err = buildtool.TaggedFiles(fsMock.Mock, opts)
+
+		close(done)
+	}()
+
+	// Directory contains a file that fails to read (alphabetical order: readable before unreadable)
+	fsMock.Method.ReadDir.ExpectCalledWithExactly("/root").InjectReturnValues([]fs.DirEntry{
+		fakeDirEntry{name: "readable.go", dir: false},
+		fakeDirEntry{name: "unreadable.go", dir: false},
+	}, nil)
+	fsMock.Method.ReadFile.ExpectCalledWithExactly("/root/readable.go").
+		InjectReturnValues([]byte(`//go:build targ
+
+package build
+
+func Build() {}
+`), nil)
+	fsMock.Method.ReadFile.ExpectCalledWithExactly("/root/unreadable.go").
+		InjectReturnValues([]byte(nil), errors.New("permission denied"))
+
+	<-done
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Should only return the readable file
+	if len(files) != 1 {
+		t.Fatalf("expected 1 file, got %d", len(files))
+	}
+
+	if files[0].Path != "/root/readable.go" {
+		t.Fatalf("expected readable.go, got %s", files[0].Path)
+	}
 }
 
 // unexported constants.
@@ -962,7 +1045,11 @@ func findCommandDesc(info buildtool.PackageInfo, name string, kind buildtool.Com
 
 // runDiscoverTest runs Discover and expects a single PackageInfo.
 // Returns the infos for further assertions.
-func runDiscoverTest(t *testing.T, fsMock *FileSystemMockHandle, fileContent []byte) []buildtool.PackageInfo {
+func runDiscoverTest(
+	t *testing.T,
+	fsMock *FileSystemMockHandle,
+	fileContent []byte,
+) []buildtool.PackageInfo {
 	t.Helper()
 
 	opts := buildtool.Options{StartDir: "/root"}

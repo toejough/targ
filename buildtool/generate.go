@@ -24,9 +24,6 @@ var (
 	ErrPackageNameNotFound    = errors.New("package name not found")
 )
 
-// File permission constants.
-const fileModeRegular = 0o644
-
 // GenerateOptions configures function wrapper generation.
 type GenerateOptions struct {
 	Dir        string
@@ -54,6 +51,11 @@ func GenerateFunctionWrappers(filesystem FileSystem, opts GenerateOptions) (stri
 
 	return g.generateAndWrite()
 }
+
+// unexported constants.
+const (
+	fileModeRegular = 0o644
+)
 
 type functionDoc struct {
 	Name         string
@@ -91,7 +93,11 @@ func (g *wrapperGenerator) buildFunctionDoc(
 
 	usesContext := false
 	if node.Type.Params != nil && len(node.Type.Params.List) == 1 {
-		usesContext = parse.FuncParamIsContext(node.Type.Params.List[0].Type, ctxAliases, ctxDotImport)
+		usesContext = parse.FuncParamIsContext(
+			node.Type.Params.List[0].Type,
+			ctxAliases,
+			ctxDotImport,
+		)
 	}
 
 	return functionDoc{

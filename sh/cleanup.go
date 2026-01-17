@@ -8,9 +8,6 @@ import (
 	"syscall"
 )
 
-// Exit code for interrupted process (128 + SIGINT).
-const exitCodeSigInt = 130
-
 // EnableCleanup enables automatic cleanup of child processes on SIGINT/SIGTERM.
 // Call this once at program startup to ensure Ctrl-C kills all spawned processes.
 func EnableCleanup() {
@@ -36,12 +33,18 @@ func EnableCleanup() {
 	}
 }
 
-//nolint:gochecknoglobals // required for signal handling
+// unexported constants.
+const (
+	exitCodeSigInt = 130
+)
+
+// unexported variables.
 var (
-	cleanupEnabled  bool
-	cleanupMu       sync.Mutex
+	cleanupEnabled bool       //nolint:gochecknoglobals // signal handler state
+	cleanupMu      sync.Mutex //nolint:gochecknoglobals // protects cleanup state
+	//nolint:gochecknoglobals // processes to kill on signal
 	runningProcs    = make(map[*os.Process]struct{})
-	signalInstalled bool
+	signalInstalled bool //nolint:gochecknoglobals // tracks signal handler setup
 )
 
 // killAllProcesses kills all tracked processes.

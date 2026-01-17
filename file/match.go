@@ -12,11 +12,11 @@ import (
 	"github.com/bmatcuk/doublestar/v4"
 )
 
-// ErrNoPatterns is returned when Match is called with no patterns.
-var ErrNoPatterns = errors.New("no patterns provided")
-
-// ErrUnmatchedBrace is returned when a pattern has unmatched braces.
-var ErrUnmatchedBrace = errors.New("unmatched brace in pattern")
+// Exported variables.
+var (
+	ErrNoPatterns     = errors.New("no patterns provided")
+	ErrUnmatchedBrace = errors.New("unmatched brace in pattern")
+)
 
 // Match expands one or more patterns using fish-style globs (including ** and {a,b}).
 func Match(patterns ...string) ([]string, error) {

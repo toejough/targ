@@ -13,12 +13,6 @@ import (
 	"time"
 )
 
-// Sentinel errors for err113 compliance.
-var errTimeoutRequiresDuration = errors.New("--timeout requires a duration value (e.g., 10m, 1h)")
-
-// minArgsWithCommand is the minimum args count when a command is expected (binary + arg).
-const minArgsWithCommand = 2
-
 // ExecuteEnv captures args and errors for testing.
 type ExecuteEnv struct {
 	args   []string
@@ -141,6 +135,16 @@ func RunWithEnv(env runEnv, opts RunOptions, targets ...any) error {
 	})
 }
 
+// unexported constants.
+const (
+	minArgsWithCommand = 2
+)
+
+// unexported variables.
+var (
+	errTimeoutRequiresDuration = errors.New("--timeout requires a duration value (e.g., 10m, 1h)")
+)
+
 // completeFunc is the function type for command completion.
 type completeFunc func([]*commandNode, string) error
 
@@ -183,8 +187,8 @@ type runEnv interface {
 	Exit(code int)
 }
 
-// NewOsEnv returns a runEnv that uses os.Args and real stdout/exit.
-func NewOsEnv() runEnv {
+// NewOsRunEnv returns a runEnv that uses os.Args and real stdout/exit.
+func NewOsRunEnv() runEnv {
 	return osRunEnv{}
 }
 

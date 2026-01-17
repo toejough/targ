@@ -95,12 +95,12 @@ func WithExeSuffix(name string) string {
 	return name + ".exe"
 }
 
-//nolint:gochecknoglobals // injectable for testing
+// unexported variables.
 var (
-	execCommand           = exec.Command
-	stderr      io.Writer = os.Stderr
-	stdin       io.Reader = os.Stdin
-	stdout      io.Writer = os.Stdout
+	execCommand           = exec.Command //nolint:gochecknoglobals // injection point for testing
+	stderr      io.Writer = os.Stderr    //nolint:gochecknoglobals // injection point for testing
+	stdin       io.Reader = os.Stdin     //nolint:gochecknoglobals // injection point for testing
+	stdout      io.Writer = os.Stdout    //nolint:gochecknoglobals // injection point for testing
 )
 
 func formatCommand(name string, args []string) string {

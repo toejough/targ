@@ -82,7 +82,12 @@ func TestWatchReturnsErrorFromCallback(t *testing.T) {
 }
 
 func TestWatchReturnsErrorOnNoPatterns(t *testing.T) {
-	err := file.Watch(context.Background(), nil, file.WatchOptions{}, func(file.ChangeSet) error { return nil })
+	err := file.Watch(
+		context.Background(),
+		nil,
+		file.WatchOptions{},
+		func(file.ChangeSet) error { return nil },
+	)
 	if !errors.Is(err, file.ErrNoPatterns) {
 		t.Fatalf("expected ErrNoPatterns error, got: %v", err)
 	}

@@ -9,26 +9,25 @@ import (
 	"strings"
 )
 
-// keyValueParts is the expected number of parts when splitting "key=value".
-const keyValueParts = 2
-
-// Sentinel errors for err113 compliance.
-var (
-	errUnknownCommand            = errors.New("unknown command")
-	errTextUnmarshalerFailed     = errors.New("type assertion to TextUnmarshaler failed")
-	errStringSetterFailed        = errors.New("type assertion to Set(string) error failed")
-	errMissingRequiredPositional = errors.New("missing required positional")
-	errFlagNotDefined            = errors.New("flag provided but not defined")
-	errFlagNeedsArgument         = errors.New("flag needs an argument")
-	errFlagAlreadyDefined        = errors.New("flag already defined")
-	errUnsupportedValueType      = errors.New("unsupported value type")
-	errInvalidMapValue           = errors.New("invalid map value, expected key=value")
+// unexported constants.
+const (
+	keyValueParts = 2
 )
 
-//nolint:gochecknoglobals // reflect types cached at init
+// unexported variables.
 var (
-	//nolint:inamedparam // standard flag.Value interface pattern
-	stringSetterType    = reflect.TypeFor[interface{ Set(string) error }]()
+	errFlagAlreadyDefined        = errors.New("flag already defined")
+	errFlagNeedsArgument         = errors.New("flag needs an argument")
+	errFlagNotDefined            = errors.New("flag provided but not defined")
+	errInvalidMapValue           = errors.New("invalid map value, expected key=value")
+	errMissingRequiredPositional = errors.New("missing required positional")
+	errStringSetterFailed        = errors.New("type assertion to Set(string) error failed")
+	errTextUnmarshalerFailed     = errors.New("type assertion to TextUnmarshaler failed")
+	errUnknownCommand            = errors.New("unknown command")
+	errUnsupportedValueType      = errors.New("unsupported value type")
+	//nolint:gochecknoglobals,inamedparam // reflect type for flag.Value interface
+	stringSetterType = reflect.TypeFor[interface{ Set(string) error }]()
+	//nolint:gochecknoglobals // reflect type for text unmarshaling
 	textUnmarshalerType = reflect.TypeFor[encoding.TextUnmarshaler]()
 )
 

@@ -8,13 +8,6 @@ import (
 	"sync"
 )
 
-// Sentinel errors for err113 compliance.
-var (
-	errDepsNotDuringRun   = errors.New("Deps must be called during targ.Run")
-	errDepTargetNil       = errors.New("dependency target cannot be nil")
-	errDepTargetInvalid   = errors.New("dependency target must be func or pointer to struct")
-)
-
 // DepsOption configures Deps behavior.
 type DepsOption interface {
 	applyDeps(cfg *depsConfig)
@@ -88,10 +81,13 @@ func ResetDeps() {
 // Useful for cancellation in watch mode.
 func WithContext(ctx context.Context) DepsOption { return withContextOpt{ctx} }
 
-//nolint:gochecknoglobals // dependency tracking state
+// unexported variables.
 var (
-	currentDeps *depTracker
-	depsMu      sync.Mutex
+	currentDeps         *depTracker //nolint:gochecknoglobals // tracks executed deps across calls
+	depsMu              sync.Mutex  //nolint:gochecknoglobals // protects currentDeps
+	errDepTargetInvalid = errors.New("dependency target must be func or pointer to struct")
+	errDepTargetNil     = errors.New("dependency target cannot be nil")
+	errDepsNotDuringRun = errors.New("Deps must be called during targ.Run")
 )
 
 type continueOnErrorOpt struct{}
@@ -101,8 +97,8 @@ func (continueOnErrorOpt) applyDeps(c *depsConfig) { c.continueOnError = true }
 type depKey string
 
 type depTracker struct {
-	ctx context.Context //nolint:containedctx // stored for async execution
-	mu  sync.Mutex
+	ctx      context.Context //nolint:containedctx // stored for async execution
+	mu       sync.Mutex
 	done     map[depKey]error
 	inFlight map[depKey]chan struct{}
 }

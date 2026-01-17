@@ -10,11 +10,11 @@ import (
 	"sync"
 )
 
-//nolint:gochecknoglobals // parser cache for performance
+// unexported variables.
 var (
-	cacheLock sync.Mutex
-	fileCache = make(map[string]*ast.File)
-	fset      = token.NewFileSet()
+	cacheLock sync.Mutex                   //nolint:gochecknoglobals // protects fileCache
+	fileCache = make(map[string]*ast.File) //nolint:gochecknoglobals // caches parsed AST files
+	fset      = token.NewFileSet()         //nolint:gochecknoglobals // shared token file set
 )
 
 // extractReceiverName extracts the type name from a receiver expression.
