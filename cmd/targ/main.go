@@ -1789,13 +1789,14 @@ func camelToKebab(name string) string {
 	return result.String()
 }
 
-// checkDestConflict checks if the destination already exists.
+// checkDestConflict checks if the destination conflicts with an existing top-level namespace.
+// Only namespaces (derived from filenames) are checked, not function names.
 func checkDestConflict(infos []buildtool.PackageInfo, destLeaf string) error {
 	for i := range infos {
-		for _, cmd := range infos[i].Commands {
-			if toKebabCase(cmd.Name) == destLeaf {
-				return fmt.Errorf("%w: %q already exists", errMoveDestConflict, destLeaf)
-			}
+		// Check against namespace (filename without extension), not command names
+		namespace := deriveNamespace(&infos[i], "")
+		if namespace == destLeaf {
+			return fmt.Errorf("%w: %q already exists", errMoveDestConflict, destLeaf)
 		}
 	}
 
@@ -2533,20 +2534,13 @@ func findRootParentCommand(
 	return nil, ""
 }
 
-// findSourcePackageByName finds a package by namespace or Go package name.
+// findSourcePackageByName finds a package by namespace (not Go package name).
 // The namespace is derived from the file path (e.g., "targets" from "dev/targets.go").
 func findSourcePackageByName(
 	infos []buildtool.PackageInfo,
 	name, root string,
 ) *buildtool.PackageInfo {
-	// First try matching by Go package name
-	for i := range infos {
-		if infos[i].Package == name {
-			return &infos[i]
-		}
-	}
-
-	// Then try matching by namespace (derived from file path)
+	// Match by namespace only (derived from filename)
 	for i := range infos {
 		namespace := deriveNamespace(&infos[i], root)
 		if namespace == name {
