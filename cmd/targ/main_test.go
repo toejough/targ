@@ -509,6 +509,48 @@ func Check() error {
 	}
 }
 
+func TestRenameFunction_WithTargBuildTag(t *testing.T) {
+	dir := t.TempDir()
+
+	writeTestFile(t, filepath.Join(dir, "go.mod"), "module testmod\n\ngo 1.21\n")
+	// File with targ build constraint - simulates real targ target files
+	writeTestFile(t, filepath.Join(dir, "targets.go"), `//go:build targ
+
+package testmod
+
+func Lint() error {
+	return nil
+}
+`)
+	// Regular file that calls the targ-tagged function
+	writeTestFile(t, filepath.Join(dir, "caller.go"), `//go:build targ
+
+package testmod
+
+func Check() error {
+	return Lint()
+}
+`)
+
+	err := renameFunction(dir, "testmod", "Lint", "lint")
+	if err != nil {
+		t.Fatalf("renameFunction failed: %v", err)
+	}
+
+	targetsContent := readTestFile(t, filepath.Join(dir, "targets.go"))
+	callerContent := readTestFile(t, filepath.Join(dir, "caller.go"))
+
+	// Verify function was renamed in declaration
+	if !strings.Contains(targetsContent, "func lint()") {
+		t.Errorf("expected 'func lint()' in targets.go, got:\n%s", targetsContent)
+	}
+
+	// Verify call site was updated
+	if !strings.Contains(callerContent, "return lint()") {
+		t.Errorf("expected 'return lint()' in caller.go, got:\n%s", callerContent)
+	}
+}
+
 func TestRenameFunctionsToUnexported(t *testing.T) {
 	// Create temp file with exported functions
 	dir := t.TempDir()
