@@ -170,6 +170,7 @@ var (
 	errMoveInvalidSourcePattern = errors.New(
 		"source pattern must include package (e.g., dev.lint*)",
 	)
+	errMoveNoGoMod           = errors.New("no go.mod found")
 	errMoveNoMatches         = errors.New("no commands match pattern")
 	errMoveNoSourceFiles     = errors.New("no source files found in package")
 	errMovePackageNotFound   = errors.New("package not found")
@@ -3289,7 +3290,15 @@ func moveCommands(dest, sourcePattern string) (string, error) {
 		)
 	}
 
-	return moveToTopLevel(destLeaf, dest, exactMatch, matchingCommands, targetFile, infos)
+	return moveToTopLevel(
+		destLeaf,
+		dest,
+		exactMatch,
+		matchingCommands,
+		targetFile,
+		infos,
+		sourcePackage.Package,
+	)
 }
 
 // moveToNestedDest handles moving commands to a nested destination like tools.lint.
@@ -3329,6 +3338,7 @@ func moveToTopLevel(
 	matchingCommands []movedCommand,
 	targetFile string,
 	infos []buildtool.PackageInfo,
+	goPkgName string,
 ) (string, error) {
 	err := checkDestConflict(infos, destLeaf)
 	if err != nil {
@@ -3338,10 +3348,24 @@ func moveToTopLevel(
 	// Collect function names to rename to unexported
 	namesToRename := collectFunctionNamesToRename(exactMatch, matchingCommands)
 
-	// Rename original functions to unexported so only the new struct is discovered
-	err = renameFunctionsToUnexported(targetFile, namesToRename)
+	// Find module root for renaming across the module
+	moduleRoot, _, found, err := findModuleForPath(targetFile)
 	if err != nil {
-		return "", fmt.Errorf("renaming functions: %w", err)
+		return "", fmt.Errorf("finding module: %w", err)
+	}
+
+	if !found {
+		return "", fmt.Errorf("%w: %s", errMoveNoGoMod, targetFile)
+	}
+
+	// Rename original functions to unexported, updating all call sites in the module
+	for _, name := range namesToRename {
+		newName := toUnexportedName(name)
+
+		err = renameFunction(moduleRoot, goPkgName, name, newName)
+		if err != nil {
+			return "", fmt.Errorf("renaming %s to %s: %w", name, newName, err)
+		}
 	}
 
 	code := generateMoveStruct(destLeaf, exactMatch, matchingCommands, targetFile)
