@@ -3201,7 +3201,8 @@ func loadPackagesWithTypes(moduleDir string) ([]*packages.Package, error) {
 	cfg := &packages.Config{
 		Mode: packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles |
 			packages.NeedSyntax | packages.NeedTypes | packages.NeedTypesInfo,
-		Dir: moduleDir,
+		Dir:        moduleDir,
+		BuildFlags: []string{"-tags=targ"},
 	}
 
 	pkgs, err := packages.Load(cfg, "./...")
