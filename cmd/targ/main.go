@@ -28,8 +28,9 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/toejough/targ/buildtool"
 	"golang.org/x/tools/go/packages"
+
+	"github.com/toejough/targ/buildtool"
 )
 
 func main() {
@@ -161,6 +162,7 @@ var (
 	errDuplicateCommandName     = errors.New("duplicate command name")
 	errDuplicateNamespace       = errors.New("duplicate namespace field")
 	errFileExists               = errors.New("file already exists")
+	errFunctionNotFound         = errors.New("function not found")
 	errInvalidUTF8Path          = errors.New("invalid utf-8 path in tagged file")
 	errModulePathNotFound       = errors.New("module path not found")
 	errMoveCommandNotFound      = errors.New("command not found")
@@ -1454,6 +1456,14 @@ func appendToFile(path, content string) (err error) {
 	return nil
 }
 
+func applyRenames(fileRenames map[string][]*ast.Ident, newName string) {
+	for _, idents := range fileRenames {
+		for _, ident := range idents {
+			ident.Name = newName
+		}
+	}
+}
+
 func assignNamespaceNames(root *namespaceNode, gen *nameGenerator) {
 	var walk func(node *namespaceNode)
 
@@ -1844,6 +1854,31 @@ func collectFunctionNamesToRename(
 	}
 
 	return names
+}
+
+func collectFunctionReferences(
+	pkgs []*packages.Package,
+	targetObj types.Object,
+) map[string][]*ast.Ident {
+	fileRenames := make(map[string][]*ast.Ident)
+
+	for _, pkg := range pkgs {
+		for ident, obj := range pkg.TypesInfo.Uses {
+			if obj == targetObj {
+				pos := pkg.Fset.Position(ident.Pos())
+				fileRenames[pos.Filename] = append(fileRenames[pos.Filename], ident)
+			}
+		}
+
+		for ident, obj := range pkg.TypesInfo.Defs {
+			if obj == targetObj {
+				pos := pkg.Fset.Position(ident.Pos())
+				fileRenames[pos.Filename] = append(fileRenames[pos.Filename], ident)
+			}
+		}
+	}
+
+	return fileRenames
 }
 
 // collectFileCommands collects commands from package infos into a map by file path.
@@ -2429,6 +2464,21 @@ func findCommandBinary(registry []moduleRegistry, cmdName string) (string, bool)
 	}
 
 	return "", false
+}
+
+func findFunctionObject(pkgs []*packages.Package, pkgName, funcName string) (types.Object, error) {
+	for _, pkg := range pkgs {
+		if pkg.Name != pkgName {
+			continue
+		}
+
+		obj := pkg.Types.Scope().Lookup(funcName)
+		if _, ok := obj.(*types.Func); ok {
+			return obj, nil
+		}
+	}
+
+	return nil, fmt.Errorf("%w: %s.%s", errFunctionNotFound, pkgName, funcName)
 }
 
 // findMatchingCommands finds commands matching the pattern in the source package.
@@ -3146,6 +3196,21 @@ func linkModuleRoot(startDir, root string) error {
 	return nil
 }
 
+func loadPackagesWithTypes(moduleDir string) ([]*packages.Package, error) {
+	cfg := &packages.Config{
+		Mode: packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles |
+			packages.NeedSyntax | packages.NeedTypes | packages.NeedTypesInfo,
+		Dir: moduleDir,
+	}
+
+	pkgs, err := packages.Load(cfg, "./...")
+	if err != nil {
+		return nil, fmt.Errorf("loading packages: %w", err)
+	}
+
+	return pkgs, nil
+}
+
 func looksLikeModulePath(path string) bool {
 	if path == "" {
 		return false
@@ -3782,6 +3847,25 @@ func remapPackageInfosToIsolated(
 	return result, pathMapping, nil
 }
 
+// renameFunction renames a function and all its references across a module.
+// Uses go/packages and go/types to find all references.
+func renameFunction(moduleDir, pkgName, oldName, newName string) error {
+	pkgs, err := loadPackagesWithTypes(moduleDir)
+	if err != nil {
+		return err
+	}
+
+	targetObj, err := findFunctionObject(pkgs, pkgName, oldName)
+	if err != nil {
+		return err
+	}
+
+	fileRenames := collectFunctionReferences(pkgs, targetObj)
+	applyRenames(fileRenames, newName)
+
+	return writeModifiedFiles(pkgs, fileRenames)
+}
+
 // renameFunctionsToUnexported renames exported functions in a Go file to unexported.
 // For example, Lint -> lint, LintFast -> lintFast.
 func renameFunctionsToUnexported(path string, names []string) error {
@@ -3832,96 +3916,6 @@ func renameFunctionsToUnexported(path string, names []string) error {
 	err = os.WriteFile(path, buf.Bytes(), 0o644)
 	if err != nil {
 		return fmt.Errorf("writing %s: %w", path, err)
-	}
-
-	return nil
-}
-
-// renameFunction renames a function and all its references across a module.
-// Uses go/packages and go/types to find all references.
-func renameFunction(moduleDir, pkgName, oldName, newName string) error {
-	// Load all packages with full type info
-	cfg := &packages.Config{
-		Mode: packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles |
-			packages.NeedSyntax | packages.NeedTypes | packages.NeedTypesInfo,
-		Dir: moduleDir,
-	}
-
-	pkgs, err := packages.Load(cfg, "./...")
-	if err != nil {
-		return fmt.Errorf("loading packages: %w", err)
-	}
-
-	// Find the target function's types.Object
-	var targetObj types.Object
-
-	for _, pkg := range pkgs {
-		if pkg.Name != pkgName {
-			continue
-		}
-
-		obj := pkg.Types.Scope().Lookup(oldName)
-		if obj != nil {
-			if _, ok := obj.(*types.Func); ok {
-				targetObj = obj
-
-				break
-			}
-		}
-	}
-
-	if targetObj == nil {
-		return fmt.Errorf("function %s.%s not found", pkgName, oldName)
-	}
-
-	// Collect all references across all packages
-	// Map: filename -> list of identifiers to rename
-	fileRenames := make(map[string][]*ast.Ident)
-
-	for _, pkg := range pkgs {
-		for ident, obj := range pkg.TypesInfo.Uses {
-			if obj == targetObj {
-				pos := pkg.Fset.Position(ident.Pos())
-				fileRenames[pos.Filename] = append(fileRenames[pos.Filename], ident)
-			}
-		}
-
-		for ident, obj := range pkg.TypesInfo.Defs {
-			if obj == targetObj {
-				pos := pkg.Fset.Position(ident.Pos())
-				fileRenames[pos.Filename] = append(fileRenames[pos.Filename], ident)
-			}
-		}
-	}
-
-	// Rename all collected identifiers
-	for _, idents := range fileRenames {
-		for _, ident := range idents {
-			ident.Name = newName
-		}
-	}
-
-	// Write back modified files
-	for _, pkg := range pkgs {
-		for i, file := range pkg.Syntax {
-			filename := pkg.CompiledGoFiles[i]
-			if _, hasRenames := fileRenames[filename]; !hasRenames {
-				continue
-			}
-
-			var buf bytes.Buffer
-
-			err := format.Node(&buf, pkg.Fset, file)
-			if err != nil {
-				return fmt.Errorf("formatting %s: %w", filename, err)
-			}
-
-			//nolint:gosec,mnd // standard file permissions
-			err = os.WriteFile(filename, buf.Bytes(), 0o644)
-			if err != nil {
-				return fmt.Errorf("writing %s: %w", filename, err)
-			}
-		}
 	}
 
 	return nil
@@ -4469,6 +4463,23 @@ func writeFallbackGoMod(root, modulePath string, dep targDependency) error {
 	return nil
 }
 
+func writeFormattedFile(fset *token.FileSet, file *ast.File, filename string) error {
+	var buf bytes.Buffer
+
+	err := format.Node(&buf, fset, file)
+	if err != nil {
+		return fmt.Errorf("formatting %s: %w", filename, err)
+	}
+
+	//nolint:gosec,mnd // standard file permissions
+	err = os.WriteFile(filename, buf.Bytes(), 0o644)
+	if err != nil {
+		return fmt.Errorf("writing %s: %w", filename, err)
+	}
+
+	return nil
+}
+
 // writeIsolatedGoMod creates a go.mod for isolated builds.
 func writeIsolatedGoMod(tmpDir string, dep targDependency) error {
 	modPath := filepath.Join(tmpDir, "go.mod")
@@ -4510,6 +4521,24 @@ func writeIsolatedGoMod(tmpDir string, dep targDependency) error {
 	err = os.WriteFile(sumPath, []byte{}, 0o644)
 	if err != nil {
 		return fmt.Errorf("writing go.sum: %w", err)
+	}
+
+	return nil
+}
+
+func writeModifiedFiles(pkgs []*packages.Package, fileRenames map[string][]*ast.Ident) error {
+	for _, pkg := range pkgs {
+		for i, file := range pkg.Syntax {
+			filename := pkg.CompiledGoFiles[i]
+			if _, hasRenames := fileRenames[filename]; !hasRenames {
+				continue
+			}
+
+			err := writeFormattedFile(pkg.Fset, file, filename)
+			if err != nil {
+				return err
+			}
+		}
 	}
 
 	return nil

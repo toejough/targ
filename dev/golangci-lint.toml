@@ -26,7 +26,7 @@ text = 'dot-imports'
 
 [linters.settings.depguard.rules.all]
 files = ['$all', '!$test']
-allow = ['$gostd', 'github.com/dave/dst', 'github.com/toejough/imptest', 'github.com/toejough/targ', 'github.com/toejough/go-reorder', 'github.com/bmatcuk/doublestar/v4']
+allow = ['$gostd', 'github.com/dave/dst', 'github.com/toejough/imptest', 'github.com/toejough/targ', 'github.com/toejough/go-reorder', 'github.com/bmatcuk/doublestar/v4', 'golang.org/x/tools/go/packages']
 
 [linters.settings.depguard.rules.test]
 files = ['$test']
