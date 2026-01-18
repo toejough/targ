@@ -24,6 +24,9 @@ What exists and how it's structured.
 | Serial          | Run multiple targets sequentially         |
 | Help text       | Documentation in CLI                      |
 | Arguments       | Accept flags/positionals from CLI         |
+| Repeated args   | Accumulate multiple values for same flag  |
+| Map args        | Key=value syntax for structured input     |
+| Variadic args   | Trailing positional captures remaining    |
 | Subcommands     | Nested command hierarchy                  |
 | Result caching  | Skip if inputs unchanged                  |
 | Watch mode      | Re-run on file changes                    |
@@ -98,6 +101,10 @@ Run targets.
 
 **CLI invocation:** Run targets from command line.
 
+- Single target: `targ lint`
+- Multiple targets: `targ build test deploy` (runs in sequence, shared dependency state)
+- With arguments: `targ deploy --env prod`
+
 **Invocation modifiers:**
 
 - Watch mode: Re-run on file changes
@@ -157,6 +164,13 @@ Query information about targets.
 | Where | Source location of a target  |
 | Tree  | Full hierarchy visualization |
 | Deps  | What depends on a target     |
+
+### Shell Integration
+
+Generate shell completion scripts for tab-completion of targets and flags.
+
+- Supports bash, zsh, fish
+- Completes target names, flag names, and enum values
 
 ## Constraints
 
