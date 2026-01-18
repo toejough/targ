@@ -539,3 +539,53 @@ func renderBootstrap(t *testing.T, data bootstrapData) string {
 
 	return buf.String()
 }
+
+func TestMoveCommands_RenamesOriginalFunctionsToUnexported(t *testing.T) {
+	// Create temp directory with a targets file
+	dir := t.TempDir()
+	targetsFile := filepath.Join(dir, "targets.go")
+
+	initialContent := `//go:build targ
+
+package dev
+
+import "context"
+
+func Lint(ctx context.Context) error { return nil }
+func LintFast(ctx context.Context) error { return nil }
+func LintForFail(ctx context.Context) error { return nil }
+`
+	if err := os.WriteFile(targetsFile, []byte(initialContent), 0o644); err != nil {
+		t.Fatalf("failed to write test file: %v", err)
+	}
+
+	// Test that the rename functions work correctly
+	// First verify our helper function works
+	renamed := toUnexportedName("Lint")
+	if renamed != "lint" {
+		t.Errorf("expected 'lint', got %q", renamed)
+	}
+
+	renamed = toUnexportedName("LintFast")
+	if renamed != "lintFast" {
+		t.Errorf("expected 'lintFast', got %q", renamed)
+	}
+
+	// Test that generateMoveStruct calls unexported versions
+	subcommands := []movedCommand{
+		{info: buildtool.CommandInfo{Name: "LintFast", UsesContext: true}, newName: "fast"},
+	}
+	exactMatch := &buildtool.CommandInfo{Name: "Lint", UsesContext: true}
+
+	code := generateMoveStruct("lint", exactMatch, subcommands, targetsFile)
+
+	// The generated Run() method should call lint() (unexported), not Lint() (exported)
+	if !strings.Contains(code, "return lint(ctx)") {
+		t.Errorf("expected generated code to call 'lint(ctx)' (unexported), got:\n%s", code)
+	}
+
+	// The generated wrapper should call lintFast() (unexported), not LintFast()
+	if !strings.Contains(code, "return lintFast(ctx)") {
+		t.Errorf("expected generated code to call 'lintFast(ctx)' (unexported), got:\n%s", code)
+	}
+}

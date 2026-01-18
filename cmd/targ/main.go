@@ -3994,6 +3994,13 @@ func targCacheDir() string {
 	return filepath.Join(home, ".cache", "targ")
 }
 
+// toUnexportedName converts an exported name like "Lint" or "LintFast" to unexported.
+// "Lint" -> "lint", "LintFast" -> "lintFast".
+func toUnexportedName(name string) string {
+	// TODO: Implement properly - this stub returns input unchanged for TDD RED phase
+	return name
+}
+
 // toExportedName converts a name like "tidy" or "run-tests" to "Tidy" or "RunTests".
 func toExportedName(name string) string {
 	var result strings.Builder
