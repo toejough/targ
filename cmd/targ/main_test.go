@@ -589,3 +589,59 @@ func LintForFail(ctx context.Context) error { return nil }
 		t.Errorf("expected generated code to call 'lintFast(ctx)' (unexported), got:\n%s", code)
 	}
 }
+
+func TestRenameFunctionsToUnexported(t *testing.T) {
+	// Create temp file with exported functions
+	dir := t.TempDir()
+	targetsFile := filepath.Join(dir, "targets.go")
+
+	initialContent := `//go:build targ
+
+package dev
+
+import "context"
+
+func Lint(ctx context.Context) error { return nil }
+func LintFast(ctx context.Context) error { return nil }
+func Other() error { return nil }
+`
+	if err := os.WriteFile(targetsFile, []byte(initialContent), 0o644); err != nil {
+		t.Fatalf("failed to write test file: %v", err)
+	}
+
+	// Rename Lint and LintFast (but not Other)
+	namesToRename := []string{"Lint", "LintFast"}
+	err := renameFunctionsToUnexported(targetsFile, namesToRename)
+	if err != nil {
+		t.Fatalf("renameFunctionsToUnexported failed: %v", err)
+	}
+
+	// Read the file and verify
+	content, err := os.ReadFile(targetsFile)
+	if err != nil {
+		t.Fatalf("failed to read modified file: %v", err)
+	}
+
+	contentStr := string(content)
+
+	// Should have unexported versions
+	if !strings.Contains(contentStr, "func lint(ctx context.Context)") {
+		t.Errorf("expected 'func lint(' in modified file, got:\n%s", contentStr)
+	}
+	if !strings.Contains(contentStr, "func lintFast(ctx context.Context)") {
+		t.Errorf("expected 'func lintFast(' in modified file, got:\n%s", contentStr)
+	}
+
+	// Other should remain exported (not in the rename list)
+	if !strings.Contains(contentStr, "func Other()") {
+		t.Errorf("expected 'func Other()' to remain unchanged, got:\n%s", contentStr)
+	}
+
+	// Should NOT have the original exported versions
+	if strings.Contains(contentStr, "func Lint(ctx") {
+		t.Errorf("should NOT have 'func Lint(' (should be renamed), got:\n%s", contentStr)
+	}
+	if strings.Contains(contentStr, "func LintFast(ctx") {
+		t.Errorf("should NOT have 'func LintFast(' (should be renamed), got:\n%s", contentStr)
+	}
+}
