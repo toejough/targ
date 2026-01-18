@@ -274,7 +274,7 @@ func TestFindSourcePackageByNamespace(t *testing.T) {
 		},
 	}
 
-	// Should find package by namespace "targets", not just Go package name "dev"
+	// Should find package by namespace "targets"
 	pkg := findSourcePackageByName(infos, "targets", "/repo")
 	if pkg == nil {
 		t.Fatal("expected to find package by namespace 'targets'")
@@ -284,10 +284,77 @@ func TestFindSourcePackageByNamespace(t *testing.T) {
 		t.Fatalf("expected package 'dev', got %q", pkg.Package)
 	}
 
-	// Should also still work with Go package name
+	// Should NOT match by Go package name - only namespace
 	pkg = findSourcePackageByName(infos, "dev", "/repo")
-	if pkg == nil {
-		t.Fatal("expected to find package by Go package name 'dev'")
+	if pkg != nil {
+		t.Fatal("should NOT find package by Go package name 'dev', only namespace 'targets'")
+	}
+}
+
+func TestCheckDestConflict_OnlyChecksNamespaces(t *testing.T) {
+	// Scenario: user has dev/targets.go with Lint function
+	// They run: targ --move lint "targets.lint*"
+	// This should NOT conflict because "lint" is not a top-level namespace
+	// (only "targets" and "issues" are top-level namespaces)
+	infos := []buildtool.PackageInfo{
+		{
+			Dir:     "/repo/dev",
+			Package: "dev",
+			Files:   []buildtool.FileInfo{{Path: "/repo/dev/targets.go"}},
+			Commands: []buildtool.CommandInfo{
+				{Name: "Lint", Kind: buildtool.CommandFunc, File: "/repo/dev/targets.go"},
+			},
+		},
+	}
+
+	// "lint" should NOT conflict - it's not a top-level namespace
+	err := checkDestConflict(infos, "lint")
+	if err != nil {
+		t.Fatalf("'lint' should not conflict, got: %v", err)
+	}
+
+	// "targets" SHOULD conflict - it's a top-level namespace
+	err = checkDestConflict(infos, "targets")
+	if err == nil {
+		t.Fatal("'targets' should conflict with existing namespace")
+	}
+}
+
+func TestMoveCommands_GeneratesCode(t *testing.T) {
+	// Create temp directory with a targets file
+	dir := t.TempDir()
+	targetsFile := filepath.Join(dir, "targets.go")
+
+	initialContent := `//go:build targ
+
+package dev
+
+func Lint() error { return nil }
+func LintFast() error { return nil }
+`
+	if err := os.WriteFile(targetsFile, []byte(initialContent), 0o644); err != nil {
+		t.Fatalf("failed to write test file: %v", err)
+	}
+
+	// Run moveCommands (this requires more setup, so we'll test generateMoveStruct directly)
+	subcommands := []movedCommand{
+		{info: buildtool.CommandInfo{Name: "LintFast", UsesContext: false}, newName: "fast"},
+	}
+	exactMatch := &buildtool.CommandInfo{Name: "Lint", UsesContext: false}
+
+	code := generateMoveStruct("lint", exactMatch, subcommands, targetsFile)
+
+	// Verify the generated code contains expected elements
+	if !strings.Contains(code, "type Lint struct") {
+		t.Errorf("expected 'type Lint struct' in generated code, got:\n%s", code)
+	}
+
+	if !strings.Contains(code, "func (c *Lint) Run() error") {
+		t.Errorf("expected Run method in generated code, got:\n%s", code)
+	}
+
+	if !strings.Contains(code, "Fast *LintFastWrapper") {
+		t.Errorf("expected Fast subcommand field in generated code, got:\n%s", code)
 	}
 }
 
