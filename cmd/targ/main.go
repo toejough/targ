@@ -13,6 +13,7 @@ import (
 	"go/format"
 	"go/parser"
 	"go/token"
+	"go/types"
 	"io"
 	"os"
 	"os/exec"
@@ -28,6 +29,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/toejough/targ/buildtool"
+	"golang.org/x/tools/go/packages"
 )
 
 func main() {
@@ -3830,6 +3832,96 @@ func renameFunctionsToUnexported(path string, names []string) error {
 	err = os.WriteFile(path, buf.Bytes(), 0o644)
 	if err != nil {
 		return fmt.Errorf("writing %s: %w", path, err)
+	}
+
+	return nil
+}
+
+// renameFunction renames a function and all its references across a module.
+// Uses go/packages and go/types to find all references.
+func renameFunction(moduleDir, pkgName, oldName, newName string) error {
+	// Load all packages with full type info
+	cfg := &packages.Config{
+		Mode: packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles |
+			packages.NeedSyntax | packages.NeedTypes | packages.NeedTypesInfo,
+		Dir: moduleDir,
+	}
+
+	pkgs, err := packages.Load(cfg, "./...")
+	if err != nil {
+		return fmt.Errorf("loading packages: %w", err)
+	}
+
+	// Find the target function's types.Object
+	var targetObj types.Object
+
+	for _, pkg := range pkgs {
+		if pkg.Name != pkgName {
+			continue
+		}
+
+		obj := pkg.Types.Scope().Lookup(oldName)
+		if obj != nil {
+			if _, ok := obj.(*types.Func); ok {
+				targetObj = obj
+
+				break
+			}
+		}
+	}
+
+	if targetObj == nil {
+		return fmt.Errorf("function %s.%s not found", pkgName, oldName)
+	}
+
+	// Collect all references across all packages
+	// Map: filename -> list of identifiers to rename
+	fileRenames := make(map[string][]*ast.Ident)
+
+	for _, pkg := range pkgs {
+		for ident, obj := range pkg.TypesInfo.Uses {
+			if obj == targetObj {
+				pos := pkg.Fset.Position(ident.Pos())
+				fileRenames[pos.Filename] = append(fileRenames[pos.Filename], ident)
+			}
+		}
+
+		for ident, obj := range pkg.TypesInfo.Defs {
+			if obj == targetObj {
+				pos := pkg.Fset.Position(ident.Pos())
+				fileRenames[pos.Filename] = append(fileRenames[pos.Filename], ident)
+			}
+		}
+	}
+
+	// Rename all collected identifiers
+	for _, idents := range fileRenames {
+		for _, ident := range idents {
+			ident.Name = newName
+		}
+	}
+
+	// Write back modified files
+	for _, pkg := range pkgs {
+		for i, file := range pkg.Syntax {
+			filename := pkg.CompiledGoFiles[i]
+			if _, hasRenames := fileRenames[filename]; !hasRenames {
+				continue
+			}
+
+			var buf bytes.Buffer
+
+			err := format.Node(&buf, pkg.Fset, file)
+			if err != nil {
+				return fmt.Errorf("formatting %s: %w", filename, err)
+			}
+
+			//nolint:gosec,mnd // standard file permissions
+			err = os.WriteFile(filename, buf.Bytes(), 0o644)
+			if err != nil {
+				return fmt.Errorf("writing %s: %w", filename, err)
+			}
+		}
 	}
 
 	return nil

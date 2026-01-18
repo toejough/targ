@@ -648,3 +648,83 @@ func renderBootstrap(t *testing.T, data bootstrapData) string {
 
 	return buf.String()
 }
+
+func TestRenameFunction_UpdatesAllReferences(t *testing.T) {
+	// Create a temp directory with a Go module
+	dir := t.TempDir()
+
+	// Create go.mod
+	goMod := `module testmod
+
+go 1.21
+`
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte(goMod), 0o644); err != nil {
+		t.Fatalf("failed to write go.mod: %v", err)
+	}
+
+	// Create a file with function definition
+	defFile := `package testmod
+
+func Lint() error {
+	return nil
+}
+
+func LintFast() error {
+	return Lint() // calls Lint
+}
+`
+	if err := os.WriteFile(filepath.Join(dir, "lint.go"), []byte(defFile), 0o644); err != nil {
+		t.Fatalf("failed to write lint.go: %v", err)
+	}
+
+	// Create another file that calls the function
+	callerFile := `package testmod
+
+func Check() error {
+	if err := Lint(); err != nil {
+		return err
+	}
+	return LintFast()
+}
+`
+	if err := os.WriteFile(filepath.Join(dir, "check.go"), []byte(callerFile), 0o644); err != nil {
+		t.Fatalf("failed to write check.go: %v", err)
+	}
+
+	// Rename Lint -> lint
+	err := renameFunction(dir, "testmod", "Lint", "lint")
+	if err != nil {
+		t.Fatalf("renameFunction failed: %v", err)
+	}
+
+	// Read back the files and verify
+	lintContent, err := os.ReadFile(filepath.Join(dir, "lint.go"))
+	if err != nil {
+		t.Fatalf("failed to read lint.go: %v", err)
+	}
+
+	checkContent, err := os.ReadFile(filepath.Join(dir, "check.go"))
+	if err != nil {
+		t.Fatalf("failed to read check.go: %v", err)
+	}
+
+	// Verify definition was renamed
+	if !strings.Contains(string(lintContent), "func lint()") {
+		t.Errorf("expected 'func lint()' in lint.go, got:\n%s", lintContent)
+	}
+
+	// Verify call site in same file was renamed
+	if !strings.Contains(string(lintContent), "return lint()") {
+		t.Errorf("expected 'return lint()' in lint.go, got:\n%s", lintContent)
+	}
+
+	// Verify call site in other file was renamed
+	if !strings.Contains(string(checkContent), "if err := lint();") {
+		t.Errorf("expected 'lint()' call in check.go, got:\n%s", checkContent)
+	}
+
+	// Verify LintFast was NOT renamed (we only renamed Lint)
+	if !strings.Contains(string(lintContent), "func LintFast()") {
+		t.Errorf("LintFast should NOT be renamed, got:\n%s", lintContent)
+	}
+}
