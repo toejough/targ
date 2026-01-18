@@ -90,6 +90,35 @@ func TestBuildBootstrapData_RootCommands(t *testing.T) {
 	}
 }
 
+func TestCheckDestConflict_OnlyChecksNamespaces(t *testing.T) {
+	// Scenario: user has dev/targets.go with Lint function
+	// They run: targ --move lint "targets.lint*"
+	// This should NOT conflict because "lint" is not a top-level namespace
+	// (only "targets" and "issues" are top-level namespaces)
+	infos := []buildtool.PackageInfo{
+		{
+			Dir:     "/repo/dev",
+			Package: "dev",
+			Files:   []buildtool.FileInfo{{Path: "/repo/dev/targets.go"}},
+			Commands: []buildtool.CommandInfo{
+				{Name: "Lint", Kind: buildtool.CommandFunc, File: "/repo/dev/targets.go"},
+			},
+		},
+	}
+
+	// "lint" should NOT conflict - it's not a top-level namespace
+	err := checkDestConflict(infos, "lint")
+	if err != nil {
+		t.Fatalf("'lint' should not conflict, got: %v", err)
+	}
+
+	// "targets" SHOULD conflict - it's a top-level namespace
+	err = checkDestConflict(infos, "targets")
+	if err == nil {
+		t.Fatal("'targets' should conflict with existing namespace")
+	}
+}
+
 func TestCommandSummariesFromCommands(t *testing.T) {
 	cmds := []buildtool.CommandInfo{
 		{Name: "ListItems"},
@@ -288,35 +317,6 @@ func TestFindSourcePackageByNamespace(t *testing.T) {
 	pkg = findSourcePackageByName(infos, "dev", "/repo")
 	if pkg != nil {
 		t.Fatal("should NOT find package by Go package name 'dev', only namespace 'targets'")
-	}
-}
-
-func TestCheckDestConflict_OnlyChecksNamespaces(t *testing.T) {
-	// Scenario: user has dev/targets.go with Lint function
-	// They run: targ --move lint "targets.lint*"
-	// This should NOT conflict because "lint" is not a top-level namespace
-	// (only "targets" and "issues" are top-level namespaces)
-	infos := []buildtool.PackageInfo{
-		{
-			Dir:     "/repo/dev",
-			Package: "dev",
-			Files:   []buildtool.FileInfo{{Path: "/repo/dev/targets.go"}},
-			Commands: []buildtool.CommandInfo{
-				{Name: "Lint", Kind: buildtool.CommandFunc, File: "/repo/dev/targets.go"},
-			},
-		},
-	}
-
-	// "lint" should NOT conflict - it's not a top-level namespace
-	err := checkDestConflict(infos, "lint")
-	if err != nil {
-		t.Fatalf("'lint' should not conflict, got: %v", err)
-	}
-
-	// "targets" SHOULD conflict - it's a top-level namespace
-	err = checkDestConflict(infos, "targets")
-	if err == nil {
-		t.Fatal("'targets' should conflict with existing namespace")
 	}
 }
 
