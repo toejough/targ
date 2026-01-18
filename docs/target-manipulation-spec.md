@@ -1,0 +1,183 @@
+# Target Manipulation: Problem Specification
+
+## Model
+
+What exists and how it's structured.
+
+### Targets
+
+**Requirements:**
+
+- Start as simply as possible
+- Add capabilities incrementally as needed
+- Each capability has minimal syntax overhead
+
+**Progressive capabilities:**
+
+| Capability      | What it enables                           |
+| --------------- | ----------------------------------------- |
+| Basic           | Executable behavior                       |
+| Failure         | Indicate success/failure                  |
+| Cancellation    | Respond to interrupt/timeout              |
+| Dependencies    | Run other targets first, exactly once     |
+| Parallel        | Run multiple targets concurrently         |
+| Serial          | Run multiple targets sequentially         |
+| Help text       | Documentation in CLI                      |
+| Arguments       | Accept flags/positionals from CLI         |
+| Subcommands     | Nested command hierarchy                  |
+| Result caching  | Skip if inputs unchanged                  |
+| Watch mode      | Re-run on file changes                    |
+| Retry           | Re-run on failure (with optional backoff) |
+| Repetition      | Run N times regardless of outcome         |
+| Time-bounded    | Run until duration elapsed                |
+| Condition-based | Run until predicate is true               |
+
+### Hierarchy
+
+**Concepts:**
+
+- **Node**: A point in the hierarchy
+  - _Namespace node_: Organizes children, no executable behavior
+  - _Target node_: Has executable behavior
+- **Path**: A sequence of names identifying a location in the hierarchy
+- **Target**: Executable behavior at a node
+
+**Implications:**
+
+- Paths can reference nodes that exist or don't exist
+- A path may resolve to a namespace, a target, or nothing
+- Operations may create intermediate nodes as needed
+- Namespace nodes can exist without targets (pure organizational)
+- No empty namespace nodes at the conclusion of any user operation (transient only)
+
+**Organization requirements:**
+
+- Simplest possible definition (write a function, it's discovered)
+- Targets can live near relevant code (close context)
+- Scales to complex hierarchies when needed
+- Namespacing to avoid collisions at scale
+- Easy transition to dedicated CLI binary (from `targ lint` to `./myapp lint`)
+
+**Addressing requirements:**
+
+- Uniquely identify any point in the hierarchy (variable depth)
+- Specify multiple locations in a single operation
+- Select targets by pattern without naming each explicitly
+- User intent is unambiguous (or has clear defaults per operation)
+- User-facing and internal representations convert losslessly
+
+### Sources
+
+Where targets come from.
+
+**Local:** Defined in the current repository.
+
+**Remote:**
+
+- Add targets from another repository
+- Track which targets came from which source
+- Sync/update when remote definitions change (add, modify, remove)
+- Only modify/remove targets originally from that source
+
+## Operations
+
+What users do.
+
+**Scope:** CLI operations are for interacting with and reorganizing targets. Behavior modification (adding capabilities like retry, caching, arguments) is done in code, not via CLI.
+
+### Create
+
+Scaffold a target from a shell command.
+
+- Creates the simplest possible target (Basic capability only)
+- User adds capabilities in code as needed
+
+### Invoke
+
+Run targets.
+
+**CLI invocation:** Run targets from command line.
+
+**Invocation modifiers:**
+
+- Watch mode: Re-run on file changes
+- Retry: Re-run on failure
+- Repetition: Run N times
+- Time-bounded: Run until duration elapsed
+- Condition-based: Run until predicate is true
+
+**Programmatic invocation:**
+
+- Call targets from other code
+- Express dependencies between targets
+- Dependencies run exactly once per execution
+
+### Transform
+
+Change targets.
+
+| Transformation | What it does                                           |
+| -------------- | ------------------------------------------------------ |
+| Rename         | Change a target's path (includes move, nest, flatten)  |
+| Relocate       | Move implementation to different file (path unchanged) |
+| Delete         | Remove a target entirely (must be reversible)          |
+
+Rename handles all path changes:
+
+- `lint` → `check` (simple rename)
+- `targets.lint` → `tools.lint` (move between namespaces)
+- `lint-fast` → `lint.fast` (nest under parent)
+- `lint.fast` → `lint-fast` (flatten to sibling)
+
+The system creates intermediate nodes as needed and removes empty ones.
+
+### Manage Dependencies
+
+Modify relationships between targets.
+
+- List dependencies of a target
+- Add a dependency
+- Remove a dependency
+- Change execution mode (parallel ↔ serial)
+
+### Sync
+
+Manage remote targets.
+
+- Add targets from a remote repository
+- Update targets when remote changes
+- Remove targets no longer in remote (if originally from that source)
+
+### Inspect
+
+Query information about targets.
+
+| Query | What it answers              |
+| ----- | ---------------------------- |
+| Where | Source location of a target  |
+| Tree  | Full hierarchy visualization |
+| Deps  | What depends on a target     |
+
+## Constraints
+
+What must be true.
+
+### Invariants
+
+What must hold true across operations:
+
+| Property            | Create                | Modify                 | Delete                 | Remote Sync                       |
+| ------------------- | --------------------- | ---------------------- | ---------------------- | --------------------------------- |
+| Existing signatures | Existing unaffected   | Unaffected             | Others unaffected      | Only from-source targets affected |
+| Help text refs      | Existing unaffected   | Remain valid           | No dangling refs       | Remain valid                      |
+| CLI invocation      | Existing unaffected   | Reflects current path  | Others unaffected      | Only from-source targets affected |
+| Dependencies        | Existing unaffected   | Remain valid           | No dangling refs       | Remain valid                      |
+| Direct call sites   | Existing unaffected   | Remain valid           | No dangling refs       | Remain valid                      |
+| Behavior            | Existing unaffected   | Unchanged              | Others unaffected      | Only from-source targets affected |
+| Reversibility       | Reversible via delete | Reversible via rename  | Reversible             | Reversible via remove             |
+
+### Principles
+
+- **Reversible**: All operations reversible through the command surface
+- **Minimal changes**: Prefer minimal code/file changes; leave targets in current file rather than extracting/restructuring unnecessarily
+- **Fail clearly**: If invariants cannot be maintained, the operation must fail with a clear error message
