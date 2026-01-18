@@ -1452,58 +1452,6 @@ func appendToFile(path, content string) (err error) {
 	return nil
 }
 
-// renameFunctionsToUnexported renames exported functions in a Go file to unexported.
-// For example, Lint -> lint, LintFast -> lintFast.
-func renameFunctionsToUnexported(path string, names []string) error {
-	if len(names) == 0 {
-		return nil
-	}
-
-	// Build lookup set
-	toRename := make(map[string]string, len(names))
-	for _, name := range names {
-		toRename[name] = toUnexportedName(name)
-	}
-
-	// Parse file
-	fset := token.NewFileSet()
-
-	file, err := parser.ParseFile(fset, path, nil, parser.ParseComments)
-	if err != nil {
-		return fmt.Errorf("parsing %s: %w", path, err)
-	}
-
-	// Find and rename functions
-	for _, decl := range file.Decls {
-		funcDecl, ok := decl.(*ast.FuncDecl)
-		if !ok {
-			continue
-		}
-
-		// Only rename standalone functions (no receiver)
-		if funcDecl.Recv != nil {
-			continue
-		}
-
-		if newName, ok := toRename[funcDecl.Name.Name]; ok {
-			funcDecl.Name.Name = newName
-		}
-	}
-
-	// Write back to file
-	var buf bytes.Buffer
-	if err := format.Node(&buf, fset, file); err != nil {
-		return fmt.Errorf("formatting %s: %w", path, err)
-	}
-
-	//nolint:gosec,mnd // standard file permissions
-	if err := os.WriteFile(path, buf.Bytes(), 0o644); err != nil {
-		return fmt.Errorf("writing %s: %w", path, err)
-	}
-
-	return nil
-}
-
 func assignNamespaceNames(root *namespaceNode, gen *nameGenerator) {
 	var walk func(node *namespaceNode)
 
@@ -1876,6 +1824,24 @@ func collectFilePaths(infos []buildtool.PackageInfo) []string {
 	}
 
 	return filePaths
+}
+
+// collectFunctionNamesToRename returns the function names that need to be renamed to unexported.
+func collectFunctionNamesToRename(
+	exactMatch *buildtool.CommandInfo,
+	subcommands []movedCommand,
+) []string {
+	names := make([]string, 0, len(subcommands)+1)
+
+	if exactMatch != nil {
+		names = append(names, exactMatch.Name)
+	}
+
+	for _, cmd := range subcommands {
+		names = append(names, cmd.info.Name)
+	}
+
+	return names
 }
 
 // collectFileCommands collects commands from package infos into a map by file path.
@@ -2863,7 +2829,6 @@ func generateMoveStruct(
 	var builder strings.Builder
 
 	// Generate struct with subcommand fields
-	// Use destName in wrapper name to avoid conflicts with targ's internal wrappers
 	builder.WriteString(fmt.Sprintf("\ntype %s struct {\n", structName))
 
 	for _, cmd := range subcommands {
@@ -2876,53 +2841,68 @@ func generateMoveStruct(
 	builder.WriteString("}\n")
 
 	// Generate Run() method if there was an exact match
-	// Call unexported version since original will be renamed
 	if exactMatch != nil {
-		unexportedName := toUnexportedName(exactMatch.Name)
-		if exactMatch.UsesContext {
-			builder.WriteString(
-				fmt.Sprintf("\nfunc (c *%s) Run(ctx context.Context) error {\n", structName),
-			)
-			builder.WriteString(fmt.Sprintf("\treturn %s(ctx)\n", unexportedName))
-		} else {
-			builder.WriteString(fmt.Sprintf("\nfunc (c *%s) Run() error {\n", structName))
-			builder.WriteString(fmt.Sprintf("\treturn %s()\n", unexportedName))
-		}
-
-		builder.WriteString("}\n")
+		generateParentRunMethod(&builder, structName, exactMatch)
 	}
 
 	// Generate wrapper structs for each subcommand
-	// Call unexported versions since originals will be renamed
 	for _, cmd := range subcommands {
-		wrapperName := structName + toExportedName(cmd.newName) + "Wrapper"
-		builder.WriteString(fmt.Sprintf("\ntype %s struct{}\n", wrapperName))
-
-		unexportedName := toUnexportedName(cmd.info.Name)
-		if cmd.info.UsesContext {
-			builder.WriteString(
-				fmt.Sprintf("\nfunc (c *%s) Run(ctx context.Context) error {\n", wrapperName),
-			)
-			builder.WriteString(fmt.Sprintf("\treturn %s(ctx)\n", unexportedName))
-		} else {
-			builder.WriteString(fmt.Sprintf("\nfunc (c *%s) Run() error {\n", wrapperName))
-			builder.WriteString(fmt.Sprintf("\treturn %s()\n", unexportedName))
-		}
-
-		builder.WriteString("}\n")
-
-		// Add Name() method for CLI name
-		builder.WriteString(fmt.Sprintf("\nfunc (c *%s) Name() string {\n", wrapperName))
-		builder.WriteString(fmt.Sprintf("\treturn %q\n", cmd.newName))
-		builder.WriteString("}\n")
-
-		// Add SourceFile() method
-		builder.WriteString(fmt.Sprintf("\nfunc (c *%s) SourceFile() string {\n", wrapperName))
-		builder.WriteString(fmt.Sprintf("\treturn %q\n", sourceFile))
-		builder.WriteString("}\n")
+		generateSubcommandWrapper(&builder, structName, cmd, sourceFile)
 	}
 
 	return builder.String()
+}
+
+// generateParentRunMethod writes the Run method for the parent struct.
+func generateParentRunMethod(
+	builder *strings.Builder,
+	structName string,
+	exactMatch *buildtool.CommandInfo,
+) {
+	unexportedName := toUnexportedName(exactMatch.Name)
+	if exactMatch.UsesContext {
+		fmt.Fprintf(builder,
+			"\nfunc (c *%s) Run(ctx context.Context) error {\n", structName)
+		fmt.Fprintf(builder, "\treturn %s(ctx)\n", unexportedName)
+	} else {
+		fmt.Fprintf(builder, "\nfunc (c *%s) Run() error {\n", structName)
+		fmt.Fprintf(builder, "\treturn %s()\n", unexportedName)
+	}
+
+	builder.WriteString("}\n")
+}
+
+// generateSubcommandWrapper writes wrapper struct and methods for a subcommand.
+func generateSubcommandWrapper(
+	builder *strings.Builder,
+	structName string,
+	cmd movedCommand,
+	sourceFile string,
+) {
+	wrapperName := structName + toExportedName(cmd.newName) + "Wrapper"
+	fmt.Fprintf(builder, "\ntype %s struct{}\n", wrapperName)
+
+	unexportedName := toUnexportedName(cmd.info.Name)
+	if cmd.info.UsesContext {
+		fmt.Fprintf(builder,
+			"\nfunc (c *%s) Run(ctx context.Context) error {\n", wrapperName)
+		fmt.Fprintf(builder, "\treturn %s(ctx)\n", unexportedName)
+	} else {
+		fmt.Fprintf(builder, "\nfunc (c *%s) Run() error {\n", wrapperName)
+		fmt.Fprintf(builder, "\treturn %s()\n", unexportedName)
+	}
+
+	builder.WriteString("}\n")
+
+	// Add Name() method for CLI name
+	fmt.Fprintf(builder, "\nfunc (c *%s) Name() string {\n", wrapperName)
+	fmt.Fprintf(builder, "\treturn %q\n", cmd.newName)
+	builder.WriteString("}\n")
+
+	// Add SourceFile() method
+	fmt.Fprintf(builder, "\nfunc (c *%s) SourceFile() string {\n", wrapperName)
+	fmt.Fprintf(builder, "\treturn %q\n", sourceFile)
+	builder.WriteString("}\n")
 }
 
 func goEnv(key string) (string, error) {
@@ -3275,24 +3255,6 @@ func moveToNestedDest(
 	)
 }
 
-// collectFunctionNamesToRename returns the function names that need to be renamed to unexported.
-func collectFunctionNamesToRename(
-	exactMatch *buildtool.CommandInfo,
-	subcommands []movedCommand,
-) []string {
-	names := make([]string, 0, len(subcommands)+1)
-
-	if exactMatch != nil {
-		names = append(names, exactMatch.Name)
-	}
-
-	for _, cmd := range subcommands {
-		names = append(names, cmd.info.Name)
-	}
-
-	return names
-}
-
 // moveToTopLevel handles moving commands to a top-level destination.
 func moveToTopLevel(
 	destLeaf, dest string,
@@ -3310,7 +3272,8 @@ func moveToTopLevel(
 	namesToRename := collectFunctionNamesToRename(exactMatch, matchingCommands)
 
 	// Rename original functions to unexported so only the new struct is discovered
-	if err := renameFunctionsToUnexported(targetFile, namesToRename); err != nil {
+	err = renameFunctionsToUnexported(targetFile, namesToRename)
+	if err != nil {
 		return "", fmt.Errorf("renaming functions: %w", err)
 	}
 
@@ -3817,6 +3780,61 @@ func remapPackageInfosToIsolated(
 	return result, pathMapping, nil
 }
 
+// renameFunctionsToUnexported renames exported functions in a Go file to unexported.
+// For example, Lint -> lint, LintFast -> lintFast.
+func renameFunctionsToUnexported(path string, names []string) error {
+	if len(names) == 0 {
+		return nil
+	}
+
+	// Build lookup set
+	toRename := make(map[string]string, len(names))
+	for _, name := range names {
+		toRename[name] = toUnexportedName(name)
+	}
+
+	// Parse file
+	fset := token.NewFileSet()
+
+	file, err := parser.ParseFile(fset, path, nil, parser.ParseComments)
+	if err != nil {
+		return fmt.Errorf("parsing %s: %w", path, err)
+	}
+
+	// Find and rename functions
+	for _, decl := range file.Decls {
+		funcDecl, ok := decl.(*ast.FuncDecl)
+		if !ok {
+			continue
+		}
+
+		// Only rename standalone functions (no receiver)
+		if funcDecl.Recv != nil {
+			continue
+		}
+
+		if newName, ok := toRename[funcDecl.Name.Name]; ok {
+			funcDecl.Name.Name = newName
+		}
+	}
+
+	// Write back to file
+	var buf bytes.Buffer
+
+	err = format.Node(&buf, fset, file)
+	if err != nil {
+		return fmt.Errorf("formatting %s: %w", path, err)
+	}
+
+	//nolint:gosec,mnd // standard file permissions
+	err = os.WriteFile(path, buf.Bytes(), 0o644)
+	if err != nil {
+		return fmt.Errorf("writing %s: %w", path, err)
+	}
+
+	return nil
+}
+
 func resolveTargDependency() targDependency {
 	dep := targDependency{
 		ModulePath: defaultTargModulePath,
@@ -4077,19 +4095,6 @@ func targCacheDir() string {
 	return filepath.Join(home, ".cache", "targ")
 }
 
-// toUnexportedName converts an exported name like "Lint" or "LintFast" to unexported.
-// "Lint" -> "lint", "LintFast" -> "lintFast".
-func toUnexportedName(name string) string {
-	if name == "" {
-		return name
-	}
-
-	runes := []rune(name)
-	runes[0] = unicode.ToLower(runes[0])
-
-	return string(runes)
-}
-
 // toExportedName converts a name like "tidy" or "run-tests" to "Tidy" or "RunTests".
 func toExportedName(name string) string {
 	var result strings.Builder
@@ -4131,6 +4136,19 @@ func toKebabCase(s string) string {
 	}
 
 	return result.String()
+}
+
+// toUnexportedName converts an exported name like "Lint" or "LintFast" to unexported.
+// "Lint" -> "lint", "LintFast" -> "lintFast".
+func toUnexportedName(name string) string {
+	if name == "" {
+		return name
+	}
+
+	runes := []rune(name)
+	runes[0] = unicode.ToLower(runes[0])
+
+	return string(runes)
 }
 
 func touchFile(path string) error {
