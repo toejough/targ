@@ -129,14 +129,16 @@ func Targ(fn any) *Target
 
 ```go
 targ.Targ(fn)              // wrap a function
-    .Deps(fns...)          // serial dependencies (run before target)
-    .ParallelDeps(fns...)  // parallel dependencies
+    .Deps(targets...)      // serial dependencies (run before target)
+    .ParallelDeps(targets...) // parallel dependencies
     .Cache(patterns...)    // skip if inputs unchanged
     .Watch(patterns...)    // file patterns that trigger re-run
     .Retry(n)              // retry on failure
     .Name(s)               // override CLI name (default: function name)
     .Description(s)        // help text
 ```
+
+`.Deps()` and `.ParallelDeps()` accept both raw functions and wrapped `*Target`. This allows chaining dependencies:
 
 ### Example
 
@@ -147,12 +149,12 @@ func LintFast(ctx context.Context) error { ... }
 func LintFull(ctx context.Context) error { ... }
 func Deploy(ctx context.Context, args DeployArgs) error { ... }
 
-// Wrap with modifiers
+// Wrap with modifiers - deps can reference other *Target or raw functions
 var format = targ.Targ(Format)
-var build = targ.Targ(Build).Deps(Format)
-var lintFast = targ.Targ(LintFast).ParallelDeps(Format, Build).Cache("**/*.go")
-var lintFull = targ.Targ(LintFull).Deps(LintFast)
-var deploy = targ.Targ(Deploy).Deps(Build, LintFull)
+var build = targ.Targ(Build).Deps(format)
+var lintFast = targ.Targ(LintFast).ParallelDeps(format, build).Cache("**/*.go")
+var lintFull = targ.Targ(LintFull).Deps(lintFast)
+var deploy = targ.Targ(Deploy).Deps(build, lintFull)
 
 // Group for hierarchy
 var Lint = targ.Group("lint", lintFast, lintFull)
