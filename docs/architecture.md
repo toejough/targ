@@ -24,7 +24,7 @@ Maps requirements to architecture. **Gap** = not yet addressed.
 | Subcommands     | ✓      | [Hierarchy](#hierarchy) - `targ.Group()`                                 |
 | Result caching  | ✓      | [Target Builder](#target-builder) - `.Cache()`                           |
 | Watch mode      | ✓      | [Target Builder](#target-builder) - `.Watch()`                           |
-| Retry           | ✓      | [Target Builder](#target-builder) - `.Retry()`                           |
+| Retry + backoff | ✓      | [Target Builder](#target-builder) - `.Retry()`, `.Backoff()`             |
 | Repetition      | ✓      | [Target Builder](#target-builder) - `.Times()`                           |
 | Time-bounded    | ✓      | [Target Builder](#target-builder) - `.For()`                             |
 | Condition-based | ✓      | [Target Builder](#target-builder) - `.While()`                           |
@@ -134,6 +134,7 @@ targ.Targ(fn)                 // wrap a function
     .Cache(patterns...)       // skip if inputs unchanged
     .Watch(patterns...)       // file patterns that trigger re-run
     .Retry(n)                 // retry on failure
+    .Backoff(duration)        // delay between retries (requires Retry)
     .Times(n)                 // run N times regardless of outcome
     .For(duration)            // run until duration elapsed
     .While(func() bool)       // run while predicate returns true
