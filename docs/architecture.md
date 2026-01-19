@@ -21,7 +21,7 @@ A target has four configurable aspects (**Anatomy**), and targ provides eight op
 
 |           | Arguments              | Execution                | Hierarchy                | Source                   |
 | --------- | ---------------------- | ------------------------ | ------------------------ | ------------------------ |
-| Discover  | [✓](#arguments)        | Gap                      | Gap                      | [✓](#source)             |
+| Discover  | [✓](#arguments)        | [✓](#execution)          | [✓](#hierarchy)          | [✓](#source)             |
 | Inspect   | Gap                    | Gap                      | Gap                      | Gap                      |
 | Modify    | Gap                    | Gap                      | Gap                      | Gap                      |
 | Specify   | Gap                    | Gap                      | Gap                      | Gap                      |
@@ -45,75 +45,75 @@ Cross-cutting concerns that apply to all operations:
 
 ## Requirements Traceability
 
-Maps requirements to architecture overview. See Overview for ✓/Gap status.
+Maps requirements to architecture. Coverage: Necessary (inherent), Needs design, or section link (already covered).
 
 ### Model: Targets
 
-| Requirement     | Architecture                         |
-| --------------- | ------------------------------------ |
-| Basic           | Source - `func Name()`               |
-| Failure         | Source - `func Name() error`         |
-| Cancellation    | Source - `func Name(ctx) error`      |
-| Dependencies    | Execution - `.Deps()`                |
-| Parallel        | Execution - `.ParallelDeps()`        |
-| Serial          | Execution - `.Deps()` (default)      |
-| Help text       | Execution - `.Description()`         |
-| Arguments       | Arguments - struct parameter         |
-| Repeated args   | Arguments - `[]T` field              |
-| Map args        | Arguments - `map[K]V` field          |
-| Variadic args   | Arguments - trailing `[]T`           |
-| Subcommands     | Hierarchy - `targ.Group()`           |
-| Result caching  | Execution - `.Cache()`               |
-| Watch mode      | Execution - `.Watch()`               |
-| Retry + backoff | Execution - `.Retry()`, `.Backoff()` |
-| Repetition      | Execution - `.Times()`               |
-| Time-bounded    | Execution - `.For()`                 |
-| Condition-based | Execution - `.While()`               |
+| Requirement     | Architecture                         | Coverage                |
+| --------------- | ------------------------------------ | ----------------------- |
+| Basic           | Source - `func Name()`               | [Source](#source)       |
+| Failure         | Source - `func Name() error`         | [Source](#source)       |
+| Cancellation    | Source - `func Name(ctx) error`      | [Source](#source)       |
+| Dependencies    | Execution - `.Deps()`                | [Execution](#execution) |
+| Parallel        | Execution - `.ParallelDeps()`        | [Execution](#execution) |
+| Serial          | Execution - `.Deps()` (default)      | [Execution](#execution) |
+| Help text       | Execution - `.Description()`         | [Execution](#execution) |
+| Arguments       | Arguments - struct parameter         | [Arguments](#arguments) |
+| Repeated args   | Arguments - `[]T` field              | [Arguments](#arguments) |
+| Map args        | Arguments - `map[K]V` field          | [Arguments](#arguments) |
+| Variadic args   | Arguments - trailing `[]T`           | [Arguments](#arguments) |
+| Subcommands     | Hierarchy - `targ.Group()`           | [Hierarchy](#hierarchy) |
+| Result caching  | Execution - `.Cache()`               | [Execution](#execution) |
+| Watch mode      | Execution - `.Watch()`               | [Execution](#execution) |
+| Retry + backoff | Execution - `.Retry()`, `.Backoff()` | [Execution](#execution) |
+| Repetition      | Execution - `.Times()`               | [Execution](#execution) |
+| Time-bounded    | Execution - `.For()`                 | [Execution](#execution) |
+| Condition-based | Execution - `.While()`               | [Execution](#execution) |
 
 ### Model: Hierarchy
 
-| Requirement                      | Architecture               |
-| -------------------------------- | -------------------------- |
-| Namespace nodes (non-executable) | Hierarchy - Groups         |
-| Target nodes (executable)        | Source - functions only    |
-| Path addressing                  | Specify × Hierarchy        |
-| Simplest possible definition     | Source - `//go:build targ` |
-| Scales to complex hierarchies    | Hierarchy - nested Groups  |
-| Easy CLI binary transition       | Run × Hierarchy            |
+| Requirement                      | Architecture               | Coverage                |
+| -------------------------------- | -------------------------- | ----------------------- |
+| Namespace nodes (non-executable) | Hierarchy - Groups         | [Hierarchy](#hierarchy) |
+| Target nodes (executable)        | Source - functions only    | [Source](#source)       |
+| Path addressing                  | Specify × Hierarchy        | Needs design            |
+| Simplest possible definition     | Source - `//go:build targ` | [Source](#source)       |
+| Scales to complex hierarchies    | Hierarchy - nested Groups  | [Hierarchy](#hierarchy) |
+| Easy CLI binary transition       | Run × Hierarchy            | Needs design            |
 
 ### Model: Sources
 
-| Requirement    | Architecture               |
-| -------------- | -------------------------- |
-| Local targets  | Source - `//go:build targ` |
-| Remote targets | Sync × Source              |
+| Requirement    | Architecture               | Coverage          |
+| -------------- | -------------------------- | ----------------- |
+| Local targets  | Source - `//go:build targ` | [Source](#source) |
+| Remote targets | Sync × Source              | Needs design      |
 
 ### Operations
 
-| Requirement          | Architecture         |
-| -------------------- | -------------------- |
-| Create (scaffold)    | Create × Source      |
-| Invoke: CLI          | Run × all aspects    |
-| Invoke: modifiers    | Run × Execution      |
-| Invoke: programmatic | Run × all aspects    |
-| Transform: Rename    | Modify × Hierarchy   |
-| Transform: Relocate  | Modify × Source      |
-| Transform: Delete    | Delete × all aspects |
-| Manage Dependencies  | Modify × Execution   |
-| Sync (remote)        | Sync × Source        |
-| Inspect: Where       | Inspect × Source     |
-| Inspect: Tree        | Inspect × Hierarchy  |
-| Inspect: Deps        | Inspect × Execution  |
-| Shell Integration    | Run × Arguments      |
+| Requirement          | Architecture         | Coverage     |
+| -------------------- | -------------------- | ------------ |
+| Create (scaffold)    | Create × Source      | Needs design |
+| Invoke: CLI          | Run × all aspects    | Needs design |
+| Invoke: modifiers    | Run × Execution      | Needs design |
+| Invoke: programmatic | Run × all aspects    | Needs design |
+| Transform: Rename    | Modify × Hierarchy   | Needs design |
+| Transform: Relocate  | Modify × Source      | Needs design |
+| Transform: Delete    | Delete × all aspects | Needs design |
+| Manage Dependencies  | Modify × Execution   | Needs design |
+| Sync (remote)        | Sync × Source        | Needs design |
+| Inspect: Where       | Inspect × Source     | Needs design |
+| Inspect: Tree        | Inspect × Hierarchy  | Needs design |
+| Inspect: Deps        | Inspect × Execution  | Needs design |
+| Shell Integration    | Run × Arguments      | Needs design |
 
 ### Constraints
 
-| Requirement           | Architecture |
-| --------------------- | ------------ |
-| Invariants maintained | Constraints  |
-| Reversible operations | Constraints  |
-| Minimal changes       | Constraints  |
-| Fail clearly          | Constraints  |
+| Requirement           | Architecture | Coverage     |
+| --------------------- | ------------ | ------------ |
+| Invariants maintained | Constraints  | Needs design |
+| Reversible operations | Constraints  | Needs design |
+| Minimal changes       | Constraints  | Needs design |
+| Fail clearly          | Constraints  | Needs design |
 
 ---
 
@@ -156,13 +156,17 @@ targ.Targ(fn)                     // wrap a function
     .Retry(n)                     // retry on failure
     .Backoff(initial, multiplier) // exponential delay between retries
     .Times(n)                     // run N times
-    .For(duration)                // run until duration elapsed
+    .Timeout(duration)            // cancel after duration
     .While(func() bool)           // run while predicate true
     .Name(s)                      // override CLI name
     .Description(s)               // help text
 ```
 
 `.Deps()` and `.ParallelDeps()` accept both raw functions and `*Target`.
+
+### Discovery
+
+Execution metadata is discovered when targets are registered via `targ.Run()` in an init function. See [Source](#source).
 
 ### Example
 
@@ -202,6 +206,10 @@ targ dev deploy --env prod
 
 Groups are non-executable (pure namespace). Functions are the only executable targets.
 
+### Discovery
+
+Hierarchy is discovered when groups are registered via `targ.Run()` in an init function. See [Source](#source).
+
 ### Why explicit names?
 
 Group names must be explicit because:
@@ -212,7 +220,7 @@ Group names must be explicit because:
 
 Which file contains the implementation. The function's location in the codebase.
 
-Functions are discovered in files with `//go:build targ` tag:
+Functions are discovered in files with `//go:build targ` tag. Execution metadata and hierarchy are registered via `targ.Run()` in an init function:
 
 ```go
 //go:build targ
@@ -220,14 +228,26 @@ Functions are discovered in files with `//go:build targ` tag:
 package dev
 
 func Build(ctx context.Context) error { ... }
+func Test() error { ... }
+
+var build = targ.Targ(Build).Cache("**/*.go")
+var test = targ.Targ(Test)
+var Dev = targ.Group("dev", build, test)
+
+func init() {
+    targ.Run(Dev)
+}
 ```
 
-Progressive function signatures:
+`targ.Run()` accepts raw functions, `*Target`, or `*Group`.
 
-| Signature                        | Capabilities           |
-| -------------------------------- | ---------------------- |
-| `func Name()`                    | Basic                  |
-| `func Name() error`              | + Failure              |
-| `func Name(ctx context.Context) error` | + Cancellation   |
-| `func Name(ctx context.Context, args T) error` | + Arguments |
+Function signature capabilities (independently optional):
+
+| Element                | Capability   | Without it                    |
+| ---------------------- | ------------ | ----------------------------- |
+| `error` return         | Failure      | Always succeeds               |
+| `ctx context.Context`  | Cancellation | Can't respond to timeout/interrupt |
+| `args T` parameter     | Arguments    | No CLI flags/positionals      |
+
+Examples: `func Name()`, `func Name(args T) error`, `func Name(ctx context.Context) error`
 
