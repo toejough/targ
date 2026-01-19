@@ -134,7 +134,7 @@ targ.Targ(fn)                 // wrap a function
     .Cache(patterns...)       // skip if inputs unchanged
     .Watch(patterns...)       // file patterns that trigger re-run
     .Retry(n)                 // retry on failure
-    .Backoff(duration)        // delay between retries (requires Retry)
+    .Backoff(initial, multiplier) // delay between retries, grows exponentially
     .Times(n)                 // run N times regardless of outcome
     .For(duration)            // run until duration elapsed
     .While(func() bool)       // run while predicate returns true
