@@ -74,21 +74,21 @@ Maps requirements to architecture. **Gap** = not yet addressed.
 
 ### Operations
 
-| Requirement          | Status | Architecture                   |
-| -------------------- | ------ | ------------------------------ |
-| Create (scaffold)    | Gap    |                                |
-| Invoke: CLI          | Gap    | [Run](#run)                    |
-| Invoke: modifiers    | Gap    | [Run](#run)                    |
-| Invoke: programmatic | Gap    | [Run](#run)                    |
-| Transform: Rename    | Gap    | [Modify](#modify)              |
-| Transform: Relocate  | Gap    | [Modify](#modify)              |
-| Transform: Delete    | Gap    | [Modify](#modify)              |
-| Manage Dependencies  | Gap    | [Modify](#modify)              |
-| Sync (remote)        | Gap    |                                |
-| Inspect: Where       | Gap    | [Inspect](#inspect)            |
-| Inspect: Tree        | Gap    | [Inspect](#inspect)            |
-| Inspect: Deps        | Gap    | [Inspect](#inspect)            |
-| Shell Integration    | Gap    | [Run](#run)                    |
+| Requirement          | Status | Architecture                        |
+| -------------------- | ------ | ----------------------------------- |
+| Create (scaffold)    | Gap    | [Create](#create) - Source          |
+| Invoke: CLI          | Gap    | [Run](#run) × all aspects           |
+| Invoke: modifiers    | Gap    | [Run](#run) × Execution             |
+| Invoke: programmatic | Gap    | [Run](#run) × all aspects           |
+| Transform: Rename    | Gap    | [Modify](#modify) × Hierarchy       |
+| Transform: Relocate  | Gap    | [Modify](#modify) × Source          |
+| Transform: Delete    | Gap    | [Modify](#modify) × all aspects     |
+| Manage Dependencies  | Gap    | [Modify](#modify) × Execution       |
+| Sync (remote)        | Gap    | [Discover](#discover) × Source      |
+| Inspect: Where       | Gap    | [Inspect](#inspect) × Source        |
+| Inspect: Tree        | Gap    | [Inspect](#inspect) × Hierarchy     |
+| Inspect: Deps        | Gap    | [Inspect](#inspect) × Execution     |
+| Shell Integration    | Gap    | [Run](#run) (completion)            |
 
 ### Constraints
 
@@ -219,16 +219,37 @@ Progressive function signatures:
 
 # Operations
 
+Operations × Anatomy matrix:
+
+|           | Arguments           | Execution              | Hierarchy          | Source              |
+| --------- | ------------------- | ---------------------- | ------------------ | ------------------- |
+| Discover  | Parse fn signature  | Find `Targ()` wrappers | Find `Group()`     | Find tagged files   |
+| Inspect   | `--help` (flags)    | `--deps`               | `--tree`           | `--where`           |
+| Modify    | (code only)         | `--deps-add/rm`        | `--rename`         | `--relocate`        |
+| Specify   | (via path)          | (via path)             | Path syntax        | File paths          |
+| Run       | Parse CLI args      | Execute deps/retry     | Resolve path       | -                   |
+
+Special cases:
+- **Create**: Adds new Source, auto-registers in Hierarchy
+- **Delete**: Removes across all aspects
+- **Sync**: Discover from remote Source
+
 ## Discover
 
 How targ finds targets in the codebase.
 
 **Gap** - needs design
 
+| Aspect    | What to discover                          |
+| --------- | ----------------------------------------- |
+| Arguments | Parse function signature for args struct  |
+| Execution | Find `targ.Targ()` wrapper declarations   |
+| Hierarchy | Find `targ.Group()` declarations          |
+| Source    | Find files with `//go:build targ`         |
+
 Questions:
-- Build tag filtering (`//go:build targ`)
-- How are `targ.Targ()` wrappers and `targ.Group()` discovered?
 - AST parsing vs runtime reflection?
+- How to correlate wrappers with functions?
 
 ## Inspect
 
@@ -236,12 +257,12 @@ How users query information about targets.
 
 **Gap** - needs design
 
-| Query   | What it shows                    | CLI              |
-| ------- | -------------------------------- | ---------------- |
-| Help    | Arguments, description, examples | `--help`         |
-| Tree    | Full hierarchy visualization     | `--tree`         |
-| Where   | Source file and line number      | `--where <path>` |
-| Deps    | What target depends on           | `--deps <path>`  |
+| Aspect    | CLI              | What it shows                    |
+| --------- | ---------------- | -------------------------------- |
+| Arguments | `--help`         | Flags, positionals, descriptions |
+| Execution | `--deps <path>`  | Dependencies of a target         |
+| Hierarchy | `--tree`         | Full namespace tree              |
+| Source    | `--where <path>` | File and line number             |
 
 ## Modify
 
@@ -249,12 +270,14 @@ How users change target aspects via CLI.
 
 **Gap** - needs design
 
-| Operation          | Aspect affected | CLI                      |
-| ------------------ | --------------- | ------------------------ |
-| Rename             | Hierarchy       | `--rename OLD NEW`       |
-| Relocate           | Source          | `--relocate PATH FILE`   |
-| Delete             | All             | `--delete PATH`          |
-| Manage Dependencies| Execution       | `--deps-add`, `--deps-rm`|
+| Aspect    | CLI                    | What it changes                  |
+| --------- | ---------------------- | -------------------------------- |
+| Arguments | (code only)            | Cannot modify via CLI            |
+| Execution | `--deps-add/rm/mode`   | Add/remove deps, parallel/serial |
+| Hierarchy | `--rename OLD NEW`     | Path (move, nest, flatten)       |
+| Source    | `--relocate PATH FILE` | Move code to different file      |
+
+**Delete** (`--delete PATH`) removes across all aspects.
 
 Constraints:
 - Reversible via command surface
@@ -267,10 +290,15 @@ How users reference targets.
 
 **Gap** - needs design
 
+| Context      | Syntax                          | Example                    |
+| ------------ | ------------------------------- | -------------------------- |
+| Run          | Space-separated path            | `targ dev lint fast`       |
+| Modify       | Dotted path                     | `--rename dev.lint.fast`   |
+| Pattern      | Glob                            | `dev.lint.*`               |
+
 Questions:
-- Path syntax: `dev.lint.fast` or `dev lint fast`?
-- Pattern matching: `dev.lint.*` for all lint targets?
-- How to specify for different operations (run vs modify)?
+- Same syntax for all operations, or context-dependent?
+- How to escape dots in names?
 
 ## Run
 
@@ -278,14 +306,32 @@ How targets execute.
 
 **Gap** - needs design
 
-| Mode         | Description                           |
-| ------------ | ------------------------------------- |
-| CLI single   | `targ dev build`                      |
-| CLI multiple | `targ dev build test` (sequence)      |
-| CLI args     | `targ dev deploy --env prod`          |
-| Programmatic | `targ.Deps(Build, Test)`              |
+| Aspect    | What happens                              |
+| --------- | ----------------------------------------- |
+| Arguments | Parse CLI flags/positionals into struct   |
+| Execution | Run deps first, apply retry/cache/watch   |
+| Hierarchy | Resolve path to target function           |
+| Source    | (already loaded at discovery)             |
+
+Modes:
+- CLI single: `targ dev build`
+- CLI multiple: `targ dev build test` (sequence, shared dep state)
+- CLI with args: `targ dev deploy --env prod`
+- Programmatic: `targ.Deps(Build, Test)`
 
 Runtime modifiers (CLI flags):
 - `--watch` - re-run on file changes
 - `--timeout` - execution timeout
-- Possibly: `--retry`, `--repeat`, `--for`
+
+## Create
+
+Scaffold a new target from a shell command.
+
+**Gap** - needs design
+
+```
+targ --create <name> "<command>"
+targ --create lint "golangci-lint run"
+```
+
+Creates minimal Source (function calling shell command), auto-adds to Hierarchy.
