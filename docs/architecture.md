@@ -17,11 +17,11 @@ A target has four configurable aspects (**Anatomy**), and targ provides eight op
 
 ### Operations × Anatomy
 
-✓ = specified, Gap = needs design
+✓ = specified, Gap = needs design, - = not applicable
 
 |           | Arguments              | Execution                | Hierarchy                | Source                   |
 | --------- | ---------------------- | ------------------------ | ------------------------ | ------------------------ |
-| Discover  | [✓](#discover)         | [✓](#discover)           | [✓](#discover)           | [✓](#discover)           |
+| Discover  | [✓](#arguments)        | Gap                      | Gap                      | [✓](#source)             |
 | Inspect   | Gap                    | Gap                      | Gap                      | Gap                      |
 | Modify    | -                      | Gap                      | Gap                      | Gap                      |
 | Specify   | -                      | -                        | Gap                      | Gap                      |
@@ -30,79 +30,90 @@ A target has four configurable aspects (**Anatomy**), and targ provides eight op
 | Delete    | Gap                    | Gap                      | Gap                      | Gap                      |
 | Sync      | -                      | Gap                      | Gap                      | Gap                      |
 
+### Constraints
+
+Cross-cutting concerns that apply to all operations:
+
+| Constraint            | Status |
+| --------------------- | ------ |
+| Invariants maintained | Gap    |
+| Reversible operations | Gap    |
+| Minimal changes       | Gap    |
+| Fail clearly          | Gap    |
+
 ---
 
 ## Requirements Traceability
 
-Maps requirements to architecture. **Gap** = not yet addressed.
+Maps requirements to architecture overview. See Overview for ✓/Gap status.
 
 ### Model: Targets
 
-| Requirement     | Status | Architecture                                       |
-| --------------- | ------ | -------------------------------------------------- |
-| Basic           | ✓      | [Source](#source) - `func Name()`                  |
-| Failure         | ✓      | [Source](#source) - `func Name() error`            |
-| Cancellation    | ✓      | [Source](#source) - `func Name(ctx) error`         |
-| Dependencies    | ✓      | [Execution](#execution) - `.Deps()`                |
-| Parallel        | ✓      | [Execution](#execution) - `.ParallelDeps()`        |
-| Serial          | ✓      | [Execution](#execution) - `.Deps()` (default)      |
-| Help text       | ✓      | [Execution](#execution) - `.Description()`         |
-| Arguments       | ✓      | [Arguments](#arguments) - struct parameter         |
-| Repeated args   | ✓      | [Arguments](#arguments) - `[]T` field              |
-| Map args        | ✓      | [Arguments](#arguments) - `map[K]V` field          |
-| Variadic args   | ✓      | [Arguments](#arguments) - trailing `[]T`           |
-| Subcommands     | ✓      | [Hierarchy](#hierarchy) - `targ.Group()`           |
-| Result caching  | ✓      | [Execution](#execution) - `.Cache()`               |
-| Watch mode      | ✓      | [Execution](#execution) - `.Watch()`               |
-| Retry + backoff | ✓      | [Execution](#execution) - `.Retry()`, `.Backoff()` |
-| Repetition      | ✓      | [Execution](#execution) - `.Times()`               |
-| Time-bounded    | ✓      | [Execution](#execution) - `.For()`                 |
-| Condition-based | ✓      | [Execution](#execution) - `.While()`               |
+| Requirement     | Architecture                         |
+| --------------- | ------------------------------------ |
+| Basic           | Source - `func Name()`               |
+| Failure         | Source - `func Name() error`         |
+| Cancellation    | Source - `func Name(ctx) error`      |
+| Dependencies    | Execution - `.Deps()`                |
+| Parallel        | Execution - `.ParallelDeps()`        |
+| Serial          | Execution - `.Deps()` (default)      |
+| Help text       | Execution - `.Description()`         |
+| Arguments       | Arguments - struct parameter         |
+| Repeated args   | Arguments - `[]T` field              |
+| Map args        | Arguments - `map[K]V` field          |
+| Variadic args   | Arguments - trailing `[]T`           |
+| Subcommands     | Hierarchy - `targ.Group()`           |
+| Result caching  | Execution - `.Cache()`               |
+| Watch mode      | Execution - `.Watch()`               |
+| Retry + backoff | Execution - `.Retry()`, `.Backoff()` |
+| Repetition      | Execution - `.Times()`               |
+| Time-bounded    | Execution - `.For()`                 |
+| Condition-based | Execution - `.While()`               |
 
 ### Model: Hierarchy
 
-| Requirement                      | Status | Architecture                            |
-| -------------------------------- | ------ | --------------------------------------- |
-| Namespace nodes (non-executable) | ✓      | [Hierarchy](#hierarchy) - Groups        |
-| Target nodes (executable)        | ✓      | [Source](#source) - functions only      |
-| Path addressing                  | Gap    | [Specify](#specify)                     |
-| Simplest possible definition     | ✓      | [Discover](#discover) - auto-discovery  |
-| Scales to complex hierarchies    | ✓      | [Hierarchy](#hierarchy) - nested Groups |
-| Easy CLI binary transition       | Gap    |                                         |
+| Requirement                      | Architecture               |
+| -------------------------------- | -------------------------- |
+| Namespace nodes (non-executable) | Hierarchy - Groups         |
+| Target nodes (executable)        | Source - functions only    |
+| Path addressing                  | Specify × Hierarchy        |
+| Simplest possible definition     | Source - `//go:build targ` |
+| Scales to complex hierarchies    | Hierarchy - nested Groups  |
+| Easy CLI binary transition       | Run × Hierarchy            |
 
 ### Model: Sources
 
-| Requirement    | Status | Architecture                   |
-| -------------- | ------ | ------------------------------ |
-| Local targets  | ✓      | [Discover](#discover)          |
-| Remote targets | Gap    |                                |
+| Requirement    | Architecture               |
+| -------------- | -------------------------- |
+| Local targets  | Source - `//go:build targ` |
+| Remote targets | Sync × Source              |
 
 ### Operations
 
-| Requirement          | Status | Architecture                        |
-| -------------------- | ------ | ----------------------------------- |
-| Create (scaffold)    | Gap    | [Create](#create) - Source          |
-| Invoke: CLI          | Gap    | [Run](#run) × all aspects           |
-| Invoke: modifiers    | Gap    | [Run](#run) × Execution             |
-| Invoke: programmatic | Gap    | [Run](#run) × all aspects           |
-| Transform: Rename    | Gap    | [Modify](#modify) × Hierarchy       |
-| Transform: Relocate  | Gap    | [Modify](#modify) × Source          |
-| Transform: Delete    | Gap    | [Modify](#modify) × all aspects     |
-| Manage Dependencies  | Gap    | [Modify](#modify) × Execution       |
-| Sync (remote)        | Gap    | [Discover](#discover) × Source      |
-| Inspect: Where       | Gap    | [Inspect](#inspect) × Source        |
-| Inspect: Tree        | Gap    | [Inspect](#inspect) × Hierarchy     |
-| Inspect: Deps        | Gap    | [Inspect](#inspect) × Execution     |
-| Shell Integration    | Gap    | [Run](#run) (completion)            |
+| Requirement          | Architecture         |
+| -------------------- | -------------------- |
+| Create (scaffold)    | Create × Source      |
+| Invoke: CLI          | Run × all aspects    |
+| Invoke: modifiers    | Run × Execution      |
+| Invoke: programmatic | Run × all aspects    |
+| Transform: Rename    | Modify × Hierarchy   |
+| Transform: Relocate  | Modify × Source      |
+| Transform: Delete    | Delete × all aspects |
+| Manage Dependencies  | Modify × Execution   |
+| Sync (remote)        | Sync × Source        |
+| Inspect: Where       | Inspect × Source     |
+| Inspect: Tree        | Inspect × Hierarchy  |
+| Inspect: Deps        | Inspect × Execution  |
+| Shell Integration    | Run × Arguments      |
 
 ### Constraints
 
-| Requirement           | Status | Architecture |
-| --------------------- | ------ | ------------ |
-| Invariants maintained | Gap    |              |
-| Reversible operations | Gap    |              |
-| Minimal changes       | Gap    |              |
-| Fail clearly          | Gap    |              |
+| Requirement           | Architecture |
+| --------------------- | ------------ |
+| Invariants maintained | Constraints  |
+| Reversible operations | Constraints  |
+| Minimal changes       | Constraints  |
+| Fail clearly          | Constraints  |
 
 ---
 
@@ -220,110 +231,3 @@ Progressive function signatures:
 | `func Name(ctx context.Context) error` | + Cancellation   |
 | `func Name(ctx context.Context, args T) error` | + Arguments |
 
----
-
-# Operations
-
-See [Overview](#operations--anatomy) for the full matrix.
-
-## Discover
-
-How targ finds targets in the codebase.
-
-**Gap** - needs design
-
-| Aspect    | What to discover                          |
-| --------- | ----------------------------------------- |
-| Arguments | Parse function signature for args struct  |
-| Execution | Find `targ.Targ()` wrapper declarations   |
-| Hierarchy | Find `targ.Group()` declarations          |
-| Source    | Find files with `//go:build targ`         |
-
-Questions:
-- AST parsing vs runtime reflection?
-- How to correlate wrappers with functions?
-
-## Inspect
-
-How users query information about targets.
-
-**Gap** - needs design
-
-| Aspect    | CLI              | What it shows                    |
-| --------- | ---------------- | -------------------------------- |
-| Arguments | `--help`         | Flags, positionals, descriptions |
-| Execution | `--deps <path>`  | Dependencies of a target         |
-| Hierarchy | `--tree`         | Full namespace tree              |
-| Source    | `--where <path>` | File and line number             |
-
-## Modify
-
-How users change target aspects via CLI.
-
-**Gap** - needs design
-
-| Aspect    | CLI                    | What it changes                  |
-| --------- | ---------------------- | -------------------------------- |
-| Arguments | (code only)            | Cannot modify via CLI            |
-| Execution | `--deps-add/rm/mode`   | Add/remove deps, parallel/serial |
-| Hierarchy | `--rename OLD NEW`     | Path (move, nest, flatten)       |
-| Source    | `--relocate PATH FILE` | Move code to different file      |
-
-**Delete** (`--delete PATH`) removes across all aspects.
-
-Constraints:
-- Reversible via command surface
-- Minimal code changes
-- Fail clearly if invariants can't be maintained
-
-## Specify
-
-How users reference targets.
-
-**Gap** - needs design
-
-| Context      | Syntax                          | Example                    |
-| ------------ | ------------------------------- | -------------------------- |
-| Run          | Space-separated path            | `targ dev lint fast`       |
-| Modify       | Dotted path                     | `--rename dev.lint.fast`   |
-| Pattern      | Glob                            | `dev.lint.*`               |
-
-Questions:
-- Same syntax for all operations, or context-dependent?
-- How to escape dots in names?
-
-## Run
-
-How targets execute.
-
-**Gap** - needs design
-
-| Aspect    | What happens                              |
-| --------- | ----------------------------------------- |
-| Arguments | Parse CLI flags/positionals into struct   |
-| Execution | Run deps first, apply retry/cache/watch   |
-| Hierarchy | Resolve path to target function           |
-| Source    | (already loaded at discovery)             |
-
-Modes:
-- CLI single: `targ dev build`
-- CLI multiple: `targ dev build test` (sequence, shared dep state)
-- CLI with args: `targ dev deploy --env prod`
-- Programmatic: `targ.Deps(Build, Test)`
-
-Runtime modifiers (CLI flags):
-- `--watch` - re-run on file changes
-- `--timeout` - execution timeout
-
-## Create
-
-Scaffold a new target from a shell command.
-
-**Gap** - needs design
-
-```
-targ --create <name> "<command>"
-targ --create lint "golangci-lint run"
-```
-
-Creates minimal Source (function calling shell command), auto-adds to Hierarchy.
