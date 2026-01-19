@@ -17,18 +17,18 @@ A target has four configurable aspects (**Anatomy**), and targ provides eight op
 
 ### Operations × Anatomy
 
-✓ = specified, Gap = needs design, - = not applicable
+✓ = specified, Gap = needs design
 
 |           | Arguments              | Execution                | Hierarchy                | Source                   |
 | --------- | ---------------------- | ------------------------ | ------------------------ | ------------------------ |
 | Discover  | [✓](#arguments)        | Gap                      | Gap                      | [✓](#source)             |
 | Inspect   | Gap                    | Gap                      | Gap                      | Gap                      |
-| Modify    | -                      | Gap                      | Gap                      | Gap                      |
-| Specify   | -                      | -                        | Gap                      | Gap                      |
-| Run       | Gap                    | Gap                      | Gap                      | -                        |
-| Create    | -                      | Gap                      | Gap                      | Gap                      |
+| Modify    | Gap                    | Gap                      | Gap                      | Gap                      |
+| Specify   | Gap                    | Gap                      | Gap                      | Gap                      |
+| Run       | Gap                    | Gap                      | Gap                      | Gap                      |
+| Create    | Gap                    | Gap                      | Gap                      | Gap                      |
 | Delete    | Gap                    | Gap                      | Gap                      | Gap                      |
-| Sync      | -                      | Gap                      | Gap                      | Gap                      |
+| Sync      | Gap                    | Gap                      | Gap                      | Gap                      |
 
 ### Constraints
 
