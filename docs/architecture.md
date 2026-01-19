@@ -8,71 +8,71 @@ Maps requirements to architecture. **Gap** = not yet addressed.
 
 ### Model: Targets
 
-| Requirement | Status | Architecture |
-|-------------|--------|--------------|
-| Basic | ✓ | [Target Representation](#target-representation) - `func Name()` |
-| Failure | ✓ | [Target Representation](#target-representation) - `func Name() error` |
-| Cancellation | ✓ | [Target Representation](#target-representation) - `func Name(ctx) error` |
-| Dependencies | Gap | |
-| Parallel | Gap | |
-| Serial | Gap | |
-| Help text | Gap | |
-| Arguments | ✓ | [Arguments](#arguments) - struct parameter with tags |
-| Repeated args | Gap | |
-| Map args | Gap | |
-| Variadic args | Gap | |
-| Subcommands | ✓ | [Hierarchy](#hierarchy) - `targ.Group()` |
-| Result caching | Gap | |
-| Watch mode | Gap | |
-| Retry | Gap | |
-| Repetition | Gap | |
-| Time-bounded | Gap | |
-| Condition-based | Gap | |
+| Requirement     | Status | Architecture                                                             |
+| --------------- | ------ | ------------------------------------------------------------------------ |
+| Basic           | ✓      | [Target Representation](#target-representation) - `func Name()`          |
+| Failure         | ✓      | [Target Representation](#target-representation) - `func Name() error`    |
+| Cancellation    | ✓      | [Target Representation](#target-representation) - `func Name(ctx) error` |
+| Dependencies    | ✓      | [Target Builder](#target-builder) - `.Deps()`                            |
+| Parallel        | ✓      | [Target Builder](#target-builder) - `.ParallelDeps()`                    |
+| Serial          | ✓      | [Target Builder](#target-builder) - `.Deps()` (default)                  |
+| Help text       | ✓      | [Target Builder](#target-builder) - `.Description()`                     |
+| Arguments       | ✓      | [Arguments](#arguments) - struct parameter with tags                     |
+| Repeated args   | ✓      | [Arguments](#arguments) - `[]T` field accumulates values                 |
+| Map args        | ✓      | [Arguments](#arguments) - `map[K]V` field with `key=value` syntax        |
+| Variadic args   | ✓      | [Arguments](#arguments) - trailing `[]T` positional captures rest        |
+| Subcommands     | ✓      | [Hierarchy](#hierarchy) - `targ.Group()`                                 |
+| Result caching  | ✓      | [Target Builder](#target-builder) - `.Cache()`                           |
+| Watch mode      | ✓      | [Target Builder](#target-builder) - `.Watch()`                           |
+| Retry           | ✓      | [Target Builder](#target-builder) - `.Retry()`                           |
+| Repetition      | Gap    |                                                                          |
+| Time-bounded    | Gap    |                                                                          |
+| Condition-based | Gap    |                                                                          |
 
 ### Model: Hierarchy
 
-| Requirement | Status | Architecture |
-|-------------|--------|--------------|
-| Namespace nodes (non-executable) | ✓ | [Hierarchy](#hierarchy) - Groups are not executable |
-| Target nodes (executable) | ✓ | [Target Representation](#target-representation) - functions only |
-| Path addressing | Gap | |
-| Simplest possible definition | ✓ | Functions discovered automatically |
-| Scales to complex hierarchies | ✓ | [Hierarchy](#hierarchy) - nested Groups |
-| Easy CLI binary transition | Gap | |
+| Requirement                      | Status | Architecture                                                     |
+| -------------------------------- | ------ | ---------------------------------------------------------------- |
+| Namespace nodes (non-executable) | ✓      | [Hierarchy](#hierarchy) - Groups are not executable              |
+| Target nodes (executable)        | ✓      | [Target Representation](#target-representation) - functions only |
+| Path addressing                  | Gap    |                                                                  |
+| Simplest possible definition     | ✓      | Functions discovered automatically                               |
+| Scales to complex hierarchies    | ✓      | [Hierarchy](#hierarchy) - nested Groups                          |
+| Easy CLI binary transition       | Gap    |                                                                  |
 
 ### Model: Sources
 
-| Requirement | Status | Architecture |
-|-------------|--------|--------------|
-| Local targets | ✓ | Functions in tagged files |
-| Remote targets | Gap | |
+| Requirement    | Status | Architecture              |
+| -------------- | ------ | ------------------------- |
+| Local targets  | ✓      | Functions in tagged files |
+| Remote targets | Gap    |                           |
 
 ### Operations
 
-| Requirement | Status | Architecture |
-|-------------|--------|--------------|
-| Create (scaffold) | Gap | |
-| Invoke: CLI | Gap | |
-| Invoke: modifiers | Gap | |
-| Invoke: programmatic | Gap | |
-| Transform: Rename | Gap | |
-| Transform: Relocate | Gap | |
-| Transform: Delete | Gap | |
-| Manage Dependencies | Gap | |
-| Sync (remote) | Gap | |
-| Inspect: Where | Gap | |
-| Inspect: Tree | Gap | |
-| Inspect: Deps | Gap | |
-| Shell Integration | Gap | |
+| Requirement          | Status | Architecture |
+| -------------------- | ------ | ------------ |
+| Create (scaffold)    | Gap    |              |
+| Invoke: CLI          | Gap    |              |
+| Invoke: modifiers    | Gap    |              |
+| Invoke: programmatic | Gap    |              |
+| Transform: Rename    | Gap    |              |
+| Transform: Relocate  | Gap    |              |
+| Transform: Delete    | Gap    |              |
+| Manage Dependencies  | Gap    |              |
+| Sync (remote)        | Gap    |              |
+| Inspect: Where       | Gap    |              |
+| Inspect: Tree        | Gap    |              |
+| Inspect: Deps        | Gap    |              |
+| Shell Integration    | Gap    |              |
 
 ### Constraints
 
-| Requirement | Status | Architecture |
-|-------------|--------|--------------|
-| Invariants maintained | Gap | |
-| Reversible operations | Gap | |
-| Minimal changes | Gap | |
-| Fail clearly | Gap | |
+| Requirement           | Status | Architecture |
+| --------------------- | ------ | ------------ |
+| Invariants maintained | Gap    |              |
+| Reversible operations | Gap    |              |
+| Minimal changes       | Gap    |              |
+| Fail clearly          | Gap    |              |
 
 ---
 
@@ -80,12 +80,12 @@ Maps requirements to architecture. **Gap** = not yet addressed.
 
 Functions are the only executable targets. Capabilities are added progressively via signature changes:
 
-| Signature | Capabilities |
-|-----------|--------------|
-| `func Name()` | Basic |
-| `func Name() error` | + Failure |
-| `func Name(ctx context.Context) error` | + Cancellation |
-| `func Name(ctx context.Context, args T) error` | + Arguments |
+| Signature                                      | Capabilities   |
+| ---------------------------------------------- | -------------- |
+| `func Name()`                                  | Basic          |
+| `func Name() error`                            | + Failure      |
+| `func Name(ctx context.Context) error`         | + Cancellation |
+| `func Name(ctx context.Context, args T) error` | + Arguments    |
 
 ### Arguments
 
@@ -113,52 +113,91 @@ func Deploy(ctx context.Context, args struct {
 
 targ reflects on the function signature, finds the args struct, reads its tags.
 
+## Target Builder
+
+Target metadata (dependencies, caching, etc.) is declared via a builder pattern. This separates:
+
+- **Function**: executable logic
+- **Builder**: target metadata
+- **Group**: hierarchy only
+
+```go
+func Targ(fn any) *Target
+```
+
+### Builder methods
+
+```go
+targ.Targ(fn)              // wrap a function
+    .Deps(fns...)          // serial dependencies (run before target)
+    .ParallelDeps(fns...)  // parallel dependencies
+    .Cache(patterns...)    // skip if inputs unchanged
+    .Watch(patterns...)    // file patterns that trigger re-run
+    .Retry(n)              // retry on failure
+    .Name(s)               // override CLI name (default: function name)
+    .Description(s)        // help text
+```
+
+### Example
+
+```go
+func Format(ctx context.Context) error { ... }
+func Build(ctx context.Context) error { ... }
+func LintFast(ctx context.Context) error { ... }
+func LintFull(ctx context.Context) error { ... }
+func Deploy(ctx context.Context, args DeployArgs) error { ... }
+
+// Wrap with modifiers
+var format = targ.Targ(Format)
+var build = targ.Targ(Build).Deps(Format)
+var lintFast = targ.Targ(LintFast).ParallelDeps(Format, Build).Cache("**/*.go")
+var lintFull = targ.Targ(LintFull).Deps(LintFast)
+var deploy = targ.Targ(Deploy).Deps(Build, LintFull)
+
+// Group for hierarchy
+var Lint = targ.Group("lint", lintFast, lintFull)
+var Dev = targ.Group("dev", format, build, Lint, deploy)
+```
+
+### Raw functions in Groups
+
+Groups accept both wrapped `*Target` and raw functions. Raw functions get default settings (no deps, no caching):
+
+```go
+var Dev = targ.Group("dev",
+    format,    // wrapped *Target
+    Build,     // raw function - equivalent to targ.Targ(Build)
+)
+```
+
 ## Hierarchy
 
-Namespaces are created with `targ.Group`. Functions are the only executable targets; Groups are purely organizational (not executable).
+Groups create the command namespace hierarchy. They are purely organizational (not executable).
 
 ```go
 func Group(name string, members ...any) *Group
 ```
 
-### Basic usage
-
-```go
-func LintFast(ctx context.Context) error { ... }
-func LintForFail(ctx context.Context) error { ... }
-
-var Lint = targ.Group("lint", LintFast, LintForFail)
-// targ lint fast
-// targ lint for-fail
-```
+Members can be:
+- Raw functions
+- Wrapped `*Target` (from `targ.Targ()`)
+- Nested `*Group`
 
 ### Nesting
 
-Groups can contain other Groups:
-
 ```go
-var lint = targ.Group("lint", LintFast, LintForFail)
-var test = targ.Group("test", TestUnit, TestIntegration)
+var Lint = targ.Group("lint", lintFast, lintFull)
+var Test = targ.Group("test", testUnit, testIntegration)
+var Dev = targ.Group("dev", build, Lint, Test, deploy)
 
-var Dev = targ.Group("dev", lint, test)
+// targ dev build
 // targ dev lint fast
 // targ dev test unit
 ```
 
-### Mixed
-
-Groups can contain both functions and nested Groups:
-
-```go
-var Dev = targ.Group("dev",
-    Build,  // targ dev build
-    targ.Group("lint", LintFast, LintForFail),  // targ dev lint fast
-)
-```
-
 ### Why explicit names?
 
-The name must be passed explicitly because:
-1. Go reflection cannot retrieve variable names
-2. Nested groups are values - `targ.Group("dev", lintGroup, testGroup)` has no way to derive "lint" from `lintGroup`'s value without the Group carrying its own name
+Group names must be explicit because:
 
+1. Go reflection cannot retrieve variable names
+2. Nested groups are values - no way to derive "lint" from `lintGroup`'s value
