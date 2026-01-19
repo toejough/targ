@@ -25,9 +25,9 @@ Maps requirements to architecture. **Gap** = not yet addressed.
 | Result caching  | ✓      | [Target Builder](#target-builder) - `.Cache()`                           |
 | Watch mode      | ✓      | [Target Builder](#target-builder) - `.Watch()`                           |
 | Retry           | ✓      | [Target Builder](#target-builder) - `.Retry()`                           |
-| Repetition      | Gap    |                                                                          |
-| Time-bounded    | Gap    |                                                                          |
-| Condition-based | Gap    |                                                                          |
+| Repetition      | ✓      | [Target Builder](#target-builder) - `.Times()`                           |
+| Time-bounded    | ✓      | [Target Builder](#target-builder) - `.For()`                             |
+| Condition-based | ✓      | [Target Builder](#target-builder) - `.While()`                           |
 
 ### Model: Hierarchy
 
@@ -128,14 +128,17 @@ func Targ(fn any) *Target
 ### Builder methods
 
 ```go
-targ.Targ(fn)              // wrap a function
-    .Deps(targets...)      // serial dependencies (run before target)
+targ.Targ(fn)                 // wrap a function
+    .Deps(targets...)         // serial dependencies (run before target)
     .ParallelDeps(targets...) // parallel dependencies
-    .Cache(patterns...)    // skip if inputs unchanged
-    .Watch(patterns...)    // file patterns that trigger re-run
-    .Retry(n)              // retry on failure
-    .Name(s)               // override CLI name (default: function name)
-    .Description(s)        // help text
+    .Cache(patterns...)       // skip if inputs unchanged
+    .Watch(patterns...)       // file patterns that trigger re-run
+    .Retry(n)                 // retry on failure
+    .Times(n)                 // run N times regardless of outcome
+    .For(duration)            // run until duration elapsed
+    .While(func() bool)       // run while predicate returns true
+    .Name(s)                  // override CLI name (default: function name)
+    .Description(s)           // help text
 ```
 
 `.Deps()` and `.ParallelDeps()` accept both raw functions and wrapped `*Target`. This allows chaining dependencies:
