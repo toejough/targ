@@ -4,26 +4,31 @@ How targ implements the requirements.
 
 ## Overview
 
-A target has four configurable aspects (**Anatomy**), and targ provides five categories of operations on targets (**Operations**).
+A target has four configurable aspects (**Anatomy**), and targ provides eight operations on targets.
 
 ### Target Anatomy
 
-| Aspect    | What it defines                | Defined by                |
-| --------- | ------------------------------ | ------------------------- |
-| Arguments | CLI flags and positionals      | Args struct + tags        |
-| Execution | How target runs (deps, retry)  | Target Builder            |
-| Hierarchy | Where target appears in CLI    | Group membership          |
-| Source    | Which file contains the code   | File location             |
+| Aspect    | What it defines                | Defined by         |
+| --------- | ------------------------------ | ------------------ |
+| Arguments | CLI flags and positionals      | [Args struct](#arguments) |
+| Execution | How target runs (deps, retry)  | [Target Builder](#execution) |
+| Hierarchy | Where target appears in CLI    | [Group](#hierarchy) |
+| Source    | Which file contains the code   | [Function](#source) |
 
-### Operations
+### Operations × Anatomy
 
-| Operation | What it does                        | User-facing            |
-| --------- | ----------------------------------- | ---------------------- |
-| Discover  | targ finds targets in codebase      | (automatic)            |
-| Inspect   | Query information about targets     | --help, --tree, --where, --deps |
-| Modify    | Change target aspects via CLI       | --rename, --relocate, --delete |
-| Specify   | Reference targets by path/pattern   | dotted paths, globs    |
-| Run       | Execute specified targets           | `targ <path> [args]`   |
+✓ = specified, Gap = needs design
+
+|           | Arguments              | Execution                | Hierarchy                | Source                   |
+| --------- | ---------------------- | ------------------------ | ------------------------ | ------------------------ |
+| Discover  | [✓](#discover)         | [✓](#discover)           | [✓](#discover)           | [✓](#discover)           |
+| Inspect   | Gap                    | Gap                      | Gap                      | Gap                      |
+| Modify    | -                      | Gap                      | Gap                      | Gap                      |
+| Specify   | -                      | -                        | Gap                      | Gap                      |
+| Run       | Gap                    | Gap                      | Gap                      | -                        |
+| Create    | -                      | Gap                      | Gap                      | Gap                      |
+| Delete    | Gap                    | Gap                      | Gap                      | Gap                      |
+| Sync      | -                      | Gap                      | Gap                      | Gap                      |
 
 ---
 
@@ -219,18 +224,7 @@ Progressive function signatures:
 
 # Operations
 
-Operations × Anatomy matrix:
-
-|           | Arguments          | Execution              | Hierarchy           | Source               |
-| --------- | ------------------ | ---------------------- | ------------------- | -------------------- |
-| Discover  | Parse fn signature | Find `Targ()` wrappers | Find `Group()`      | Find tagged files    |
-| Inspect   | `--help` (flags)   | `--deps`               | `--tree`            | `--where`            |
-| Modify    | (code only)        | `--deps-add/rm`        | `--rename`          | `--relocate`         |
-| Specify   | (via path)         | (via path)             | Path syntax         | File paths           |
-| Run       | Parse CLI args     | Execute deps/retry     | Resolve path        | -                    |
-| Create    | -                  | Default wrapper        | Auto-register       | Generate function    |
-| Delete    | Remove struct      | Remove wrapper         | Remove from Group   | Remove function      |
-| Sync      | -                  | Copy wrappers          | Merge Groups        | Fetch remote files   |
+See [Overview](#operations--anatomy) for the full matrix.
 
 ## Discover
 
