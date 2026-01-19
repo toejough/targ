@@ -2,6 +2,80 @@
 
 How targ implements the requirements.
 
+## Requirements Traceability
+
+Maps requirements to architecture. **Gap** = not yet addressed.
+
+### Model: Targets
+
+| Requirement | Status | Architecture |
+|-------------|--------|--------------|
+| Basic | ✓ | [Target Representation](#target-representation) - `func Name()` |
+| Failure | ✓ | [Target Representation](#target-representation) - `func Name() error` |
+| Cancellation | ✓ | [Target Representation](#target-representation) - `func Name(ctx) error` |
+| Dependencies | Gap | |
+| Parallel | Gap | |
+| Serial | Gap | |
+| Help text | Gap | |
+| Arguments | ✓ | [Arguments](#arguments) - struct parameter with tags |
+| Repeated args | Gap | |
+| Map args | Gap | |
+| Variadic args | Gap | |
+| Subcommands | ✓ | [Hierarchy](#hierarchy) - `targ.Group()` |
+| Result caching | Gap | |
+| Watch mode | Gap | |
+| Retry | Gap | |
+| Repetition | Gap | |
+| Time-bounded | Gap | |
+| Condition-based | Gap | |
+
+### Model: Hierarchy
+
+| Requirement | Status | Architecture |
+|-------------|--------|--------------|
+| Namespace nodes (non-executable) | ✓ | [Hierarchy](#hierarchy) - Groups are not executable |
+| Target nodes (executable) | ✓ | [Target Representation](#target-representation) - functions only |
+| Path addressing | Gap | |
+| Simplest possible definition | ✓ | Functions discovered automatically |
+| Scales to complex hierarchies | ✓ | [Hierarchy](#hierarchy) - nested Groups |
+| Easy CLI binary transition | Gap | |
+
+### Model: Sources
+
+| Requirement | Status | Architecture |
+|-------------|--------|--------------|
+| Local targets | ✓ | Functions in tagged files |
+| Remote targets | Gap | |
+
+### Operations
+
+| Requirement | Status | Architecture |
+|-------------|--------|--------------|
+| Create (scaffold) | Gap | |
+| Invoke: CLI | Gap | |
+| Invoke: modifiers | Gap | |
+| Invoke: programmatic | Gap | |
+| Transform: Rename | Gap | |
+| Transform: Relocate | Gap | |
+| Transform: Delete | Gap | |
+| Manage Dependencies | Gap | |
+| Sync (remote) | Gap | |
+| Inspect: Where | Gap | |
+| Inspect: Tree | Gap | |
+| Inspect: Deps | Gap | |
+| Shell Integration | Gap | |
+
+### Constraints
+
+| Requirement | Status | Architecture |
+|-------------|--------|--------------|
+| Invariants maintained | Gap | |
+| Reversible operations | Gap | |
+| Minimal changes | Gap | |
+| Fail clearly | Gap | |
+
+---
+
 ## Target Representation
 
 Functions are the only executable targets. Capabilities are added progressively via signature changes:
@@ -88,25 +162,3 @@ The name must be passed explicitly because:
 1. Go reflection cannot retrieve variable names
 2. Nested groups are values - `targ.Group("dev", lintGroup, testGroup)` has no way to derive "lint" from `lintGroup`'s value without the Group carrying its own name
 
-## Open Questions
-
-### Discovery
-
-How does targ find Groups and functions in build tool mode?
-
-### Help Text
-
-Where do target descriptions come from? Doc comments? Methods?
-
-### Transformations
-
-How do rename/relocate/delete operations work with this model?
-
-### Other Capabilities
-
-How are these expressed?
-- Dependencies (`targ.Deps` exists)
-- Parallel/Serial execution
-- Result caching
-- Watch mode
-- Retry, Repetition, Time-bounded, Condition-based
