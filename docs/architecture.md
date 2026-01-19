@@ -221,18 +221,16 @@ Progressive function signatures:
 
 Operations × Anatomy matrix:
 
-|           | Arguments           | Execution              | Hierarchy          | Source              |
-| --------- | ------------------- | ---------------------- | ------------------ | ------------------- |
-| Discover  | Parse fn signature  | Find `Targ()` wrappers | Find `Group()`     | Find tagged files   |
-| Inspect   | `--help` (flags)    | `--deps`               | `--tree`           | `--where`           |
-| Modify    | (code only)         | `--deps-add/rm`        | `--rename`         | `--relocate`        |
-| Specify   | (via path)          | (via path)             | Path syntax        | File paths          |
-| Run       | Parse CLI args      | Execute deps/retry     | Resolve path       | -                   |
-
-Special cases:
-- **Create**: Adds new Source, auto-registers in Hierarchy
-- **Delete**: Removes across all aspects
-- **Sync**: Discover from remote Source
+|           | Arguments          | Execution              | Hierarchy           | Source               |
+| --------- | ------------------ | ---------------------- | ------------------- | -------------------- |
+| Discover  | Parse fn signature | Find `Targ()` wrappers | Find `Group()`      | Find tagged files    |
+| Inspect   | `--help` (flags)   | `--deps`               | `--tree`            | `--where`            |
+| Modify    | (code only)        | `--deps-add/rm`        | `--rename`          | `--relocate`         |
+| Specify   | (via path)         | (via path)             | Path syntax         | File paths           |
+| Run       | Parse CLI args     | Execute deps/retry     | Resolve path        | -                    |
+| Create    | -                  | Default wrapper        | Auto-register       | Generate function    |
+| Delete    | Remove struct      | Remove wrapper         | Remove from Group   | Remove function      |
+| Sync      | -                  | Copy wrappers          | Merge Groups        | Fetch remote files   |
 
 ## Discover
 
