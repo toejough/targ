@@ -24,8 +24,8 @@ A target has four configurable aspects (**Anatomy**), and targ provides eight op
 | Discover  | [✓](#arguments)        | [✓](#execution)          | [✓](#hierarchy)          | [✓](#source)             |
 | Inspect   | [✓](#inspect)          | [✓](#inspect)            | [✓](#inspect)            | [✓](#inspect)            |
 | Modify    | Gap                    | Gap                      | Gap                      | Gap                      |
-| Specify   | [✓](#arguments)        | [✓](#execution)          | [✓](#hierarchy)          | Gap                      |
-| Run       | Gap                    | Gap                      | Gap                      | Gap                      |
+| Specify   | [✓](#arguments)        | [✓](#execution)          | [✓](#hierarchy)          | [✓](#source)             |
+| Run       | [✓](#run)              | [✓](#run)                | [✓](#run)                | [✓](#source)             |
 | Create    | Gap                    | Gap                      | Gap                      | Gap                      |
 | Delete    | Gap                    | Gap                      | Gap                      | Gap                      |
 | Sync      | Gap                    | Gap                      | Gap                      | Gap                      |
@@ -40,6 +40,22 @@ Cross-cutting concerns that apply to all operations:
 | Reversible operations | Gap    |
 | Minimal changes       | Gap    |
 | Fail clearly          | Gap    |
+
+### Global Flags
+
+Flags on `targ` itself (must appear before target path):
+
+| Flag         | Short | Description                      |
+| ------------ | ----- | -------------------------------- |
+| --parallel   | -p    | Run multiple targets in parallel |
+| --completion |       | Print shell completion script    |
+| --source     | -s    | Specify source (local or remote) |
+
+`--source` infers local vs remote from format:
+- `./path` or `/path` → local file
+- `github.com/...` → remote
+
+`--help` is universal (works on any target or group).
 
 ---
 
@@ -322,6 +338,27 @@ Function signature capabilities (independently optional):
 
 Examples: `func Name()`, `func Name(args T) error`, `func Name(ctx context.Context) error`
 
+### Source Resolution
+
+How targ finds and builds sources (applies to both local and remote):
+
+**Explicit specification**:
+```
+targ --source ./dev/targs.go build   # local
+targ --source github.com/foo/bar build # remote
+targ -s ./dev/targs.go build         # short form
+```
+
+**Default local discovery**:
+1. Recursive search down from cwd
+2. Stop at first level containing a targ file (`//go:build targ`)
+3. Multiple targ files at same level → error (user must `--file` or cd to resolve)
+
+**Module resolution**:
+1. Search up from targ file toward repo root
+2. Use first `go.mod` found
+3. No `go.mod` → create temporary module in temp build dir
+
 ---
 
 # Inspect
@@ -359,4 +396,55 @@ Execution:
   Cache: **/*.go
   Retry: 3 (backoff: 1s × 2)
 ```
+
+---
+
+# Run
+
+## Arguments
+
+Parse CLI flags and positionals into the args struct.
+
+**Supported types**:
+- Builtins: `string`, `int`, `bool`, `float64`, `time.Duration`, etc.
+- Custom: Any type implementing `encoding.TextUnmarshaler` or `Set(string) error`
+- Unsupported type → error at discovery (not runtime)
+
+**Validation**:
+- Required fields must be provided
+- Env var fallback if `env=VAR` tag present
+- Default value if `default=X` tag present
+
+## Execution
+
+Order of operations:
+
+1. **Deps**: Run dependencies (serial or parallel per `.Deps()`/`.ParallelDeps()`)
+2. **Cache check**: Skip if cached and inputs unchanged
+3. **Function**: Invoke the target function
+4. **Retry**: On failure, retry with backoff if configured
+
+**Multiple targets**:
+```
+targ build test            # sequential (default)
+targ --parallel build test # parallel
+targ -p build test         # parallel (short form)
+```
+- Shared dep state within invocation (dep runs once even if multiple targets need it)
+
+**Watch mode**:
+- Re-run full dep chain on file change
+- Cancel in-progress run, restart from deps
+
+**Cache**:
+- Persistent across invocations (file-based checksums)
+- `--no-cache` bypasses
+
+## Hierarchy
+
+Resolve target path using stack traversal (see [Path Specification](#path-specification)).
+
+- Group with no target → show tree (see [Inspect](#inspect))
+- Target found → execute
+- No match → error with suggestions
 
