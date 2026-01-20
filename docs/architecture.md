@@ -24,7 +24,7 @@ A target has four configurable aspects (**Anatomy**), and targ provides eight op
 | Discover  | [✓](#arguments)        | [✓](#execution)          | [✓](#hierarchy)          | [✓](#source)             |
 | Inspect   | [✓](#inspect)          | [✓](#inspect)            | [✓](#inspect)            | [✓](#inspect)            |
 | Modify    | Gap                    | Gap                      | Gap                      | Gap                      |
-| Specify   | Gap                    | Gap                      | Gap                      | Gap                      |
+| Specify   | [✓](#arguments)        | Gap                      | Gap                      | Gap                      |
 | Run       | Gap                    | Gap                      | Gap                      | Gap                      |
 | Create    | Gap                    | Gap                      | Gap                      | Gap                      |
 | Delete    | Gap                    | Gap                      | Gap                      | Gap                      |
@@ -140,6 +140,23 @@ func Deploy(ctx context.Context, args DeployArgs) error { ... }
 | `[]T`             | Repeated (accumulates)                |
 | `map[K]V`         | Key=value pairs                       |
 | Trailing `[]T`    | Variadic positional (captures rest)   |
+
+### Ordered arguments
+
+Arguments preserve their CLI ordering across flags and positionals. Useful for filter chains where order matters:
+
+```
+targ find --include "*.go" --exclude "vendor/*" --include "*.mod"
+```
+
+```go
+type FindArgs struct {
+    Include []targ.Interleaved[string] `targ:"flag,desc=Patterns to include"`
+    Exclude []targ.Interleaved[string] `targ:"flag,desc=Patterns to exclude"`
+}
+```
+
+Each `Interleaved[T]` contains `Value T` and `Position int`. Merge and sort by position to reconstruct CLI order.
 
 targ reflects on the function signature, finds the args struct, reads its tags.
 
