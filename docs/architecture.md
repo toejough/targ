@@ -22,7 +22,7 @@ A target has four configurable aspects (**Anatomy**), and targ provides eight op
 |           | Arguments              | Execution                | Hierarchy                | Source                   |
 | --------- | ---------------------- | ------------------------ | ------------------------ | ------------------------ |
 | Discover  | [✓](#arguments)        | [✓](#execution)          | [✓](#hierarchy)          | [✓](#source)             |
-| Inspect   | Gap                    | Gap                      | Gap                      | Gap                      |
+| Inspect   | [✓](#inspect)          | [✓](#inspect)            | [✓](#inspect)            | [✓](#inspect)            |
 | Modify    | Gap                    | Gap                      | Gap                      | Gap                      |
 | Specify   | Gap                    | Gap                      | Gap                      | Gap                      |
 | Run       | Gap                    | Gap                      | Gap                      | Gap                      |
@@ -101,9 +101,9 @@ Maps requirements to architecture. Coverage: Necessary (inherent), Needs design,
 | Transform: Delete    | Delete × all aspects | Needs design |
 | Manage Dependencies  | Modify × Execution   | Needs design |
 | Sync (remote)        | Sync × Source        | Needs design |
-| Inspect: Where       | Inspect × Source     | Needs design |
-| Inspect: Tree        | Inspect × Hierarchy  | Needs design |
-| Inspect: Deps        | Inspect × Execution  | Needs design |
+| Inspect: Where       | Inspect × Source     | [Inspect](#inspect) |
+| Inspect: Tree        | Inspect × Hierarchy  | [Inspect](#inspect) |
+| Inspect: Deps        | Inspect × Execution  | [Inspect](#inspect) |
 | Shell Integration    | Run × Arguments      | Needs design |
 
 ### Constraints
@@ -250,4 +250,42 @@ Function signature capabilities (independently optional):
 | `args T` parameter     | Arguments    | No CLI flags/positionals      |
 
 Examples: `func Name()`, `func Name(args T) error`, `func Name(ctx context.Context) error`
+
+---
+
+# Inspect
+
+Running a group with no arguments (or `--help`) prints its tree with descriptions:
+
+```
+targ dev
+
+dev
+  format    Format source code
+  build     Build the binary
+  lint
+    fast    Quick lint checks
+    full    Comprehensive lint
+  deploy    Deploy to environment
+```
+
+Running `--help` on a target shows all aspects:
+
+```
+targ dev deploy --help
+
+deploy - Deploy to environment
+
+Source: dev/deploy.go:42
+
+Arguments:
+  --env       (required)  Target environment
+  --dry-run, -n           Preview mode
+  <services>              Services to deploy
+
+Execution:
+  Deps: build, lint-full
+  Cache: **/*.go
+  Retry: 3 (backoff: 1s × 2)
+```
 
