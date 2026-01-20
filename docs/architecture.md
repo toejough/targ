@@ -24,7 +24,7 @@ A target has four configurable aspects (**Anatomy**), and targ provides eight op
 | Discover  | [✓](#arguments)        | [✓](#execution)          | [✓](#hierarchy)          | [✓](#source)             |
 | Inspect   | [✓](#inspect)          | [✓](#inspect)            | [✓](#inspect)            | [✓](#inspect)            |
 | Modify    | Gap                    | Gap                      | Gap                      | Gap                      |
-| Specify   | [✓](#arguments)        | [✓](#execution)          | Gap                      | Gap                      |
+| Specify   | [✓](#arguments)        | [✓](#execution)          | [✓](#hierarchy)          | Gap                      |
 | Run       | Gap                    | Gap                      | Gap                      | Gap                      |
 | Create    | Gap                    | Gap                      | Gap                      | Gap                      |
 | Delete    | Gap                    | Gap                      | Gap                      | Gap                      |
@@ -262,6 +262,24 @@ Groups are non-executable (pure namespace). Functions are the only executable ta
 ### Discovery
 
 Hierarchy is discovered when groups are registered via `targ.Run()` in an init function. See [Source](#source).
+
+### Path Specification
+
+Stack-based traversal with glob support. Same syntax for all operations (run, inspect, modify, delete).
+
+```
+targ dev build test          # dev/build, dev/test
+targ dev lint fast full      # dev/lint/fast, dev/lint/full
+targ dev build ^ prod deploy # dev/build, then prod/deploy
+targ dev lint *              # all targets under dev/lint
+targ dev **                  # all targets under dev, recursively
+targ ** test                 # all targets named "test" anywhere
+```
+
+- Names push onto the stack (descend into groups, or select targets at current level)
+- `^` resets the stack to root
+- `*` matches any single level
+- `**` matches any depth (fish-style)
 
 ### Why explicit names?
 
