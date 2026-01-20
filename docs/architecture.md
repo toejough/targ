@@ -24,7 +24,7 @@ A target has four configurable aspects (**Anatomy**), and targ provides eight op
 | Discover  | [✓](#arguments)        | [✓](#execution)          | [✓](#hierarchy)          | [✓](#source)             |
 | Inspect   | [✓](#inspect)          | [✓](#inspect)            | [✓](#inspect)            | [✓](#inspect)            |
 | Modify    | Gap                    | Gap                      | Gap                      | Gap                      |
-| Specify   | [✓](#arguments)        | Gap                      | Gap                      | Gap                      |
+| Specify   | [✓](#arguments)        | [✓](#execution)          | Gap                      | Gap                      |
 | Run       | Gap                    | Gap                      | Gap                      | Gap                      |
 | Create    | Gap                    | Gap                      | Gap                      | Gap                      |
 | Delete    | Gap                    | Gap                      | Gap                      | Gap                      |
@@ -193,6 +193,42 @@ var build = targ.Targ(Build).Deps(format)
 var lintFast = targ.Targ(LintFast).ParallelDeps(format, build).Cache("**/*.go")
 var lintFull = targ.Targ(LintFull).Deps(lintFast)
 var deploy = targ.Targ(Deploy).Deps(build, lintFull)
+```
+
+### Runtime Overrides
+
+Users can override execution settings via CLI flags:
+
+```
+targ build --watch "**/*.go"
+targ build --cache "**/*.go,go.sum"
+targ build --timeout 5m
+targ build --retry 3 --backoff 1s,2
+targ build --no-cache
+```
+
+**Ownership model**:
+
+- **targ manages by default**: `--watch`, `--cache`, `--timeout`, `--retry`, `--backoff` are reserved flags
+- **Conflict = error**: If your args struct defines a field that conflicts with a targ-managed flag, targ errors
+- **targ.Disabled = you take over**: Disable targ's management, define the flag yourself, use targ APIs
+
+```go
+// Disable targ's --watch management
+var build = targ.Targ(Build).Watch(targ.Disabled)
+
+type BuildArgs struct {
+    Watch []string `targ:"flag,desc=Patterns to watch"`
+}
+
+func Build(ctx context.Context, args BuildArgs) error {
+    if len(args.Watch) > 0 {
+        return targ.WatchAndRun(args.Watch, func() error {
+            // build logic
+        })
+    }
+    // ...
+}
 ```
 
 ## Hierarchy
