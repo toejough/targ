@@ -102,9 +102,9 @@ Maps requirements to architecture. Coverage: Necessary (inherent), Needs design,
 | Subcommands     | Hierarchy - `targ.Group()`           | [Hierarchy](#hierarchy) |
 | Result caching  | Execution - `.Cache()`               | [Execution](#execution) |
 | Watch mode      | Execution - `.Watch()`               | [Execution](#execution) |
-| Retry + backoff | Execution - `.Retry()`, `.Backoff()` | [Execution](#execution) |
 | Repetition      | Execution - `.Times()`               | [Execution](#execution) |
-| Time-bounded    | Execution - `.For()`                 | [Execution](#execution) |
+| Time-bounded    | Execution - `.Timeout()`             | [Execution](#execution) |
+| Retry + backoff | Execution - `.Retry()`, `.Backoff()` | [Execution](#execution) |
 | Condition-based | Execution - `.While()`               | [Execution](#execution) |
 
 ### Model: Hierarchy
@@ -209,11 +209,11 @@ targ.Targ("cmd $arg ...")         // shell command (runs in calling shell)
     .DepMode(targ.Parallel)       // run deps in parallel
     .Cache(patterns...)           // skip if inputs unchanged
     .Watch(patterns...)           // file patterns that trigger re-run
-    .Retry(n)                     // retry on failure
-    .Backoff(initial, multiplier) // exponential delay between retries
-    .Times(n)                     // run N times
+    .Times(n)                     // run up to N times, stop on failure
+    .While(func() bool)           // run while predicate true, stop on failure
+    .Retry()                      // continue to next iteration on failure
+    .Backoff(initial, multiplier) // delay after failure before next iteration
     .Timeout(duration)            // cancel after duration
-    .While(func() bool)           // run while predicate true
     .Name(s)                      // override CLI name
     .Description(s)               // help text
 ```
@@ -281,15 +281,26 @@ Users can override execution settings via CLI flags:
 targ build --watch "**/*.go"
 targ build --cache "**/*.go,go.sum"
 targ build --timeout 5m
-targ build --retry 3 --backoff 1s,2
 targ build --no-cache
 targ build --deps lint,test
 targ build --deps lint,test --dep-mode parallel
+targ build --times 3
+targ build --times 3 --retry
+targ build --times 3 --retry --backoff 1s,2
+targ build --while "test -f .lock"
+targ build --while "pgrep server" --retry --backoff 1s,2
 ```
+
+**Repetition flags**:
+- `--times N` runs target up to N times, stops on failure
+- `--while "cmd"` runs target while shell command returns 0, stops on failure
+- `--retry` (bool) continues to next iteration on failure instead of stopping
+- `--backoff D,M` delays after failure before next iteration (exponential: D initial, M multiplier)
+- Combined `--times` and `--while`: stops at earliest condition
 
 **Ownership model**:
 
-- **targ manages by default**: `--watch`, `--cache`, `--timeout`, `--retry`, `--backoff`, `--deps`, `--dep-mode` are reserved flags
+- **targ manages by default**: `--watch`, `--cache`, `--timeout`, `--deps`, `--dep-mode`, `--times`, `--while`, `--retry`, `--backoff` are reserved flags
 - **Conflict = error**: If your args struct defines a field that conflicts with a targ-managed flag, targ errors
 - **targ.Disabled = you take over**: Disable targ's management, define the flag yourself, use targ APIs
 
