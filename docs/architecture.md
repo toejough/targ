@@ -30,14 +30,29 @@ A target has four configurable aspects (**Anatomy**), and targ provides eight op
 
 ### Constraints
 
-Cross-cutting concerns that apply to all operations:
+Cross-cutting concerns that apply to all operations.
 
-| Constraint            | Status |
-| --------------------- | ------ |
-| Invariants maintained | Gap    |
-| Reversible operations | Gap    |
-| Minimal changes       | Gap    |
-| Fail clearly          | Gap    |
+**Invariants** - What must hold true:
+
+| Property            | Create              | Sync                              |
+| ------------------- | ------------------- | --------------------------------- |
+| Existing signatures | Unaffected          | Only imported targets affected    |
+| Help text refs      | Unaffected          | Remain valid                      |
+| CLI invocation      | Unaffected          | Only imported targets affected    |
+| Dependencies        | Unaffected          | Remain valid                      |
+| Direct call sites   | Unaffected          | Remain valid                      |
+| Behavior            | Unaffected          | Only imported targets affected    |
+
+Create with `--deps` validates that referenced targets exist.
+Sync errors on naming conflicts with existing hierarchy.
+
+**Reversible** - All operations reversible through the command surface:
+- Create → delete generated code
+- Sync → remove import and registrations
+
+**Minimal changes** - Prefer minimal code changes; add to existing file rather than creating new ones.
+
+**Fail clearly** - If invariants cannot be maintained, fail with a clear error message.
 
 ### Global Flags
 
@@ -129,12 +144,12 @@ Maps requirements to architecture. Coverage: Necessary (inherent), Needs design,
 
 ### Constraints
 
-| Requirement           | Architecture | Coverage     |
-| --------------------- | ------------ | ------------ |
-| Invariants maintained | Constraints  | Needs design |
-| Reversible operations | Constraints  | Needs design |
-| Minimal changes       | Constraints  | Needs design |
-| Fail clearly          | Constraints  | Needs design |
+| Requirement           | Architecture | Coverage                    |
+| --------------------- | ------------ | --------------------------- |
+| Invariants maintained | Constraints  | [Constraints](#constraints) |
+| Reversible operations | Constraints  | [Constraints](#constraints) |
+| Minimal changes       | Constraints  | [Constraints](#constraints) |
+| Fail clearly          | Constraints  | [Constraints](#constraints) |
 
 ---
 
