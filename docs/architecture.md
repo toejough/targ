@@ -527,13 +527,12 @@ Tab completion for targets, flags, and enum values.
 
 **Setup**:
 ```bash
-# Bash
+# Auto-detect from $SHELL (recommended)
+eval "$(targ --completion)"
+
+# Or specify explicitly
 eval "$(targ --completion bash)"
-
-# Zsh
 eval "$(targ --completion zsh)"
-
-# Fish
 targ --completion fish | source
 ```
 
