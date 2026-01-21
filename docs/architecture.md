@@ -26,7 +26,7 @@ A target has four configurable aspects (**Anatomy**), and targ provides eight op
 | Modify    | Gap                    | Gap                      | Gap                      | Gap                      |
 | Specify   | [✓](#arguments)        | [✓](#execution)          | [✓](#hierarchy)          | [✓](#source)             |
 | Run       | [✓](#run)              | [✓](#run)                | [✓](#run)                | [✓](#source)             |
-| Create    | Gap                    | Gap                      | Gap                      | Gap                      |
+| Create    | [✓](#create)           | [✓](#create)             | [✓](#create)             | [✓](#create)             |
 | Delete    | Gap                    | Gap                      | Gap                      | Gap                      |
 | Sync      | Gap                    | Gap                      | Gap                      | Gap                      |
 
@@ -50,6 +50,7 @@ Flags on `targ` itself (must appear before target path):
 | --parallel   | -p    | Run multiple targets in parallel |
 | --completion |       | Print shell completion script    |
 | --source     | -s    | Specify source (local or remote) |
+| --create     | -c    | Scaffold new target from command |
 
 `--source` infers local vs remote from format:
 - `./path` or `/path` → local file
@@ -182,8 +183,8 @@ How the target runs. Defined by the Target Builder.
 
 ```go
 targ.Targ(fn)                     // wrap a function
-    .Deps(targets...)             // serial dependencies
-    .ParallelDeps(targets...)     // parallel dependencies
+    .Deps(targets...)             // dependencies (serial by default)
+    .DepMode(targ.Parallel)       // run deps in parallel
     .Cache(patterns...)           // skip if inputs unchanged
     .Watch(patterns...)           // file patterns that trigger re-run
     .Retry(n)                     // retry on failure
@@ -195,7 +196,7 @@ targ.Targ(fn)                     // wrap a function
     .Description(s)               // help text
 ```
 
-`.Deps()` and `.ParallelDeps()` accept both raw functions and `*Target`.
+`.Deps()` accepts raw functions and `*Target`. `.DepMode()` takes `targ.Serial` (default) or `targ.Parallel`.
 
 ### Discovery
 
@@ -206,7 +207,7 @@ Execution metadata is discovered when targets are registered via `targ.Run()` in
 ```go
 var format = targ.Targ(Format)
 var build = targ.Targ(Build).Deps(format)
-var lintFast = targ.Targ(LintFast).ParallelDeps(format, build).Cache("**/*.go")
+var lintFast = targ.Targ(LintFast).Deps(format, build).DepMode(targ.Parallel).Cache("**/*.go")
 var lintFull = targ.Targ(LintFull).Deps(lintFast)
 var deploy = targ.Targ(Deploy).Deps(build, lintFull)
 ```
@@ -221,11 +222,13 @@ targ build --cache "**/*.go,go.sum"
 targ build --timeout 5m
 targ build --retry 3 --backoff 1s,2
 targ build --no-cache
+targ build --deps lint,test
+targ build --deps lint,test --dep-mode parallel
 ```
 
 **Ownership model**:
 
-- **targ manages by default**: `--watch`, `--cache`, `--timeout`, `--retry`, `--backoff` are reserved flags
+- **targ manages by default**: `--watch`, `--cache`, `--timeout`, `--retry`, `--backoff`, `--deps`, `--dep-mode` are reserved flags
 - **Conflict = error**: If your args struct defines a field that conflicts with a targ-managed flag, targ errors
 - **targ.Disabled = you take over**: Disable targ's management, define the flag yourself, use targ APIs
 
@@ -447,4 +450,58 @@ Resolve target path using stack traversal (see [Path Specification](#path-specif
 - Group with no target → show tree (see [Inspect](#inspect))
 - Target found → execute
 - No match → error with suggestions
+
+---
+
+# Create
+
+Scaffold new targets from shell commands.
+
+## Source
+
+Created in discovered targ file, or `./targs.go` if none exists.
+
+## Hierarchy
+
+Path before command becomes the target location:
+
+```
+targ --create lint "golangci-lint run"           # creates: lint
+targ --create dev lint fast "golangci-lint run"  # creates: dev/lint/fast
+```
+
+Creates groups as needed.
+
+## Arguments
+
+Inferred from `$var` placeholders in the command:
+
+```
+targ --create deploy "kubectl apply -n $namespace -f $file"
+```
+
+Generates:
+```go
+type DeployArgs struct {
+    Namespace string `targ:"flag,short=n,desc=namespace"`
+    File      string `targ:"flag,short=f,desc=file"`
+}
+```
+
+- All inferred args are `string` type, flags with `--name -n` form
+- Short flag from first letter; collisions skip short for later args
+- Edit generated code to change types, add descriptions, mark required
+
+## Execution
+
+Execution settings via flags:
+
+```
+targ --create --cache "**/*.go" lint "golangci-lint run"
+targ --create --deps build,test deploy "kubectl apply"
+targ --create --deps build,test --dep-mode parallel deploy "kubectl apply"
+targ --create --retry 3 --backoff 1s,2 flaky "curl ..."
+targ --create --timeout 5m slow "long-running-cmd"
+targ --create --watch "**/*.go" dev "go build"
+```
 
