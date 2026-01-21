@@ -577,7 +577,7 @@ type targRunner struct {
 	errOut            io.Writer
 	startDir          string
 	generatedWrappers []string
-	noCache           bool
+	noBinaryCache     bool
 }
 
 func (r *targRunner) buildAndRun(
@@ -786,7 +786,7 @@ func (r *targRunner) handleIsolatedModule(infos []buildtool.PackageInfo) int {
 	targBinName := extractBinName(r.binArg)
 
 	// Try cached binary first
-	if !r.noCache {
+	if !r.noBinaryCache {
 		if code, ran := r.tryRunCached(binaryPath, targBinName); ran {
 			return code
 		}
@@ -803,7 +803,7 @@ func (r *targRunner) handleMultiModule(
 	registry, err := buildMultiModuleBinaries(
 		moduleGroups,
 		r.startDir,
-		r.noCache,
+		r.noBinaryCache,
 		r.errOut,
 	)
 	if err != nil {
@@ -889,7 +889,7 @@ func (r *targRunner) handleSingleModule(infos []buildtool.PackageInfo) int {
 	targBinName := extractBinName(r.binArg)
 
 	// Try cached binary first
-	if !r.noCache {
+	if !r.noBinaryCache {
 		if code, ran := r.tryRunCached(binaryPath, targBinName); ran {
 			return code
 		}
@@ -1019,7 +1019,7 @@ func (r *targRunner) run() int {
 	}
 
 	helpRequested, helpTargets := parseHelpRequest(r.args)
-	r.noCache, r.args = extractTargFlags(r.args)
+	r.noBinaryCache, r.args = extractTargFlags(r.args)
 
 	var err error
 
@@ -1219,7 +1219,7 @@ func buildModuleBinary(
 	mt moduleTargets,
 	startDir string,
 	dep targDependency,
-	noCache bool,
+	noBinaryCache bool,
 	errOut io.Writer,
 ) (moduleRegistry, error) {
 	reg := moduleRegistry{
@@ -1249,7 +1249,7 @@ func buildModuleBinary(
 
 	reg.BinaryPath = binaryPath
 
-	if !noCache {
+	if !noBinaryCache {
 		if cmds, ok := tryCachedBinary(binaryPath); ok {
 			reg.Commands = cmds
 			return reg, nil
@@ -1277,7 +1277,7 @@ func buildModuleBinary(
 func buildMultiModuleBinaries(
 	moduleGroups []moduleTargets,
 	startDir string,
-	noCache bool,
+	noBinaryCache bool,
 	errOut io.Writer,
 ) ([]moduleRegistry, error) {
 	registry := make([]moduleRegistry, 0, len(moduleGroups))
@@ -1285,7 +1285,7 @@ func buildMultiModuleBinaries(
 	dep := resolveTargDependency()
 
 	for _, mt := range moduleGroups {
-		reg, err := buildModuleBinary(mt, startDir, dep, noCache, errOut)
+		reg, err := buildModuleBinary(mt, startDir, dep, noBinaryCache, errOut)
 		if err != nil {
 			return nil, fmt.Errorf("building module %s: %w", mt.ModulePath, err)
 		}
@@ -1809,21 +1809,29 @@ func extractBinName(binArg string) string {
 	return binArg
 }
 
-// extractTargFlags extracts targ-specific flags (--no-cache) from args.
+// extractTargFlags extracts targ-specific flags (--no-binary-cache) from args.
 // Returns the flag value and remaining args to pass to the binary.
-func extractTargFlags(args []string) (noCache bool, remaining []string) {
+func extractTargFlags(args []string) (noBinaryCache bool, remaining []string) {
 	remaining = make([]string, 0, len(args))
 
 	for _, arg := range args {
 		switch arg {
+		case "--no-binary-cache":
+			noBinaryCache = true
 		case "--no-cache":
-			noCache = true
+			// Deprecated: use --no-binary-cache instead
+			fmt.Fprintln(
+				os.Stderr,
+				"warning: --no-cache is deprecated, use --no-binary-cache instead",
+			)
+
+			noBinaryCache = true
 		default:
 			remaining = append(remaining, arg)
 		}
 	}
 
-	return noCache, remaining
+	return noBinaryCache, remaining
 }
 
 // findCommandBinary finds the binary path for a command in the registry.
@@ -2228,7 +2236,12 @@ func printBuildToolUsage(out io.Writer) {
 	_, _ = fmt.Fprintln(out, "Usage: targ [FLAGS...] COMMAND [COMMAND_ARGS...]")
 	_, _ = fmt.Fprintln(out, "")
 	_, _ = fmt.Fprintln(out, "Flags:")
-	_, _ = fmt.Fprintf(out, "    %-28s %s\n", "--no-cache", "disable cached build tool binaries")
+	_, _ = fmt.Fprintf(
+		out,
+		"    %-28s %s\n",
+		"--no-binary-cache",
+		"disable cached build tool binaries",
+	)
 	_, _ = fmt.Fprintf(
 		out,
 		"    %-28s %s\n",
@@ -2335,7 +2348,7 @@ func printNoTargetsCompletion(args []string) {
 	allFlags := []string{
 		"--help",
 		"--timeout",
-		"--no-cache",
+		"--no-binary-cache",
 		"--completion",
 	}
 

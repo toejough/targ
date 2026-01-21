@@ -1012,9 +1012,10 @@ func suggestMatchingFlags(flags []string, prefix string, seen map[string]bool) {
 // targBooleanFlags returns flags that don't take a value.
 func targBooleanFlags() map[string]bool {
 	return map[string]bool{
-		"--no-cache": true,
-		"--help":     true,
-		"-h":         true,
+		"--no-binary-cache": true,
+		"--no-cache":        true, // deprecated alias
+		"--help":            true,
+		"-h":                true,
 	}
 }
 
@@ -1040,7 +1041,7 @@ func targGlobalFlags() []string {
 
 // targRootOnlyFlags returns flags only valid at root level (before any command).
 func targRootOnlyFlags() []string {
-	return []string{"--no-cache", "--completion"}
+	return []string{"--no-binary-cache", "--completion"}
 }
 
 func tokenizeCommandLine(commandLine string) ([]string, bool) {
