@@ -140,7 +140,7 @@ Maps requirements to architecture. Coverage: Necessary (inherent), Needs design,
 | Inspect: Where       | Inspect × Source     | [Inspect](#inspect) |
 | Inspect: Tree        | Inspect × Hierarchy  | [Inspect](#inspect) |
 | Inspect: Deps        | Inspect × Execution  | [Inspect](#inspect) |
-| Shell Integration    | Run × Arguments      | Needs design |
+| Shell Integration    | Run × Arguments      | [Run](#shell-integration) |
 
 ### Constraints
 
@@ -520,6 +520,33 @@ Resolve target path using stack traversal (see [Path Specification](#path-specif
 - Group with no target → show tree (see [Inspect](#inspect))
 - Target found → execute
 - No match → error with suggestions
+
+## Shell Integration
+
+Tab completion for targets, flags, and enum values.
+
+**Setup**:
+```bash
+# Bash
+eval "$(targ --completion bash)"
+
+# Zsh
+eval "$(targ --completion zsh)"
+
+# Fish
+targ --completion fish | source
+```
+
+**How it works**:
+1. Completion script calls `targ __complete "$request"` on tab
+2. targ parses the current command line and outputs matching completions
+
+**Completions include**:
+- Target and subcommand names
+- Flags (`--long` and `-short` forms)
+- Enum values for flags and positionals
+- `^` for root reset
+- Sibling commands at current level
 
 ---
 
