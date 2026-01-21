@@ -115,7 +115,7 @@ Maps requirements to architecture. Coverage: Necessary (inherent), Needs design,
 | Path addressing                  | Specify × Hierarchy        | [Hierarchy](#hierarchy) |
 | Simplest possible definition     | Source - `//go:build targ` | [Source](#source)       |
 | Scales to complex hierarchies    | Hierarchy - nested Groups  | [Hierarchy](#hierarchy) |
-| Easy CLI binary transition       | Run × Hierarchy            | Needs design            |
+| Easy CLI binary transition       | Source                     | [Source](#cli-binary-transition) |
 
 ### Model: Sources
 
@@ -397,6 +397,16 @@ targ -s ./dev/targs.go build         # short form
 1. Search up from targ file toward repo root
 2. Use first `go.mod` found
 3. No `go.mod` → create temporary module in temp build dir
+
+### CLI Binary Transition
+
+To convert targ targets to a standalone CLI binary:
+
+1. Remove `//go:build targ`
+2. Change `package dev` to `package main`
+3. Rename `func init()` to `func main()`
+
+The `targ.Run()` call becomes the binary's entry point.
 
 ---
 
