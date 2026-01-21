@@ -16,6 +16,19 @@ import (
 	"unicode"
 )
 
+// GroupLike is implemented by targ.Group for discovery integration.
+type GroupLike interface {
+	GetName() string
+	GetMembers() []any
+}
+
+// TargetLike is implemented by targ.Target for discovery integration.
+type TargetLike interface {
+	Fn() any
+	GetName() string
+	GetDescription() string
+}
+
 // AppendBuiltinExamples adds built-in examples after custom examples.
 func AppendBuiltinExamples(custom ...Example) []Example {
 	return append(custom, BuiltinExamples()...)
@@ -81,6 +94,7 @@ var (
 	errTagOptsNonErrorType       = errors.New("TagOptions method returned non-error type")
 	errTagOptsWrongType          = errors.New("TagOptions method returned wrong type")
 	errTagOptsWrongValueCount    = errors.New("TagOptions method returned wrong number of values")
+	errTargetInvalidFnType       = errors.New("Target.Fn() must be func or string")
 	errUnableToDetermineFuncName = errors.New("unable to determine function name")
 	errUnsupportedFieldType      = errors.New("unsupported subcommand field type")
 )
@@ -1399,6 +1413,28 @@ func parseFunc(v reflect.Value) (*commandNode, error) {
 	}, nil
 }
 
+// parseGroupLike creates a commandNode from a GroupLike (targ.Group).
+func parseGroupLike(group GroupLike) (*commandNode, error) {
+	node := &commandNode{
+		Name:        group.GetName(),
+		Subcommands: make(map[string]*commandNode),
+	}
+
+	members := group.GetMembers()
+
+	for idx, member := range members {
+		subNode, err := parseTarget(member) // Recursive
+		if err != nil {
+			return nil, fmt.Errorf("group member %d: %w", idx, err)
+		}
+
+		subNode.Parent = node
+		node.Subcommands[subNode.Name] = subNode
+	}
+
+	return node, nil
+}
+
 func parseStruct(t any) (*commandNode, error) {
 	v, typ, err := resolveStructValue(t)
 	if err != nil {
@@ -1488,12 +1524,80 @@ func parseTarget(t any) (*commandNode, error) {
 		return nil, errNilTarget
 	}
 
+	// Check for TargetLike (targ.Target)
+	if tl, ok := t.(TargetLike); ok {
+		return parseTargetLike(tl)
+	}
+
+	// Check for GroupLike (targ.Group)
+	if gl, ok := t.(GroupLike); ok {
+		return parseGroupLike(gl)
+	}
+
 	v := reflect.ValueOf(t)
 	if v.Kind() == reflect.Func {
 		return parseFunc(v)
 	}
 
 	return parseStruct(t)
+}
+
+// parseTargetLike creates a commandNode from a TargetLike (targ.Target).
+func parseTargetLike(target TargetLike) (*commandNode, error) {
+	fn := target.Fn()
+	if fn == nil {
+		return nil, errNilTarget
+	}
+
+	// Handle string (shell command) vs function
+	if cmd, ok := fn.(string); ok {
+		return parseTargetLikeString(target, cmd)
+	}
+
+	return parseTargetLikeFunc(target, fn)
+}
+
+// parseTargetLikeFunc creates a commandNode for a function target.
+func parseTargetLikeFunc(target TargetLike, fn any) (*commandNode, error) {
+	fv := reflect.ValueOf(fn)
+	if fv.Kind() != reflect.Func {
+		return nil, errTargetInvalidFnType
+	}
+
+	node, err := parseFunc(fv)
+	if err != nil {
+		return nil, err
+	}
+
+	// Override with Target metadata if set
+	if name := target.GetName(); name != "" {
+		node.Name = name
+	}
+
+	if desc := target.GetDescription(); desc != "" {
+		node.Description = desc
+	}
+
+	return node, nil
+}
+
+// parseTargetLikeString creates a commandNode for a shell command target.
+func parseTargetLikeString(target TargetLike, cmd string) (*commandNode, error) {
+	node := &commandNode{
+		Name:        target.GetName(),
+		Description: target.GetDescription(),
+		Subcommands: make(map[string]*commandNode),
+	}
+
+	// If no name set, use the first word of the command
+	if node.Name == "" && cmd != "" {
+		parts := strings.Fields(cmd)
+		if len(parts) > 0 {
+			node.Name = parts[0]
+		}
+	}
+
+	return node, nil
 }
 
 // positionalName returns the display name for a positional argument.

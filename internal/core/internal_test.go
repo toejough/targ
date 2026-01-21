@@ -1977,6 +1977,75 @@ func TestParseNilPointer(t *testing.T) {
 	}
 }
 
+func TestParseTarget_GroupLike(t *testing.T) {
+	g := NewWithT(t)
+
+	target1 := &mockTarget{
+		fn:   func(_ context.Context) error { return nil },
+		name: "build",
+	}
+	target2 := &mockTarget{
+		fn:   func(_ context.Context) error { return nil },
+		name: "test",
+	}
+
+	group := &mockGroup{
+		name:    "dev",
+		members: []any{target1, target2},
+	}
+
+	node, err := parseTarget(group)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(node).ToNot(BeNil())
+
+	if node == nil {
+		t.Fatal("node is nil")
+	}
+
+	g.Expect(node.Name).To(Equal("dev"))
+	g.Expect(node.Subcommands).To(HaveLen(2))
+	g.Expect(node.Subcommands["build"]).ToNot(BeNil())
+	g.Expect(node.Subcommands["test"]).ToNot(BeNil())
+}
+
+func TestParseTarget_GroupLike_Nested(t *testing.T) {
+	g := NewWithT(t)
+
+	innerTarget := &mockTarget{
+		fn:   func(_ context.Context) error { return nil },
+		name: "fast",
+	}
+	innerGroup := &mockGroup{
+		name:    "lint",
+		members: []any{innerTarget},
+	}
+	outerGroup := &mockGroup{
+		name:    "dev",
+		members: []any{innerGroup},
+	}
+
+	node, err := parseTarget(outerGroup)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(node).ToNot(BeNil())
+
+	if node == nil {
+		t.Fatal("node is nil")
+	}
+
+	g.Expect(node.Name).To(Equal("dev"))
+	g.Expect(node.Subcommands).To(HaveLen(1))
+
+	lintNode := node.Subcommands["lint"]
+	g.Expect(lintNode).ToNot(BeNil())
+
+	if lintNode == nil {
+		t.Fatal("lintNode is nil")
+	}
+
+	g.Expect(lintNode.Subcommands).To(HaveLen(1))
+	g.Expect(lintNode.Subcommands["fast"]).ToNot(BeNil())
+}
+
 func TestParseTarget_InvalidFunctionParam(t *testing.T) {
 	g := NewWithT(t)
 
@@ -2002,6 +2071,117 @@ func TestParseTarget_InvalidFunctionSignature(t *testing.T) {
 	_, err := parseTarget(InvalidSigFunc)
 	g.Expect(err).To(HaveOccurred())
 	g.Expect(err.Error()).To(ContainSubstring("niladic or accept context"))
+}
+
+func TestParseTarget_TargetLike_InvalidFnType(t *testing.T) {
+	g := NewWithT(t)
+
+	target := &mockTarget{
+		fn:   42, // Not a func or string
+		name: "broken",
+	}
+
+	_, err := parseTarget(target)
+	g.Expect(err).To(HaveOccurred())
+}
+
+func TestParseTarget_TargetLike_NilFn(t *testing.T) {
+	g := NewWithT(t)
+
+	target := &mockTarget{
+		fn:   nil,
+		name: "broken",
+	}
+
+	_, err := parseTarget(target)
+	g.Expect(err).To(HaveOccurred())
+}
+
+func TestParseTarget_TargetLike_StringCommand(t *testing.T) {
+	g := NewWithT(t)
+
+	target := &mockTarget{
+		fn:          "golangci-lint run ./...",
+		name:        "lint",
+		description: "Run the linter",
+	}
+
+	node, err := parseTarget(target)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(node).ToNot(BeNil())
+
+	if node == nil {
+		t.Fatal("node is nil")
+	}
+
+	g.Expect(node.Name).To(Equal("lint"))
+	g.Expect(node.Description).To(Equal("Run the linter"))
+}
+
+func TestParseTarget_TargetLike_StringCommandNoName(t *testing.T) {
+	g := NewWithT(t)
+
+	target := &mockTarget{
+		fn:   "golangci-lint run ./...",
+		name: "", // No name - should use first word
+	}
+
+	node, err := parseTarget(target)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(node).ToNot(BeNil())
+
+	if node == nil {
+		t.Fatal("node is nil")
+	}
+
+	g.Expect(node.Name).To(Equal("golangci-lint"))
+}
+
+func TestParseTarget_TargetLike_WithFunction(t *testing.T) {
+	g := NewWithT(t)
+
+	called := false
+	target := &mockTarget{
+		fn:          func(_ context.Context) error { called = true; return nil },
+		name:        "my-target",
+		description: "My test target",
+	}
+
+	node, err := parseTarget(target)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(node).ToNot(BeNil())
+
+	if node == nil {
+		t.Fatal("node is nil")
+	}
+
+	g.Expect(node.Name).To(Equal("my-target"))
+	g.Expect(node.Description).To(Equal("My test target"))
+	g.Expect(node.Func.IsValid()).To(BeTrue())
+
+	// Verify the function is executable
+	_ = called
+}
+
+func TestParseTarget_TargetLike_WithoutName(t *testing.T) {
+	g := NewWithT(t)
+
+	target := &mockTarget{
+		fn:          func(_ context.Context) error { return nil },
+		name:        "", // No name set
+		description: "",
+	}
+
+	node, err := parseTarget(target)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(node).ToNot(BeNil())
+
+	if node == nil {
+		t.Fatal("node is nil")
+	}
+
+	// Name should be derived from function name
+	g.Expect(node.Name).ToNot(BeEmpty())
 }
 
 func TestParseTarget_TooManyReturns(t *testing.T) {
@@ -3333,6 +3513,31 @@ type helpTestCmdWithUsage struct {
 }
 
 func (h *helpTestCmdWithUsage) Run() {}
+
+// mockGroup implements GroupLike for testing
+type mockGroup struct {
+	name    string
+	members []any
+}
+
+func (m *mockGroup) GetMembers() []any { return m.members }
+
+func (m *mockGroup) GetName() string { return m.name }
+
+// --- TargetLike and GroupLike parsing tests ---
+
+// mockTarget implements TargetLike for testing
+type mockTarget struct {
+	fn          any
+	name        string
+	description string
+}
+
+func (m *mockTarget) Fn() any { return m.fn }
+
+func (m *mockTarget) GetDescription() string { return m.description }
+
+func (m *mockTarget) GetName() string { return m.name }
 
 // --- positionalIndex tests ---
 
