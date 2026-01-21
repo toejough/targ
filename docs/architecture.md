@@ -131,7 +131,7 @@ Maps requirements to architecture. Coverage: Necessary (inherent), Needs design,
 | Create (scaffold)    | Create × Source      | [Create](#create) |
 | Invoke: CLI          | Run × all aspects    | [Run](#run) |
 | Invoke: modifiers    | Run × Execution      | [Run](#run) |
-| Invoke: programmatic | Run × all aspects    | Needs design |
+| Invoke: programmatic | Run × all aspects    | [Execution](#programmatic-invocation) |
 | Transform: Rename    | Edit source          | Necessary    |
 | Transform: Relocate  | Edit source          | Necessary    |
 | Transform: Delete    | Edit source          | Necessary    |
@@ -247,6 +247,19 @@ var deploy = targ.Targ(Deploy).Deps(build)
 var lint = targ.Targ("golangci-lint run $path").Deps(format).Cache("**/*.go")
 var test = targ.Targ("go test $pkg").Deps(build)
 ```
+
+### Programmatic Invocation
+
+Call a target from Go code with full execution config (deps, cache, retry, etc.):
+
+```go
+err := build.Run(ctx)
+err := deploy.Run(ctx, DeployArgs{Env: "prod"})
+```
+
+Calling the raw function (`Build(ctx)`) skips all execution config. Use `.Run()` to invoke the full target.
+
+Dependencies run exactly once per execution context. If multiple targets share a dep, it runs once.
 
 ### Runtime Overrides
 
