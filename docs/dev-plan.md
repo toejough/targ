@@ -33,24 +33,113 @@ Rebuild targ from struct-based model to function-based Target Builder pattern fo
 
 ---
 
-## Phase 1: --create Replaces --init/--alias/--move
+## Phase 1: Target Builder + Group (Minimal for --create)
 
-Implement --create first, then remove the old flags. Migrate dev/targets.go.
+Create Target and Group types that can be discovered and executed. This enables Phase 2 (--create).
 
-### 1.1 Implement --create
+### 1.1 Create Target Type
+
+**New file**: `target.go`
+
+```go
+type Target struct {
+    fn          any          // func or string
+    name        string
+    description string
+}
+
+func Targ(fn any) *Target
+func (t *Target) Name(s string) *Target
+func (t *Target) Description(s string) *Target
+```
+
+Start minimal - just enough for `targ.Targ("cmd")` to work. Add execution features (deps, cache, etc.) in later phases.
+
+**Properties**:
+```go
+// Targ accepts function
+rapid.Check(t, func(t *rapid.T) {
+    target := Targ(func() {})
+    gomega.Expect(target).NotTo(gomega.BeNil())
+    gomega.Expect(target.fn).NotTo(gomega.BeNil())
+})
+
+// Targ accepts string
+rapid.Check(t, func(t *rapid.T) {
+    cmd := rapid.StringMatching(`[a-z]+ [a-z]+`).Draw(t, "cmd")
+    target := Targ(cmd)
+    gomega.Expect(target.fn).To(gomega.Equal(cmd))
+})
+
+// Builder chains preserve settings
+rapid.Check(t, func(t *rapid.T) {
+    name := rapid.StringMatching(`[a-z]+`).Draw(t, "name")
+    desc := rapid.StringMatching(`[a-zA-Z ]+`).Draw(t, "desc")
+
+    target := Targ(func() {}).Name(name).Description(desc)
+    gomega.Expect(target.name).To(gomega.Equal(name))
+    gomega.Expect(target.description).To(gomega.Equal(desc))
+})
+```
+
+### 1.2 Create Group Type
+
+**New file**: `group.go`
+
+```go
+type Group struct {
+    name    string
+    members []any // *Target or *Group
+}
+
+func Group(name string, members ...any) *Group
+```
+
+**Properties**:
+```go
+// Group accepts Targets and nested Groups
+rapid.Check(t, func(t *rapid.T) {
+    t1 := Targ(func() {})
+    t2 := Targ(func() {})
+    g1 := Group("inner", t1)
+    g2 := Group("outer", g1, t2)
+
+    gomega.Expect(len(g2.members)).To(gomega.Equal(2))
+})
+```
+
+### 1.3 Integrate Target/Group with Discovery
+
+**Files**: `internal/core/command.go` - extend `parseTarget`
+
+Extend to handle `*Target` and `*Group` in addition to existing structs.
+
+**Properties**:
+- `parseTarget(*Target)` creates commandNode
+- `parseTarget(*Group)` creates commandNode with children
+- String targets (from `Targ("cmd")`) execute via shell
+- Help output shows name and description
+
+**Functional check**: Can register and run a simple `targ.Targ(func() {})` target
+
+---
+
+## Phase 2: --create + Remove Old Flags
+
+Now that Target exists, implement --create and remove obsolete flags.
+
+### 2.1 Implement --create
 
 **New**: `internal/create/create.go`
 
 ```
 targ --create lint "golangci-lint run"
 targ --create dev lint fast "golangci-lint run"  # creates dev/lint/fast
-targ --create --deps build --cache "**/*.go" deploy "kubectl apply -n $ns"
 ```
 
 **Behavior**:
 - Creates groups as needed for nested paths
-- Infers args from $var placeholders (all strings, --name/-n form)
-- Applies execution flags to generated code
+- Generates `targ.Targ("cmd")` code
 - Appends to existing targ file (or creates ./targs.go)
 
 **Properties**:
@@ -66,20 +155,11 @@ rapid.Check(t, func(t *rapid.T) {
     args = append(args, "echo hello")
 
     result := executeCreate(args)
-    // verify generated code has nested structure
-})
-
-// $var becomes flags
-rapid.Check(t, func(t *rapid.T) {
-    varName := rapid.StringMatching(`[a-z]+`).Draw(t, "var")
-    cmd := fmt.Sprintf("echo $%s", varName)
-
-    result := executeCreate([]string{"targ", "--create", "test", cmd})
-    gomega.Expect(result.code).To(gomega.ContainSubstring(fmt.Sprintf("--%s", varName)))
+    // verify generated code has targ.Targ() and targ.Group()
 })
 ```
 
-### 1.2 Remove --init, --alias, --move
+### 2.2 Remove --init, --alias, --move
 
 **Files**: `cmd/targ/main.go`
 
@@ -92,7 +172,7 @@ Remove:
 - `targ build` still works
 - Old flags error with "use --create instead"
 
-### 1.3 Rename --no-cache to --no-binary-cache
+### 2.3 Rename --no-cache to --no-binary-cache
 
 **Files**: `cmd/targ/main.go` - `extractTargFlags`
 
@@ -100,111 +180,13 @@ Remove:
 - `--no-binary-cache` disables binary caching
 - `--no-cache` still works (deprecation warning)
 
-### 1.4 Remove --keep
+### 2.4 Remove --keep
 
 **Files**: `cmd/targ/main.go` - Remove `keepBootstrap` handling
 
-### 1.5 Migrate dev/targets.go
-
-Convert any shell-based targets in dev/targets.go to use new patterns.
-
-**Verification**: Run `targ check` (or equivalent) to confirm targets work
-
 ---
 
-## Phase 2: Target Builder + Group + Discovery
-
-Implement Target builder and Group, integrate with discovery, migrate dev/targets.go.
-
-### 2.1 Create Target Type
-
-**New file**: `target.go`
-
-```go
-type Target struct {
-    fn          any          // func or string
-    deps        []*Target
-    depMode     DepMode
-    cache       []string
-    watch       []string
-    times       int
-    whileFn     func() bool
-    retry       bool
-    backoff     BackoffConfig
-    timeout     time.Duration
-    name        string
-    description string
-}
-
-func Targ(fn any) *Target
-func (t *Target) Deps(targets ...*Target) *Target
-func (t *Target) ParallelDeps(targets ...*Target) *Target
-func (t *Target) Cache(patterns ...string) *Target
-func (t *Target) Watch(patterns ...string) *Target
-func (t *Target) Times(n int) *Target
-func (t *Target) While(fn func() bool) *Target
-func (t *Target) Retry() *Target
-func (t *Target) Backoff(initial time.Duration, multiplier float64) *Target
-func (t *Target) Timeout(d time.Duration) *Target
-func (t *Target) Name(s string) *Target
-func (t *Target) Description(s string) *Target
-func (t *Target) Run(ctx context.Context, args ...any) error
-```
-
-**Properties**:
-```go
-// Builder chains preserve all settings
-rapid.Check(t, func(t *rapid.T) {
-    nDeps := rapid.IntRange(0, 5).Draw(t, "nDeps")
-    timeout := rapid.IntRange(0, 300).Draw(t, "timeout")
-
-    target := Targ(noopFn).
-        Deps(makeDeps(nDeps)...).
-        Timeout(time.Duration(timeout) * time.Second)
-
-    gomega.Expect(len(target.deps)).To(gomega.Equal(nDeps))
-    gomega.Expect(target.timeout).To(gomega.Equal(time.Duration(timeout) * time.Second))
-})
-```
-
-### 2.2 Create Group Type
-
-**New file**: `group.go`
-
-```go
-type Group struct {
-    name    string
-    members []any // *Target or *Group
-}
-
-func Group(name string, members ...any) *Group
-```
-
-**Properties**:
-```go
-// Recursive nesting works
-rapid.Check(t, func(t *rapid.T) {
-    depth := rapid.IntRange(1, 5).Draw(t, "depth")
-    g := Targ(noopFn)
-    for i := 0; i < depth; i++ {
-        g = Group(fmt.Sprintf("g%d", i), g)
-    }
-    // walk and verify structure
-})
-```
-
-### 2.3 Integrate Target/Group with Discovery
-
-**Files**: `internal/core/command.go` - `parseTarget`
-
-Extend to handle `*Target` and `*Group` in addition to structs.
-
-**Properties**:
-- `parseTarget(*Target)` creates commandNode
-- `parseTarget(*Group)` creates commandNode with children
-- Help output correct for both
-
-### 2.4 Migrate dev/targets.go to Target Builder
+## Phase 3: Migrate dev/targets.go to Target Builder
 
 Convert existing struct-based targets to function + Target builder pattern:
 
@@ -226,11 +208,22 @@ var coverage = targ.Targ(Coverage).Description("Display coverage report")
 
 ---
 
-## Phase 3: Execution Features (Deps, Cache, Watch)
+## Phase 4: Execution Features (Deps, Cache, Watch)
 
-Implement core execution features. Migrate dev/targets.go to use them.
+Implement core execution features. Add builder methods to Target.
 
-### 3.1 Deps Execution
+### 4.1 Add Execution Builder Methods
+
+Extend `target.go`:
+
+```go
+func (t *Target) Deps(targets ...*Target) *Target
+func (t *Target) ParallelDeps(targets ...*Target) *Target
+func (t *Target) Cache(patterns ...string) *Target
+func (t *Target) Watch(patterns ...string) *Target
+```
+
+### 4.2 Deps Execution
 
 Reuse existing `internal/core/deps.go` dep tracking logic.
 
@@ -254,7 +247,7 @@ rapid.Check(t, func(t *rapid.T) {
 // Parallel deps run concurrently (verify via timing)
 ```
 
-### 3.2 .Cache()
+### 4.3 .Cache()
 
 Reuse `file/checksum.go`.
 
@@ -264,7 +257,7 @@ Reuse `file/checksum.go`.
 - File change invalidates cache
 - `--no-cache` bypasses
 
-### 3.3 .Watch()
+### 4.4 .Watch()
 
 Reuse `file/watch.go`.
 
@@ -273,7 +266,7 @@ Reuse `file/watch.go`.
 - `targ.ResetDeps()` clears dep cache
 - Ctrl+C cancels cleanly
 
-### 3.4 Migrate dev/targets.go
+### 4.5 Migrate dev/targets.go
 
 Add deps, cache, watch to targets that need them:
 
@@ -286,11 +279,11 @@ var check = targ.Targ(Check).Deps(fmt, lint, test)
 
 ---
 
-## Phase 4: Repetition Features (.Times, .While, .Retry, .Backoff, .Timeout)
+## Phase 5: Repetition Features (.Times, .While, .Retry, .Backoff, .Timeout)
 
 Implement repetition and resilience features.
 
-### 4.1 .Times() and .While()
+### 5.1 .Times() and .While()
 
 **Properties**:
 ```go
@@ -313,7 +306,7 @@ rapid.Check(t, func(t *rapid.T) {
 // Combined times+while: earliest wins
 ```
 
-### 4.2 .Retry() and .Backoff()
+### 5.2 .Retry() and .Backoff()
 
 **Properties**:
 ```go
@@ -334,23 +327,23 @@ rapid.Check(t, func(t *rapid.T) {
 // Backoff delays after failure (verify via timing)
 ```
 
-### 4.3 .Timeout()
+### 5.3 .Timeout()
 
 **Properties**:
 - Cancels context after duration
 - Nested timeouts: inner wins if smaller
 
-### 4.4 Migrate dev/targets.go
+### 5.4 Migrate dev/targets.go
 
 Add timeout/retry to flaky targets if any exist.
 
 ---
 
-## Phase 5: Runtime Override Flags
+## Phase 6: Runtime Override Flags
 
 Add CLI flags that override compile-time settings.
 
-### 5.1 Add Override Flags
+### 6.1 Add Override Flags
 
 ```
 --watch "pattern"
@@ -380,22 +373,22 @@ rapid.Check(t, func(t *rapid.T) {
 // Override applies to correct target
 ```
 
-### 5.2 Ownership Model (targ.Disabled)
+### 6.2 Ownership Model (targ.Disabled)
 
 **Properties**:
 - `.Watch(targ.Disabled)` allows user-defined --watch
 - Without Disabled: conflict = error
 - User-defined flag receives parsed value
 
-### 5.3 Migrate dev/targets.go
+### 6.3 Migrate dev/targets.go
 
 Test override flags on local targets: `targ build --watch "**/*.go"`
 
 ---
 
-## Phase 6: Shell Support (targ.Shell + String Targets)
+## Phase 7: Shell Support (targ.Shell + String Targets)
 
-### 6.1 targ.Shell(ctx, cmd, args)
+### 7.1 targ.Shell(ctx, cmd, args)
 
 **New function**: `shell.go`
 
@@ -414,14 +407,14 @@ rapid.Check(t, func(t *rapid.T) {
 // Context cancellation propagates
 ```
 
-### 6.2 String Targets: targ.Targ("cmd $var")
+### 7.2 String Targets: targ.Targ("cmd $var")
 
 **Properties**:
 - Infers flags from $var
 - Short flags from first letter
 - Collision skips short for later args
 
-### 6.3 Migrate dev/targets.go
+### 7.3 Migrate dev/targets.go
 
 Convert shell-heavy targets to use `targ.Shell()` or string targets:
 
@@ -431,7 +424,7 @@ var lint = targ.Targ("golangci-lint run ./...").Description("Run linter")
 
 ---
 
-## Phase 7: --sync Remote Import
+## Phase 8: --sync Remote Import
 
 ```
 targ --sync github.com/foo/bar
@@ -445,9 +438,9 @@ targ --sync github.com/foo/bar
 
 ---
 
-## Phase 8: Additional Global Flags
+## Phase 9: Additional Global Flags
 
-### 8.1 --parallel/-p
+### 9.1 --parallel/-p
 
 ```
 targ -p build test lint
@@ -455,25 +448,25 @@ targ -p build test lint
 
 **Properties**: Parallel targets share dep state
 
-### 8.2 --source/-s
+### 9.2 --source/-s
 
 ```
 targ -s ./dev/targs.go build
 ```
 
-### 8.3 --to-func, --to-string
+### 9.3 --to-func, --to-string
 
 **Properties**:
 - `--to-func` expands string target
 - `--to-string` errors if not simple Shell
 
-### 8.4 Migrate dev/targets.go
+### 9.4 Migrate dev/targets.go
 
 Test `targ -p fmt lint test` for parallel execution.
 
 ---
 
-## Phase 9: Remove Struct Model (LOC: -2,000)
+## Phase 10: Remove Struct Model (LOC: -2,000)
 
 Final cleanup. At this point, dev/targets.go should already be fully migrated to Target builder pattern.
 
