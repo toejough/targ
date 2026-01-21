@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"runtime/debug"
 	"slices"
@@ -130,24 +131,28 @@ func main() {
 	targ.RunWithOptions(opts, roots...)
 }
 `
-	commandNamePadding    = 2 // Padding after command name column
-	completeCommand       = "__complete"
-	defaultTargModulePath = "github.com/toejough/targ"
-	helpIndentWidth       = 4 // Leading spaces in help output
-	importExtraLines      = 3 // Extra line capacity when adding import statement
-	isolatedModuleName    = "targ.build.local"
-	minArgsForCompletion  = 2  // Minimum args for __complete (binary + arg)
-	minCommandNameWidth   = 10 // Minimum column width for command names in help output
-	minSourcePatternParts = 2  // package + pattern at minimum
-	pkgNameDefault        = "pkg"
-	targLocalModule       = "targ.local"
-	targsGoFilename       = "targs.go"
+	commandNamePadding     = 2 // Padding after command name column
+	completeCommand        = "__complete"
+	defaultPackageName     = "main" // default package name for created targ files
+	defaultTargModulePath  = "github.com/toejough/targ"
+	filePermissionsForCode = 0o644 // standard file permissions for created source files
+	helpIndentWidth        = 4     // Leading spaces in help output
+	importExtraLines       = 3     // Extra line capacity when adding import statement
+	isolatedModuleName     = "targ.build.local"
+	minArgsForCompletion   = 2  // Minimum args for __complete (binary + arg)
+	minCommandNameWidth    = 10 // Minimum column width for command names in help output
+	minSourcePatternParts  = 2  // package + pattern at minimum
+	pkgNameDefault         = "pkg"
+	pkgNameMain            = "main" // package main check for targ files
+	targLocalModule        = "targ.local"
+	targsGoFilename        = "targs.go"
 )
 
 // unexported variables.
 var (
 	errDuplicateCommandName  = errors.New("duplicate command name")
 	errDuplicateNamespace    = errors.New("duplicate namespace field")
+	errDuplicateTarget       = errors.New("target already exists")
 	errFlagRemoved           = errors.New("flag has been removed; use --create instead")
 	errInvalidUTF8Path       = errors.New("invalid utf-8 path in tagged file")
 	errModulePathNotFound    = errors.New("module path not found")
@@ -155,6 +160,7 @@ var (
 	errPackageMainNotAllowed = errors.New("targ files cannot use 'package main'")
 	errUnknownCommand        = errors.New("unknown command")
 	errUnknownCommandKind    = errors.New("unknown command kind")
+	validTargetNameRe        = regexp.MustCompile(`^[a-z][a-z0-9-]*[a-z0-9]$|^[a-z]$`)
 )
 
 type bootstrapBuilder struct {
@@ -661,7 +667,7 @@ func (r *targRunner) discoverAndGenerateWrappers() ([]buildtool.PackageInfo, err
 
 	// Validate no package main in targ files
 	for _, info := range infos {
-		if info.Package == "main" {
+		if info.Package == pkgNameMain {
 			return nil, fmt.Errorf(
 				"%w (found in %s); use a named package instead, e.g., 'package targets' or 'package dev'",
 				errPackageMainNotAllowed,
@@ -726,11 +732,63 @@ func (r *targRunner) exitWithCleanup(code int) int {
 	return code
 }
 
+func (r *targRunner) handleCreateFlag(args []string) (exitCode int, done bool) {
+	// --create requires name and shell-command arguments
+	const minCreateArgs = 2
+	if len(args) < minCreateArgs {
+		fmt.Fprintln(os.Stderr, "usage: targ --create <name> \"<shell-command>\"")
+		return 1, true
+	}
+
+	name := args[0]
+	shellCmd := args[1]
+
+	// Validate name (kebab-case)
+	if !isValidTargetName(name) {
+		fmt.Fprintf(
+			os.Stderr,
+			"invalid target name %q: must be lowercase letters, numbers, and hyphens\n",
+			name,
+		)
+
+		return 1, true
+	}
+
+	// Get working directory (startDir may not be set yet)
+	startDir, err := os.Getwd()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error getting working directory: %v\n", err)
+		return 1, true
+	}
+
+	// Find or create targ file
+	targFile, err := findOrCreateTargFile(startDir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error finding/creating targ file: %v\n", err)
+		return 1, true
+	}
+
+	// Add the target to the file
+	err = addTargetToFile(targFile, name, shellCmd)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error adding target: %v\n", err)
+		return 1, true
+	}
+
+	fmt.Printf("Created target %q in %s\n", name, targFile)
+
+	return 0, true
+}
+
 func (r *targRunner) handleEarlyFlags() (exitCode int, done bool) {
-	for _, arg := range r.args {
+	for i, arg := range r.args {
 		if isRemovedFlag(arg) {
 			fmt.Fprintf(os.Stderr, "%s: %v\n", arg, errFlagRemoved)
 			return 1, true
+		}
+
+		if isCreateFlag(arg) {
+			return r.handleCreateFlag(r.args[i+1:])
 		}
 	}
 
@@ -1095,6 +1153,41 @@ func (r *targRunner) tryRunCached(binaryPath, targBinName string) (exitCode int,
 	r.cleanupWrappers()
 
 	return 0, true
+}
+
+// addTargetToFile adds a target variable to an existing targ file.
+func addTargetToFile(path, name, shellCmd string) error {
+	//nolint:gosec // build tool reads user source files by design
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("reading file: %w", err)
+	}
+
+	// Convert kebab-case name to PascalCase for the variable
+	varName := kebabToPascal(name)
+
+	// Check if target already exists
+	if strings.Contains(string(content), fmt.Sprintf("var %s = ", varName)) {
+		return fmt.Errorf("%w: %s", errDuplicateTarget, name)
+	}
+
+	// Escape shell command for Go string literal
+	escapedCmd := strings.ReplaceAll(shellCmd, "\\", "\\\\")
+	escapedCmd = strings.ReplaceAll(escapedCmd, "\"", "\\\"")
+
+	// Generate the target variable
+	targetCode := fmt.Sprintf("\n// %s runs: %s\nvar %s = targ.Targ(%q).Name(%q)\n",
+		varName, shellCmd, varName, escapedCmd, name)
+
+	// Append to file
+	newContent := string(content) + targetCode
+
+	err = os.WriteFile(path, []byte(newContent), filePermissionsForCode)
+	if err != nil {
+		return fmt.Errorf("writing file: %w", err)
+	}
+
+	return nil
 }
 
 func assignNamespaceNames(root *namespaceNode, gen *nameGenerator) {
@@ -1619,8 +1712,7 @@ func copyFileStrippingTag(srcPath, destPath string) error {
 
 	content := stripBuildTag(string(data))
 
-	//nolint:gosec,mnd // standard file permissions for source files
-	err = os.WriteFile(destPath, []byte(content), 0o644)
+	err = os.WriteFile(destPath, []byte(content), filePermissionsForCode)
 	if err != nil {
 		return fmt.Errorf("writing destination file: %w", err)
 	}
@@ -1910,6 +2002,59 @@ func findModuleForPath(path string) (string, string, bool, error) {
 	return "", "", false, nil
 }
 
+// findOrCreateTargFile finds an existing targ file in the current directory or creates a new one.
+func findOrCreateTargFile(startDir string) (string, error) {
+	// Look for existing targ files in the current directory
+	entries, err := os.ReadDir(startDir)
+	if err != nil {
+		return "", fmt.Errorf("reading directory: %w", err)
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+
+		name := entry.Name()
+		if !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		// Check if it has the targ build tag
+		path := filepath.Join(startDir, name)
+		if hasTargBuildTag(path) {
+			return path, nil
+		}
+	}
+
+	// No existing targ file found, create a new one
+	targFile := filepath.Join(startDir, "targs.go")
+	pkgName := filepath.Base(startDir)
+	// Sanitize package name (remove invalid characters)
+	pkgName = strings.ReplaceAll(pkgName, "-", "")
+
+	pkgName = strings.ReplaceAll(pkgName, ".", "")
+	if pkgName == "" {
+		pkgName = defaultPackageName
+	}
+
+	content := fmt.Sprintf(`//go:build targ
+
+package %s
+
+import "github.com/toejough/targ"
+
+// Ensure targ import is used
+var _ = targ.Targ
+`, pkgName)
+
+	err = os.WriteFile(targFile, []byte(content), filePermissionsForCode)
+	if err != nil {
+		return "", fmt.Errorf("creating targ file: %w", err)
+	}
+
+	return targFile, nil
+}
+
 // generateModuleBootstrap creates bootstrap code and computes cache key.
 func generateModuleBootstrap(
 	mt moduleTargets,
@@ -2011,9 +2156,41 @@ func groupByModule(infos []buildtool.PackageInfo, startDir string) ([]moduleTarg
 	return result, nil
 }
 
+// hasTargBuildTag returns true if the file has the targ build tag.
+func hasTargBuildTag(path string) bool {
+	//nolint:gosec // build tool reads user source files by design
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	// Check for //go:build targ at the start
+	lines := strings.SplitSeq(string(content), "\n")
+	for line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+
+		if strings.HasPrefix(line, "//go:build") && strings.Contains(line, "targ") {
+			return true
+		}
+		// Stop at package declaration
+		if strings.HasPrefix(line, "package ") {
+			break
+		}
+	}
+
+	return false
+}
+
 // isCleanVersion returns true if the version is suitable for cache lookup.
 func isCleanVersion(version string) bool {
 	return version != "" && version != "(devel)" && !strings.Contains(version, "+dirty")
+}
+
+// isCreateFlag checks if the argument is the --create flag.
+func isCreateFlag(arg string) bool {
+	return arg == "--create"
 }
 
 // isHelpRequest returns true if args represent a help request.
@@ -2044,6 +2221,25 @@ func isRemovedFlag(arg string) bool {
 	default:
 		return false
 	}
+}
+
+// isValidTargetName returns true if the name is valid for a target (kebab-case).
+// Must start with lowercase letter, contain only lowercase letters, numbers, and hyphens,
+// and cannot end with a hyphen.
+func isValidTargetName(name string) bool {
+	return validTargetNameRe.MatchString(name)
+}
+
+// kebabToPascal converts kebab-case to PascalCase.
+func kebabToPascal(s string) string {
+	parts := strings.Split(s, "-")
+	for i, part := range parts {
+		if len(part) > 0 {
+			parts[i] = strings.ToUpper(part[:1]) + part[1:]
+		}
+	}
+
+	return strings.Join(parts, "")
 }
 
 // linkModuleEntry creates a symlink for a single directory entry if needed.
@@ -2692,8 +2888,7 @@ func targCacheDir() string {
 }
 
 func touchFile(path string) error {
-	//nolint:gosec,mnd // standard file permissions for go.sum
-	err := os.WriteFile(path, []byte{}, 0o644)
+	err := os.WriteFile(path, []byte{}, filePermissionsForCode)
 	if err != nil {
 		return fmt.Errorf("touching file %s: %w", path, err)
 	}
@@ -2738,7 +2933,7 @@ func uniqueImportName(name string, used map[string]bool) string {
 // validateNoPackageMain ensures no targ files use package main.
 func validateNoPackageMain(mt moduleTargets) error {
 	for _, pkg := range mt.Packages {
-		if pkg.Package == "main" {
+		if pkg.Package == pkgNameMain {
 			return fmt.Errorf(
 				"%w (found in %s); use a named package instead",
 				errPackageMainNotAllowed,
@@ -2866,8 +3061,7 @@ func writeFallbackGoMod(root, modulePath string, dep targDependency) error {
 
 	content := strings.Join(lines, "\n") + "\n"
 
-	//nolint:gosec,mnd // standard file permissions for go.mod
-	err := os.WriteFile(modPath, []byte(content), 0o644)
+	err := os.WriteFile(modPath, []byte(content), filePermissionsForCode)
 	if err != nil {
 		return fmt.Errorf("writing go.mod: %w", err)
 	}
@@ -2903,8 +3097,7 @@ func writeIsolatedGoMod(tmpDir string, dep targDependency) error {
 
 	content := strings.Join(lines, "\n") + "\n"
 
-	//nolint:gosec,mnd // standard file permissions for go.mod
-	err := os.WriteFile(modPath, []byte(content), 0o644)
+	err := os.WriteFile(modPath, []byte(content), filePermissionsForCode)
 	if err != nil {
 		return fmt.Errorf("writing isolated go.mod: %w", err)
 	}
@@ -2912,8 +3105,7 @@ func writeIsolatedGoMod(tmpDir string, dep targDependency) error {
 	// Touch go.sum file
 	sumPath := filepath.Join(tmpDir, "go.sum")
 
-	//nolint:gosec,mnd // standard file permissions for go.sum
-	err = os.WriteFile(sumPath, []byte{}, 0o644)
+	err = os.WriteFile(sumPath, []byte{}, filePermissionsForCode)
 	if err != nil {
 		return fmt.Errorf("writing go.sum: %w", err)
 	}

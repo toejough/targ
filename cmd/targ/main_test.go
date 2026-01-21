@@ -13,6 +13,48 @@ import (
 	"github.com/toejough/targ/buildtool"
 )
 
+func TestAddTargetToFile(t *testing.T) {
+	dir := t.TempDir()
+	targFile := filepath.Join(dir, "targs.go")
+
+	// Create initial file
+	initial := "//go:build targ\n\npackage build\n\nimport \"github.com/toejough/targ\"\n"
+
+	err := os.WriteFile(targFile, []byte(initial), 0o644)
+	if err != nil {
+		t.Fatalf("unexpected write error: %v", err)
+	}
+
+	// Add a target
+	err = addTargetToFile(targFile, "my-lint", "golangci-lint run")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	content, err := os.ReadFile(targFile)
+	if err != nil {
+		t.Fatalf("unexpected read error: %v", err)
+	}
+
+	if !strings.Contains(string(content), "var MyLint = targ.Targ") {
+		t.Error("expected MyLint variable in file")
+	}
+
+	if !strings.Contains(string(content), "golangci-lint run") {
+		t.Error("expected shell command in file")
+	}
+
+	if !strings.Contains(string(content), ".Name(\"my-lint\")") {
+		t.Error("expected Name method call in file")
+	}
+
+	// Try adding duplicate
+	err = addTargetToFile(targFile, "my-lint", "different command")
+	if err == nil {
+		t.Error("expected error for duplicate target")
+	}
+}
+
 func TestBuildBootstrapData_Namespaces(t *testing.T) {
 	infos, collapsedPaths := namespaceTestData()
 
@@ -256,6 +298,142 @@ func TestFindModuleForPath_WithModule(t *testing.T) {
 
 	if modulePath != "example.com/test" {
 		t.Fatalf("expected modulePath=%q, got %q", "example.com/test", modulePath)
+	}
+}
+
+func TestFindOrCreateTargFile_CreatesNew(t *testing.T) {
+	dir := t.TempDir()
+
+	targFile, err := findOrCreateTargFile(dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if targFile != filepath.Join(dir, "targs.go") {
+		t.Errorf("expected targs.go, got %s", targFile)
+	}
+
+	content, err := os.ReadFile(targFile)
+	if err != nil {
+		t.Fatalf("unexpected read error: %v", err)
+	}
+
+	if !strings.Contains(string(content), "//go:build targ") {
+		t.Error("expected targ build tag in created file")
+	}
+
+	if !strings.Contains(string(content), "import \"github.com/toejough/targ\"") {
+		t.Error("expected targ import in created file")
+	}
+}
+
+func TestFindOrCreateTargFile_FindsExisting(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create an existing targ file
+	existingFile := filepath.Join(dir, "build.go")
+	content := "//go:build targ\n\npackage build\n"
+
+	err := os.WriteFile(existingFile, []byte(content), 0o644)
+	if err != nil {
+		t.Fatalf("unexpected write error: %v", err)
+	}
+
+	targFile, err := findOrCreateTargFile(dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if targFile != existingFile {
+		t.Errorf("expected %s, got %s", existingFile, targFile)
+	}
+}
+
+func TestHasTargBuildTag(t *testing.T) {
+	dir := t.TempDir()
+
+	// File with targ build tag
+	withTag := filepath.Join(dir, "with_tag.go")
+
+	err := os.WriteFile(withTag, []byte("//go:build targ\n\npackage foo\n"), 0o644)
+	if err != nil {
+		t.Fatalf("unexpected write error: %v", err)
+	}
+
+	// File without targ build tag
+	withoutTag := filepath.Join(dir, "without_tag.go")
+
+	err = os.WriteFile(withoutTag, []byte("package foo\n"), 0o644)
+	if err != nil {
+		t.Fatalf("unexpected write error: %v", err)
+	}
+
+	// File with different build tag
+	otherTag := filepath.Join(dir, "other_tag.go")
+
+	err = os.WriteFile(otherTag, []byte("//go:build integration\n\npackage foo\n"), 0o644)
+	if err != nil {
+		t.Fatalf("unexpected write error: %v", err)
+	}
+
+	if !hasTargBuildTag(withTag) {
+		t.Error("expected hasTargBuildTag to return true for file with targ tag")
+	}
+
+	if hasTargBuildTag(withoutTag) {
+		t.Error("expected hasTargBuildTag to return false for file without tag")
+	}
+
+	if hasTargBuildTag(otherTag) {
+		t.Error("expected hasTargBuildTag to return false for file with different tag")
+	}
+}
+
+func TestIsValidTargetName(t *testing.T) {
+	tests := []struct {
+		name  string
+		valid bool
+	}{
+		{"lint", true},
+		{"my-target", true},
+		{"build123", true},
+		{"a", true},
+		{"", false},
+		{"123", false},       // starts with number
+		{"-lint", false},     // starts with hyphen
+		{"lint-", false},     // ends with hyphen
+		{"Lint", false},      // uppercase
+		{"my_target", false}, // underscore
+		{"my.target", false}, // dot
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isValidTargetName(tt.name); got != tt.valid {
+				t.Errorf("isValidTargetName(%q) = %v, want %v", tt.name, got, tt.valid)
+			}
+		})
+	}
+}
+
+func TestKebabToPascal(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"lint", "Lint"},
+		{"my-target", "MyTarget"},
+		{"build-and-test", "BuildAndTest"},
+		{"a", "A"},
+		{"abc-def-ghi", "AbcDefGhi"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			if got := kebabToPascal(tt.input); got != tt.expected {
+				t.Errorf("kebabToPascal(%q) = %q, want %q", tt.input, got, tt.expected)
+			}
+		})
 	}
 }
 
