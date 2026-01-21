@@ -97,7 +97,7 @@ Maps requirements to architecture. Coverage: Necessary (inherent), Needs design,
 | -------------------------------- | -------------------------- | ----------------------- |
 | Namespace nodes (non-executable) | Hierarchy - Groups         | [Hierarchy](#hierarchy) |
 | Target nodes (executable)        | Source - functions only    | [Source](#source)       |
-| Path addressing                  | Specify × Hierarchy        | Needs design            |
+| Path addressing                  | Specify × Hierarchy        | [Hierarchy](#hierarchy) |
 | Simplest possible definition     | Source - `//go:build targ` | [Source](#source)       |
 | Scales to complex hierarchies    | Hierarchy - nested Groups  | [Hierarchy](#hierarchy) |
 | Easy CLI binary transition       | Run × Hierarchy            | Needs design            |
@@ -113,9 +113,9 @@ Maps requirements to architecture. Coverage: Necessary (inherent), Needs design,
 
 | Requirement          | Architecture         | Coverage     |
 | -------------------- | -------------------- | ------------ |
-| Create (scaffold)    | Create × Source      | Needs design |
-| Invoke: CLI          | Run × all aspects    | Needs design |
-| Invoke: modifiers    | Run × Execution      | Needs design |
+| Create (scaffold)    | Create × Source      | [Create](#create) |
+| Invoke: CLI          | Run × all aspects    | [Run](#run) |
+| Invoke: modifiers    | Run × Execution      | [Run](#run) |
 | Invoke: programmatic | Run × all aspects    | Needs design |
 | Transform: Rename    | Edit source          | Necessary    |
 | Transform: Relocate  | Edit source          | Necessary    |
