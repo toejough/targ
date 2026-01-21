@@ -798,16 +798,6 @@ func findCompletionRoot(roots []*commandNode, name string) *commandNode {
 	return nil
 }
 
-func hasExitEarlyFlagPrefix(arg string) bool {
-	for flag := range targExitEarlyFlags() {
-		if strings.HasPrefix(arg, flag+"=") {
-			return true
-		}
-	}
-
-	return false
-}
-
 func hasFlagValuePrefix(arg string, flags map[string]bool) bool {
 	for flag := range flags {
 		if strings.HasPrefix(arg, flag+"=") {
@@ -905,7 +895,8 @@ func skipTargFlags(args []string) []string {
 			continue
 		}
 		// Exit-early flags consume all remaining args
-		if exitEarly[arg] || hasExitEarlyFlagPrefix(arg) {
+		// NOTE: --init, --alias, --move have been removed; exitEarly is currently empty
+		if exitEarly[arg] {
 			break
 		}
 		// Flags that take a value - skip flag and next arg
@@ -917,7 +908,7 @@ func skipTargFlags(args []string) []string {
 		if hasFlagValuePrefix(arg, flagsWithValues) {
 			continue
 		}
-		// Boolean flags (may also have --flag=value syntax for some like --init)
+		// Boolean flags
 		if booleanFlags[arg] || hasFlagValuePrefix(arg, booleanFlags) {
 			continue
 		}
@@ -1025,17 +1016,14 @@ func targBooleanFlags() map[string]bool {
 		"--keep":     true,
 		"--help":     true,
 		"-h":         true,
-		"--init":     true, // can also use --init=FILE syntax
 	}
 }
 
 // targExitEarlyFlags returns flags that cause targ to exit without running commands.
 // Everything after these flags is consumed by them.
+// NOTE: --init, --alias, --move have been removed; use --create instead.
 func targExitEarlyFlags() map[string]bool {
-	return map[string]bool{
-		"--alias": true, // takes NAME "CMD" [FILE]
-		"--move":  true, // takes DEST SOURCE_PATTERN
-	}
+	return map[string]bool{}
 }
 
 // targFlagsWithValues returns flags that consume the next argument as a value.
@@ -1053,7 +1041,7 @@ func targGlobalFlags() []string {
 
 // targRootOnlyFlags returns flags only valid at root level (before any command).
 func targRootOnlyFlags() []string {
-	return []string{"--no-cache", "--keep", "--completion", "--init", "--alias", "--move"}
+	return []string{"--no-cache", "--keep", "--completion"}
 }
 
 func tokenizeCommandLine(commandLine string) ([]string, bool) {

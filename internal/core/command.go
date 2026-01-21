@@ -1851,13 +1851,6 @@ func printTargFlags(opts RunOptions, isRoot bool) {
 	if !opts.DisableTimeout {
 		fmt.Println("  --timeout <duration>")
 	}
-
-	// Build-tool-specific flags (only at root level)
-	if isRoot {
-		fmt.Println("  --init [file]")
-		fmt.Println("  --alias NAME \"CMD\" [FILE]")
-		fmt.Println("  --move <dest_path> <source_pattern>")
-	}
 }
 
 // printTopLevelCommand prints a top-level command (like "issues" or "targets").
@@ -1937,13 +1930,6 @@ func printValuesAndFormats(opts RunOptions, isRoot bool) {
 
 		if !opts.DisableTimeout {
 			fmt.Println("  duration: <int><unit> where unit is s (seconds), m (minutes), h (hours)")
-		}
-
-		if isRoot {
-			fmt.Println("  dest_path: dotted path for destination (e.g., lint, tools.lint)")
-			fmt.Println(
-				"  source_pattern: <pkg>[.<parent>...].<glob> (e.g., dev.lint*, dev.check.coverage*)",
-			)
 		}
 	}
 }

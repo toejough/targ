@@ -3138,14 +3138,6 @@ func TestSkipTargFlags_NoTargFlags(t *testing.T) {
 	g.Expect(result).To(Equal([]string{"build", "test", "--verbose"}))
 }
 
-func TestSkipTargFlags_WithAlias(t *testing.T) {
-	g := NewWithT(t)
-
-	// --alias is exit-early, consumes everything after it
-	result := skipTargFlags([]string{"--alias", "foo", "bar"})
-	g.Expect(result).To(BeEmpty())
-}
-
 func TestSkipTargFlags_WithCompletion(t *testing.T) {
 	g := NewWithT(t)
 
@@ -3176,6 +3168,14 @@ func TestSkipTargFlags_WithNoCache(t *testing.T) {
 	// --no-cache is boolean flag
 	result := skipTargFlags([]string{"--no-cache", "build"})
 	g.Expect(result).To(Equal([]string{"build"}))
+}
+
+func TestSkipTargFlags_WithRemovedFlags(t *testing.T) {
+	g := NewWithT(t)
+
+	// --alias is no longer an exit-early flag (removed), so args pass through
+	result := skipTargFlags([]string{"--alias", "foo", "bar"})
+	g.Expect(result).To(Equal([]string{"--alias", "foo", "bar"}))
 }
 
 func TestSkipTargFlags_WithTimeout(t *testing.T) {

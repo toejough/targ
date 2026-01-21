@@ -9,11 +9,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"go/ast"
-	"go/format"
-	"go/parser"
-	"go/token"
-	"go/types"
 	"io"
 	"os"
 	"os/exec"
@@ -27,8 +22,6 @@ import (
 	"text/template"
 	"unicode"
 	"unicode/utf8"
-
-	"golang.org/x/tools/go/packages"
 
 	"github.com/toejough/targ/buildtool"
 )
@@ -153,41 +146,16 @@ func main() {
 
 // unexported variables.
 var (
-	errAliasNameEmpty    = errors.New("alias name cannot be empty")
-	errAliasRequiresArgs = errors.New(
-		"--alias requires at least two arguments: NAME \"COMMAND\" [FILE]",
-	)
-	errAliasRequiresCommand     = errors.New("--alias requires a command argument")
-	errCommandEmpty             = errors.New("command cannot be empty")
-	errDuplicateCommandName     = errors.New("duplicate command name")
-	errDuplicateNamespace       = errors.New("duplicate namespace field")
-	errFileExists               = errors.New("file already exists")
-	errFunctionNotFound         = errors.New("function not found")
-	errInvalidUTF8Path          = errors.New("invalid utf-8 path in tagged file")
-	errModulePathNotFound       = errors.New("module path not found")
-	errMoveCommandNotFound      = errors.New("command not found")
-	errMoveDestConflict         = errors.New("destination conflicts with existing command")
-	errMoveInvalidSourcePattern = errors.New(
-		"source pattern must include package (e.g., dev.lint*)",
-	)
-	errMoveNoGoMod           = errors.New("no go.mod found")
-	errMoveNoMatches         = errors.New("no commands match pattern")
-	errMoveNoSourceFiles     = errors.New("no source files found in package")
-	errMovePackageNotFound   = errors.New("package not found")
-	errMoveRequiresArgs      = errors.New("--move requires: DEST SOURCE_PATTERN")
-	errMoveStructNotFound    = errors.New("struct not found")
-	errMultipleTargetFiles   = errors.New("multiple target files found")
+	errDuplicateCommandName  = errors.New("duplicate command name")
+	errDuplicateNamespace    = errors.New("duplicate namespace field")
+	errFlagRemoved           = errors.New("flag has been removed; use --create instead")
+	errInvalidUTF8Path       = errors.New("invalid utf-8 path in tagged file")
+	errModulePathNotFound    = errors.New("module path not found")
 	errNoCommandsInPackage   = errors.New("no commands found in package")
 	errPackageMainNotAllowed = errors.New("targ files cannot use 'package main'")
-	errUnclosedQuote         = errors.New("unclosed quote")
 	errUnknownCommand        = errors.New("unknown command")
 	errUnknownCommandKind    = errors.New("unknown command kind")
 )
-
-type aliasResult struct {
-	message string
-	err     error
-}
 
 type bootstrapBuilder struct {
 	absStart     string
@@ -471,11 +439,6 @@ type commandSummary struct {
 	Description string
 }
 
-type initResult struct {
-	message string
-	err     error
-}
-
 // listOutput is the JSON structure returned by __list command.
 type listOutput struct {
 	Commands []commandInfo `json:"commands"`
@@ -499,16 +462,6 @@ type moduleTargets struct {
 	ModuleRoot string
 	ModulePath string
 	Packages   []buildtool.PackageInfo
-}
-
-type moveResult struct {
-	message string
-	err     error
-}
-
-type movedCommand struct {
-	info    buildtool.CommandInfo
-	newName string
 }
 
 type nameGenerator struct {
@@ -609,84 +562,6 @@ func (n *namespaceNode) sortedChildren() []*namespaceNode {
 	}
 
 	return children
-}
-
-// parseShellCommand splits a shell command string into parts.
-// Handles quoted strings.
-type shellCommandParser struct {
-	parts   []string
-	current strings.Builder
-	inQuote rune
-	escaped bool
-}
-
-func (p *shellCommandParser) finalize() ([]string, error) {
-	if p.inQuote != 0 {
-		return nil, errUnclosedQuote
-	}
-
-	p.flushCurrent()
-
-	return p.parts, nil
-}
-
-func (p *shellCommandParser) flushCurrent() {
-	if p.current.Len() > 0 {
-		p.parts = append(p.parts, p.current.String())
-		p.current.Reset()
-	}
-}
-
-func (p *shellCommandParser) handleQuotedChar(r rune) {
-	if r == p.inQuote {
-		p.inQuote = 0
-	} else {
-		p.current.WriteRune(r)
-	}
-}
-
-func (p *shellCommandParser) handleUnquotedChar(r rune) {
-	if r == '"' || r == '\'' {
-		p.inQuote = r
-
-		return
-	}
-
-	if r == ' ' || r == '\t' {
-		p.flushCurrent()
-
-		return
-	}
-
-	p.current.WriteRune(r)
-}
-
-func (p *shellCommandParser) processRune(r rune) {
-	if p.escaped {
-		p.current.WriteRune(r)
-		p.escaped = false
-
-		return
-	}
-
-	if r == '\\' {
-		p.escaped = true
-
-		return
-	}
-
-	if p.inQuote != 0 {
-		p.handleQuotedChar(r)
-
-		return
-	}
-
-	p.handleUnquotedChar(r)
-}
-
-type subcommandRef struct {
-	typeName string
-	file     string
 }
 
 type targDependency struct {
@@ -864,37 +739,11 @@ func (r *targRunner) exitWithCleanup(code int) int {
 }
 
 func (r *targRunner) handleEarlyFlags() (exitCode int, done bool) {
-	if result := handleInitFlag(r.args); result != nil {
-		if result.err != nil {
-			fmt.Fprintln(os.Stderr, result.err)
+	for _, arg := range r.args {
+		if isRemovedFlag(arg) {
+			fmt.Fprintf(os.Stderr, "%s: %v\n", arg, errFlagRemoved)
 			return 1, true
 		}
-
-		fmt.Println(result.message)
-
-		return 0, true
-	}
-
-	if result := handleAliasFlag(r.args); result != nil {
-		if result.err != nil {
-			fmt.Fprintln(os.Stderr, result.err)
-			return 1, true
-		}
-
-		fmt.Println(result.message)
-
-		return 0, true
-	}
-
-	if result := handleMoveFlag(r.args); result != nil {
-		if result.err != nil {
-			fmt.Fprintln(os.Stderr, result.err)
-			return 1, true
-		}
-
-		fmt.Println(result.message)
-
-		return 0, true
 	}
 
 	return 0, false
@@ -1174,7 +1023,7 @@ func (r *targRunner) resolveBootstrapDir(buildDir string, isolated bool) string 
 }
 
 func (r *targRunner) run() int {
-	// Handle --init and --alias early
+	// Handle removed flags early (--init, --alias, --move)
 	if code, done := r.handleEarlyFlags(); done {
 		return code
 	}
@@ -1261,208 +1110,6 @@ func (r *targRunner) tryRunCached(binaryPath, targBinName string) (exitCode int,
 	r.cleanupWrappers()
 
 	return 0, true
-}
-
-// addAlias generates and appends alias code to the appropriate target file.
-func addAlias(name, command, targetFile string) (string, error) {
-	code, err := generateAlias(name, command)
-	if err != nil {
-		return "", err
-	}
-
-	if targetFile != "" {
-		return addAliasToFile(name, targetFile, code)
-	}
-
-	return addAliasAutoDiscover(name, command, code)
-}
-
-func addAliasAutoDiscover(name, command, code string) (string, error) {
-	targetFiles, err := findTargetFiles(".")
-	if err != nil {
-		return "", fmt.Errorf("discovering target files: %w", err)
-	}
-
-	switch len(targetFiles) {
-	case 0:
-		return addAliasCreateNew(name, code)
-	case 1:
-		return addAliasToExisting(name, targetFiles[0], code)
-	default:
-		return "", fmt.Errorf(
-			"%w (%s); specify which file: --alias %s %q <file>",
-			errMultipleTargetFiles, strings.Join(targetFiles, ", "), name, command,
-		)
-	}
-}
-
-func addAliasCreateNew(name, code string) (string, error) {
-	targetFile := targsGoFilename
-
-	_, err := createTargetsFile(targetFile)
-	if err != nil {
-		return "", err
-	}
-
-	err = appendToFile(targetFile, code)
-	if err != nil {
-		return "", err
-	}
-
-	return fmt.Sprintf("Created %s and added %s", targetFile, toExportedName(name)), nil
-}
-
-func addAliasToExisting(name, targetFile, code string) (string, error) {
-	err := ensureShImport(targetFile)
-	if err != nil {
-		return "", fmt.Errorf("ensuring sh import: %w", err)
-	}
-
-	err = appendToFile(targetFile, code)
-	if err != nil {
-		return "", err
-	}
-
-	return fmt.Sprintf("Added %s to %s", toExportedName(name), targetFile), nil
-}
-
-func addAliasToFile(name, targetFile, code string) (string, error) {
-	err := appendToFile(targetFile, code)
-	if err != nil {
-		return "", err
-	}
-
-	return fmt.Sprintf("Added %s to %s", toExportedName(name), targetFile), nil
-}
-
-// addFieldToStruct adds a new field to an existing struct in a Go file.
-func addFieldToStruct(filePath, structName, fieldCode string) error {
-	//nolint:gosec // build tool reads source files by design
-	content, err := os.ReadFile(filePath)
-	if err != nil {
-		return fmt.Errorf("reading file: %w", err)
-	}
-
-	fset := token.NewFileSet()
-
-	file, err := parser.ParseFile(fset, filePath, content, parser.ParseComments)
-	if err != nil {
-		return fmt.Errorf("parsing file: %w", err)
-	}
-
-	insertPos := findStructClosingBrace(file, structName)
-	if insertPos == 0 {
-		return fmt.Errorf("%w: %s", errMoveStructNotFound, structName)
-	}
-
-	// Convert position to byte offset and insert field
-	offset := fset.Position(insertPos).Offset
-	newContent := string(content[:offset]) + fieldCode + string(content[offset:])
-
-	//nolint:gosec,mnd // build tool writes source files by design
-	err = os.WriteFile(filePath, []byte(newContent), 0o644)
-	if err != nil {
-		return fmt.Errorf("writing file: %w", err)
-	}
-
-	return nil
-}
-
-func addMoveStructUnderParent(
-	destParentPath []string,
-	destLeaf string,
-	exactMatch *buildtool.CommandInfo,
-	subcommands []movedCommand,
-	targetFile, parentFile, parentStruct string,
-) (string, error) {
-	newStructName := toExportedName(destLeaf)
-	code := generateMoveStruct(destLeaf, exactMatch, subcommands, targetFile)
-
-	fieldCode := fmt.Sprintf("\t%s *%s `targ:\"subcommand\"`\n", newStructName, newStructName)
-
-	err := addFieldToStruct(parentFile, parentStruct, fieldCode)
-	if err != nil {
-		return "", fmt.Errorf("adding field to %s: %w", parentStruct, err)
-	}
-
-	err = appendToFile(targetFile, code)
-	if err != nil {
-		return "", err
-	}
-
-	dest := strings.Join(append(destParentPath, destLeaf), ".")
-	movedNames := buildMovedNames(dest, exactMatch, subcommands)
-
-	return fmt.Sprintf(
-		"Added to %s (under %s):\n  %s",
-		targetFile, parentStruct, strings.Join(movedNames, "\n  "),
-	), nil
-}
-
-func addShImportToContent(content string) string {
-	lines := strings.Split(content, "\n")
-
-	result := make([]string, 0, len(lines)+importExtraLines)
-
-	importAdded := false
-
-	for i, line := range lines {
-		result = append(result, line)
-
-		if importAdded {
-			continue
-		}
-
-		trimmed := strings.TrimSpace(line)
-		if added := tryAddImportBlock(trimmed, &result); added {
-			importAdded = true
-
-			continue
-		}
-
-		if added := tryConvertSingleImport(trimmed, &result); added {
-			importAdded = true
-
-			continue
-		}
-
-		if added := tryAddAfterPackage(trimmed, lines, i, &result); added {
-			importAdded = true
-		}
-	}
-
-	return strings.Join(result, "\n")
-}
-
-// appendToFile appends content to a file.
-func appendToFile(path, content string) (err error) {
-	//nolint:gosec,mnd // standard file permissions for shell config
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o644)
-	if err != nil {
-		return fmt.Errorf("opening file for append: %w", err)
-	}
-
-	defer func() {
-		cerr := f.Close()
-		if cerr != nil && err == nil {
-			err = fmt.Errorf("closing file: %w", cerr)
-		}
-	}()
-
-	_, err = f.WriteString(content)
-	if err != nil {
-		return fmt.Errorf("writing to file: %w", err)
-	}
-
-	return nil
-}
-
-func applyRenames(fileRenames map[string][]*ast.Ident, newName string) {
-	for _, idents := range fileRenames {
-		for _, ident := range idents {
-			ident.Name = newName
-		}
-	}
 }
 
 func assignNamespaceNames(root *namespaceNode, gen *nameGenerator) {
@@ -1646,30 +1293,6 @@ func buildModuleBinary(
 	return reg, nil
 }
 
-// buildMovedNames creates the list of moved command names for output.
-func buildMovedNames(
-	dest string,
-	exactMatch *buildtool.CommandInfo,
-	subcommands []movedCommand,
-) []string {
-	capacity := len(subcommands)
-	if exactMatch != nil {
-		capacity++
-	}
-
-	movedNames := make([]string, 0, capacity)
-
-	if exactMatch != nil {
-		movedNames = append(movedNames, dest+" (parent)")
-	}
-
-	for _, cmd := range subcommands {
-		movedNames = append(movedNames, dest+" "+cmd.newName)
-	}
-
-	return movedNames
-}
-
 // buildMultiModuleBinaries builds a binary for each module group and returns the registry.
 func buildMultiModuleBinaries(
 	moduleGroups []moduleTargets,
@@ -1803,20 +1426,6 @@ func camelToKebab(name string) string {
 	return result.String()
 }
 
-// checkDestConflict checks if the destination conflicts with an existing top-level namespace.
-// Only namespaces (derived from filenames) are checked, not function names.
-func checkDestConflict(infos []buildtool.PackageInfo, destLeaf string) error {
-	for i := range infos {
-		// Check against namespace (filename without extension), not command names
-		namespace := deriveNamespace(&infos[i], "")
-		if namespace == destLeaf {
-			return fmt.Errorf("%w: %q already exists", errMoveDestConflict, destLeaf)
-		}
-	}
-
-	return nil
-}
-
 // cleanupStaleModSymlinks removes stale go.mod/go.sum symlinks from before the fix.
 func cleanupStaleModSymlinks(root string) {
 	for _, name := range []string{"go.mod", "go.sum"} {
@@ -1838,51 +1447,6 @@ func collectFilePaths(infos []buildtool.PackageInfo) []string {
 
 	return filePaths
 }
-
-// collectFunctionNamesToRename returns the function names that need to be renamed to unexported.
-func collectFunctionNamesToRename(
-	exactMatch *buildtool.CommandInfo,
-	subcommands []movedCommand,
-) []string {
-	names := make([]string, 0, len(subcommands)+1)
-
-	if exactMatch != nil {
-		names = append(names, exactMatch.Name)
-	}
-
-	for _, cmd := range subcommands {
-		names = append(names, cmd.info.Name)
-	}
-
-	return names
-}
-
-func collectFunctionReferences(
-	pkgs []*packages.Package,
-	targetObj types.Object,
-) map[string][]*ast.Ident {
-	fileRenames := make(map[string][]*ast.Ident)
-
-	for _, pkg := range pkgs {
-		for ident, obj := range pkg.TypesInfo.Uses {
-			if obj == targetObj {
-				pos := pkg.Fset.Position(ident.Pos())
-				fileRenames[pos.Filename] = append(fileRenames[pos.Filename], ident)
-			}
-		}
-
-		for ident, obj := range pkg.TypesInfo.Defs {
-			if obj == targetObj {
-				pos := pkg.Fset.Position(ident.Pos())
-				fileRenames[pos.Filename] = append(fileRenames[pos.Filename], ident)
-			}
-		}
-	}
-
-	return fileRenames
-}
-
-// collectFileCommands collects commands from package infos into a map by file path.
 
 func collectModuleFiles(moduleRoot string) ([]buildtool.TaggedFile, error) {
 	var files []buildtool.TaggedFile
@@ -2153,111 +1717,6 @@ func createIsolatedBuildDir(
 	return tmpDir, cleanup, nil
 }
 
-// createNestedHierarchy creates a full hierarchy of structs for nested destination.
-func createNestedHierarchy(
-	parentPath []string,
-	leaf string,
-	exactMatch *buildtool.CommandInfo,
-	subcommands []movedCommand,
-	targetFile string,
-) (string, error) {
-	var builder strings.Builder
-
-	// Generate leaf struct first
-	leafCode := generateMoveStruct(leaf, exactMatch, subcommands, targetFile)
-	builder.WriteString(leafCode)
-
-	// Generate parent structs from innermost to outermost
-	childName := toExportedName(leaf)
-
-	for i := len(parentPath) - 1; i >= 0; i-- {
-		parentName := toExportedName(parentPath[i])
-		builder.WriteString(fmt.Sprintf("\ntype %s struct {\n", parentName))
-		builder.WriteString(fmt.Sprintf("\t%s *%s `targ:\"subcommand\"`\n", childName, childName))
-		builder.WriteString("}\n")
-
-		childName = parentName
-	}
-
-	err := appendToFile(targetFile, builder.String())
-	if err != nil {
-		return "", err
-	}
-
-	dest := strings.Join(append(parentPath, leaf), ".")
-	movedNames := buildMovedNames(dest, exactMatch, subcommands)
-
-	return fmt.Sprintf("Added to %s:\n  %s", targetFile, strings.Join(movedNames, "\n  ")), nil
-}
-
-// createTargetsFile creates a starter targets file with the build tag.
-func createTargetsFile(filename string) (string, error) {
-	// Check if file already exists
-	_, err := os.Stat(filename)
-	if err == nil {
-		return "", fmt.Errorf("%w: %s", errFileExists, filename)
-	}
-
-	content := `//go:build targ
-
-package targets
-
-import "github.com/toejough/targ/sh"
-
-// Keep the compiler happy - sh is used by generated aliases
-var _ = sh.Run
-`
-
-	//nolint:gosec,mnd // standard file permissions for targs.go
-	err = os.WriteFile(filename, []byte(content), 0o644)
-	if err != nil {
-		return "", fmt.Errorf("writing %s: %w", filename, err)
-	}
-
-	return "Created " + filename, nil
-}
-
-// deriveNamespace extracts the namespace from a package's file path.
-// For "dev/targets.go", returns "targets" (filename without extension).
-func deriveNamespace(pkg *buildtool.PackageInfo, _ string) string {
-	if len(pkg.Files) == 0 {
-		return ""
-	}
-
-	// Use the first file to derive the namespace
-	filePath := pkg.Files[0].Path
-
-	// Get the filename without extension
-	base := filepath.Base(filePath)
-	ext := filepath.Ext(base)
-
-	return strings.TrimSuffix(base, ext)
-}
-
-// discoverSourcePackage finds the package matching pkgName.
-func discoverSourcePackage(
-	pkgName string,
-) ([]buildtool.PackageInfo, *buildtool.PackageInfo, error) {
-	filesystem := buildtool.OSFileSystem{}
-
-	infos, err := buildtool.Discover(filesystem, buildtool.Options{StartDir: "."})
-	if err != nil {
-		return nil, nil, fmt.Errorf("discovering commands: %w", err)
-	}
-
-	cwd, err := os.Getwd()
-	if err != nil {
-		return nil, nil, fmt.Errorf("getting working directory: %w", err)
-	}
-
-	pkg := findSourcePackageByName(infos, pkgName, cwd)
-	if pkg == nil {
-		return nil, nil, fmt.Errorf("%w: %s", errMovePackageNotFound, pkgName)
-	}
-
-	return infos, pkg, nil
-}
-
 // dispatchCommand finds the right binary for a command and executes it.
 func dispatchCommand(
 	registry []moduleRegistry,
@@ -2345,31 +1804,6 @@ func ensureFallbackModuleRoot(startDir, modulePath string, dep targDependency) (
 	return root, nil
 }
 
-// ensureShImport ensures the file imports github.com/toejough/targ/sh.
-func ensureShImport(path string) error {
-	//nolint:gosec // build tool reads source files by design
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return fmt.Errorf("reading file for import check: %w", err)
-	}
-
-	content := string(data)
-
-	if strings.Contains(content, `"github.com/toejough/targ/sh"`) {
-		return nil
-	}
-
-	result := addShImportToContent(content)
-
-	//nolint:gosec,mnd // standard file permissions for source files
-	err = os.WriteFile(path, []byte(result), 0o644)
-	if err != nil {
-		return fmt.Errorf("writing file with import: %w", err)
-	}
-
-	return nil
-}
-
 // ensureTargDependency runs go get to ensure targ dependency is available.
 func ensureTargDependency(dep targDependency, importRoot string) {
 	//nolint:gosec // build tool runs go get by design
@@ -2396,31 +1830,6 @@ func extractBinName(binArg string) string {
 	return binArg
 }
 
-func extractSubcommandFields(structType *ast.StructType, filePath string) map[string]subcommandRef {
-	result := make(map[string]subcommandRef)
-
-	for _, field := range structType.Fields.List {
-		if field.Tag == nil || len(field.Names) == 0 {
-			continue
-		}
-
-		tagValue := strings.Trim(field.Tag.Value, "`")
-		if !strings.Contains(tagValue, "subcommand") {
-			continue
-		}
-
-		fieldName := field.Names[0].Name
-		subName := parseSubcommandName(tagValue, fieldName)
-
-		result[subName] = subcommandRef{
-			typeName: fieldTypeName(field.Type),
-			file:     filePath,
-		}
-	}
-
-	return result
-}
-
 // extractTargFlags extracts targ-specific flags (--no-cache, --keep) from args.
 // Returns the flag values and remaining args to pass to the binary.
 func extractTargFlags(args []string) (noCache, keepBootstrap bool, remaining []string) {
@@ -2440,20 +1849,6 @@ func extractTargFlags(args []string) (noCache, keepBootstrap bool, remaining []s
 	return noCache, keepBootstrap, remaining
 }
 
-// fieldTypeName extracts the type name from an AST expression.
-func fieldTypeName(expr ast.Expr) string {
-	switch t := expr.(type) {
-	case *ast.Ident:
-		return t.Name
-	case *ast.StarExpr:
-		return fieldTypeName(t.X)
-	case *ast.SelectorExpr:
-		return fieldTypeName(t.Sel)
-	default:
-		return ""
-	}
-}
-
 // findCommandBinary finds the binary path for a command in the registry.
 func findCommandBinary(registry []moduleRegistry, cmdName string) (string, bool) {
 	for _, reg := range registry {
@@ -2465,34 +1860,6 @@ func findCommandBinary(registry []moduleRegistry, cmdName string) (string, bool)
 	}
 
 	return "", false
-}
-
-func findFunctionObject(pkgs []*packages.Package, pkgName, funcName string) (types.Object, error) {
-	for _, pkg := range pkgs {
-		if pkg.Name != pkgName {
-			continue
-		}
-
-		obj := pkg.Types.Scope().Lookup(funcName)
-		if _, ok := obj.(*types.Func); ok {
-			return obj, nil
-		}
-	}
-
-	return nil, fmt.Errorf("%w: %s.%s", errFunctionNotFound, pkgName, funcName)
-}
-
-// findMatchingCommands finds commands matching the pattern in the source package.
-func findMatchingCommands(
-	sourcePackage *buildtool.PackageInfo,
-	parentPath []string,
-	pattern, prefix, pkgName string,
-) (*buildtool.CommandInfo, []movedCommand, error) {
-	if len(parentPath) == 0 {
-		return findTopLevelMatches(sourcePackage, pattern, prefix)
-	}
-
-	return findNestedMatches(sourcePackage, parentPath, pattern, prefix, pkgName)
 }
 
 // findModCacheDir finds the cached module directory for a clean version.
@@ -2558,275 +1925,6 @@ func findModuleForPath(path string) (string, string, bool, error) {
 	return "", "", false, nil
 }
 
-// findNestedMatches finds matching commands within a nested parent structure.
-func findNestedMatches(
-	sourcePackage *buildtool.PackageInfo,
-	parentPath []string,
-	pattern, prefix, pkgName string,
-) (*buildtool.CommandInfo, []movedCommand, error) {
-	currentFile, currentStruct, err := findRootParent(sourcePackage, parentPath[0], pkgName)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	currentFile, currentStruct, err = navigateToParent(currentFile, currentStruct, parentPath[1:])
-	if err != nil {
-		return nil, nil, err
-	}
-
-	return findSubcommandMatches(currentFile, currentStruct, pattern, prefix)
-}
-
-// findRootParent finds the root parent command in the package.
-func findRootParent(
-	sourcePackage *buildtool.PackageInfo,
-	parentName, pkgName string,
-) (string, string, error) {
-	for _, cmd := range sourcePackage.Commands {
-		if toKebabCase(cmd.Name) == parentName {
-			return cmd.File, cmd.Name, nil
-		}
-	}
-
-	return "", "", fmt.Errorf("%w: %s in package %s", errMoveCommandNotFound, parentName, pkgName)
-}
-
-func findRootParentCommand(
-	rootParent string,
-	infos []buildtool.PackageInfo,
-) (*buildtool.CommandInfo, string) {
-	for i := range infos {
-		for j := range infos[i].Commands {
-			if toKebabCase(infos[i].Commands[j].Name) == rootParent {
-				return &infos[i].Commands[j], infos[i].Commands[j].File
-			}
-		}
-	}
-
-	return nil, ""
-}
-
-// findSourcePackageByName finds a package by namespace (not Go package name).
-// The namespace is derived from the file path (e.g., "targets" from "dev/targets.go").
-func findSourcePackageByName(
-	infos []buildtool.PackageInfo,
-	name, root string,
-) *buildtool.PackageInfo {
-	// Match by namespace only (derived from filename)
-	for i := range infos {
-		namespace := deriveNamespace(&infos[i], root)
-		if namespace == name {
-			return &infos[i]
-		}
-	}
-
-	return nil
-}
-
-// findStructClosingBrace finds the closing brace position of a named struct.
-func findStructClosingBrace(file *ast.File, structName string) token.Pos {
-	for _, decl := range file.Decls {
-		genDecl, ok := decl.(*ast.GenDecl)
-		if !ok || genDecl.Tok != token.TYPE {
-			continue
-		}
-
-		for _, spec := range genDecl.Specs {
-			typeSpec, ok := spec.(*ast.TypeSpec)
-			if !ok || typeSpec.Name.Name != structName {
-				continue
-			}
-
-			structType, ok := typeSpec.Type.(*ast.StructType)
-			if !ok {
-				continue
-			}
-
-			return structType.Fields.Closing
-		}
-	}
-
-	return 0
-}
-
-// findStructSubcommands parses a Go file and returns subcommand info for a struct.
-// Returns a map of subcommand kebab-name -> (field name, type name, uses context, file).
-func findStructSubcommands(filePath, structName string) (map[string]subcommandRef, error) {
-	//nolint:gosec // build tool reads source files by design
-	content, err := os.ReadFile(filePath)
-	if err != nil {
-		return nil, fmt.Errorf("reading file %s: %w", filePath, err)
-	}
-
-	fset := token.NewFileSet()
-
-	file, err := parser.ParseFile(fset, filePath, content, parser.ParseComments)
-	if err != nil {
-		return nil, fmt.Errorf("parsing file %s: %w", filePath, err)
-	}
-
-	structType := findStructType(file, structName)
-	if structType == nil {
-		return make(map[string]subcommandRef), nil
-	}
-
-	return extractSubcommandFields(structType, filePath), nil
-}
-
-func findStructType(file *ast.File, structName string) *ast.StructType {
-	for _, decl := range file.Decls {
-		genDecl, ok := decl.(*ast.GenDecl)
-		if !ok || genDecl.Tok != token.TYPE {
-			continue
-		}
-
-		for _, spec := range genDecl.Specs {
-			typeSpec, ok := spec.(*ast.TypeSpec)
-			if !ok || typeSpec.Name.Name != structName {
-				continue
-			}
-
-			structType, ok := typeSpec.Type.(*ast.StructType)
-			if ok {
-				return structType
-			}
-		}
-	}
-
-	return nil
-}
-
-// findSubcommandMatches finds subcommands matching the pattern.
-func findSubcommandMatches(
-	currentFile, currentStruct, pattern, prefix string,
-) (*buildtool.CommandInfo, []movedCommand, error) {
-	subs, err := findStructSubcommands(currentFile, currentStruct)
-	if err != nil {
-		return nil, nil, fmt.Errorf("finding subcommands of %s: %w", currentStruct, err)
-	}
-
-	var exactMatch *buildtool.CommandInfo
-
-	var matches []movedCommand
-
-	for subName, subRef := range subs {
-		if !matchGlob(subName, pattern) {
-			continue
-		}
-
-		cmdInfo := buildtool.CommandInfo{
-			Name: subRef.typeName,
-			Kind: buildtool.CommandStruct,
-			File: subRef.file,
-		}
-
-		if subName == prefix {
-			exactMatch = &cmdInfo
-		} else {
-			matches = append(matches, movedCommand{
-				info:    cmdInfo,
-				newName: stripPrefix(subName, prefix),
-			})
-		}
-	}
-
-	return exactMatch, matches, nil
-}
-
-// findTargetFiles finds all files with //go:build targ in the given directory.
-func findTargetFiles(dir string) ([]string, error) {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return nil, fmt.Errorf("reading directory %s: %w", dir, err)
-	}
-
-	var files []string
-
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".go") {
-			continue
-		}
-
-		path := filepath.Join(dir, entry.Name())
-		if hasTargBuildTag(path) {
-			files = append(files, entry.Name())
-		}
-	}
-
-	return files, nil
-}
-
-// findTopLevelMatches finds matching commands at package level.
-func findTopLevelMatches(
-	sourcePackage *buildtool.PackageInfo,
-	pattern, prefix string,
-) (*buildtool.CommandInfo, []movedCommand, error) {
-	var exactMatch *buildtool.CommandInfo
-
-	var matches []movedCommand
-
-	for i := range sourcePackage.Commands {
-		cmd := &sourcePackage.Commands[i]
-		cmdKebab := toKebabCase(cmd.Name)
-
-		if !matchGlob(cmdKebab, pattern) {
-			continue
-		}
-
-		if cmdKebab == prefix {
-			exactMatch = cmd
-		} else {
-			matches = append(matches, movedCommand{
-				info:    *cmd,
-				newName: stripPrefix(cmdKebab, prefix),
-			})
-		}
-	}
-
-	return exactMatch, matches, nil
-}
-
-// generateAlias creates Go code for a simple shell command target.
-func generateAlias(name, command string) (string, error) {
-	if name == "" {
-		return "", errAliasNameEmpty
-	}
-
-	// Convert name to exported Go function name
-	funcName := toExportedName(name)
-
-	// Parse command into parts
-	parts, err := parseShellCommand(command)
-	if err != nil {
-		return "", fmt.Errorf("parsing command: %w", err)
-	}
-
-	if len(parts) == 0 {
-		return "", errCommandEmpty
-	}
-
-	// Build sh.Run arguments
-	var argsStr strings.Builder
-
-	for i, part := range parts {
-		if i > 0 {
-			argsStr.WriteString(", ")
-		}
-
-		argsStr.WriteString(strconv.Quote(part))
-	}
-
-	// Generate the code with leading newline for nice appending
-	code := fmt.Sprintf(`
-// %s runs %q.
-func %s() error {
-	return sh.Run(%s)
-}
-`, funcName, command, funcName, argsStr.String())
-
-	return code, nil
-}
-
 // generateModuleBootstrap creates bootstrap code and computes cache key.
 func generateModuleBootstrap(
 	mt moduleTargets,
@@ -2868,94 +1966,6 @@ func generateModuleBootstrap(
 		code:     buf.Bytes(),
 		cacheKey: cacheKey,
 	}, nil
-}
-
-// generateMoveStruct creates a parent struct with moved subcommands.
-func generateMoveStruct(
-	destName string,
-	exactMatch *buildtool.CommandInfo,
-	subcommands []movedCommand,
-	sourceFile string,
-) string {
-	structName := toExportedName(destName)
-
-	var builder strings.Builder
-
-	// Generate struct with subcommand fields
-	builder.WriteString(fmt.Sprintf("\ntype %s struct {\n", structName))
-
-	for _, cmd := range subcommands {
-		wrapperName := structName + toExportedName(cmd.newName) + "Wrapper"
-		builder.WriteString(fmt.Sprintf("\t%s *%s `targ:\"subcommand\"`\n",
-			toExportedName(cmd.newName),
-			wrapperName))
-	}
-
-	builder.WriteString("}\n")
-
-	// Generate Run() method if there was an exact match
-	if exactMatch != nil {
-		generateParentRunMethod(&builder, structName, exactMatch)
-	}
-
-	// Generate wrapper structs for each subcommand
-	for _, cmd := range subcommands {
-		generateSubcommandWrapper(&builder, structName, cmd, sourceFile)
-	}
-
-	return builder.String()
-}
-
-// generateParentRunMethod writes the Run method for the parent struct.
-func generateParentRunMethod(
-	builder *strings.Builder,
-	structName string,
-	exactMatch *buildtool.CommandInfo,
-) {
-	unexportedName := toUnexportedName(exactMatch.Name)
-	if exactMatch.UsesContext {
-		fmt.Fprintf(builder,
-			"\nfunc (c *%s) Run(ctx context.Context) error {\n", structName)
-		fmt.Fprintf(builder, "\treturn %s(ctx)\n", unexportedName)
-	} else {
-		fmt.Fprintf(builder, "\nfunc (c *%s) Run() error {\n", structName)
-		fmt.Fprintf(builder, "\treturn %s()\n", unexportedName)
-	}
-
-	builder.WriteString("}\n")
-}
-
-// generateSubcommandWrapper writes wrapper struct and methods for a subcommand.
-func generateSubcommandWrapper(
-	builder *strings.Builder,
-	structName string,
-	cmd movedCommand,
-	sourceFile string,
-) {
-	wrapperName := structName + toExportedName(cmd.newName) + "Wrapper"
-	fmt.Fprintf(builder, "\ntype %s struct{}\n", wrapperName)
-
-	unexportedName := toUnexportedName(cmd.info.Name)
-	if cmd.info.UsesContext {
-		fmt.Fprintf(builder,
-			"\nfunc (c *%s) Run(ctx context.Context) error {\n", wrapperName)
-		fmt.Fprintf(builder, "\treturn %s(ctx)\n", unexportedName)
-	} else {
-		fmt.Fprintf(builder, "\nfunc (c *%s) Run() error {\n", wrapperName)
-		fmt.Fprintf(builder, "\treturn %s()\n", unexportedName)
-	}
-
-	builder.WriteString("}\n")
-
-	// Add Name() method for CLI name
-	fmt.Fprintf(builder, "\nfunc (c *%s) Name() string {\n", wrapperName)
-	fmt.Fprintf(builder, "\treturn %q\n", cmd.newName)
-	builder.WriteString("}\n")
-
-	// Add SourceFile() method
-	fmt.Fprintf(builder, "\nfunc (c *%s) SourceFile() string {\n", wrapperName)
-	fmt.Fprintf(builder, "\treturn %q\n", sourceFile)
-	builder.WriteString("}\n")
 }
 
 func goEnv(key string) (string, error) {
@@ -3016,122 +2026,6 @@ func groupByModule(infos []buildtool.PackageInfo, startDir string) ([]moduleTarg
 	return result, nil
 }
 
-// handleAliasFlag checks for --alias and generates target code.
-// Returns nil if --alias was not specified.
-func handleAliasFlag(args []string) *aliasResult {
-	for i, arg := range args {
-		name, command, targetFile, ok, err := parseAliasArgs(args, i, arg)
-		if !ok {
-			continue
-		}
-
-		if err != nil {
-			return &aliasResult{err: err}
-		}
-
-		msg, err := addAlias(name, command, targetFile)
-
-		return &aliasResult{message: msg, err: err}
-	}
-
-	return nil
-}
-
-// handleInitFlag checks for --init and creates a starter targets file.
-// Returns nil if --init was not specified.
-func handleInitFlag(args []string) *initResult {
-	for i, arg := range args {
-		if arg == "--init" {
-			filename := targsGoFilename
-			if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
-				filename = args[i+1]
-			}
-
-			msg, err := createTargetsFile(filename)
-
-			return &initResult{message: msg, err: err}
-		}
-
-		if after, ok := strings.CutPrefix(arg, "--init="); ok {
-			filename := after
-			if filename == "" {
-				filename = "targs.go"
-			}
-
-			msg, err := createTargetsFile(filename)
-
-			return &initResult{message: msg, err: err}
-		}
-	}
-
-	return nil
-}
-
-// handleMoveFlag checks for --move and generates hierarchy code.
-// Returns nil if --move was not specified.
-func handleMoveFlag(args []string) *moveResult {
-	for i, arg := range args {
-		if arg != "--move" {
-			continue
-		}
-
-		// Need at least 2 more args: DEST SOURCE_PATTERN
-		if i+2 >= len(args) {
-			return &moveResult{err: errMoveRequiresArgs}
-		}
-
-		dest := args[i+1]
-		sourcePattern := args[i+2]
-
-		msg, err := moveCommands(dest, sourcePattern)
-
-		return &moveResult{message: msg, err: err}
-	}
-
-	return nil
-}
-
-func hasImportAhead(lines []string, index int) bool {
-	for j := index + 1; j < len(lines); j++ {
-		nextTrimmed := strings.TrimSpace(lines[j])
-		if nextTrimmed == "" {
-			continue
-		}
-
-		return strings.HasPrefix(nextTrimmed, "import")
-	}
-
-	return false
-}
-
-// hasTargBuildTag checks if a file has the //go:build targ tag.
-func hasTargBuildTag(path string) bool {
-	//nolint:gosec // build tool reads source files by design
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return false
-	}
-
-	content := string(data)
-	// Check for //go:build targ (with possible other tags)
-	for line := range strings.SplitSeq(content, "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-
-		if strings.HasPrefix(line, "//go:build") && strings.Contains(line, "targ") {
-			return true
-		}
-		// Stop at package declaration
-		if strings.HasPrefix(line, "package ") {
-			break
-		}
-	}
-
-	return false
-}
-
 // isCleanVersion returns true if the version is suitable for cache lookup.
 func isCleanVersion(version string) bool {
 	return version != "" && version != "(devel)" && !strings.Contains(version, "+dirty")
@@ -3151,6 +2045,20 @@ func isIncludableModuleFile(name string) bool {
 
 	// Include non-test .go files
 	return strings.HasSuffix(name, ".go") && !strings.HasSuffix(name, "_test.go")
+}
+
+// isRemovedFlag checks if the argument is a removed flag.
+func isRemovedFlag(arg string) bool {
+	switch {
+	case arg == "--init" || strings.HasPrefix(arg, "--init="):
+		return true
+	case arg == "--alias" || strings.HasPrefix(arg, "--alias="):
+		return true
+	case arg == "--move":
+		return true
+	default:
+		return false
+	}
 }
 
 // linkModuleEntry creates a symlink for a single directory entry if needed.
@@ -3197,22 +2105,6 @@ func linkModuleRoot(startDir, root string) error {
 	return nil
 }
 
-func loadPackagesWithTypes(moduleDir string) ([]*packages.Package, error) {
-	cfg := &packages.Config{
-		Mode: packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles |
-			packages.NeedSyntax | packages.NeedTypes | packages.NeedTypesInfo,
-		Dir:        moduleDir,
-		BuildFlags: []string{"-tags=targ"},
-	}
-
-	pkgs, err := packages.Load(cfg, "./...")
-	if err != nil {
-		return nil, fmt.Errorf("loading packages: %w", err)
-	}
-
-	return pkgs, nil
-}
-
 func looksLikeModulePath(path string) bool {
 	if path == "" {
 		return false
@@ -3229,156 +2121,6 @@ func lowerFirst(name string) string {
 	}
 
 	return strings.ToLower(name[:1]) + name[1:]
-}
-
-// matchGlob matches a command name against a glob pattern.
-// Only supports trailing * for simplicity.
-func matchGlob(name, pattern string) bool {
-	if before, ok := strings.CutSuffix(pattern, "*"); ok {
-		return strings.HasPrefix(name, before)
-	}
-
-	return name == pattern
-}
-
-// moveCommands implements the --move flag logic.
-// Supports nested paths: source can be pkg.parent.pattern*, dest can be parent.child.
-func moveCommands(dest, sourcePattern string) (string, error) {
-	sourceParts := strings.Split(sourcePattern, ".")
-	if len(sourceParts) < minSourcePatternParts {
-		return "", errMoveInvalidSourcePattern
-	}
-
-	pkgName := sourceParts[0]
-	pattern := sourceParts[len(sourceParts)-1]
-	parentPath := sourceParts[1 : len(sourceParts)-1]
-
-	destParts := strings.Split(dest, ".")
-	destLeaf := destParts[len(destParts)-1]
-	destParentPath := destParts[:len(destParts)-1]
-
-	infos, sourcePackage, err := discoverSourcePackage(pkgName)
-	if err != nil {
-		return "", err
-	}
-
-	if len(sourcePackage.Files) == 0 {
-		return "", fmt.Errorf("%w: %s", errMoveNoSourceFiles, pkgName)
-	}
-
-	targetFile := sourcePackage.Files[0].Path
-	prefix := strings.TrimSuffix(pattern, "*")
-
-	exactMatch, matchingCommands, err := findMatchingCommands(
-		sourcePackage, parentPath, pattern, prefix, pkgName,
-	)
-	if err != nil {
-		return "", err
-	}
-
-	if exactMatch == nil && len(matchingCommands) == 0 {
-		return "", errMoveNoMatches
-	}
-
-	if len(destParentPath) > 0 {
-		return moveToNestedDest(
-			destParentPath,
-			destLeaf,
-			exactMatch,
-			matchingCommands,
-			targetFile,
-			infos,
-		)
-	}
-
-	return moveToTopLevel(
-		destLeaf,
-		dest,
-		exactMatch,
-		matchingCommands,
-		targetFile,
-		infos,
-		sourcePackage.Package,
-	)
-}
-
-// moveToNestedDest handles moving commands to a nested destination like tools.lint.
-func moveToNestedDest(
-	destParentPath []string,
-	destLeaf string,
-	exactMatch *buildtool.CommandInfo,
-	subcommands []movedCommand,
-	targetFile string,
-	infos []buildtool.PackageInfo,
-) (string, error) {
-	parentCmd, parentFile := findRootParentCommand(destParentPath[0], infos)
-
-	if parentCmd == nil {
-		return createNestedHierarchy(destParentPath, destLeaf, exactMatch, subcommands, targetFile)
-	}
-
-	currentFile, currentStruct, err := navigateToImmediateParent(
-		destParentPath,
-		parentFile,
-		parentCmd.Name,
-	)
-	if err != nil {
-		return "", err
-	}
-
-	return addMoveStructUnderParent(
-		destParentPath, destLeaf, exactMatch, subcommands,
-		targetFile, currentFile, currentStruct,
-	)
-}
-
-// moveToTopLevel handles moving commands to a top-level destination.
-func moveToTopLevel(
-	destLeaf, dest string,
-	exactMatch *buildtool.CommandInfo,
-	matchingCommands []movedCommand,
-	targetFile string,
-	infos []buildtool.PackageInfo,
-	goPkgName string,
-) (string, error) {
-	err := checkDestConflict(infos, destLeaf)
-	if err != nil {
-		return "", err
-	}
-
-	// Collect function names to rename to unexported
-	namesToRename := collectFunctionNamesToRename(exactMatch, matchingCommands)
-
-	// Find module root for renaming across the module
-	moduleRoot, _, found, err := findModuleForPath(targetFile)
-	if err != nil {
-		return "", fmt.Errorf("finding module: %w", err)
-	}
-
-	if !found {
-		return "", fmt.Errorf("%w: %s", errMoveNoGoMod, targetFile)
-	}
-
-	// Rename original functions to unexported, updating all call sites in the module
-	for _, name := range namesToRename {
-		newName := toUnexportedName(name)
-
-		err = renameFunction(moduleRoot, goPkgName, name, newName)
-		if err != nil {
-			return "", fmt.Errorf("renaming %s to %s: %w", name, newName, err)
-		}
-	}
-
-	code := generateMoveStruct(destLeaf, exactMatch, matchingCommands, targetFile)
-
-	err = appendToFile(targetFile, code)
-	if err != nil {
-		return "", err
-	}
-
-	movedNames := buildMovedNames(dest, exactMatch, matchingCommands)
-
-	return fmt.Sprintf("Added to %s:\n  %s", targetFile, strings.Join(movedNames, "\n  ")), nil
 }
 
 func namespacePaths(files []string, root string) (map[string][]string, error) {
@@ -3429,61 +2171,6 @@ func namespacePaths(files []string, root string) (map[string][]string, error) {
 	return compressNamespacePaths(trimmed), nil
 }
 
-func navigateToImmediateParent(
-	destParentPath []string,
-	startFile, startStruct string,
-) (string, string, error) {
-	currentFile := startFile
-	currentStruct := startStruct
-
-	for i := 1; i < len(destParentPath); i++ {
-		subs, err := findStructSubcommands(currentFile, currentStruct)
-		if err != nil {
-			return "", "", fmt.Errorf("finding subcommands of %s: %w", currentStruct, err)
-		}
-
-		subRef, ok := subs[destParentPath[i]]
-		if !ok {
-			return "", "", fmt.Errorf(
-				"%w: %s in %s",
-				errMoveCommandNotFound,
-				destParentPath[i],
-				currentStruct,
-			)
-		}
-
-		currentFile = subRef.file
-		currentStruct = subRef.typeName
-	}
-
-	return currentFile, currentStruct, nil
-}
-
-// navigateToParent navigates through intermediate parent path segments.
-func navigateToParent(currentFile, currentStruct string, path []string) (string, string, error) {
-	for _, segment := range path {
-		subs, err := findStructSubcommands(currentFile, currentStruct)
-		if err != nil {
-			return "", "", fmt.Errorf("finding subcommands of %s: %w", currentStruct, err)
-		}
-
-		subRef, ok := subs[segment]
-		if !ok {
-			return "", "", fmt.Errorf(
-				"%w: %s in %s",
-				errMoveCommandNotFound,
-				segment,
-				currentStruct,
-			)
-		}
-
-		currentFile = subRef.file
-		currentStruct = subRef.typeName
-	}
-
-	return currentFile, currentStruct, nil
-}
-
 func newBootstrapBuilder(absStart, moduleRoot, modulePath string) *bootstrapBuilder {
 	return &bootstrapBuilder{
 		absStart:     absStart,
@@ -3494,49 +2181,6 @@ func newBootstrapBuilder(absStart, moduleRoot, modulePath string) *bootstrapBuil
 		fileCommands: make(map[string][]bootstrapCommand),
 		wrapperNames: &nameGenerator{},
 	}
-}
-
-// parseAliasArgs extracts alias name, command, and optional file from arguments.
-// Returns ok=false if this is not an alias invocation.
-// Returns ok=true with error if alias is malformed.
-func parseAliasArgs(
-	args []string,
-	i int,
-	arg string,
-) (name, command, targetFile string, ok bool, err error) {
-	if arg == "--alias" {
-		if i+2 >= len(args) {
-			return "", "", "", true, errAliasRequiresArgs
-		}
-
-		name = args[i+1]
-		command = args[i+2]
-		// Optional third argument for target file
-		if i+3 < len(args) && !strings.HasPrefix(args[i+3], "-") {
-			targetFile = args[i+3]
-		}
-
-		return name, command, targetFile, true, nil
-	}
-
-	after, found := strings.CutPrefix(arg, "--alias=")
-	if !found {
-		return "", "", "", false, nil
-	}
-
-	// --alias=name "command" [file] format
-	if i+1 >= len(args) {
-		return "", "", "", true, errAliasRequiresCommand
-	}
-
-	name = after
-
-	command = args[i+1]
-	if i+2 < len(args) && !strings.HasPrefix(args[i+2], "-") {
-		targetFile = args[i+2]
-	}
-
-	return name, command, targetFile, true, nil
 }
 
 func parseHelpRequest(args []string) (bool, bool) {
@@ -3572,35 +2216,6 @@ func parseModulePath(content string) string {
 	}
 
 	return ""
-}
-
-func parseShellCommand(cmd string) ([]string, error) {
-	p := &shellCommandParser{}
-
-	for _, r := range cmd {
-		p.processRune(r)
-	}
-
-	return p.finalize()
-}
-
-func parseSubcommandName(tagValue, fieldName string) string {
-	subName := toKebabCase(fieldName)
-
-	_, after, found := strings.Cut(tagValue, "subcommand=")
-	if !found {
-		return subName
-	}
-
-	if before, _, ok := strings.Cut(after, ","); ok {
-		return before
-	}
-
-	if before, _, ok := strings.Cut(after, "\""); ok {
-		return before
-	}
-
-	return after
 }
 
 // prepareBuildContext determines build roots and handles fallback module setup.
@@ -3657,31 +2272,6 @@ func printBuildToolUsage(out io.Writer) {
 		"specified. The output should be eval'd/sourced in the shell to enable completions.",
 	)
 	_, _ = fmt.Fprintf(out, "    %-28s %s\n", "", "(e.g. 'targ --completion fish | source')")
-	_, _ = fmt.Fprintf(
-		out,
-		"    %-28s %s\n",
-		"--init [FILE]",
-		"create a starter targets file (default: targs.go)",
-	)
-	_, _ = fmt.Fprintf(
-		out,
-		"    %-28s %s\n",
-		"--alias NAME \"CMD\" [FILE]",
-		"add a shell command target to a targets file",
-	)
-	_, _ = fmt.Fprintf(out, "    %-28s %s\n", "", "(auto-creates targs.go if no targets exist)")
-	_, _ = fmt.Fprintf(
-		out,
-		"    %-28s %s\n",
-		"--move <dest_path> <source_pattern>",
-		"reorganize commands into a hierarchy",
-	)
-	_, _ = fmt.Fprintf(
-		out,
-		"    %-28s %s\n",
-		"",
-		"(e.g. 'targ --move lint dev.lint*' groups lint* commands)",
-	)
 	_, _ = fmt.Fprintf(out, "    %-28s %s\n", "--help", "Print help information")
 }
 
@@ -3745,7 +2335,7 @@ func printMultiModuleHelp(registry []moduleRegistry) {
 // printNoCommandsHelp prints the help message when no commands are found.
 
 // printNoTargetsCompletion outputs completion suggestions when no target files exist.
-// This allows users to discover flags like --init even before creating targets.
+// This allows users to discover flags even before creating targets.
 func printNoTargetsCompletion(args []string) {
 	// Parse the command line from __complete args
 	if len(args) < minArgsForCompletion {
@@ -3772,9 +2362,6 @@ func printNoTargetsCompletion(args []string) {
 		"--no-cache",
 		"--keep",
 		"--completion",
-		"--init",
-		"--alias",
-		"--move",
 	}
 
 	for _, flag := range allFlags {
@@ -3870,80 +2457,6 @@ func remapPackageInfosToIsolated(
 	}
 
 	return result, pathMapping, nil
-}
-
-// renameFunction renames a function and all its references across a module.
-// Uses go/packages and go/types to find all references.
-func renameFunction(moduleDir, pkgName, oldName, newName string) error {
-	pkgs, err := loadPackagesWithTypes(moduleDir)
-	if err != nil {
-		return err
-	}
-
-	targetObj, err := findFunctionObject(pkgs, pkgName, oldName)
-	if err != nil {
-		return err
-	}
-
-	fileRenames := collectFunctionReferences(pkgs, targetObj)
-	applyRenames(fileRenames, newName)
-
-	return writeModifiedFiles(pkgs, fileRenames)
-}
-
-// renameFunctionsToUnexported renames exported functions in a Go file to unexported.
-// For example, Lint -> lint, LintFast -> lintFast.
-func renameFunctionsToUnexported(path string, names []string) error {
-	if len(names) == 0 {
-		return nil
-	}
-
-	// Build lookup set
-	toRename := make(map[string]string, len(names))
-	for _, name := range names {
-		toRename[name] = toUnexportedName(name)
-	}
-
-	// Parse file
-	fset := token.NewFileSet()
-
-	file, err := parser.ParseFile(fset, path, nil, parser.ParseComments)
-	if err != nil {
-		return fmt.Errorf("parsing %s: %w", path, err)
-	}
-
-	// Find and rename functions
-	for _, decl := range file.Decls {
-		funcDecl, ok := decl.(*ast.FuncDecl)
-		if !ok {
-			continue
-		}
-
-		// Only rename standalone functions (no receiver)
-		if funcDecl.Recv != nil {
-			continue
-		}
-
-		if newName, ok := toRename[funcDecl.Name.Name]; ok {
-			funcDecl.Name.Name = newName
-		}
-	}
-
-	// Write back to file
-	var buf bytes.Buffer
-
-	err = format.Node(&buf, fset, file)
-	if err != nil {
-		return fmt.Errorf("formatting %s: %w", path, err)
-	}
-
-	//nolint:gosec,mnd // standard file permissions
-	err = os.WriteFile(path, buf.Bytes(), 0o644)
-	if err != nil {
-		return fmt.Errorf("writing %s: %w", path, err)
-	}
-
-	return nil
 }
 
 func resolveTargDependency() targDependency {
@@ -4156,22 +2669,6 @@ func stripBuildTag(content string) string {
 	return strings.TrimSuffix(result.String(), "\n")
 }
 
-// stripPrefix removes the pattern prefix from a command name.
-// e.g., stripPrefix("lint-fast", "lint") → "fast"
-//
-//	stripPrefix("lint", "lint") → "lint" (exact match preserved)
-func stripPrefix(name, prefix string) string {
-	if name == prefix {
-		return name
-	}
-
-	if after, ok := strings.CutPrefix(name, prefix+"-"); ok {
-		return after
-	}
-
-	return name
-}
-
 func subcommandTag(fieldName, segment string) string {
 	if camelToKebab(fieldName) == segment {
 		return `targ:"subcommand"`
@@ -4206,62 +2703,6 @@ func targCacheDir() string {
 	return filepath.Join(home, ".cache", "targ")
 }
 
-// toExportedName converts a name like "tidy" or "run-tests" to "Tidy" or "RunTests".
-func toExportedName(name string) string {
-	var result strings.Builder
-
-	capitalizeNext := true
-
-	for _, r := range name {
-		if r == '-' || r == '_' {
-			capitalizeNext = true
-			continue
-		}
-
-		if capitalizeNext {
-			result.WriteRune(unicode.ToUpper(r))
-
-			capitalizeNext = false
-		} else {
-			result.WriteRune(r)
-		}
-	}
-
-	return result.String()
-}
-
-// toKebabCase converts CamelCase to kebab-case.
-func toKebabCase(s string) string {
-	var result strings.Builder
-
-	runes := []rune(s)
-	for i, r := range runes {
-		if i > 0 && unicode.IsUpper(r) {
-			prev := runes[i-1]
-			if unicode.IsLower(prev) || (i+1 < len(runes) && unicode.IsLower(runes[i+1])) {
-				result.WriteRune('-')
-			}
-		}
-
-		result.WriteRune(unicode.ToLower(r))
-	}
-
-	return result.String()
-}
-
-// toUnexportedName converts an exported name like "Lint" or "LintFast" to unexported.
-// "Lint" -> "lint", "LintFast" -> "lintFast".
-func toUnexportedName(name string) string {
-	if name == "" {
-		return name
-	}
-
-	runes := []rune(name)
-	runes[0] = unicode.ToLower(runes[0])
-
-	return string(runes)
-}
-
 func touchFile(path string) error {
 	//nolint:gosec,mnd // standard file permissions for go.sum
 	err := os.WriteFile(path, []byte{}, 0o644)
@@ -4270,31 +2711,6 @@ func touchFile(path string) error {
 	}
 
 	return nil
-}
-
-func tryAddAfterPackage(trimmed string, lines []string, index int, result *[]string) bool {
-	if !strings.HasPrefix(trimmed, "package ") {
-		return false
-	}
-
-	if hasImportAhead(lines, index) {
-		return false
-	}
-
-	*result = append(*result, "")
-	*result = append(*result, `import "github.com/toejough/targ/sh"`)
-
-	return true
-}
-
-func tryAddImportBlock(trimmed string, result *[]string) bool {
-	if trimmed != "import (" {
-		return false
-	}
-
-	*result = append(*result, `	"github.com/toejough/targ/sh"`)
-
-	return true
 }
 
 // tryCachedBinary checks if a cached binary exists and queries its commands.
@@ -4310,19 +2726,6 @@ func tryCachedBinary(binaryPath string) ([]commandInfo, bool) {
 	}
 
 	return cmds, true
-}
-
-func tryConvertSingleImport(trimmed string, result *[]string) bool {
-	if !strings.HasPrefix(trimmed, "import \"") {
-		return false
-	}
-
-	(*result)[len(*result)-1] = "import ("
-	*result = append(*result, "\t"+strings.TrimPrefix(trimmed, "import "))
-	*result = append(*result, `	"github.com/toejough/targ/sh"`)
-	*result = append(*result, ")")
-
-	return true
 }
 
 func uniqueImportName(name string, used map[string]bool) string {
@@ -4488,23 +2891,6 @@ func writeFallbackGoMod(root, modulePath string, dep targDependency) error {
 	return nil
 }
 
-func writeFormattedFile(fset *token.FileSet, file *ast.File, filename string) error {
-	var buf bytes.Buffer
-
-	err := format.Node(&buf, fset, file)
-	if err != nil {
-		return fmt.Errorf("formatting %s: %w", filename, err)
-	}
-
-	//nolint:gosec,mnd // standard file permissions
-	err = os.WriteFile(filename, buf.Bytes(), 0o644)
-	if err != nil {
-		return fmt.Errorf("writing %s: %w", filename, err)
-	}
-
-	return nil
-}
-
 // writeIsolatedGoMod creates a go.mod for isolated builds.
 func writeIsolatedGoMod(tmpDir string, dep targDependency) error {
 	modPath := filepath.Join(tmpDir, "go.mod")
@@ -4546,24 +2932,6 @@ func writeIsolatedGoMod(tmpDir string, dep targDependency) error {
 	err = os.WriteFile(sumPath, []byte{}, 0o644)
 	if err != nil {
 		return fmt.Errorf("writing go.sum: %w", err)
-	}
-
-	return nil
-}
-
-func writeModifiedFiles(pkgs []*packages.Package, fileRenames map[string][]*ast.Ident) error {
-	for _, pkg := range pkgs {
-		for i, file := range pkg.Syntax {
-			filename := pkg.CompiledGoFiles[i]
-			if _, hasRenames := fileRenames[filename]; !hasRenames {
-				continue
-			}
-
-			err := writeFormattedFile(pkg.Fset, file, filename)
-			if err != nil {
-				return err
-			}
-		}
 	}
 
 	return nil

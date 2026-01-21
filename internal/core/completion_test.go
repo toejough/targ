@@ -578,18 +578,6 @@ func TestFollowRemaining_SingleRoot(t *testing.T) {
 	}
 }
 
-func TestHasExitEarlyFlagPrefix_Match(t *testing.T) {
-	if !hasExitEarlyFlagPrefix("--alias=something") {
-		t.Fatal("expected true for --alias=something")
-	}
-}
-
-func TestHasExitEarlyFlagPrefix_NoMatch(t *testing.T) {
-	if hasExitEarlyFlagPrefix("--other") {
-		t.Fatal("expected false for --other")
-	}
-}
-
 func TestPrintCompletionScriptPlaceholders(t *testing.T) {
 	cases := []string{"bash", "zsh", "fish"}
 	for _, shell := range cases {
