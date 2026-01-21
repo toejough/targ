@@ -45,16 +45,21 @@ Cross-cutting concerns that apply to all operations:
 
 Flags on `targ` itself (must appear before target path):
 
-| Flag         | Short | Description                      |
-| ------------ | ----- | -------------------------------- |
-| --parallel   | -p    | Run multiple targets in parallel |
-| --completion |       | Print shell completion script    |
-| --source     | -s    | Specify source (local or remote) |
-| --create     | -c    | Scaffold new target from command |
+| Flag         | Short | Description                          |
+| ------------ | ----- | ------------------------------------ |
+| --parallel   | -p    | Run multiple targets in parallel     |
+| --completion |       | Print shell completion script        |
+| --source     | -s    | Specify source (local or remote)     |
+| --create     | -c    | Scaffold new target from command     |
+| --to-func    |       | Convert string target to function    |
+| --to-string  |       | Convert function target to string    |
 
 `--source` infers local vs remote from format:
 - `./path` or `/path` → local file
 - `github.com/...` → remote
+
+`--to-func` expands a string target to a full function with args struct.
+`--to-string` errors if the function does more than a basic `targ.Shell()` call.
 
 `--help` is universal (works on any target or group).
 
@@ -183,6 +188,8 @@ How the target runs. Defined by the Target Builder.
 
 ```go
 targ.Targ(fn)                     // wrap a function
+targ.Targ("cmd $arg ...")         // shell command (runs in calling shell)
+
     .Deps(targets...)             // dependencies (serial by default)
     .DepMode(targ.Parallel)       // run deps in parallel
     .Cache(patterns...)           // skip if inputs unchanged
@@ -198,6 +205,18 @@ targ.Targ(fn)                     // wrap a function
 
 `.Deps()` accepts raw functions and `*Target`. `.DepMode()` takes `targ.Serial` (default) or `targ.Parallel`.
 
+Shell command strings run in the calling shell (bash, fish, zsh, etc.) so aliases and functions work.
+
+For function targets that need to shell out:
+
+```go
+func Deploy(ctx context.Context, args DeployArgs) error {
+    return targ.Shell(ctx, "kubectl apply -n $namespace -f $file", args)
+}
+```
+
+`targ.Shell(ctx, cmd, args)` substitutes `$var` from struct fields and runs in the calling shell.
+
 ### Discovery
 
 Execution metadata is discovered when targets are registered via `targ.Run()` in an init function. See [Source](#source).
@@ -205,11 +224,14 @@ Execution metadata is discovered when targets are registered via `targ.Run()` in
 ### Example
 
 ```go
+// Function-based targets
 var format = targ.Targ(Format)
 var build = targ.Targ(Build).Deps(format)
-var lintFast = targ.Targ(LintFast).Deps(format, build).DepMode(targ.Parallel).Cache("**/*.go")
-var lintFull = targ.Targ(LintFull).Deps(lintFast)
-var deploy = targ.Targ(Deploy).Deps(build, lintFull)
+var deploy = targ.Targ(Deploy).Deps(build)
+
+// Shell command targets (infers --path/-p flag from $path)
+var lint = targ.Targ("golangci-lint run $path").Deps(format).Cache("**/*.go")
+var test = targ.Targ("go test $pkg").Deps(build)
 ```
 
 ### Runtime Overrides
