@@ -350,6 +350,8 @@ targ dev deploy --env prod
 
 Groups are non-executable (pure namespace). Functions are the only executable targets.
 
+**Empty namespaces**: Since users edit source directly for modifications and deletions, targ doesn't need to automatically clean up empty namespace nodes. Users remove empty groups when editing their code.
+
 ### Discovery
 
 Hierarchy is discovered when groups are registered via `targ.Run()` in an init function. See [Source](#source).
@@ -453,14 +455,19 @@ Running a group with no arguments (or `--help`) prints its tree with description
 ```
 targ dev
 
-dev
+dev                              (dev/targets.go)
   format    Format source code
   build     Build the binary
   lint
     fast    Quick lint checks
     full    Comprehensive lint
   deploy    Deploy to environment
+  imported                       (github.com/foo/bar)
+    test    Run tests
+    bench   Run benchmarks
 ```
+
+**Source tracking**: Sources are shown at the highest level where all children share the same source. If most targets come from `dev/targets.go`, that's shown at the group level. Subgroups with different sources (like imported targets) show their source at that level.
 
 Running `--help` on a target shows all aspects:
 
