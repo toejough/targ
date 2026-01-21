@@ -23,12 +23,10 @@ A target has four configurable aspects (**Anatomy**), and targ provides eight op
 | --------- | ---------------------- | ------------------------ | ------------------------ | ------------------------ |
 | Discover  | [✓](#arguments)        | [✓](#execution)          | [✓](#hierarchy)          | [✓](#source)             |
 | Inspect   | [✓](#inspect)          | [✓](#inspect)            | [✓](#inspect)            | [✓](#inspect)            |
-| Modify    | Gap                    | Gap                      | Gap                      | Gap                      |
 | Specify   | [✓](#arguments)        | [✓](#execution)          | [✓](#hierarchy)          | [✓](#source)             |
 | Run       | [✓](#run)              | [✓](#run)                | [✓](#run)                | [✓](#source)             |
 | Create    | [✓](#create)           | [✓](#create)             | [✓](#create)             | [✓](#create)             |
-| Delete    | Gap                    | Gap                      | Gap                      | Gap                      |
-| Sync      | Gap                    | Gap                      | Gap                      | Gap                      |
+| Sync      | [✓](#sync)             | [✓](#sync)               | [✓](#sync)               | [✓](#sync)               |
 
 ### Constraints
 
@@ -53,6 +51,7 @@ Flags on `targ` itself (must appear before target path):
 | --create     | -c    | Scaffold new target from command     |
 | --to-func    |       | Convert string target to function    |
 | --to-string  |       | Convert function target to string    |
+| --sync       |       | Import targets from remote repo      |
 
 `--source` infers local vs remote from format:
 - `./path` or `/path` → local file
@@ -108,7 +107,7 @@ Maps requirements to architecture. Coverage: Necessary (inherent), Needs design,
 | Requirement    | Architecture               | Coverage          |
 | -------------- | -------------------------- | ----------------- |
 | Local targets  | Source - `//go:build targ` | [Source](#source) |
-| Remote targets | Sync × Source              | Needs design      |
+| Remote targets | Sync × Source              | [Sync](#sync)     |
 
 ### Operations
 
@@ -118,11 +117,11 @@ Maps requirements to architecture. Coverage: Necessary (inherent), Needs design,
 | Invoke: CLI          | Run × all aspects    | Needs design |
 | Invoke: modifiers    | Run × Execution      | Needs design |
 | Invoke: programmatic | Run × all aspects    | Needs design |
-| Transform: Rename    | Modify × Hierarchy   | Needs design |
-| Transform: Relocate  | Modify × Source      | Needs design |
-| Transform: Delete    | Delete × all aspects | Needs design |
-| Manage Dependencies  | Modify × Execution   | Needs design |
-| Sync (remote)        | Sync × Source        | Needs design |
+| Transform: Rename    | Edit source          | Necessary    |
+| Transform: Relocate  | Edit source          | Necessary    |
+| Transform: Delete    | Edit source          | Necessary    |
+| Manage Dependencies  | Edit source          | Necessary    |
+| Sync (remote)        | Sync × Source        | [Sync](#sync) |
 | Inspect: Where       | Inspect × Source     | [Inspect](#inspect) |
 | Inspect: Tree        | Inspect × Hierarchy  | [Inspect](#inspect) |
 | Inspect: Deps        | Inspect × Execution  | [Inspect](#inspect) |
@@ -526,4 +525,36 @@ targ --create --retry 3 --backoff 1s,2 flaky "curl ..."
 targ --create --timeout 5m slow "long-running-cmd"
 targ --create --watch "**/*.go" dev "go build"
 ```
+
+---
+
+# Sync
+
+Import targets from remote repositories.
+
+```
+targ --sync github.com/foo/bar
+```
+
+**Behavior**:
+- **No targ file exists**: Create one with import and register all exported targets/groups
+- **Targ file exists, no import**: Add import, register exported targets/groups
+- **Targ file exists, has import**: Update module version (`go get -u` style)
+
+**Generated code**:
+```go
+//go:build targ
+
+package main
+
+import "github.com/foo/bar"
+
+func init() {
+    targ.Run(bar.Build, bar.Test, bar.Deploy)
+}
+```
+
+**Imports**: Any exported targets (`*Target`), groups (`*Group`), or functions.
+
+**Naming conflicts**: Error clearly if any imported names would conflict with existing hierarchy.
 
