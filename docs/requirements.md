@@ -121,31 +121,21 @@ Run targets.
 
 ### Transform
 
-Change targets.
+Change targets. **Users edit source directly** - the model is simple enough that CLI tooling is unnecessary.
 
 | Transformation | What it does                                           |
 | -------------- | ------------------------------------------------------ |
 | Rename         | Change a target's path (includes move, nest, flatten)  |
 | Relocate       | Move implementation to different file (path unchanged) |
-| Delete         | Remove a target entirely (must be reversible)          |
-
-Rename handles all path changes:
-
-- `lint` → `check` (simple rename)
-- `targets.lint` → `tools.lint` (move between namespaces)
-- `lint-fast` → `lint.fast` (nest under parent)
-- `lint.fast` → `lint-fast` (flatten to sibling)
-
-The system creates intermediate nodes as needed and removes empty ones.
+| Delete         | Remove a target entirely                               |
 
 ### Manage Dependencies
 
-Modify relationships between targets.
+Modify relationships between targets. **Users edit source directly** - the model is simple enough that CLI tooling is unnecessary.
 
-- List dependencies of a target
-- Add a dependency
-- Remove a dependency
-- Change execution mode (parallel ↔ serial)
+- List dependencies of a target (via `--help`)
+- Add/remove dependencies (edit source)
+- Change execution mode (edit source)
 
 ### Sync
 
@@ -163,7 +153,7 @@ Query information about targets.
 | ----- | ---------------------------- |
 | Where | Source location of a target  |
 | Tree  | Full hierarchy visualization |
-| Deps  | What depends on a target     |
+| Deps  | Dependencies of a target     |
 
 ### Shell Integration
 
