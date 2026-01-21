@@ -578,7 +578,6 @@ type targRunner struct {
 	startDir          string
 	generatedWrappers []string
 	noCache           bool
-	keepBootstrap     bool
 }
 
 func (r *targRunner) buildAndRun(
@@ -602,29 +601,18 @@ func (r *targRunner) buildAndRunWithOptions(
 ) int {
 	bootstrapDir := r.resolveBootstrapDir(buildDir, isolated)
 
-	tempFile, cleanupTemp, err := writeBootstrapFile(bootstrapDir, bootstrapCode, r.keepBootstrap)
+	tempFile, cleanupTemp, err := writeBootstrapFile(bootstrapDir, bootstrapCode)
 	if err != nil {
 		r.logError("Error writing bootstrap file", err)
 		return r.exitWithCleanup(1)
 	}
 
-	if !r.keepBootstrap {
-		defer func() { _ = cleanupTemp() }()
-	}
+	defer func() { _ = cleanupTemp() }()
 
 	err = r.executeBuild(buildDir, binaryPath, tempFile, isolated)
 	if err != nil {
-		if !r.keepBootstrap {
-			_ = cleanupTemp()
-		}
-
 		r.logError("Error building command", err)
-
 		return r.exitWithCleanup(1)
-	}
-
-	if !r.keepBootstrap {
-		_ = cleanupTemp()
 	}
 
 	return r.executeBuiltBinary(binaryPath, targBinName)
@@ -759,9 +747,7 @@ func (r *targRunner) handleIsolatedModule(infos []buildtool.PackageInfo) int {
 		return r.exitWithCleanup(1)
 	}
 
-	if !r.keepBootstrap {
-		defer cleanup()
-	}
+	defer cleanup()
 
 	// Remap package infos to point to isolated directory
 	isolatedInfos, pathMapping, err := remapPackageInfosToIsolated(infos, r.startDir, isolatedDir)
@@ -818,7 +804,6 @@ func (r *targRunner) handleMultiModule(
 		moduleGroups,
 		r.startDir,
 		r.noCache,
-		r.keepBootstrap,
 		r.errOut,
 	)
 	if err != nil {
@@ -1034,7 +1019,7 @@ func (r *targRunner) run() int {
 	}
 
 	helpRequested, helpTargets := parseHelpRequest(r.args)
-	r.noCache, r.keepBootstrap, r.args = extractTargFlags(r.args)
+	r.noCache, r.args = extractTargFlags(r.args)
 
 	var err error
 
@@ -1141,7 +1126,6 @@ func buildAndQueryBinary(
 	dep targDependency,
 	binaryPath string,
 	bootstrap moduleBootstrap,
-	keepBootstrap bool,
 	errOut io.Writer,
 ) ([]commandInfo, error) {
 	bootstrapDir := filepath.Join(projectCacheDir(ctx.importRoot), "tmp")
@@ -1149,14 +1133,12 @@ func buildAndQueryBinary(
 		bootstrapDir = filepath.Join(ctx.buildRoot, "tmp")
 	}
 
-	tempFile, cleanupTemp, err := writeBootstrapFile(bootstrapDir, bootstrap.code, keepBootstrap)
+	tempFile, cleanupTemp, err := writeBootstrapFile(bootstrapDir, bootstrap.code)
 	if err != nil {
 		return nil, fmt.Errorf("writing bootstrap file: %w", err)
 	}
 
-	if !keepBootstrap {
-		defer func() { _ = cleanupTemp() }()
-	}
+	defer func() { _ = cleanupTemp() }()
 
 	ensureTargDependency(dep, ctx.importRoot)
 
@@ -1238,7 +1220,6 @@ func buildModuleBinary(
 	startDir string,
 	dep targDependency,
 	noCache bool,
-	keepBootstrap bool,
 	errOut io.Writer,
 ) (moduleRegistry, error) {
 	reg := moduleRegistry{
@@ -1281,7 +1262,6 @@ func buildModuleBinary(
 		dep,
 		binaryPath,
 		bootstrap,
-		keepBootstrap,
 		errOut,
 	)
 	if err != nil {
@@ -1298,7 +1278,6 @@ func buildMultiModuleBinaries(
 	moduleGroups []moduleTargets,
 	startDir string,
 	noCache bool,
-	keepBootstrap bool,
 	errOut io.Writer,
 ) ([]moduleRegistry, error) {
 	registry := make([]moduleRegistry, 0, len(moduleGroups))
@@ -1306,7 +1285,7 @@ func buildMultiModuleBinaries(
 	dep := resolveTargDependency()
 
 	for _, mt := range moduleGroups {
-		reg, err := buildModuleBinary(mt, startDir, dep, noCache, keepBootstrap, errOut)
+		reg, err := buildModuleBinary(mt, startDir, dep, noCache, errOut)
 		if err != nil {
 			return nil, fmt.Errorf("building module %s: %w", mt.ModulePath, err)
 		}
@@ -1830,23 +1809,21 @@ func extractBinName(binArg string) string {
 	return binArg
 }
 
-// extractTargFlags extracts targ-specific flags (--no-cache, --keep) from args.
-// Returns the flag values and remaining args to pass to the binary.
-func extractTargFlags(args []string) (noCache, keepBootstrap bool, remaining []string) {
+// extractTargFlags extracts targ-specific flags (--no-cache) from args.
+// Returns the flag value and remaining args to pass to the binary.
+func extractTargFlags(args []string) (noCache bool, remaining []string) {
 	remaining = make([]string, 0, len(args))
 
 	for _, arg := range args {
 		switch arg {
 		case "--no-cache":
 			noCache = true
-		case "--keep":
-			keepBootstrap = true
 		default:
 			remaining = append(remaining, arg)
 		}
 	}
 
-	return noCache, keepBootstrap, remaining
+	return noCache, remaining
 }
 
 // findCommandBinary finds the binary path for a command in the registry.
@@ -2252,7 +2229,6 @@ func printBuildToolUsage(out io.Writer) {
 	_, _ = fmt.Fprintln(out, "")
 	_, _ = fmt.Fprintln(out, "Flags:")
 	_, _ = fmt.Fprintf(out, "    %-28s %s\n", "--no-cache", "disable cached build tool binaries")
-	_, _ = fmt.Fprintf(out, "    %-28s %s\n", "--keep", "keep generated bootstrap file")
 	_, _ = fmt.Fprintf(
 		out,
 		"    %-28s %s\n",
@@ -2360,7 +2336,6 @@ func printNoTargetsCompletion(args []string) {
 		"--help",
 		"--timeout",
 		"--no-cache",
-		"--keep",
 		"--completion",
 	}
 
@@ -2818,7 +2793,7 @@ func walkNamespaceTree(
 	return nil
 }
 
-func writeBootstrapFile(dir string, data []byte, keep bool) (string, func() error, error) {
+func writeBootstrapFile(dir string, data []byte) (string, func() error, error) {
 	//nolint:gosec,mnd // standard directory permissions for bootstrap
 	err := os.MkdirAll(dir, 0o755)
 	if err != nil {
@@ -2844,10 +2819,6 @@ func writeBootstrapFile(dir string, data []byte, keep bool) (string, func() erro
 	}
 
 	cleanup := func() error {
-		if keep {
-			return nil
-		}
-
 		err := os.Remove(tempFile)
 
 		if err != nil && !os.IsNotExist(err) {

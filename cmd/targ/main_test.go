@@ -313,7 +313,7 @@ func TestWriteBootstrapFileCleanup(t *testing.T) {
 	dir := t.TempDir()
 	data := []byte("package main\n")
 
-	path, cleanup, err := writeBootstrapFile(dir, data, false)
+	path, cleanup, err := writeBootstrapFile(dir, data)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -332,23 +332,6 @@ func TestWriteBootstrapFileCleanup(t *testing.T) {
 	if !os.IsNotExist(err) {
 		t.Fatalf("expected bootstrap file to be removed, got: %v", err)
 	}
-
-	path, cleanup, err = writeBootstrapFile(dir, data, true)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	err = cleanup()
-	if err != nil {
-		t.Fatalf("unexpected cleanup error: %v", err)
-	}
-
-	_, err = os.Stat(path)
-	if err != nil {
-		t.Fatalf("expected bootstrap file to remain: %v", err)
-	}
-
-	_ = os.Remove(path)
 }
 
 func fieldNames(fields []bootstrapField) []string {
