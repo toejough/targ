@@ -58,15 +58,16 @@ Sync errors on naming conflicts with existing hierarchy.
 
 Flags on `targ` itself (must appear before target path):
 
-| Flag         | Short | Description                          |
-| ------------ | ----- | ------------------------------------ |
-| --parallel   | -p    | Run multiple targets in parallel     |
-| --completion |       | Print shell completion script        |
-| --source     | -s    | Specify source (local or remote)     |
-| --create     | -c    | Scaffold new target from command     |
-| --to-func    |       | Convert string target to function    |
-| --to-string  |       | Convert function target to string    |
-| --sync       |       | Import targets from remote repo      |
+| Flag              | Short | Description                          |
+| ----------------- | ----- | ------------------------------------ |
+| --parallel        | -p    | Run multiple targets in parallel     |
+| --completion      |       | Print shell completion script        |
+| --source          | -s    | Specify source (local or remote)     |
+| --create          | -c    | Scaffold new target from command     |
+| --to-func         |       | Convert string target to function    |
+| --to-string       |       | Convert function target to string    |
+| --sync            |       | Import targets from remote repo      |
+| --no-binary-cache |       | Disable targ binary caching          |
 
 `--source` infers local vs remote from format:
 - `./path` or `/path` → local file
