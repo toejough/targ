@@ -234,7 +234,7 @@ func Deploy(ctx context.Context, args DeployArgs) error {
 
 ### Discovery
 
-Execution metadata is discovered when targets are registered via `targ.Run()` in an init function. See [Source](#source).
+Execution metadata is discovered when targets are registered via `targ.Register()` in an init function. See [Source](#source).
 
 ### Example
 
@@ -354,7 +354,7 @@ Groups are non-executable (pure namespace). Functions are the only executable ta
 
 ### Discovery
 
-Hierarchy is discovered when groups are registered via `targ.Run()` in an init function. See [Source](#source).
+Hierarchy is discovered when groups are registered via `targ.Register()` in an init function. See [Source](#source).
 
 ### Path Specification
 
@@ -384,7 +384,7 @@ Group names must be explicit because:
 
 Which file contains the implementation. The function's location in the codebase.
 
-Functions are discovered in files with `//go:build targ` tag. Execution metadata and hierarchy are registered via `targ.Run()` in an init function:
+Functions are discovered in files with `//go:build targ` tag. Execution metadata and hierarchy are registered via `targ.Register()` in an init function:
 
 ```go
 //go:build targ
@@ -399,11 +399,11 @@ var test = targ.Targ(Test)
 var Dev = targ.Group("dev", build, test)
 
 func init() {
-    targ.Run(Dev)
+    targ.Register(Dev)
 }
 ```
 
-`targ.Run()` accepts raw functions, `*Target`, or `*Group`.
+`targ.Register()` accepts raw functions, `*Target`, or `*Group`. It registers targets but does not execute them.
 
 Function signature capabilities (independently optional):
 
@@ -443,8 +443,9 @@ To convert targ targets to a standalone CLI binary:
 1. Remove `//go:build targ`
 2. Change `package dev` to `package main`
 3. Rename `func init()` to `func main()`
+4. Change `targ.Register()` to `targ.Run()`
 
-The `targ.Run()` call becomes the binary's entry point.
+`targ.Run()` both registers targets and executes based on CLI args, making it the binary's entry point.
 
 ---
 
@@ -644,7 +645,7 @@ package main
 import "github.com/foo/bar"
 
 func init() {
-    targ.Run(bar.Build, bar.Test, bar.Deploy)
+    targ.Register(bar.Build, bar.Test, bar.Deploy)
 }
 ```
 

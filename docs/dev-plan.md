@@ -197,26 +197,26 @@ Remove:
 
 ## Phase 3: Switch to Explicit Registration Model
 
-The architecture specifies explicit registration via `targ.Run()` in init(), not discovery of exports. This phase switches from the current "discover exports and generate wrappers" model to "import package and let init() handle registration".
+The architecture specifies explicit registration via `targ.Register()` in init(), not discovery of exports. This phase switches from the current "discover exports and generate wrappers" model to "import package and let init() handle registration".
 
-### 3.1 Add targ.Run() Detection to Buildtool
+### 3.1 Add targ.Register() Detection to Buildtool
 
 **Files**: `buildtool/discover.go`
 
 Detect if a package uses the new explicit registration model:
 
-- Scan init() functions for `targ.Run()` calls
+- Scan init() functions for `targ.Register()` calls
 - If found: generate minimal bootstrap that just imports the package
 - If not found: use old discovery (backwards compat during transition)
 
 **Properties**:
 
 ```go
-// Package with targ.Run() in init uses new model
+// Package with targ.Register() in init uses new model
 rapid.Check(t, func(t *rapid.T) {
     src := `//go:build targ
 package dev
-func init() { targ.Run(myTarget) }`
+func init() { targ.Register(myTarget) }`
     info := parsePackage(src)
     gomega.Expect(info.UsesExplicitRegistration).To(gomega.BeTrue())
 })
@@ -252,7 +252,7 @@ func tidy(ctx context.Context) error { ... }
 var Tidy = targ.Targ(tidy).Description("Tidy go.mod")
 
 func init() {
-    targ.Run(Coverage, Tidy, /* ... all targets */)
+    targ.Register(Coverage, Tidy, /* ... all targets */)
 }
 ```
 
@@ -281,7 +281,7 @@ func create(args CreateArgs) error { ... }
 var Create = targ.Targ(create).Description("Create a new issue")
 
 func init() {
-    targ.Run(Create, List, Move, Update, Validate, Dedupe)
+    targ.Register(Create, List, Move, Update, Validate, Dedupe)
 }
 ```
 
