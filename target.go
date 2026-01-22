@@ -27,15 +27,30 @@ const (
 // Target wraps a function or shell command with configuration.
 // Use Targ() to create a Target, then chain builder methods.
 type Target struct {
-	fn          any           // func(...) or string (shell command)
-	name        string        // CLI name override
-	description string        // help text
-	deps        []*Target     // dependencies to run before this target
-	depMode     DepMode       // serial or parallel dependency execution
-	timeout     time.Duration // execution timeout (0 = no timeout)
-	cache       []string      // file patterns for cache invalidation
-	cacheDir    string        // directory to store cache files
-	watch       []string      // file patterns for watch mode
+	fn              any           // func(...) or string (shell command)
+	name            string        // CLI name override
+	description     string        // help text
+	deps            []*Target     // dependencies to run before this target
+	depMode         DepMode       // serial or parallel dependency execution
+	timeout         time.Duration // execution timeout (0 = no timeout)
+	cache           []string      // file patterns for cache invalidation
+	cacheDir        string        // directory to store cache files
+	watch           []string      // file patterns for watch mode
+	times           int           // number of times to run (0 = once)
+	whileFn         func() bool   // predicate to check before each run
+	retry           bool          // continue despite failures
+	backoffInitial  time.Duration // initial backoff delay after failure
+	backoffMultiply float64       // backoff multiplier for exponential backoff
+}
+
+// Backoff sets exponential backoff delay after failures.
+// The delay starts at initial and multiplies by factor after each failure.
+// Only applies when Retry() is enabled.
+func (t *Target) Backoff(initial time.Duration, factor float64) *Target {
+	t.backoffInitial = initial
+	t.backoffMultiply = factor
+
+	return t
 }
 
 // Cache sets file patterns for cache invalidation.
@@ -100,6 +115,14 @@ func (t *Target) ParallelDeps(targets ...*Target) *Target {
 	return t
 }
 
+// Retry makes the target continue to the next iteration even if execution fails.
+// Without Retry, the target stops on the first error.
+// Use with Times() or While() to retry multiple times.
+func (t *Target) Retry() *Target {
+	t.retry = true
+	return t
+}
+
 // Run executes the target with the full execution configuration.
 func (t *Target) Run(ctx context.Context, args ...any) error {
 	// Apply timeout if configured
@@ -131,8 +154,8 @@ func (t *Target) Run(ctx context.Context, args ...any) error {
 		}
 	}
 
-	// Execute the target itself
-	return t.execute(ctx, args)
+	// Execute the target with repetition handling
+	return t.runWithRepetition(ctx, args)
 }
 
 // RunWatch runs the target and then watches for file changes, re-running on each change.
@@ -168,11 +191,48 @@ func (t *Target) Timeout(d time.Duration) *Target {
 	return t
 }
 
+// Times sets how many times to run the target.
+// Without Retry(), stops on first failure.
+// With Retry(), continues to run all iterations.
+func (t *Target) Times(n int) *Target {
+	t.times = n
+	return t
+}
+
 // Watch sets file patterns to watch for changes.
 // When used with RunWatch, the target will re-run when matching files change.
 func (t *Target) Watch(patterns ...string) *Target {
 	t.watch = patterns
 	return t
+}
+
+// While sets a predicate that's checked before each run.
+// The target runs as long as the predicate returns true.
+// Can be combined with Times() - the earliest stopping condition wins.
+func (t *Target) While(fn func() bool) *Target {
+	t.whileFn = fn
+	return t
+}
+
+// applyBackoff applies backoff delay if configured.
+func (t *Target) applyBackoff(
+	ctx context.Context,
+	state *repetitionState,
+	i, iterations int,
+) error {
+	if state.backoffDelay <= 0 || i >= iterations-1 {
+		return nil
+	}
+
+	select {
+	case <-ctx.Done():
+		return fmt.Errorf("execution cancelled during backoff: %w", ctx.Err())
+	case <-time.After(state.backoffDelay):
+	}
+
+	state.backoffDelay = time.Duration(float64(state.backoffDelay) * t.backoffMultiply)
+
+	return nil
 }
 
 // cacheFilePath returns the path to the cache checksum file.
@@ -223,6 +283,15 @@ func (t *Target) execute(ctx context.Context, args []any) error {
 	}
 }
 
+// iterationCount returns the number of iterations to run.
+func (t *Target) iterationCount() int {
+	if t.times > 0 {
+		return t.times
+	}
+
+	return 1
+}
+
 // runDeps executes dependencies according to the configured mode.
 func (t *Target) runDeps(ctx context.Context) error {
 	if t.depMode == DepModeParallel {
@@ -266,6 +335,52 @@ func (t *Target) runDepsSerial(ctx context.Context) error {
 	return nil
 }
 
+// runWithRepetition handles Times, While, Retry, and Backoff logic.
+func (t *Target) runWithRepetition(ctx context.Context, args []any) error {
+	iterations := t.iterationCount()
+	state := &repetitionState{backoffDelay: t.backoffInitial}
+
+	for i := range iterations {
+		if !t.shouldContinueLoop(ctx, state) {
+			break
+		}
+
+		err := t.execute(ctx, args)
+		if err != nil {
+			state.lastErr = err
+
+			if !t.retry {
+				return err
+			}
+
+			err := t.applyBackoff(ctx, state, i, iterations)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	return state.lastErr
+}
+
+// shouldContinueLoop checks if the loop should continue.
+func (t *Target) shouldContinueLoop(ctx context.Context, state *repetitionState) bool {
+	if t.whileFn != nil && !t.whileFn() {
+		return false
+	}
+
+	select {
+	case <-ctx.Done():
+		if state.lastErr == nil {
+			state.lastErr = fmt.Errorf("execution cancelled: %w", ctx.Err())
+		}
+
+		return false
+	default:
+		return true
+	}
+}
+
 // Targ creates a Target from a function or shell command string.
 //
 // Function targets:
@@ -294,6 +409,12 @@ func Targ(fn any) *Target {
 	}
 
 	return &Target{fn: fn}
+}
+
+// repetitionState tracks state across loop iterations.
+type repetitionState struct {
+	lastErr      error
+	backoffDelay time.Duration
 }
 
 // callFunc calls a function with the appropriate signature.

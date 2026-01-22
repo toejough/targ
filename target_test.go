@@ -64,6 +64,35 @@ func TestTarg_PanicsOnNonFuncNonString(t *testing.T) {
 	}).To(Panic())
 }
 
+func TestTarget_BackoffBuilderReturnsSameTarget(t *testing.T) {
+	g := NewWithT(t)
+
+	original := targ.Targ(func() {})
+	afterBackoff := original.Backoff(time.Second, 2.0)
+
+	g.Expect(afterBackoff).To(BeIdenticalTo(original))
+}
+
+func TestTarget_BackoffDelaysAfterFailure(t *testing.T) {
+	g := NewWithT(t)
+
+	execCount := 0
+	start := time.Now()
+	target := targ.Targ(func() error {
+		execCount++
+
+		return errors.New("fail")
+	}).Times(3).Retry().Backoff(50*time.Millisecond, 2.0)
+
+	err := target.Run(context.Background())
+	elapsed := time.Since(start)
+
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(execCount).To(Equal(3))
+	// Should have delays: 50ms after first, 100ms after second = 150ms total
+	g.Expect(elapsed).To(BeNumerically(">=", 100*time.Millisecond))
+}
+
 func TestTarget_BuilderChainWithDepsAndTimeout(t *testing.T) {
 	g := NewWithT(t)
 
@@ -231,6 +260,15 @@ func TestTarget_ParallelDepsRunConcurrently(t *testing.T) {
 
 	// Give the main goroutine time to complete
 	g.Eventually(func() bool { return true }).Should(BeTrue())
+}
+
+func TestTarget_RetryBuilderReturnsSameTarget(t *testing.T) {
+	g := NewWithT(t)
+
+	original := targ.Targ(func() {})
+	afterRetry := original.Retry()
+
+	g.Expect(afterRetry).To(BeIdenticalTo(original))
 }
 
 func TestTarget_RunCallsFunction(t *testing.T) {
@@ -401,6 +439,76 @@ func TestTarget_TimeoutCancelsExecution(t *testing.T) {
 	g.Expect(errors.Is(err, context.DeadlineExceeded)).To(BeTrue())
 }
 
+func TestTarget_TimesBuilderReturnsSameTarget(t *testing.T) {
+	g := NewWithT(t)
+
+	original := targ.Targ(func() {})
+	afterTimes := original.Times(5)
+
+	g.Expect(afterTimes).To(BeIdenticalTo(original))
+}
+
+func TestTarget_TimesCompletesAllWithRetry(t *testing.T) {
+	g := NewWithT(t)
+
+	execCount := 0
+	target := targ.Targ(func() error {
+		execCount++
+
+		return errors.New("always fail")
+	}).Times(5).Retry()
+
+	err := target.Run(context.Background())
+	g.Expect(err).To(HaveOccurred()) // Returns last error
+	g.Expect(execCount).To(Equal(5)) // All iterations ran
+}
+
+func TestTarget_TimesRunsNTimes(t *testing.T) {
+	g := NewWithT(t)
+
+	execCount := 0
+	target := targ.Targ(func() { execCount++ }).Times(5)
+
+	err := target.Run(context.Background())
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(execCount).To(Equal(5))
+}
+
+func TestTarget_TimesStopsOnContextCancellation(t *testing.T) {
+	g := NewWithT(t)
+
+	execCount := 0
+	ctx, cancel := context.WithCancel(context.Background())
+	target := targ.Targ(func() {
+		execCount++
+		if execCount == 2 {
+			cancel()
+		}
+	}).Times(10)
+
+	err := target.Run(ctx)
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(execCount).To(Equal(2)) // Stopped after cancellation
+}
+
+func TestTarget_TimesStopsOnFailureWithoutRetry(t *testing.T) {
+	g := NewWithT(t)
+
+	execCount := 0
+	target := targ.Targ(func() error {
+		execCount++
+		if execCount == 3 {
+			return errors.New("fail at 3")
+		}
+
+		return nil
+	}).Times(5)
+
+	err := target.Run(context.Background())
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(execCount).To(Equal(3)) // Stopped at failure
+}
+
 func TestTarget_WatchBuilderReturnsSameTarget(t *testing.T) {
 	g := NewWithT(t)
 
@@ -408,6 +516,28 @@ func TestTarget_WatchBuilderReturnsSameTarget(t *testing.T) {
 	afterWatch := original.Watch("*.go")
 
 	g.Expect(afterWatch).To(BeIdenticalTo(original))
+}
+
+func TestTarget_WhileBuilderReturnsSameTarget(t *testing.T) {
+	g := NewWithT(t)
+
+	original := targ.Targ(func() {})
+	afterWhile := original.While(func() bool { return true })
+
+	g.Expect(afterWhile).To(BeIdenticalTo(original))
+}
+
+func TestTarget_WhileStopsWhenPredicateFalse(t *testing.T) {
+	g := NewWithT(t)
+
+	execCount := 0
+	target := targ.Targ(func() { execCount++ }).
+		Times(10).
+		While(func() bool { return execCount < 3 })
+
+	err := target.Run(context.Background())
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(execCount).To(Equal(3)) // While stopped it at 3
 }
 
 // unexported constants.
