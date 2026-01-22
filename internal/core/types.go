@@ -46,6 +46,10 @@ type RunOptions struct {
 	// Use EmptyExamples() to disable examples entirely.
 	// Use AppendBuiltinExamples() to add custom examples alongside built-ins.
 	Examples []Example
+
+	// Overrides are runtime flags that override Target compile-time settings.
+	// Internal: populated by extracting --times, --watch, etc. from args.
+	Overrides RuntimeOverrides
 }
 
 // TagKind identifies the type of a struct field in command parsing.

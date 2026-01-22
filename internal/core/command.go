@@ -187,7 +187,7 @@ func (n *commandNode) executeStructCommand(
 		return result.remaining, nil
 	}
 
-	return n.runCommandWithHooks(ctx, inst, chain, specs, visited, result.remaining)
+	return n.runCommandWithHooks(ctx, inst, chain, specs, visited, result.remaining, opts)
 }
 
 // executeSubcommand handles subcommand dispatch and sibling resolution.
@@ -271,6 +271,7 @@ func (n *commandNode) runCommandWithHooks(
 	specs []*flagSpec,
 	visited map[string]bool,
 	remaining []string,
+	opts RunOptions,
 ) ([]string, error) {
 	err := applyDefaultsAndEnv(specs, visited)
 	if err != nil {
@@ -287,7 +288,10 @@ func (n *commandNode) runCommandWithHooks(
 		return nil, err
 	}
 
-	err = runCommand(ctx, n, inst, nil, 0)
+	// Execute with runtime overrides (times, retry, watch, cache, etc.)
+	err = ExecuteWithOverrides(ctx, opts.Overrides, nil, func() error {
+		return runCommand(ctx, n, inst, nil, 0)
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -1099,7 +1103,10 @@ func executeFunctionWithParents(
 		return nil, err
 	}
 
-	err = callFunctionWithArgs(ctx, node.Func, inst)
+	// Execute with runtime overrides (times, retry, watch, cache, etc.)
+	err = ExecuteWithOverrides(ctx, opts.Overrides, nil, func() error {
+		return callFunctionWithArgs(ctx, node.Func, inst)
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -2020,6 +2027,15 @@ func printTargFlags(opts RunOptions, isRoot bool) {
 	if !opts.DisableTimeout {
 		fmt.Println("  --timeout <duration>")
 	}
+
+	// Runtime override flags
+	fmt.Println("  --times <n>           Run the command n times")
+	fmt.Println("  --retry               Continue on failure")
+	fmt.Println("  --backoff <d,m>       Exponential backoff (duration,multiplier)")
+	fmt.Println("  --watch <pattern>     Re-run on file changes (repeatable)")
+	fmt.Println("  --cache <pattern>     Skip if files unchanged (repeatable)")
+	fmt.Println("  --while <cmd>         Run while shell command succeeds")
+	fmt.Println("  --dep-mode <mode>     Dependency mode: serial or parallel")
 }
 
 // printTopLevelCommand prints a top-level command with aligned description.

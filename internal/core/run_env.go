@@ -83,6 +83,8 @@ func DetectShell() string {
 }
 
 // RunWithEnv executes commands with a custom environment.
+//
+//nolint:cyclop // Entry point orchestrating setup, flag extraction, and execution paths
 func RunWithEnv(env runEnv, opts RunOptions, targets ...any) error {
 	exec := &runExecutor{
 		env:        env,
@@ -102,6 +104,12 @@ func RunWithEnv(env runEnv, opts RunOptions, targets ...any) error {
 	}
 
 	exec.extractHelpFlag()
+
+	err = exec.extractOverrides()
+	if err != nil {
+		env.Printf("Error: %v\n", err)
+		return ExitError{Code: 1}
+	}
 
 	return withDepTracker(exec.ctx, func() error {
 		err := exec.parseTargets(targets)
@@ -297,6 +305,19 @@ func (e *runExecutor) extractHelpFlag() {
 		e.opts.HelpOnly = true
 		e.args = remaining
 	}
+}
+
+// extractOverrides parses runtime override flags from args.
+func (e *runExecutor) extractOverrides() error {
+	overrides, remaining, err := ExtractOverrides(e.args)
+	if err != nil {
+		return err
+	}
+
+	e.opts.Overrides = overrides
+	e.args = remaining
+
+	return nil
 }
 
 // findMatchingRoot finds a root command matching the given name.

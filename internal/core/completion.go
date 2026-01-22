@@ -1016,6 +1016,7 @@ func targBooleanFlags() map[string]bool {
 		"--no-cache":        true, // deprecated alias
 		"--help":            true,
 		"-h":                true,
+		"--retry":           true,
 	}
 }
 
@@ -1031,12 +1032,28 @@ func targFlagsWithValues() map[string]bool {
 	return map[string]bool{
 		"--timeout":    true,
 		"--completion": true,
+		"--times":      true,
+		"--backoff":    true,
+		"--watch":      true,
+		"--cache":      true,
+		"--while":      true,
+		"--dep-mode":   true,
 	}
 }
 
 // targGlobalFlags returns flags valid at any command level.
 func targGlobalFlags() []string {
-	return []string{"--help", "--timeout"}
+	return []string{
+		"--help",
+		"--timeout",
+		"--times",
+		"--retry",
+		"--backoff",
+		"--watch",
+		"--cache",
+		"--while",
+		"--dep-mode",
+	}
 }
 
 // targRootOnlyFlags returns flags only valid at root level (before any command).

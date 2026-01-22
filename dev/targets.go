@@ -245,6 +245,11 @@ func checkCoverage(ctx context.Context) error {
 			continue
 		}
 
+		// Exclude executeWithWatch (requires real file system watching)
+		if strings.Contains(line, "executeWithWatch\t") {
+			continue
+		}
+
 		// Exclude registerProcess (process management, system interaction)
 		if strings.Contains(line, "registerProcess\t") {
 			continue
