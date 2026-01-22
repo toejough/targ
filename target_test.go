@@ -3,6 +3,7 @@ package targ_test
 import (
 	"context"
 	"errors"
+	"os"
 	"testing"
 	"time"
 
@@ -102,6 +103,73 @@ func TestTarget_BuilderMethodsReturnSameTarget(t *testing.T) {
 	// All should be the same pointer
 	g.Expect(afterName).To(BeIdenticalTo(original))
 	g.Expect(afterDesc).To(BeIdenticalTo(original))
+}
+
+func TestTarget_CacheBuilderReturnsSameTarget(t *testing.T) {
+	g := NewWithT(t)
+
+	original := targ.Targ(func() {})
+	afterCache := original.Cache("*.go")
+
+	g.Expect(afterCache).To(BeIdenticalTo(original))
+}
+
+func TestTarget_CacheHitSkipsExecution(t *testing.T) {
+	g := NewWithT(t)
+
+	// Create temp dir and file for cache testing
+	tmpDir := t.TempDir()
+	inputFile := tmpDir + "/input.txt"
+	cacheDir := tmpDir + "/cache"
+
+	err := os.WriteFile(inputFile, []byte("content"), 0o644)
+	g.Expect(err).ToNot(HaveOccurred())
+
+	execCount := 0
+	target := targ.Targ(func() { execCount++ }).
+		Cache(inputFile).
+		CacheDir(cacheDir)
+
+	// First run - cache miss, should execute
+	err = target.Run(context.Background())
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(execCount).To(Equal(1))
+
+	// Second run - cache hit, should skip
+	err = target.Run(context.Background())
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(execCount).To(Equal(1))
+}
+
+func TestTarget_CacheMissRunsExecution(t *testing.T) {
+	g := NewWithT(t)
+
+	// Create temp dir and file for cache testing
+	tmpDir := t.TempDir()
+	inputFile := tmpDir + "/input.txt"
+	cacheDir := tmpDir + "/cache"
+
+	err := os.WriteFile(inputFile, []byte("content1"), 0o644)
+	g.Expect(err).ToNot(HaveOccurred())
+
+	execCount := 0
+	target := targ.Targ(func() { execCount++ }).
+		Cache(inputFile).
+		CacheDir(cacheDir)
+
+	// First run
+	err = target.Run(context.Background())
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(execCount).To(Equal(1))
+
+	// Change file content
+	err = os.WriteFile(inputFile, []byte("content2"), 0o644)
+	g.Expect(err).ToNot(HaveOccurred())
+
+	// Second run - cache miss due to content change
+	err = target.Run(context.Background())
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(execCount).To(Equal(2))
 }
 
 func TestTarget_DepsRunSerially(t *testing.T) {

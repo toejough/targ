@@ -2,10 +2,14 @@ package targ
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"reflect"
+	"sort"
 	"time"
 
+	"github.com/toejough/targ/file"
 	"github.com/toejough/targ/sh"
 )
 
@@ -29,6 +33,23 @@ type Target struct {
 	deps        []*Target     // dependencies to run before this target
 	depMode     DepMode       // serial or parallel dependency execution
 	timeout     time.Duration // execution timeout (0 = no timeout)
+	cache       []string      // file patterns for cache invalidation
+	cacheDir    string        // directory to store cache files
+}
+
+// Cache sets file patterns for cache invalidation.
+// If the files matching these patterns haven't changed since the last run,
+// the target execution is skipped.
+func (t *Target) Cache(patterns ...string) *Target {
+	t.cache = patterns
+	return t
+}
+
+// CacheDir sets the directory where cache checksum files are stored.
+// If not set, defaults to ".targ-cache" in the current directory.
+func (t *Target) CacheDir(dir string) *Target {
+	t.cacheDir = dir
+	return t
 }
 
 // Deps sets dependencies that run serially before this target.
@@ -96,6 +117,19 @@ func (t *Target) Run(ctx context.Context, args ...any) error {
 		}
 	}
 
+	// Check cache - if hit, skip execution
+	if len(t.cache) > 0 {
+		changed, err := t.checkCache()
+		if err != nil {
+			return fmt.Errorf("cache check failed: %w", err)
+		}
+
+		if !changed {
+			// Cache hit - skip execution
+			return nil
+		}
+	}
+
 	// Execute the target itself
 	return t.execute(ctx, args)
 }
@@ -105,6 +139,44 @@ func (t *Target) Run(ctx context.Context, args ...any) error {
 func (t *Target) Timeout(d time.Duration) *Target {
 	t.timeout = d
 	return t
+}
+
+// cacheFilePath returns the path to the cache checksum file.
+func (t *Target) cacheFilePath() string {
+	dir := t.cacheDir
+	if dir == "" {
+		dir = ".targ-cache"
+	}
+
+	// Generate a deterministic filename from the patterns
+	hash := sha256.New()
+
+	// Sort patterns for deterministic hashing
+	patterns := make([]string, len(t.cache))
+	copy(patterns, t.cache)
+	sort.Strings(patterns)
+
+	for _, p := range patterns {
+		hash.Write([]byte(p))
+		hash.Write([]byte{0})
+	}
+
+	filename := hex.EncodeToString(hash.Sum(nil))[:16] + ".sum"
+
+	return dir + "/" + filename
+}
+
+// checkCache checks if cached files have changed.
+// Returns true if files changed (cache miss), false if unchanged (cache hit).
+func (t *Target) checkCache() (bool, error) {
+	cacheFile := t.cacheFilePath()
+
+	changed, err := file.Checksum(t.cache, cacheFile)
+	if err != nil {
+		return false, fmt.Errorf("computing checksum: %w", err)
+	}
+
+	return changed, nil
 }
 
 // execute runs the target's function or shell command.
