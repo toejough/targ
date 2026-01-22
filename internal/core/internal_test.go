@@ -2892,9 +2892,7 @@ func TestPrintUsage_WithDescription(t *testing.T) {
 		{
 			Name:        "test",
 			Description: "Test command",
-			Subcommands: map[string]*commandNode{
-				"sub": {Name: "sub", Description: "Sub command"},
-			},
+			SourceFile:  "/test/path.go",
 		},
 	}
 
@@ -2905,9 +2903,10 @@ func TestPrintUsage_WithDescription(t *testing.T) {
 	})
 
 	g.Expect(output).To(ContainSubstring("Top level description"))
-	g.Expect(output).To(ContainSubstring("test:"))
+	g.Expect(output).To(ContainSubstring("test"))
 	g.Expect(output).To(ContainSubstring("Test command"))
-	g.Expect(output).To(ContainSubstring("Subcommands:"))
+	// Commands grouped by source (path may be relative)
+	g.Expect(output).To(ContainSubstring("path.go]"))
 }
 
 func TestPrintUsage_WithNestedSubcommands(t *testing.T) {
@@ -2922,9 +2921,6 @@ func TestPrintUsage_WithNestedSubcommands(t *testing.T) {
 				"child": {
 					Name:        "child",
 					Description: "Child command",
-					Subcommands: map[string]*commandNode{
-						"grandchild": {Name: "grandchild", Description: "Grandchild"},
-					},
 				},
 			},
 		},
@@ -2934,11 +2930,10 @@ func TestPrintUsage_WithNestedSubcommands(t *testing.T) {
 		printUsage(nodes, RunOptions{})
 	})
 
-	g.Expect(output).To(ContainSubstring("parent:"))
-	// With progressive disclosure, only immediate subcommands shown in grid
-	g.Expect(output).To(ContainSubstring("child"))
-	// Grandchild is NOT shown at top-level - only via child --help
-	g.Expect(output).NotTo(ContainSubstring("grandchild"))
+	g.Expect(output).To(ContainSubstring("parent"))
+	g.Expect(output).To(ContainSubstring("Parent command"))
+	// Commands grouped by source (path may be relative)
+	g.Expect(output).To(ContainSubstring("path.go]"))
 }
 
 func TestRelativeSourcePathWithGetwd_GetwdError(t *testing.T) {

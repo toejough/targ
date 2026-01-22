@@ -1912,38 +1912,58 @@ func printTargFlags(opts RunOptions, isRoot bool) {
 }
 
 // printTopLevelCommand prints a top-level command (like "issues" or "targets").
-func printTopLevelCommand(node *commandNode, _ string, _ RunOptions) {
-	// Command name and description on same line: "issues:    description"
+func printTopLevelCommand(node *commandNode) {
+	// Command name and description on same line: "  name    description"
 	if node.Description != "" {
-		fmt.Printf("  %s:    %s\n", node.Name, node.Description)
+		fmt.Printf("  %s    %s\n", node.Name, node.Description)
 	} else {
-		fmt.Printf("  %s:\n", node.Name)
+		fmt.Printf("  %s\n", node.Name)
 	}
+}
 
-	fmt.Println()
+// getNodeSourceFile returns the source file for a node, checking subcommands if needed.
+func getNodeSourceFile(node *commandNode) string {
+	if node.SourceFile != "" {
+		return node.SourceFile
+	}
+	for _, sub := range node.Subcommands {
+		if sub.SourceFile != "" {
+			return sub.SourceFile
+		}
+	}
+	return ""
+}
 
-	// Source file (indented)
-	sourceFile := node.SourceFile
-	if sourceFile == "" && len(node.Subcommands) > 0 {
-		for _, sub := range node.Subcommands {
-			if sub.SourceFile != "" {
-				sourceFile = sub.SourceFile
-				break
-			}
+// groupNodesBySource groups nodes by their source file, preserving order.
+func groupNodesBySource(nodes []*commandNode) []struct {
+	source string
+	nodes  []*commandNode
+} {
+	// Use a slice to preserve order, map for lookup
+	var groups []struct {
+		source string
+		nodes  []*commandNode
+	}
+	sourceIndex := make(map[string]int)
+
+	for _, node := range nodes {
+		source := relativeSourcePath(getNodeSourceFile(node))
+		if source == "" {
+			source = "(unknown)"
+		}
+
+		if idx, ok := sourceIndex[source]; ok {
+			groups[idx].nodes = append(groups[idx].nodes, node)
+		} else {
+			sourceIndex[source] = len(groups)
+			groups = append(groups, struct {
+				source string
+				nodes  []*commandNode
+			}{source: source, nodes: []*commandNode{node}})
 		}
 	}
 
-	if sourceFile != "" {
-		relPath := relativeSourcePath(sourceFile)
-		fmt.Printf("    Source: %s\n", relPath)
-	}
-
-	// Subcommands as multi-column grid
-	if len(node.Subcommands) > 0 {
-		printSubcommandGrid(node.Subcommands, "    ")
-	}
-
-	fmt.Println()
+	return groups
 }
 
 func printUsage(nodes []*commandNode, opts RunOptions) {
@@ -1961,11 +1981,18 @@ func printUsage(nodes []*commandNode, opts RunOptions) {
 	printTargFlags(opts, true)
 	printValuesAndFormats(opts, true)
 
-	// Commands
+	// Commands grouped by source
 	fmt.Println("\nCommands:")
 
-	for _, node := range nodes {
-		printTopLevelCommand(node, binName, opts)
+	groups := groupNodesBySource(nodes)
+	for i, group := range groups {
+		if i > 0 {
+			fmt.Println()
+		}
+		fmt.Printf("\n  [%s]\n", group.source)
+		for _, node := range group.nodes {
+			printTopLevelCommand(node)
+		}
 	}
 
 	printExamples(opts, true)
