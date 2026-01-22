@@ -38,10 +38,41 @@ func AppendBuiltinExamples(custom ...Example) []Example {
 func BuiltinExamples() []Example {
 	return []Example{
 		completionExample(),
-		{
-			Title: "Chain nested commands (^ returns to root)",
-			Code:  "targ targets check ^ issues validate",
-		},
+		chainExample(nil),
+	}
+}
+
+// builtinExamplesForNodes returns examples using actual command names.
+func builtinExamplesForNodes(nodes []*commandNode) []Example {
+	return []Example{
+		completionExample(),
+		chainExample(nodes),
+	}
+}
+
+// chainExample returns an example showing command chaining.
+// If nodes are provided, uses actual command names.
+func chainExample(nodes []*commandNode) Example {
+	// Get up to 2 command names from different source files
+	var names []string
+	seenSources := make(map[string]bool)
+
+	for _, node := range nodes {
+		source := getNodeSourceFile(node)
+		if !seenSources[source] && len(names) < 2 {
+			names = append(names, node.Name)
+			seenSources[source] = true
+		}
+	}
+
+	// Fall back to generic if not enough commands
+	if len(names) < 2 {
+		names = []string{"build", "test"}
+	}
+
+	return Example{
+		Title: "Chain commands (^ separates independent commands)",
+		Code:  fmt.Sprintf("targ %s ^ %s", names[0], names[1]),
 	}
 }
 
@@ -1753,6 +1784,19 @@ func printExamples(opts RunOptions, isRoot bool) {
 		}
 	}
 
+	printExampleList(examples)
+}
+
+func printExamplesForNodes(opts RunOptions, nodes []*commandNode) {
+	examples := opts.Examples
+	if examples == nil {
+		examples = builtinExamplesForNodes(nodes)
+	}
+
+	printExampleList(examples)
+}
+
+func printExampleList(examples []Example) {
 	if len(examples) == 0 {
 		return
 	}
@@ -2007,7 +2051,7 @@ func printUsage(nodes []*commandNode, opts RunOptions) {
 		}
 	}
 
-	printExamples(opts, true)
+	printExamplesForNodes(opts, nodes)
 	printMoreInfo(opts)
 }
 
