@@ -1564,9 +1564,37 @@ func parseTargetLikeFunc(target TargetLike, fn any) (*commandNode, error) {
 		return nil, errTargetInvalidFnType
 	}
 
-	node, err := parseFunc(fv)
-	if err != nil {
-		return nil, err
+	ft := fv.Type()
+
+	// Validate return type
+	if ft.NumOut() > 1 || (ft.NumOut() == 1 && !isErrorType(ft.Out(0))) {
+		return nil, errFuncMustReturnError
+	}
+
+	// Get function name
+	name := functionName(fv)
+	if name == "" {
+		return nil, errUnableToDetermineFuncName
+	}
+
+	node := &commandNode{
+		Name:        camelToKebab(name),
+		Func:        fv,
+		Subcommands: make(map[string]*commandNode),
+		SourceFile:  funcSourceFile(fv),
+	}
+
+	// Check for struct argument (for flag parsing)
+	for i := range ft.NumIn() {
+		paramType := ft.In(i)
+		if isContextType(paramType) {
+			continue
+		}
+		// Non-context parameter - if it's a struct, set up node.Type for flag parsing
+		if paramType.Kind() == reflect.Struct {
+			node.Type = paramType
+		}
+		break // Only handle first non-context parameter
 	}
 
 	// Override with Target metadata if set

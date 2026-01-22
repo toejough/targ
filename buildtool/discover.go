@@ -296,10 +296,35 @@ func (p *packageInfoParser) buildFiles(fileCommands map[string][]CommandInfo) []
 	return files
 }
 
+// buildFilesFromTagged creates FileInfo for all tagged files (no commands).
+func (p *packageInfoParser) buildFilesFromTagged() []FileInfo {
+	files := make([]FileInfo, 0, len(p.dir.Files))
+
+	for _, tf := range p.dir.Files {
+		files = append(files, FileInfo{
+			Path:     tf.Path,
+			Base:     strings.TrimSuffix(filepath.Base(tf.Path), filepath.Ext(tf.Path)),
+			Commands: nil,
+		})
+	}
+
+	sort.Slice(files, func(i, j int) bool {
+		return files[i].Path < files[j].Path
+	})
+
+	return files
+}
+
 // buildResult constructs the final PackageInfo.
 func (p *packageInfoParser) buildResult() PackageInfo {
 	commands, fileCommands := p.buildCommands()
 	files := p.buildFiles(fileCommands)
+
+	// For packages with explicit registration, include all tagged files
+	// even if they don't contain traditional commands
+	if p.usesExplicitRegistration && len(files) == 0 && len(p.dir.Files) > 0 {
+		files = p.buildFilesFromTagged()
+	}
 
 	return PackageInfo{
 		Dir:                      p.dir.Path,
