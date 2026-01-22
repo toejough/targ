@@ -99,11 +99,12 @@ type Options struct {
 
 // PackageInfo describes a package containing targ commands.
 type PackageInfo struct {
-	Dir      string
-	Package  string
-	Doc      string
-	Commands []CommandInfo
-	Files    []FileInfo
+	Dir                      string
+	Package                  string
+	Doc                      string
+	Commands                 []CommandInfo
+	Files                    []FileInfo
+	UsesExplicitRegistration bool // true if package has init() calling targ.Register()
 }
 
 // TaggedDir represents a directory containing tagged files.
@@ -215,25 +216,26 @@ type dirQueueEntry struct {
 
 // packageInfoParser holds state for parsing package info from tagged files.
 type packageInfoParser struct {
-	dir                  taggedDir
-	fset                 *token.FileSet
-	packageName          string
-	packageDoc           string
-	structs              map[string]bool
-	structFiles          map[string]string
-	structHasSubcommands map[string]bool
-	structHasRun         map[string]bool
-	structDescriptions   map[string]string
-	funcs                map[string]bool
-	funcFiles            map[string]string
-	funcDescriptions     map[string]string
-	funcUsesContext      map[string]bool
-	funcReturnsError     map[string]bool
-	subcommandNames      map[string]bool
-	subcommandTypes      map[string]bool
-	mainFiles            []string
-	structList           []string
-	funcList             []string
+	dir                      taggedDir
+	fset                     *token.FileSet
+	packageName              string
+	packageDoc               string
+	structs                  map[string]bool
+	structFiles              map[string]string
+	structHasSubcommands     map[string]bool
+	structHasRun             map[string]bool
+	structDescriptions       map[string]string
+	funcs                    map[string]bool
+	funcFiles                map[string]string
+	funcDescriptions         map[string]string
+	funcUsesContext          map[string]bool
+	funcReturnsError         map[string]bool
+	subcommandNames          map[string]bool
+	subcommandTypes          map[string]bool
+	mainFiles                []string
+	structList               []string
+	funcList                 []string
+	usesExplicitRegistration bool
 }
 
 // buildCommands creates CommandInfo for all structs and funcs.
@@ -300,11 +302,12 @@ func (p *packageInfoParser) buildResult() PackageInfo {
 	files := p.buildFiles(fileCommands)
 
 	return PackageInfo{
-		Dir:      p.dir.Path,
-		Package:  p.packageName,
-		Doc:      p.packageDoc,
-		Commands: commands,
-		Files:    files,
+		Dir:                      p.dir.Path,
+		Package:                  p.packageName,
+		Doc:                      p.packageDoc,
+		Commands:                 commands,
+		Files:                    files,
+		UsesExplicitRegistration: p.usesExplicitRegistration,
 	}
 }
 
@@ -369,9 +372,10 @@ func (p *packageInfoParser) parseFile(file taggedFile) error {
 	}
 
 	ctxAliases, ctxDotImport := parse.ContextImportInfo(parsed.Imports)
+	targAliases := parse.TargImportInfo(parsed.Imports)
 
 	for _, decl := range parsed.Decls {
-		err := p.processDecl(decl, file.Path, ctxAliases, ctxDotImport)
+		err := p.processDecl(decl, file.Path, ctxAliases, ctxDotImport, targAliases)
 		if err != nil {
 			return err
 		}
@@ -398,12 +402,13 @@ func (p *packageInfoParser) processDecl(
 	filePath string,
 	ctxAliases map[string]bool,
 	ctxDotImport bool,
+	targAliases map[string]bool,
 ) error {
 	switch node := decl.(type) {
 	case *ast.GenDecl:
 		p.processGenDecl(node, filePath)
 	case *ast.FuncDecl:
-		return p.processFuncDecl(node, filePath, ctxAliases, ctxDotImport)
+		return p.processFuncDecl(node, filePath, ctxAliases, ctxDotImport, targAliases)
 	}
 
 	return nil
@@ -440,6 +445,7 @@ func (p *packageInfoParser) processFuncDecl(
 	filePath string,
 	ctxAliases map[string]bool,
 	ctxDotImport bool,
+	targAliases map[string]bool,
 ) error {
 	if node.Recv != nil {
 		p.processMethod(node)
@@ -448,6 +454,14 @@ func (p *packageInfoParser) processFuncDecl(
 
 	if node.Name.Name == "main" {
 		p.mainFiles = append(p.mainFiles, filePath)
+		return nil
+	}
+
+	if node.Name.Name == "init" {
+		if containsTargRegisterCall(node.Body, targAliases) {
+			p.usesExplicitRegistration = true
+		}
+
 		return nil
 	}
 
@@ -544,6 +558,46 @@ type taggedDir struct {
 type taggedFile struct {
 	Path    string
 	Content []byte
+}
+
+// containsTargRegisterCall checks if a function body contains a targ.Register() call.
+func containsTargRegisterCall(body *ast.BlockStmt, targAliases map[string]bool) bool {
+	if body == nil {
+		return false
+	}
+
+	found := false
+
+	ast.Inspect(body, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+
+		sel, ok := call.Fun.(*ast.SelectorExpr)
+		if !ok {
+			return true
+		}
+
+		if sel.Sel.Name != "Register" {
+			return true
+		}
+
+		ident, ok := sel.X.(*ast.Ident)
+		if !ok {
+			return true
+		}
+
+		if targAliases[ident.Name] {
+			found = true
+
+			return false
+		}
+
+		return true
+	})
+
+	return found
 }
 
 func filterCommands(candidates, subcommandNames map[string]bool) []string {

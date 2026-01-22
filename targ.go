@@ -47,6 +47,27 @@ type TagKind = core.TagKind
 // TagOptions contains parsed tag options for a struct field.
 type TagOptions = core.TagOptions
 
+// registry holds targets registered via Register() for later execution.
+var registry []any
+
+// Register adds targets to the global registry for later execution.
+// Typically called from init() in packages with //go:build targ.
+// Use ExecuteRegistered() in main() to run the registered targets.
+func Register(targets ...any) {
+	registry = append(registry, targets...)
+}
+
+// ExecuteRegistered runs the registered targets using os.Args and exits on error.
+// This is used by the targ buildtool for packages that use explicit registration.
+func ExecuteRegistered() {
+	RunWithOptions(RunOptions{AllowDefault: true}, registry...)
+}
+
+// ExecuteRegisteredWithOptions runs the registered targets with custom options.
+func ExecuteRegisteredWithOptions(opts RunOptions) {
+	RunWithOptions(opts, registry...)
+}
+
 // AppendBuiltinExamples adds built-in examples after custom examples.
 func AppendBuiltinExamples(
 	custom ...Example,

@@ -36,6 +36,22 @@ const (
 	bootstrapTemplate = `
 package main
 
+{{- if .UsesExplicitRegistration }}
+import (
+	"github.com/toejough/targ"
+	"github.com/toejough/targ/sh"
+{{- range .BlankImports }}
+	_ "{{ . }}"
+{{- end }}
+)
+
+func main() {
+	sh.EnableCleanup()
+	targ.ExecuteRegisteredWithOptions(targ.RunOptions{
+		Description: {{ printf "%q" .Description }},
+	})
+}
+{{- else }}
 import (
 	"github.com/toejough/targ"
 	"github.com/toejough/targ/sh"
@@ -130,6 +146,7 @@ func main() {
 	}
 	targ.RunWithOptions(opts, roots...)
 }
+{{- end }}
 `
 	commandNamePadding     = 2 // Padding after command name column
 	completeCommand        = "__complete"
@@ -164,16 +181,19 @@ var (
 )
 
 type bootstrapBuilder struct {
-	absStart     string
-	moduleRoot   string
-	modulePath   string
-	imports      []bootstrapImport
-	usedImports  map[string]bool
-	fileCommands map[string][]bootstrapCommand
-	funcWrappers []bootstrapFuncWrapper
-	usesContext  bool
-	wrapperNames *nameGenerator
-	pathMapping  map[string]string // maps isolated paths to original paths
+	absStart                 string
+	moduleRoot               string
+	modulePath               string
+	imports                  []bootstrapImport
+	usedImports              map[string]bool
+	fileCommands             map[string][]bootstrapCommand
+	funcWrappers             []bootstrapFuncWrapper
+	usesContext              bool
+	wrapperNames             *nameGenerator
+	pathMapping              map[string]string // maps isolated paths to original paths
+	explicitRegPackages      []string          // import paths for packages using targ.Register()
+	hasExplicitRegistration  bool              // true if any package uses explicit registration
+	hasDiscoveredCommands    bool              // true if any package uses old discovery model
 }
 
 func (b *bootstrapBuilder) addFuncCommand(
@@ -216,6 +236,21 @@ func (b *bootstrapBuilder) buildResult(
 	startDir string,
 	infos []buildtool.PackageInfo,
 ) (bootstrapData, error) {
+	// If all packages use explicit registration, generate simple bootstrap
+	if b.hasExplicitRegistration && !b.hasDiscoveredCommands {
+		return bootstrapData{
+			UsesExplicitRegistration: true,
+			BlankImports:             b.explicitRegPackages,
+			Description:              "Targ discovers and runs build targets you write in Go.",
+		}, nil
+	}
+
+	// Mixed mode not supported yet - error if both are used
+	if b.hasExplicitRegistration && b.hasDiscoveredCommands {
+		return bootstrapData{}, errors.New("mixed explicit registration and discovery not supported")
+	}
+
+	// Old discovery model
 	filePaths := b.sortedFilePaths()
 
 	paths, err := namespacePaths(filePaths, startDir)
@@ -334,10 +369,21 @@ func (b *bootstrapBuilder) processCommand(
 }
 
 func (b *bootstrapBuilder) processPackage(info buildtool.PackageInfo) error {
+	// Handle explicit registration packages
+	if info.UsesExplicitRegistration {
+		importPath := b.computeImportPath(info.Dir)
+		b.explicitRegPackages = append(b.explicitRegPackages, importPath)
+		b.hasExplicitRegistration = true
+
+		return nil
+	}
+
+	// Old discovery model
 	if len(info.Commands) == 0 {
 		return fmt.Errorf("%w: %s", errNoCommandsInPackage, info.Package)
 	}
 
+	b.hasDiscoveredCommands = true
 	local := sameDir(b.absStart, info.Dir)
 	prefix := b.setupImport(info, local)
 
@@ -387,14 +433,16 @@ type bootstrapCommand struct {
 }
 
 type bootstrapData struct {
-	AllowDefault bool
-	BannerLit    string
-	Description  string
-	Imports      []bootstrapImport
-	RootExprs    []string
-	Nodes        []bootstrapNode
-	FuncWrappers []bootstrapFuncWrapper
-	UsesContext  bool
+	AllowDefault             bool
+	BannerLit                string
+	Description              string
+	Imports                  []bootstrapImport
+	RootExprs                []string
+	Nodes                    []bootstrapNode
+	FuncWrappers             []bootstrapFuncWrapper
+	UsesContext              bool
+	UsesExplicitRegistration bool     // true if using targ.Register() model
+	BlankImports             []string // import paths for explicit registration packages
 }
 
 type bootstrapField struct {
