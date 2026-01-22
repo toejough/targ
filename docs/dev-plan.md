@@ -256,7 +256,42 @@ func init() {
 }
 ```
 
+**Embedded structs**: Args structs can embed other structs to share common flags:
+
+```go
+type CommonArgs struct {
+    Verbose bool `targ:"flag,short=v,desc=Verbose output"`
+}
+
+type DeployArgs struct {
+    CommonArgs                            // embedded - adds --verbose
+    Env string `targ:"flag,required,desc=Target environment"`
+}
+```
+
+This replaces flag inheritance from the old struct model with explicit composition.
+
 **Functional check**: `targ targets <cmd>` works with new pattern
+
+**Property test for embedded structs**:
+
+```go
+// Embedded struct fields are flattened for flag parsing
+rapid.Check(t, func(t *rapid.T) {
+    type Inner struct {
+        Verbose bool `targ:"flag,short=v"`
+    }
+    type Outer struct {
+        Inner
+        Name string `targ:"flag"`
+    }
+
+    target := Targ(func(args Outer) {})
+    // Should accept both --verbose and --name
+    result, err := Execute([]string{"app", "--verbose", "--name", "test"}, target)
+    gomega.Expect(err).NotTo(gomega.HaveOccurred())
+})
+```
 
 ### 3.3 Migrate dev/issues/*.go
 

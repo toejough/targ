@@ -178,6 +178,29 @@ func Deploy(ctx context.Context, args DeployArgs) error { ... }
 | `map[K]V`         | Key=value pairs                       |
 | Trailing `[]T`    | Variadic positional (captures rest)   |
 
+### Embedded structs
+
+Share common flags between targets by embedding arg structs:
+
+```go
+type CommonArgs struct {
+    Verbose bool `targ:"flag,short=v,desc=Verbose output"`
+    DryRun  bool `targ:"flag,short=n,desc=Preview mode"`
+}
+
+type DeployArgs struct {
+    CommonArgs                            // embedded - adds --verbose and --dry-run
+    Env string `targ:"flag,required,desc=Target environment"`
+}
+
+type BuildArgs struct {
+    CommonArgs                            // embedded - same flags available
+    Output string `targ:"flag,desc=Output path"`
+}
+```
+
+Embedded fields are flattened - the target sees `--verbose`, `--dry-run`, plus its own flags. This replaces flag inheritance from the old struct model with explicit composition.
+
 ### Ordered arguments
 
 Arguments preserve their CLI ordering across flags and positionals. Useful for filter chains where order matters:
