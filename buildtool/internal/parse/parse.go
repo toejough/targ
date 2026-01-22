@@ -111,32 +111,6 @@ func ContextImportInfo(imports []*ast.ImportSpec) (aliases map[string]bool, dotI
 	return aliases, dotImport
 }
 
-// TargImportInfo extracts targ import aliases from import specs.
-func TargImportInfo(imports []*ast.ImportSpec) (aliases map[string]bool) {
-	aliases = map[string]bool{}
-
-	for _, spec := range imports {
-		path, err := strconv.Unquote(spec.Path.Value)
-		if err != nil || path != "github.com/toejough/targ" {
-			continue
-		}
-
-		if spec.Name != nil {
-			if spec.Name.Name == "_" || spec.Name.Name == "." {
-				continue
-			}
-
-			aliases[spec.Name.Name] = true
-
-			continue
-		}
-
-		aliases["targ"] = true
-	}
-
-	return aliases
-}
-
 // DescriptionMethodValue extracts the description from a Description() method.
 func DescriptionMethodValue(node *ast.FuncDecl) (string, bool) {
 	if node.Name.Name != "Description" || node.Recv == nil {
@@ -366,6 +340,32 @@ func ShouldSkipGoFile(name string) bool {
 	}
 
 	return strings.HasPrefix(name, "generated_targ_")
+}
+
+// TargImportInfo extracts targ import aliases from import specs.
+func TargImportInfo(imports []*ast.ImportSpec) (aliases map[string]bool) {
+	aliases = map[string]bool{}
+
+	for _, spec := range imports {
+		path, err := strconv.Unquote(spec.Path.Value)
+		if err != nil || path != "github.com/toejough/targ" {
+			continue
+		}
+
+		if spec.Name != nil {
+			if spec.Name.Name == "_" || spec.Name.Name == "." {
+				continue
+			}
+
+			aliases[spec.Name.Name] = true
+
+			continue
+		}
+
+		aliases["targ"] = true
+	}
+
+	return aliases
 }
 
 // ValidateFunctionSignature validates that a function has an acceptable signature.

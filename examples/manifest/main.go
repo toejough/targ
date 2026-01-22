@@ -7,6 +7,10 @@ import (
 	"github.com/toejough/targ"
 )
 
+func main() {
+	targ.ExecuteRegistered()
+}
+
 func init() {
 	targ.Register(
 		targ.NewGroup("build",
@@ -17,14 +21,16 @@ func init() {
 	)
 }
 
-func main() {
-	targ.ExecuteRegistered()
-}
-
 // --- Build ---
 
 type BuildDockerArgs struct {
 	Tag string `targ:"flag,desc=Docker image tag"`
+}
+
+// --- Deploy ---
+
+type DeployArgs struct {
+	Env string `targ:"flag,desc=Deployment environment"`
 }
 
 func buildDocker(args BuildDockerArgs) {
@@ -33,12 +39,6 @@ func buildDocker(args BuildDockerArgs) {
 
 func buildLinux() {
 	fmt.Println("Building Linux binary")
-}
-
-// --- Deploy ---
-
-type DeployArgs struct {
-	Env string `targ:"flag,desc=Deployment environment"`
 }
 
 func deploy(args DeployArgs) {

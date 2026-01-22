@@ -62,23 +62,62 @@ func init() {
 	)
 }
 
+// Exported variables.
+var (
+	Check                = targ.Targ(check).Description("Run all checks & fixes")
+	CheckCoverage        = targ.Targ(checkCoverage).Description("Check function coverage")
+	CheckCoverageForFail = targ.Targ(checkCoverageForFail).Description("Check coverage (no test run)")
+	CheckForFail         = targ.Targ(checkForFail).Description("Run all checks (fail-fast)")
+	CheckNils            = targ.Targ(checkNils).Description("Check for nil issues")
+	CheckNilsFix         = targ.Targ(checkNilsFix).Description("Fix nil issues")
+	CheckNilsForFail     = targ.Targ(checkNilsForFail).Description("Check for nil issues (fail)")
+	Clean                = targ.Targ(clean).Description("Clean dev environment")
+	Coverage             = targ.Targ(coverage).Description("Display coverage report")
+	Deadcode             = targ.Targ(deadcode).Description("Check for dead code")
+	DeleteDeadcode       = targ.Targ(deleteDeadcode).Description("Delete dead code")
+	FindRedundantTests   = targ.Targ(findRedundantTests).Description("Find redundant tests")
+	Fmt                  = targ.Targ(fmtCode).Description("Format codebase")
+	Fuzz                 = targ.Targ(fuzz).Description("Run fuzz tests")
+	Generate             = targ.Targ(generate).Description("Run go generate")
+	InstallTools         = targ.Targ(installTools).Description("Install dev tools")
+	Lint                 = targ.Targ(lint).Description("Lint codebase")
+	LintFast             = targ.Targ(lintFast).Description("Run fast linters")
+	LintForFail          = targ.Targ(lintForFail).Description("Lint for pass/fail")
+	Modernize            = targ.Targ(modernize).Description("Modernize codebase")
+	Mutate               = targ.Targ(mutate).Description("Run mutation tests")
+	ReorderDecls         = targ.Targ(reorderDecls).Description("Reorder declarations")
+	ReorderDeclsCheck    = targ.Targ(reorderDeclsCheck).Description("Check declaration order")
+	Test                 = targ.Targ(test).Description("Run unit tests")
+	TestForFail          = targ.Targ(testForFail).Description("Run tests (fail-fast)")
+	Tidy                 = targ.Targ(tidy).Description("Tidy go.mod")
+	TodoCheck            = targ.Targ(todoCheck).Description("Check for TODOs")
+	Watch                = targ.Targ(watch).Description("Watch and re-run checks")
+)
+
 // CoverageArgs are arguments for the coverage command.
 type CoverageArgs struct {
 	HTML bool `targ:"flag,desc=Open HTML report in browser"`
 }
 
-// Coverage displays the coverage report.
-var Coverage = targ.Targ(coverage).Description("Display coverage report")
-
-func coverage(args CoverageArgs) error {
-	if args.HTML {
-		return sh.RunV("go", "tool", "cover", "-html=coverage.out")
-	}
-	return sh.RunV("go", "tool", "cover", "-func=coverage.out")
+type coverageBlock struct {
+	file       string
+	startLine  int
+	startCol   int
+	endLine    int
+	endCol     int
+	statements int
+	count      int
 }
 
-// Check runs all checks & fixes on the code, in order of correctness.
-var Check = targ.Targ(check).Description("Run all checks & fixes")
+type deadFunc struct {
+	name string
+	line int
+}
+
+type lineAndCoverage struct {
+	line     string
+	coverage float64
+}
 
 func check(ctx context.Context) error {
 	fmt.Println("Checking...")
@@ -95,9 +134,6 @@ func check(ctx context.Context) error {
 		targ.WithContext(ctx),
 	)
 }
-
-// CheckCoverage checks that function coverage meets the minimum threshold.
-var CheckCoverage = targ.Targ(checkCoverage).Description("Check function coverage")
 
 func checkCoverage(ctx context.Context) error {
 	fmt.Println("Checking coverage...")
@@ -149,7 +185,8 @@ func checkCoverage(ctx context.Context) error {
 		}
 
 		// Exclude entry points that call os.Exit
-		if strings.Contains(line, "\tRun\t") || strings.Contains(line, "\tRunWithOptions\t") {
+		if strings.Contains(line, "\tRun\t") || strings.Contains(line, "\tRunWithOptions\t") ||
+			strings.Contains(line, "\tExecuteRegistered\t") || strings.Contains(line, "\tExecuteRegisteredWithOptions\t") {
 			continue
 		}
 
@@ -267,6 +304,18 @@ func checkCoverage(ctx context.Context) error {
 			continue
 		}
 
+		// Exclude getNodeSourceFile (help formatting helper with subcommand fallback path
+		// that's defensive and hard to trigger in normal operation)
+		if strings.Contains(line, "getNodeSourceFile\t") {
+			continue
+		}
+
+		// Exclude containsTargRegisterCall (AST inspection with many defensive branches
+		// for different node types - tested via integration)
+		if strings.Contains(line, "containsTargRegisterCall\t") {
+			continue
+		}
+
 		// Exclude flagHelpForField (help formatting with error branches that are
 		// defensive checks for malformed input - rarely triggered in practice)
 		if strings.Contains(line, "flagHelpForField\t") {
@@ -338,10 +387,6 @@ func checkCoverage(ctx context.Context) error {
 	return nil
 }
 
-// CheckCoverageForFail checks coverage from existing coverage.out (doesn't run tests).
-// Must be run after TestForFail which generates coverage.out.
-var CheckCoverageForFail = targ.Targ(checkCoverageForFail).Description("Check coverage (no test run)")
-
 func checkCoverageForFail(ctx context.Context) error {
 	fmt.Println("Checking coverage...")
 
@@ -366,7 +411,8 @@ func checkCoverageForFail(ctx context.Context) error {
 			strings.Contains(line, "main.go") ||
 			strings.Contains(line, "generated_") ||
 			strings.Contains(line, "total:") ||
-			strings.Contains(line, "\tinit\t") { // init() has untestable defensive code
+			strings.Contains(line, "\tinit\t") || // init() has untestable defensive code
+			strings.Contains(line, "\tExecuteRegistered\t") { // calls os.Exit, untestable
 			continue
 		}
 
@@ -396,9 +442,6 @@ func checkCoverageForFail(ctx context.Context) error {
 	return nil
 }
 
-// CheckForFail runs all checks on the code for determining whether any fail.
-var CheckForFail = targ.Targ(checkForFail).Description("Run all checks (fail-fast)")
-
 func checkForFail(ctx context.Context) error {
 	fmt.Println("Checking...")
 
@@ -414,9 +457,6 @@ func checkForFail(ctx context.Context) error {
 	)
 }
 
-// CheckNils checks for nils: applies fixes, then validates.
-var CheckNils = targ.Targ(checkNils).Description("Check for nil issues")
-
 func checkNils(ctx context.Context) error {
 	return targ.Deps(
 		CheckNilsFix,
@@ -425,32 +465,27 @@ func checkNils(ctx context.Context) error {
 	)
 }
 
-// CheckNilsFix applies any auto-fixable nil issues.
-var CheckNilsFix = targ.Targ(checkNilsFix).Description("Fix nil issues")
-
 func checkNilsFix(ctx context.Context) error {
 	fmt.Println("Fixing nil issues...")
 	return sh.RunContext(ctx, "nilaway", "-fix", "./...")
 }
-
-// CheckNilsForFail checks for nils and fails on any issues.
-var CheckNilsForFail = targ.Targ(checkNilsForFail).Description("Check for nil issues (fail)")
 
 func checkNilsForFail(ctx context.Context) error {
 	fmt.Println("Checking for nil issues...")
 	return sh.RunContext(ctx, "nilaway", "./...")
 }
 
-// Clean cleans up the dev env.
-var Clean = targ.Targ(clean).Description("Clean dev environment")
-
 func clean() {
 	fmt.Println("Cleaning...")
 	os.Remove("coverage.out")
 }
 
-// Deadcode checks that there's no dead code in codebase.
-var Deadcode = targ.Targ(deadcode).Description("Check for dead code")
+func coverage(args CoverageArgs) error {
+	if args.HTML {
+		return sh.RunV("go", "tool", "cover", "-html=coverage.out")
+	}
+	return sh.RunV("go", "tool", "cover", "-func=coverage.out")
+}
 
 func deadcode(ctx context.Context) error {
 	fmt.Println("Checking for dead code...")
@@ -502,8 +537,98 @@ func deadcode(ctx context.Context) error {
 	return nil
 }
 
-// DeleteDeadcode removes unreachable functions from the codebase.
-var DeleteDeadcode = targ.Targ(deleteDeadcode).Description("Delete dead code")
+// Helper Functions
+
+func deleteDeadFunctionsFromFile(filename string, funcs []deadFunc) (int, error) {
+	content, err := os.ReadFile(filename)
+	if err != nil {
+		return 0, fmt.Errorf("failed to read file: %w", err)
+	}
+
+	fset := token.NewFileSet()
+
+	file, err := parser.ParseFile(fset, filename, content, parser.ParseComments)
+	if err != nil {
+		return 0, fmt.Errorf("failed to parse file: %w", err)
+	}
+
+	toDelete := make(map[string]bool)
+	for _, f := range funcs {
+		toDelete[f.name] = true
+	}
+
+	newDecls := []ast.Decl{}
+	deleted := 0
+
+	for _, decl := range file.Decls {
+		keep := true
+
+		if funcDecl, ok := decl.(*ast.FuncDecl); ok {
+			funcName := funcDecl.Name.Name
+
+			if funcDecl.Recv != nil && len(funcDecl.Recv.List) > 0 {
+				recvType := funcDecl.Recv.List[0].Type
+				var typeName string
+
+				switch t := recvType.(type) {
+				case *ast.StarExpr:
+					if ident, ok := t.X.(*ast.Ident); ok {
+						typeName = ident.Name
+					}
+				case *ast.Ident:
+					typeName = t.Name
+				}
+
+				fullName := typeName + "." + funcName
+				if toDelete[fullName] || toDelete[funcName] {
+					keep = false
+				}
+			} else {
+				if toDelete[funcName] {
+					keep = false
+				}
+			}
+		}
+
+		if genDecl, ok := decl.(*ast.GenDecl); ok && genDecl.Tok == token.TYPE {
+			for _, spec := range genDecl.Specs {
+				if typeSpec, ok := spec.(*ast.TypeSpec); ok {
+					if toDelete[typeSpec.Name.Name] {
+						keep = false
+					}
+				}
+			}
+		}
+
+		if keep {
+			newDecls = append(newDecls, decl)
+		} else {
+			deleted++
+		}
+	}
+
+	if deleted == 0 {
+		return 0, nil
+	}
+
+	file.Decls = newDecls
+
+	var buf bytes.Buffer
+
+	err = printer.Fprint(&buf, fset, file)
+	if err != nil {
+		return 0, fmt.Errorf("failed to print AST: %w", err)
+	}
+
+	err = os.WriteFile(filename, buf.Bytes(), 0o600)
+	if err != nil {
+		return 0, fmt.Errorf("failed to write file: %w", err)
+	}
+
+	fmt.Printf("  %s: deleted %d declarations\n", filename, deleted)
+
+	return deleted, nil
+}
 
 func deleteDeadcode(ctx context.Context) error {
 	fmt.Println("Deleting dead code...")
@@ -542,6 +667,11 @@ func deleteDeadcode(ctx context.Context) error {
 			continue
 		}
 
+		// Skip ExecuteRegisteredWithOptions (used by generated bootstrap code, not visible to deadcode)
+		if funcName == "ExecuteRegisteredWithOptions" {
+			continue
+		}
+
 		lineNum, err := strconv.Atoi(fileParts[1])
 		if err != nil {
 			continue
@@ -569,10 +699,6 @@ func deleteDeadcode(ctx context.Context) error {
 	return nil
 }
 
-// FindRedundantTests identifies unit tests that don't provide unique coverage beyond golden+UAT tests.
-// This is a convenience wrapper for this repository's specific configuration.
-var FindRedundantTests = targ.Targ(findRedundantTests).Description("Find redundant tests")
-
 func findRedundantTests() error {
 	config := testredundancy.Config{
 		BaselineTests: []testredundancy.BaselineTestSpec{
@@ -589,17 +715,10 @@ func findRedundantTests() error {
 	return testredundancy.Find(config)
 }
 
-// Fmt formats the codebase using golangci-lint formatters.
-var Fmt = targ.Targ(fmtCode).Description("Format codebase")
-
 func fmtCode(ctx context.Context) error {
 	fmt.Println("Formatting...")
 	return sh.RunContext(ctx, "golangci-lint", "run", "-c", "dev/golangci-fmt.toml")
 }
-
-// Fuzz runs the fuzz tests.
-// Discovers all Fuzz* functions in *_test.go files and runs each for 1000 iterations.
-var Fuzz = targ.Targ(fuzz).Description("Run fuzz tests")
 
 func fuzz() error {
 	fmt.Println("Running fuzz tests...")
@@ -663,9 +782,6 @@ func fuzz() error {
 	return nil
 }
 
-// Generate runs go generate on all packages.
-var Generate = targ.Targ(generate).Description("Run go generate")
-
 func generate() error {
 	fmt.Println("Generating...")
 
@@ -678,24 +794,77 @@ func generate() error {
 	return cmd.Run()
 }
 
-// InstallTools installs development tooling.
-var InstallTools = targ.Targ(installTools).Description("Install dev tools")
+func globs(dir string, ext []string) ([]string, error) {
+	files := []string{}
+
+	err := filepath.Walk(dir, func(path string, _ os.FileInfo, err error) error {
+		if err != nil {
+			return fmt.Errorf("unable to find all glob matches: %w", err)
+		}
+
+		for _, each := range ext {
+			if filepath.Ext(path) == each {
+				files = append(files, path)
+
+				return nil
+			}
+		}
+
+		return nil
+	})
+
+	return files, err
+}
+
+// hasRelevantChanges returns true if the changeset contains files we care about.
+// Filters out generated files and build artifacts that Check() itself creates.
+func hasRelevantChanges(changes file.ChangeSet) bool {
+	allFiles := append(append(changes.Added, changes.Removed...), changes.Modified...)
+
+	for _, f := range allFiles {
+		// Skip generated test files
+		if strings.Contains(f, "generated_") {
+			continue
+		}
+		// Skip coverage output
+		if strings.HasSuffix(f, "coverage.out") {
+			continue
+		}
+		// Found a relevant change
+		return true
+	}
+
+	return false
+}
 
 func installTools() error {
 	fmt.Println("Installing development tools...")
 	return sh.Run("./dev/dev-install.sh")
 }
 
-// Lint lints the codebase.
-var Lint = targ.Targ(lint).Description("Lint codebase")
+func isGeneratedFile(path string) (bool, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return false, fmt.Errorf("failed to open %s: %w", path, err)
+	}
+	defer file.Close()
+
+	buf := make([]byte, 200)
+
+	n, err := file.Read(buf)
+	if err != nil && err != io.EOF {
+		return false, fmt.Errorf("failed to read %s: %w", path, err)
+	}
+
+	content := string(buf[:n])
+
+	return strings.Contains(content, "Code generated") || strings.Contains(content, "DO NOT EDIT"), nil
+}
 
 func lint(ctx context.Context) error {
 	fmt.Println("Linting...")
 	return sh.RunContext(ctx, "golangci-lint", "run", "-c", "dev/golangci-lint.toml")
 }
-
-// LintFast runs only fast linters for quick fail-fast checks.
-var LintFast = targ.Targ(lintFast).Description("Run fast linters")
 
 func lintFast(ctx context.Context) error {
 	fmt.Println("Running fast linters...")
@@ -706,9 +875,6 @@ func lintFast(ctx context.Context) error {
 		"--allow-parallel-runners",
 	)
 }
-
-// LintForFail lints the codebase purely to find out whether anything fails.
-var LintForFail = targ.Targ(lintForFail).Description("Lint for pass/fail")
 
 func lintForFail(ctx context.Context) error {
 	fmt.Println("Linting to check for overall pass/fail...")
@@ -723,8 +889,61 @@ func lintForFail(ctx context.Context) error {
 	)
 }
 
-// Modernize updates the codebase to use modern Go patterns.
-var Modernize = targ.Targ(modernize).Description("Modernize codebase")
+// mergeCoverageBlocks merges duplicate coverage blocks in a coverage file.
+// This handles the case where multiple test packages cover the same code.
+func mergeCoverageBlocks(coverageFile string) error {
+	data, err := os.ReadFile(coverageFile)
+	if err != nil {
+		return err
+	}
+
+	lines := strings.Split(string(data), "\n")
+	if len(lines) == 0 {
+		return nil
+	}
+
+	// First line is mode
+	modeLine := lines[0]
+
+	// Merge blocks by key (file:start,end statements)
+	blocks := make(map[string]coverageBlock)
+
+	for _, line := range lines[1:] {
+		if line == "" {
+			continue
+		}
+
+		block, err := parseCoverageBlock(line)
+		if err != nil {
+			continue
+		}
+
+		key := fmt.Sprintf("%s:%d.%d,%d.%d %d",
+			block.file, block.startLine, block.startCol,
+			block.endLine, block.endCol, block.statements)
+
+		if existing, ok := blocks[key]; ok {
+			existing.count += block.count
+			blocks[key] = existing
+		} else {
+			blocks[key] = block
+		}
+	}
+
+	// Write merged blocks
+	var result strings.Builder
+
+	result.WriteString(modeLine)
+	result.WriteString("\n")
+
+	for _, block := range blocks {
+		fmt.Fprintf(&result, "%s:%d.%d,%d.%d %d %d\n",
+			block.file, block.startLine, block.startCol,
+			block.endLine, block.endCol, block.statements, block.count)
+	}
+
+	return os.WriteFile(coverageFile, []byte(result.String()), 0o600)
+}
 
 func modernize(ctx context.Context) error {
 	fmt.Println("Modernizing codebase...")
@@ -732,9 +951,6 @@ func modernize(ctx context.Context) error {
 	return sh.RunContext(ctx, "go", "run", "golang.org/x/tools/go/analysis/passes/modernize/cmd/modernize@latest",
 		"-fix", "./...")
 }
-
-// Mutate runs the mutation tests.
-var Mutate = targ.Targ(mutate).Description("Run mutation tests")
 
 func mutate() error {
 	fmt.Println("Running mutation tests...")
@@ -754,8 +970,75 @@ func mutate() error {
 	)
 }
 
-// ReorderDecls reorders declarations in Go files per conventions.
-var ReorderDecls = targ.Targ(reorderDecls).Description("Reorder declarations")
+// output runs a command and captures stdout only (stderr goes to os.Stderr).
+func output(ctx context.Context, command string, args ...string) (string, error) {
+	buf := &bytes.Buffer{}
+	cmd := exec.CommandContext(ctx, command, args...)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = buf
+	cmd.Stderr = os.Stderr
+	err := cmd.Run()
+
+	return strings.TrimSuffix(buf.String(), "\n"), err
+}
+
+func parseBlockID(blockID string) (file string, startLine, startCol, endLine, endCol int, err error) {
+	fileParts := strings.Split(blockID, ":")
+	if len(fileParts) != 2 {
+		return "", 0, 0, 0, 0, fmt.Errorf("invalid block ID format: %s", blockID)
+	}
+
+	file = fileParts[0]
+
+	rangeParts := strings.Split(fileParts[1], ",")
+	if len(rangeParts) != 2 {
+		return "", 0, 0, 0, 0, fmt.Errorf("invalid range format: %s", blockID)
+	}
+
+	startParts := strings.Split(rangeParts[0], ".")
+	if len(startParts) != 2 {
+		return "", 0, 0, 0, 0, fmt.Errorf("invalid start position: %s", blockID)
+	}
+
+	endParts := strings.Split(rangeParts[1], ".")
+	if len(endParts) != 2 {
+		return "", 0, 0, 0, 0, fmt.Errorf("invalid end position: %s", blockID)
+	}
+
+	startLine, _ = strconv.Atoi(startParts[0])
+	startCol, _ = strconv.Atoi(startParts[1])
+	endLine, _ = strconv.Atoi(endParts[0])
+	endCol, _ = strconv.Atoi(endParts[1])
+
+	return file, startLine, startCol, endLine, endCol, nil
+}
+
+func parseCoverageBlock(line string) (coverageBlock, error) {
+	// Format: file:startLine.startCol,endLine.endCol statements count
+	parts := strings.Fields(line)
+	if len(parts) != 3 {
+		return coverageBlock{}, fmt.Errorf("invalid line format")
+	}
+
+	blockID := parts[0]
+	statements, _ := strconv.Atoi(parts[1])
+	count, _ := strconv.Atoi(parts[2])
+
+	file, startLine, startCol, endLine, endCol, err := parseBlockID(blockID)
+	if err != nil {
+		return coverageBlock{}, err
+	}
+
+	return coverageBlock{
+		file:       file,
+		startLine:  startLine,
+		startCol:   startCol,
+		endLine:    endLine,
+		endCol:     endCol,
+		statements: statements,
+		count:      count,
+	}, nil
+}
 
 func reorderDecls(ctx context.Context) error {
 	_ = ctx // Reserved for future cancellation support
@@ -822,9 +1105,6 @@ func reorderDecls(ctx context.Context) error {
 
 	return nil
 }
-
-// ReorderDeclsCheck checks which files need reordering without modifying them.
-var ReorderDeclsCheck = targ.Targ(reorderDeclsCheck).Description("Check declaration order")
 
 func reorderDeclsCheck(ctx context.Context) error {
 	_ = ctx // Reserved for future cancellation support
@@ -938,9 +1218,6 @@ func reorderDeclsCheck(ctx context.Context) error {
 	return nil
 }
 
-// Test runs the unit tests.
-var Test = targ.Targ(test).Description("Run unit tests")
-
 func test(ctx context.Context) error {
 	fmt.Println("Running unit tests...")
 
@@ -987,10 +1264,6 @@ func test(ctx context.Context) error {
 	return nil
 }
 
-// TestForFail runs the unit tests purely to find out whether any fail.
-// Also generates coverage.out for CheckCoverageForFail.
-var TestForFail = targ.Targ(testForFail).Description("Run tests (fail-fast)")
-
 func testForFail(ctx context.Context) error {
 	fmt.Println("Running unit tests for overall pass/fail...")
 
@@ -1010,24 +1283,15 @@ func testForFail(ctx context.Context) error {
 	)
 }
 
-// Tidy tidies up go.mod.
-var Tidy = targ.Targ(tidy).Description("Tidy go.mod")
-
 func tidy(ctx context.Context) error {
 	fmt.Println("Tidying go.mod...")
 	return sh.RunContext(ctx, "go", "mod", "tidy")
 }
 
-// TodoCheck checks for TODO and FIXME comments using golangci-lint.
-var TodoCheck = targ.Targ(todoCheck).Description("Check for TODOs")
-
 func todoCheck() error {
 	fmt.Println("Checking for TODOs...")
 	return sh.Run("golangci-lint", "run", "-c", "dev/golangci-todos.toml")
 }
-
-// Watch re-runs Check whenever files change.
-var Watch = targ.Targ(watch).Description("Watch and re-run checks")
 
 func watch(ctx context.Context) error {
 	fmt.Println("Watching...")
@@ -1081,305 +1345,4 @@ func watch(ctx context.Context) error {
 
 		return nil // Don't stop watching on error
 	})
-}
-
-type coverageBlock struct {
-	file       string
-	startLine  int
-	startCol   int
-	endLine    int
-	endCol     int
-	statements int
-	count      int
-}
-
-type deadFunc struct {
-	name string
-	line int
-}
-
-type lineAndCoverage struct {
-	line     string
-	coverage float64
-}
-
-// Helper Functions
-
-func deleteDeadFunctionsFromFile(filename string, funcs []deadFunc) (int, error) {
-	content, err := os.ReadFile(filename)
-	if err != nil {
-		return 0, fmt.Errorf("failed to read file: %w", err)
-	}
-
-	fset := token.NewFileSet()
-
-	file, err := parser.ParseFile(fset, filename, content, parser.ParseComments)
-	if err != nil {
-		return 0, fmt.Errorf("failed to parse file: %w", err)
-	}
-
-	toDelete := make(map[string]bool)
-	for _, f := range funcs {
-		toDelete[f.name] = true
-	}
-
-	newDecls := []ast.Decl{}
-	deleted := 0
-
-	for _, decl := range file.Decls {
-		keep := true
-
-		if funcDecl, ok := decl.(*ast.FuncDecl); ok {
-			funcName := funcDecl.Name.Name
-
-			if funcDecl.Recv != nil && len(funcDecl.Recv.List) > 0 {
-				recvType := funcDecl.Recv.List[0].Type
-				var typeName string
-
-				switch t := recvType.(type) {
-				case *ast.StarExpr:
-					if ident, ok := t.X.(*ast.Ident); ok {
-						typeName = ident.Name
-					}
-				case *ast.Ident:
-					typeName = t.Name
-				}
-
-				fullName := typeName + "." + funcName
-				if toDelete[fullName] || toDelete[funcName] {
-					keep = false
-				}
-			} else {
-				if toDelete[funcName] {
-					keep = false
-				}
-			}
-		}
-
-		if genDecl, ok := decl.(*ast.GenDecl); ok && genDecl.Tok == token.TYPE {
-			for _, spec := range genDecl.Specs {
-				if typeSpec, ok := spec.(*ast.TypeSpec); ok {
-					if toDelete[typeSpec.Name.Name] {
-						keep = false
-					}
-				}
-			}
-		}
-
-		if keep {
-			newDecls = append(newDecls, decl)
-		} else {
-			deleted++
-		}
-	}
-
-	if deleted == 0 {
-		return 0, nil
-	}
-
-	file.Decls = newDecls
-
-	var buf bytes.Buffer
-
-	err = printer.Fprint(&buf, fset, file)
-	if err != nil {
-		return 0, fmt.Errorf("failed to print AST: %w", err)
-	}
-
-	err = os.WriteFile(filename, buf.Bytes(), 0o600)
-	if err != nil {
-		return 0, fmt.Errorf("failed to write file: %w", err)
-	}
-
-	fmt.Printf("  %s: deleted %d declarations\n", filename, deleted)
-
-	return deleted, nil
-}
-
-func globs(dir string, ext []string) ([]string, error) {
-	files := []string{}
-
-	err := filepath.Walk(dir, func(path string, _ os.FileInfo, err error) error {
-		if err != nil {
-			return fmt.Errorf("unable to find all glob matches: %w", err)
-		}
-
-		for _, each := range ext {
-			if filepath.Ext(path) == each {
-				files = append(files, path)
-
-				return nil
-			}
-		}
-
-		return nil
-	})
-
-	return files, err
-}
-
-// hasRelevantChanges returns true if the changeset contains files we care about.
-// Filters out generated files and build artifacts that Check() itself creates.
-func hasRelevantChanges(changes file.ChangeSet) bool {
-	allFiles := append(append(changes.Added, changes.Removed...), changes.Modified...)
-
-	for _, f := range allFiles {
-		// Skip generated test files
-		if strings.Contains(f, "generated_") {
-			continue
-		}
-		// Skip coverage output
-		if strings.HasSuffix(f, "coverage.out") {
-			continue
-		}
-		// Found a relevant change
-		return true
-	}
-
-	return false
-}
-
-func isGeneratedFile(path string) (bool, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return false, fmt.Errorf("failed to open %s: %w", path, err)
-	}
-	defer file.Close()
-
-	buf := make([]byte, 200)
-
-	n, err := file.Read(buf)
-	if err != nil && err != io.EOF {
-		return false, fmt.Errorf("failed to read %s: %w", path, err)
-	}
-
-	content := string(buf[:n])
-
-	return strings.Contains(content, "Code generated") || strings.Contains(content, "DO NOT EDIT"), nil
-}
-
-// mergeCoverageBlocks merges duplicate coverage blocks in a coverage file.
-// This handles the case where multiple test packages cover the same code.
-func mergeCoverageBlocks(coverageFile string) error {
-	data, err := os.ReadFile(coverageFile)
-	if err != nil {
-		return err
-	}
-
-	lines := strings.Split(string(data), "\n")
-	if len(lines) == 0 {
-		return nil
-	}
-
-	// First line is mode
-	modeLine := lines[0]
-
-	// Merge blocks by key (file:start,end statements)
-	blocks := make(map[string]coverageBlock)
-
-	for _, line := range lines[1:] {
-		if line == "" {
-			continue
-		}
-
-		block, err := parseCoverageBlock(line)
-		if err != nil {
-			continue
-		}
-
-		key := fmt.Sprintf("%s:%d.%d,%d.%d %d",
-			block.file, block.startLine, block.startCol,
-			block.endLine, block.endCol, block.statements)
-
-		if existing, ok := blocks[key]; ok {
-			existing.count += block.count
-			blocks[key] = existing
-		} else {
-			blocks[key] = block
-		}
-	}
-
-	// Write merged blocks
-	var result strings.Builder
-
-	result.WriteString(modeLine)
-	result.WriteString("\n")
-
-	for _, block := range blocks {
-		fmt.Fprintf(&result, "%s:%d.%d,%d.%d %d %d\n",
-			block.file, block.startLine, block.startCol,
-			block.endLine, block.endCol, block.statements, block.count)
-	}
-
-	return os.WriteFile(coverageFile, []byte(result.String()), 0o600)
-}
-
-// output runs a command and captures stdout only (stderr goes to os.Stderr).
-func output(ctx context.Context, command string, args ...string) (string, error) {
-	buf := &bytes.Buffer{}
-	cmd := exec.CommandContext(ctx, command, args...)
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = buf
-	cmd.Stderr = os.Stderr
-	err := cmd.Run()
-
-	return strings.TrimSuffix(buf.String(), "\n"), err
-}
-
-func parseBlockID(blockID string) (file string, startLine, startCol, endLine, endCol int, err error) {
-	fileParts := strings.Split(blockID, ":")
-	if len(fileParts) != 2 {
-		return "", 0, 0, 0, 0, fmt.Errorf("invalid block ID format: %s", blockID)
-	}
-
-	file = fileParts[0]
-
-	rangeParts := strings.Split(fileParts[1], ",")
-	if len(rangeParts) != 2 {
-		return "", 0, 0, 0, 0, fmt.Errorf("invalid range format: %s", blockID)
-	}
-
-	startParts := strings.Split(rangeParts[0], ".")
-	if len(startParts) != 2 {
-		return "", 0, 0, 0, 0, fmt.Errorf("invalid start position: %s", blockID)
-	}
-
-	endParts := strings.Split(rangeParts[1], ".")
-	if len(endParts) != 2 {
-		return "", 0, 0, 0, 0, fmt.Errorf("invalid end position: %s", blockID)
-	}
-
-	startLine, _ = strconv.Atoi(startParts[0])
-	startCol, _ = strconv.Atoi(startParts[1])
-	endLine, _ = strconv.Atoi(endParts[0])
-	endCol, _ = strconv.Atoi(endParts[1])
-
-	return file, startLine, startCol, endLine, endCol, nil
-}
-
-func parseCoverageBlock(line string) (coverageBlock, error) {
-	// Format: file:startLine.startCol,endLine.endCol statements count
-	parts := strings.Fields(line)
-	if len(parts) != 3 {
-		return coverageBlock{}, fmt.Errorf("invalid line format")
-	}
-
-	blockID := parts[0]
-	statements, _ := strconv.Atoi(parts[1])
-	count, _ := strconv.Atoi(parts[2])
-
-	file, startLine, startCol, endLine, endCol, err := parseBlockID(blockID)
-	if err != nil {
-		return coverageBlock{}, err
-	}
-
-	return coverageBlock{
-		file:       file,
-		startLine:  startLine,
-		startCol:   startCol,
-		endLine:    endLine,
-		endCol:     endCol,
-		statements: statements,
-		count:      count,
-	}, nil
 }

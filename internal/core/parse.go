@@ -319,6 +319,14 @@ func collectInstanceFlagSpecs(
 	return collectStructFlagSpecs(inst, inst.node.Type, inst.value, usedNames)
 }
 
+func collectPositionalSpecs(node *commandNode, inst reflect.Value) ([]positionalSpec, error) {
+	if node == nil || node.Type == nil {
+		return nil, nil
+	}
+
+	return collectStructPositionalSpecs(node.Type, inst)
+}
+
 func collectStructFlagSpecs(
 	inst commandInstance,
 	typ reflect.Type,
@@ -337,7 +345,9 @@ func collectStructFlagSpecs(
 			if err != nil {
 				return nil, err
 			}
+
 			specs = append(specs, embeddedSpecs...)
+
 			continue
 		}
 
@@ -354,14 +364,6 @@ func collectStructFlagSpecs(
 	return specs, nil
 }
 
-func collectPositionalSpecs(node *commandNode, inst reflect.Value) ([]positionalSpec, error) {
-	if node == nil || node.Type == nil {
-		return nil, nil
-	}
-
-	return collectStructPositionalSpecs(node.Type, inst)
-}
-
 func collectStructPositionalSpecs(typ reflect.Type, inst reflect.Value) ([]positionalSpec, error) {
 	specs := make([]positionalSpec, 0, typ.NumField())
 
@@ -375,7 +377,9 @@ func collectStructPositionalSpecs(typ reflect.Type, inst reflect.Value) ([]posit
 			if err != nil {
 				return nil, err
 			}
+
 			specs = append(specs, embeddedSpecs...)
+
 			continue
 		}
 

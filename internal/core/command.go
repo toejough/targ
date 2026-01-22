@@ -42,65 +42,6 @@ func BuiltinExamples() []Example {
 	}
 }
 
-// builtinExamplesForNodes returns examples using actual command names.
-func builtinExamplesForNodes(nodes []*commandNode) []Example {
-	return []Example{
-		completionExample(),
-		chainExample(nodes),
-	}
-}
-
-// chainExample returns an example showing command chaining.
-// If nodes are provided, uses actual command names.
-func chainExample(nodes []*commandNode) Example {
-	// Check if any nodes have subcommands (nested structure)
-	var groupWithSub *commandNode
-	var subName string
-	var otherCmd string
-
-	for _, node := range nodes {
-		if len(node.Subcommands) > 0 && groupWithSub == nil {
-			groupWithSub = node
-			// Get first subcommand name
-			for name := range node.Subcommands {
-				subName = name
-				break
-			}
-		} else if groupWithSub != nil && otherCmd == "" {
-			otherCmd = node.Name
-		}
-	}
-
-	// If we have nested groups, show ^ example
-	if groupWithSub != nil && otherCmd != "" {
-		return Example{
-			Title: "Chain nested commands (^ returns to root)",
-			Code:  fmt.Sprintf("targ %s %s ^ %s", groupWithSub.Name, subName, otherCmd),
-		}
-	}
-
-	// Flat structure - show simple chaining
-	var names []string
-	seenSources := make(map[string]bool)
-
-	for _, node := range nodes {
-		source := getNodeSourceFile(node)
-		if !seenSources[source] && len(names) < 2 {
-			names = append(names, node.Name)
-			seenSources[source] = true
-		}
-	}
-
-	if len(names) < 2 {
-		names = []string{"build", "test"}
-	}
-
-	return Example{
-		Title: "Run multiple commands",
-		Code:  fmt.Sprintf("targ %s %s", names[0], names[1]),
-	}
-}
-
 // EmptyExamples returns an empty slice to disable examples in help.
 func EmptyExamples() []Example {
 	return []Example{}
@@ -737,14 +678,25 @@ func buildUsagePartsForPath(node *commandNode, binName, fullPath string) []strin
 	return parts
 }
 
+// builtinExamplesForNodes returns examples using actual command names.
+func builtinExamplesForNodes(nodes []*commandNode) []Example {
+	return []Example{
+		completionExample(),
+		chainExample(nodes),
+	}
+}
+
 // callFunctionWithArgs calls a function with context and/or struct args.
-// Handles: func(), func(ctx), func(args), func(ctx, args)
-func callFunctionWithArgs(ctx context.Context, fn reflect.Value, argsInst reflect.Value) error {
+// / Handles: func(), func(ctx), func(args), func(ctx, args)
+//
+//nolint:cyclop // Complex function signature handling requires many branches
+func callFunctionWithArgs(ctx context.Context, fn, argsInst reflect.Value) error {
 	if !fn.IsValid() || (fn.Kind() == reflect.Func && fn.IsNil()) {
 		return errNilFunctionCommand
 	}
 
 	ft := fn.Type()
+
 	var callArgs []reflect.Value
 
 	for i := range ft.NumIn() {
@@ -757,6 +709,7 @@ func callFunctionWithArgs(ctx context.Context, fn reflect.Value, argsInst reflec
 		}
 
 		// Otherwise it's the args struct - use the parsed instance
+		//nolint:gocritic // if-else chain is clearer than switch for type checks
 		if argsInst.IsValid() && argsInst.Type() == paramType {
 			callArgs = append(callArgs, argsInst)
 		} else if argsInst.IsValid() && argsInst.CanAddr() && argsInst.Addr().Type() == paramType {
@@ -846,6 +799,62 @@ func camelToKebab(s string) string {
 	}
 
 	return result.String()
+}
+
+// chainExample returns an example showing command chaining.
+// If nodes are provided, uses actual command names.
+//
+//nolint:cyclop // Traversing command tree structure requires many branches
+func chainExample(nodes []*commandNode) Example {
+	// Check if any nodes have subcommands (nested structure)
+	var (
+		groupWithSub *commandNode
+		subName      string
+		otherCmd     string
+	)
+
+	for _, node := range nodes {
+		if len(node.Subcommands) > 0 && groupWithSub == nil {
+			groupWithSub = node
+			// Get first subcommand name
+			for name := range node.Subcommands {
+				subName = name
+				break
+			}
+		} else if groupWithSub != nil && otherCmd == "" {
+			otherCmd = node.Name
+		}
+	}
+
+	// If we have nested groups, show ^ example
+	if groupWithSub != nil && otherCmd != "" {
+		return Example{
+			Title: "Chain nested commands (^ returns to root)",
+			Code:  fmt.Sprintf("targ %s %s ^ %s", groupWithSub.Name, subName, otherCmd),
+		}
+	}
+
+	// Flat structure - show simple chaining
+	var names []string
+
+	seenSources := make(map[string]bool)
+
+	for _, node := range nodes {
+		source := getNodeSourceFile(node)
+		if !seenSources[source] && len(names) < 2 {
+			names = append(names, node.Name)
+			seenSources[source] = true
+		}
+	}
+
+	if len(names) < 2 { //nolint:mnd // Need at least 2 commands for a chaining example
+		names = []string{"build", "test"}
+	}
+
+	return Example{
+		Title: "Run multiple commands",
+		Code:  fmt.Sprintf("targ %s %s", names[0], names[1]),
+	}
 }
 
 func checkRequiredFlags(specs []*flagSpec, visited map[string]bool) error {
@@ -1033,6 +1042,7 @@ func detectTagKind(opts *TagOptions, tag, fieldName string) {
 	}
 }
 
+//nolint:funlen // Function handles complete execution flow including parsing and flag collection
 func executeFunctionWithParents(
 	ctx context.Context,
 	args []string,
@@ -1346,6 +1356,21 @@ func getDescription(v reflect.Value, typ reflect.Type) string {
 	return strings.TrimSpace(desc)
 }
 
+// getNodeSourceFile returns the source file for a node, checking subcommands if needed.
+func getNodeSourceFile(node *commandNode) string {
+	if node.SourceFile != "" {
+		return node.SourceFile
+	}
+
+	for _, sub := range node.Subcommands {
+		if sub.SourceFile != "" {
+			return sub.SourceFile
+		}
+	}
+
+	return ""
+}
+
 // getNodeSourceFile returns the source file for a node, falling back to subcommands.
 
 // getStructSourceFile returns the source file for a struct, checking for a SourceFile() method first.
@@ -1357,6 +1382,38 @@ func getStructSourceFile(v reflect.Value, typ reflect.Type) string {
 
 	// Fall back to runtime detection
 	return structSourceFile(typ)
+}
+
+// groupNodesBySource groups nodes by their source file, preserving order.
+func groupNodesBySource(nodes []*commandNode) []struct {
+	source string
+	nodes  []*commandNode
+} {
+	// Use a slice to preserve order, map for lookup
+	groups := make([]struct {
+		source string
+		nodes  []*commandNode
+	}, 0, len(nodes))
+	sourceIndex := make(map[string]int)
+
+	for _, node := range nodes {
+		source := relativeSourcePath(getNodeSourceFile(node))
+		if source == "" {
+			source = "(unknown)"
+		}
+
+		if idx, ok := sourceIndex[source]; ok {
+			groups[idx].nodes = append(groups[idx].nodes, node)
+		} else {
+			sourceIndex[source] = len(groups)
+			groups = append(groups, struct {
+				source string
+				nodes  []*commandNode
+			}{source: source, nodes: []*commandNode{node}})
+		}
+	}
+
+	return groups
 }
 
 // handleHelpFlag checks for --help flag and prints help if requested.
@@ -1407,6 +1464,18 @@ func lookupMethod(receiver reflect.Value, name string) (reflect.Value, bool) {
 	method := target.MethodByName(name)
 
 	return method, method.IsValid()
+}
+
+// maxNameWidth returns the maximum name length among nodes.
+func maxNameWidth(nodes []*commandNode) int {
+	maxWidth := 0
+	for _, node := range nodes {
+		if len(node.Name) > maxWidth {
+			maxWidth = len(node.Name)
+		}
+	}
+
+	return maxWidth
 }
 
 func methodValue(v reflect.Value, typ reflect.Type, method string) reflect.Value {
@@ -1644,6 +1713,8 @@ func parseTargetLike(target TargetLike) (*commandNode, error) {
 }
 
 // parseTargetLikeFunc creates a commandNode for a function target.
+//
+//nolint:cyclop // Parsing different function signatures requires many type checks
 func parseTargetLikeFunc(target TargetLike, fn any) (*commandNode, error) {
 	fv := reflect.ValueOf(fn)
 	if fv.Kind() != reflect.Func {
@@ -1680,6 +1751,7 @@ func parseTargetLikeFunc(target TargetLike, fn any) (*commandNode, error) {
 		if paramType.Kind() == reflect.Struct {
 			node.Type = paramType
 		}
+
 		break // Only handle first non-context parameter
 	}
 
@@ -1798,6 +1870,19 @@ func printDescription(desc string) {
 	}
 }
 
+func printExampleList(examples []Example) {
+	if len(examples) == 0 {
+		return
+	}
+
+	fmt.Println("\nExamples:")
+
+	for _, ex := range examples {
+		fmt.Printf("  %s:\n", ex.Title)
+		fmt.Printf("    %s\n", ex.Code)
+	}
+}
+
 func printExamples(opts RunOptions, isRoot bool) {
 	examples := opts.Examples
 	if examples == nil {
@@ -1819,19 +1904,6 @@ func printExamplesForNodes(opts RunOptions, nodes []*commandNode) {
 	}
 
 	printExampleList(examples)
-}
-
-func printExampleList(examples []Example) {
-	if len(examples) == 0 {
-		return
-	}
-
-	fmt.Println("\nExamples:")
-
-	for _, ex := range examples {
-		fmt.Printf("  %s:\n", ex.Title)
-		fmt.Printf("    %s\n", ex.Code)
-	}
 }
 
 // printFlagWithWrappedEnum prints a flag, wrapping long enum values.
@@ -1907,42 +1979,12 @@ func printMoreInfo(opts RunOptions) {
 }
 
 // printSubcommandGrid prints subcommands in a multi-column alphabetized grid.
-func printSubcommandGrid(subs map[string]*commandNode, indent string) {
-	names := sortedKeys(subs)
-	if len(names) == 0 {
-		return
-	}
 
-	// Calculate column width based on longest name
-	maxLen := 0
-	for _, name := range names {
-		if len(name) > maxLen {
-			maxLen = len(name)
-		}
-	}
+// Calculate column width based on longest name
 
-	const padding = 2
+// Determine number of columns (fit in ~60 chars after indent)
 
-	colWidth := maxLen + padding
-
-	// Determine number of columns (fit in ~60 chars after indent)
-	const availableWidth = 60
-
-	numCols := max(availableWidth/colWidth, 1)
-
-	// Print in columns
-	fmt.Printf("%sSubcommands: ", indent)
-
-	for i, name := range names {
-		if i > 0 && i%numCols == 0 {
-			fmt.Printf("\n%s             ", indent)
-		}
-
-		fmt.Printf("%-*s", colWidth, name)
-	}
-
-	fmt.Println()
-}
+// Print in columns
 
 // printSubcommandList prints subcommands with name and description only.
 //
@@ -1990,62 +2032,6 @@ func printTopLevelCommand(node *commandNode, width int) {
 	}
 }
 
-// maxNameWidth returns the maximum name length among nodes.
-func maxNameWidth(nodes []*commandNode) int {
-	max := 0
-	for _, node := range nodes {
-		if len(node.Name) > max {
-			max = len(node.Name)
-		}
-	}
-	return max
-}
-
-// getNodeSourceFile returns the source file for a node, checking subcommands if needed.
-func getNodeSourceFile(node *commandNode) string {
-	if node.SourceFile != "" {
-		return node.SourceFile
-	}
-	for _, sub := range node.Subcommands {
-		if sub.SourceFile != "" {
-			return sub.SourceFile
-		}
-	}
-	return ""
-}
-
-// groupNodesBySource groups nodes by their source file, preserving order.
-func groupNodesBySource(nodes []*commandNode) []struct {
-	source string
-	nodes  []*commandNode
-} {
-	// Use a slice to preserve order, map for lookup
-	var groups []struct {
-		source string
-		nodes  []*commandNode
-	}
-	sourceIndex := make(map[string]int)
-
-	for _, node := range nodes {
-		source := relativeSourcePath(getNodeSourceFile(node))
-		if source == "" {
-			source = "(unknown)"
-		}
-
-		if idx, ok := sourceIndex[source]; ok {
-			groups[idx].nodes = append(groups[idx].nodes, node)
-		} else {
-			sourceIndex[source] = len(groups)
-			groups = append(groups, struct {
-				source string
-				nodes  []*commandNode
-			}{source: source, nodes: []*commandNode{node}})
-		}
-	}
-
-	return groups
-}
-
 func printUsage(nodes []*commandNode, opts RunOptions) {
 	binName := binaryName()
 
@@ -2069,7 +2055,9 @@ func printUsage(nodes []*commandNode, opts RunOptions) {
 		if i > 0 {
 			fmt.Println()
 		}
+
 		fmt.Printf("\n  [%s]\n", group.source)
+
 		width := maxNameWidth(group.nodes)
 		for _, node := range group.nodes {
 			printTopLevelCommand(node, width)

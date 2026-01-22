@@ -289,6 +289,106 @@ func FooBar() {}
 	}
 }
 
+func TestDiscover_ExplicitRegistration(t *testing.T) {
+	fsMock := MockFileSystem(t)
+	opts := buildtool.Options{StartDir: "/root"}
+	done := make(chan struct{})
+
+	var (
+		infos []buildtool.PackageInfo
+		err   error
+	)
+
+	go func() {
+		infos, err = buildtool.Discover(fsMock.Mock, opts)
+
+		close(done)
+	}()
+
+	fsMock.Method.ReadDir.ExpectCalledWithExactly("/root").InjectReturnValues([]fs.DirEntry{
+		fakeDirEntry{name: "targets.go", dir: false},
+	}, nil)
+	fsMock.Method.ReadFile.ExpectCalledWithExactly("/root/targets.go").
+		InjectReturnValues([]byte(`//go:build targ
+
+package dev
+
+import "github.com/toejough/targ"
+
+var Build = targ.Targ(build)
+
+func build() {}
+
+func init() {
+	targ.Register(Build)
+}
+`), nil)
+
+	<-done
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(infos) != 1 {
+		t.Fatalf("expected 1 package info, got %d", len(infos))
+	}
+
+	if !infos[0].UsesExplicitRegistration {
+		t.Fatal("expected UsesExplicitRegistration to be true")
+	}
+}
+
+func TestDiscover_ExplicitRegistrationWithAlias(t *testing.T) {
+	fsMock := MockFileSystem(t)
+	opts := buildtool.Options{StartDir: "/root"}
+	done := make(chan struct{})
+
+	var (
+		infos []buildtool.PackageInfo
+		err   error
+	)
+
+	go func() {
+		infos, err = buildtool.Discover(fsMock.Mock, opts)
+
+		close(done)
+	}()
+
+	fsMock.Method.ReadDir.ExpectCalledWithExactly("/root").InjectReturnValues([]fs.DirEntry{
+		fakeDirEntry{name: "targets.go", dir: false},
+	}, nil)
+	fsMock.Method.ReadFile.ExpectCalledWithExactly("/root/targets.go").
+		InjectReturnValues([]byte(`//go:build targ
+
+package dev
+
+import t "github.com/toejough/targ"
+
+var Build = t.Targ(build)
+
+func build() {}
+
+func init() {
+	t.Register(Build)
+}
+`), nil)
+
+	<-done
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(infos) != 1 {
+		t.Fatalf("expected 1 package info, got %d", len(infos))
+	}
+
+	if !infos[0].UsesExplicitRegistration {
+		t.Fatal("expected UsesExplicitRegistration to be true")
+	}
+}
+
 func TestDiscover_FiltersNonRunnableStructs(t *testing.T) {
 	fsMock := MockFileSystem(t)
 	opts := buildtool.Options{StartDir: "/root"}
@@ -597,6 +697,48 @@ func Build() {}
 
 	if !strings.Contains(err.Error(), "multiple package names") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestDiscover_NoExplicitRegistration(t *testing.T) {
+	fsMock := MockFileSystem(t)
+	opts := buildtool.Options{StartDir: "/root"}
+	done := make(chan struct{})
+
+	var (
+		infos []buildtool.PackageInfo
+		err   error
+	)
+
+	go func() {
+		infos, err = buildtool.Discover(fsMock.Mock, opts)
+
+		close(done)
+	}()
+
+	fsMock.Method.ReadDir.ExpectCalledWithExactly("/root").InjectReturnValues([]fs.DirEntry{
+		fakeDirEntry{name: "targets.go", dir: false},
+	}, nil)
+	fsMock.Method.ReadFile.ExpectCalledWithExactly("/root/targets.go").
+		InjectReturnValues([]byte(`//go:build targ
+
+package dev
+
+func Build() {}
+`), nil)
+
+	<-done
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(infos) != 1 {
+		t.Fatalf("expected 1 package info, got %d", len(infos))
+	}
+
+	if infos[0].UsesExplicitRegistration {
+		t.Fatal("expected UsesExplicitRegistration to be false")
 	}
 }
 
@@ -981,148 +1123,6 @@ func Build() {}
 
 	if files[0].Path != "/root/readable.go" {
 		t.Fatalf("expected readable.go, got %s", files[0].Path)
-	}
-}
-
-func TestDiscover_ExplicitRegistration(t *testing.T) {
-	fsMock := MockFileSystem(t)
-	opts := buildtool.Options{StartDir: "/root"}
-	done := make(chan struct{})
-
-	var (
-		infos []buildtool.PackageInfo
-		err   error
-	)
-
-	go func() {
-		infos, err = buildtool.Discover(fsMock.Mock, opts)
-
-		close(done)
-	}()
-
-	fsMock.Method.ReadDir.ExpectCalledWithExactly("/root").InjectReturnValues([]fs.DirEntry{
-		fakeDirEntry{name: "targets.go", dir: false},
-	}, nil)
-	fsMock.Method.ReadFile.ExpectCalledWithExactly("/root/targets.go").
-		InjectReturnValues([]byte(`//go:build targ
-
-package dev
-
-import "github.com/toejough/targ"
-
-var Build = targ.Targ(build)
-
-func build() {}
-
-func init() {
-	targ.Register(Build)
-}
-`), nil)
-
-	<-done
-
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if len(infos) != 1 {
-		t.Fatalf("expected 1 package info, got %d", len(infos))
-	}
-
-	if !infos[0].UsesExplicitRegistration {
-		t.Fatal("expected UsesExplicitRegistration to be true")
-	}
-}
-
-func TestDiscover_ExplicitRegistrationWithAlias(t *testing.T) {
-	fsMock := MockFileSystem(t)
-	opts := buildtool.Options{StartDir: "/root"}
-	done := make(chan struct{})
-
-	var (
-		infos []buildtool.PackageInfo
-		err   error
-	)
-
-	go func() {
-		infos, err = buildtool.Discover(fsMock.Mock, opts)
-
-		close(done)
-	}()
-
-	fsMock.Method.ReadDir.ExpectCalledWithExactly("/root").InjectReturnValues([]fs.DirEntry{
-		fakeDirEntry{name: "targets.go", dir: false},
-	}, nil)
-	fsMock.Method.ReadFile.ExpectCalledWithExactly("/root/targets.go").
-		InjectReturnValues([]byte(`//go:build targ
-
-package dev
-
-import t "github.com/toejough/targ"
-
-var Build = t.Targ(build)
-
-func build() {}
-
-func init() {
-	t.Register(Build)
-}
-`), nil)
-
-	<-done
-
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if len(infos) != 1 {
-		t.Fatalf("expected 1 package info, got %d", len(infos))
-	}
-
-	if !infos[0].UsesExplicitRegistration {
-		t.Fatal("expected UsesExplicitRegistration to be true")
-	}
-}
-
-func TestDiscover_NoExplicitRegistration(t *testing.T) {
-	fsMock := MockFileSystem(t)
-	opts := buildtool.Options{StartDir: "/root"}
-	done := make(chan struct{})
-
-	var (
-		infos []buildtool.PackageInfo
-		err   error
-	)
-
-	go func() {
-		infos, err = buildtool.Discover(fsMock.Mock, opts)
-
-		close(done)
-	}()
-
-	fsMock.Method.ReadDir.ExpectCalledWithExactly("/root").InjectReturnValues([]fs.DirEntry{
-		fakeDirEntry{name: "targets.go", dir: false},
-	}, nil)
-	fsMock.Method.ReadFile.ExpectCalledWithExactly("/root/targets.go").
-		InjectReturnValues([]byte(`//go:build targ
-
-package dev
-
-func Build() {}
-`), nil)
-
-	<-done
-
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if len(infos) != 1 {
-		t.Fatalf("expected 1 package info, got %d", len(infos))
-	}
-
-	if infos[0].UsesExplicitRegistration {
-		t.Fatal("expected UsesExplicitRegistration to be false")
 	}
 }
 

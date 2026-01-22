@@ -7,6 +7,10 @@ import (
 	"github.com/toejough/targ"
 )
 
+func main() {
+	targ.ExecuteRegistered()
+}
+
 func init() {
 	targ.Register(
 		targ.Targ(greet).Name("greet"),
@@ -17,8 +21,11 @@ func init() {
 	)
 }
 
-func main() {
-	targ.ExecuteRegistered()
+// --- Math ---
+
+type AddArgs struct {
+	A int `targ:"positional"`
+	B int `targ:"positional"`
 }
 
 // --- Greet ---
@@ -28,19 +35,12 @@ type GreetArgs struct {
 	Age  int    `targ:"flag,name=age,desc=Age of the person"`
 }
 
-func greet(args GreetArgs) {
-	fmt.Printf("Hello %s, you are %d years old!\n", args.Name, args.Age)
-}
-
-// --- Math ---
-
-type AddArgs struct {
-	A int `targ:"positional"`
-	B int `targ:"positional"`
-}
-
 func add(args AddArgs) {
 	fmt.Printf("%d + %d = %d\n", args.A, args.B, args.A+args.B)
+}
+
+func greet(args GreetArgs) {
+	fmt.Printf("Hello %s, you are %d years old!\n", args.Name, args.Age)
 }
 
 func mathRun() {

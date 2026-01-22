@@ -4,6 +4,10 @@ import (
 	"github.com/toejough/targ"
 )
 
+func main() {
+	targ.ExecuteRegistered()
+}
+
 func init() {
 	targ.Register(
 		targ.Targ(build).Name("build"),
@@ -13,8 +17,4 @@ func init() {
 			targ.Targ(deployProd).Name("prod"),
 		),
 	)
-}
-
-func main() {
-	targ.ExecuteRegistered()
 }

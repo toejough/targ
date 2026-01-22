@@ -19,12 +19,12 @@ func clean() {
 	fmt.Println("Cleaning...")
 }
 
+func deployProd() {
+	fmt.Println("Deploying to Prod")
+}
+
 // --- Deploy ---
 
 func deployStaging() {
 	fmt.Println("Deploying to Staging")
-}
-
-func deployProd() {
-	fmt.Println("Deploying to Prod")
 }

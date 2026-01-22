@@ -54,31 +54,32 @@ func main() {
 	defaultPackageName     = "main" // default package name for created targ files
 	defaultTargModulePath  = "github.com/toejough/targ"
 	filePermissionsForCode = 0o644 // standard file permissions for created source files
-	helpIndentWidth      = 4 // Leading spaces in help output
-	isolatedModuleName   = "targ.build.local"
-	minArgsForCompletion = 2  // Minimum args for __complete (binary + arg)
-	minCommandNameWidth = 10 // Minimum column width for command names in help output
-	pkgNameMain         = "main" // package main check for targ files
-	targLocalModule = "targ.local"
+	helpIndentWidth        = 4     // Leading spaces in help output
+	isolatedModuleName     = "targ.build.local"
+	minArgsForCompletion   = 2      // Minimum args for __complete (binary + arg)
+	minCommandNameWidth    = 10     // Minimum column width for command names in help output
+	pkgNameMain            = "main" // package main check for targ files
+	targLocalModule        = "targ.local"
 )
 
 // unexported variables.
 var (
-	errDuplicateTarget       = errors.New("target already exists")
-	errFlagRemoved           = errors.New("flag has been removed; use --create instead")
-	errInvalidUTF8Path       = errors.New("invalid utf-8 path in tagged file")
-	errModulePathNotFound    = errors.New("module path not found")
+	errDuplicateTarget        = errors.New("target already exists")
+	errFlagRemoved            = errors.New("flag has been removed; use --create instead")
+	errInvalidUTF8Path        = errors.New("invalid utf-8 path in tagged file")
+	errModulePathNotFound     = errors.New("module path not found")
+	errNoExplicitRegistration = errors.New(
+		"package does not use explicit registration (targ.Register in init)",
+	)
 	errPackageMainNotAllowed = errors.New("targ files cannot use 'package main'")
 	errUnknownCommand        = errors.New("unknown command")
 	validTargetNameRe        = regexp.MustCompile(`^[a-z][a-z0-9-]*[a-z0-9]$|^[a-z]$`)
 )
 
 type bootstrapBuilder struct {
-	absStart            string
 	moduleRoot          string
 	modulePath          string
-	pathMapping         map[string]string // maps isolated paths to original paths
-	explicitRegPackages []string          // import paths for packages using targ.Register()
+	explicitRegPackages []string // import paths for packages using targ.Register()
 }
 
 func (b *bootstrapBuilder) buildResult() bootstrapData {
@@ -99,7 +100,7 @@ func (b *bootstrapBuilder) computeImportPath(dir string) string {
 
 func (b *bootstrapBuilder) processPackage(info buildtool.PackageInfo) error {
 	if !info.UsesExplicitRegistration {
-		return fmt.Errorf("package %s does not use explicit registration (targ.Register in init)", info.Package)
+		return fmt.Errorf("%w: %s", errNoExplicitRegistration, info.Package)
 	}
 
 	importPath := b.computeImportPath(info.Dir)
@@ -465,17 +466,16 @@ func (r *targRunner) handleIsolatedModule(infos []buildtool.PackageInfo) int {
 	defer cleanup()
 
 	// Remap package infos to point to isolated directory
-	isolatedInfos, pathMapping, err := remapPackageInfosToIsolated(infos, r.startDir, isolatedDir)
+	isolatedInfos, _, err := remapPackageInfosToIsolated(infos, r.startDir, isolatedDir)
 	if err != nil {
 		r.logError("Error remapping package infos", err)
 		return r.exitWithCleanup(1)
 	}
 
-	bootstrap, err := r.prepareBootstrapWithMapping(
+	bootstrap, err := r.prepareBootstrap(
 		isolatedInfos,
 		isolatedDir,
 		isolatedModuleName,
-		pathMapping,
 	)
 	if err != nil {
 		r.logError("", err)
@@ -614,51 +614,7 @@ func (r *targRunner) prepareBootstrap(
 	infos []buildtool.PackageInfo,
 	importRoot, modulePath string,
 ) (moduleBootstrap, error) {
-	data, err := buildBootstrapData(infos, r.startDir, importRoot, modulePath)
-	if err != nil {
-		return moduleBootstrap{}, fmt.Errorf("error preparing bootstrap: %w", err)
-	}
-
-	tmpl := template.Must(template.New("main").Parse(bootstrapTemplate))
-
-	var buf bytes.Buffer
-
-	err = tmpl.Execute(&buf, data)
-	if err != nil {
-		return moduleBootstrap{}, fmt.Errorf("error generating code: %w", err)
-	}
-
-	taggedFiles, err := buildtool.TaggedFiles(buildtool.OSFileSystem{}, buildtool.Options{
-		StartDir: r.startDir,
-		BuildTag: "targ",
-	})
-	if err != nil {
-		return moduleBootstrap{}, fmt.Errorf("error gathering tagged files: %w", err)
-	}
-
-	moduleFiles, err := collectModuleFiles(importRoot)
-	if err != nil {
-		return moduleBootstrap{}, fmt.Errorf("error gathering module files: %w", err)
-	}
-
-	cacheInputs := slices.Concat(taggedFiles, moduleFiles)
-
-	cacheKey, err := computeCacheKey(modulePath, importRoot, "targ", buf.Bytes(), cacheInputs)
-	if err != nil {
-		return moduleBootstrap{}, fmt.Errorf("error computing cache key: %w", err)
-	}
-
-	return moduleBootstrap{code: buf.Bytes(), cacheKey: cacheKey}, nil
-}
-
-func (r *targRunner) prepareBootstrapWithMapping(
-	infos []buildtool.PackageInfo,
-	importRoot, modulePath string,
-	pathMapping map[string]string,
-) (moduleBootstrap, error) {
-	data, err := buildBootstrapDataWithMapping(
-		infos, r.startDir, importRoot, modulePath, pathMapping,
-	)
+	data, err := buildBootstrapData(infos, importRoot, modulePath)
 	if err != nil {
 		return moduleBootstrap{}, fmt.Errorf("error preparing bootstrap: %w", err)
 	}
@@ -868,27 +824,10 @@ func buildAndQueryBinary(
 
 func buildBootstrapData(
 	infos []buildtool.PackageInfo,
-	startDir string,
 	moduleRoot string,
 	modulePath string,
 ) (bootstrapData, error) {
-	return buildBootstrapDataWithMapping(infos, startDir, moduleRoot, modulePath, nil)
-}
-
-func buildBootstrapDataWithMapping(
-	infos []buildtool.PackageInfo,
-	startDir string,
-	moduleRoot string,
-	modulePath string,
-	pathMapping map[string]string,
-) (bootstrapData, error) {
-	absStart, err := filepath.Abs(startDir)
-	if err != nil {
-		return bootstrapData{}, fmt.Errorf("getting absolute path: %w", err)
-	}
-
-	builder := newBootstrapBuilder(absStart, moduleRoot, modulePath)
-	builder.pathMapping = pathMapping
+	builder := newBootstrapBuilder(moduleRoot, modulePath)
 
 	for _, info := range infos {
 		err := builder.processPackage(info)
@@ -923,7 +862,7 @@ func buildModuleBinary(
 		return reg, err
 	}
 
-	bootstrap, err := generateModuleBootstrap(mt, startDir, buildCtx.importRoot)
+	bootstrap, err := generateModuleBootstrap(mt, buildCtx.importRoot)
 	if err != nil {
 		return reg, err
 	}
@@ -1527,11 +1466,10 @@ var _ = targ.Targ
 // generateModuleBootstrap creates bootstrap code and computes cache key.
 func generateModuleBootstrap(
 	mt moduleTargets,
-	startDir, importRoot string,
+	importRoot string,
 ) (moduleBootstrap, error) {
 	data, err := buildBootstrapData(
 		mt.Packages,
-		startDir,
 		importRoot,
 		mt.ModulePath,
 	)
@@ -1805,9 +1743,8 @@ func namespacePaths(files []string, root string) (map[string][]string, error) {
 	return compressNamespacePaths(trimmed), nil
 }
 
-func newBootstrapBuilder(absStart, moduleRoot, modulePath string) *bootstrapBuilder {
+func newBootstrapBuilder(moduleRoot, modulePath string) *bootstrapBuilder {
 	return &bootstrapBuilder{
-		absStart:   absStart,
 		moduleRoot: moduleRoot,
 		modulePath: modulePath,
 	}
@@ -2251,7 +2188,6 @@ func validateNoPackageMain(mt moduleTargets) error {
 
 	return nil
 }
-
 
 func writeBootstrapFile(dir string, data []byte) (string, func() error, error) {
 	//nolint:gosec,mnd // standard directory permissions for bootstrap

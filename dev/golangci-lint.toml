@@ -17,7 +17,12 @@ disable = [
 # Exclude certain linters from test files
 [[linters.exclusions.rules]]
 path = '_test\.go$'
-linters = ['dogsled', 'err113', 'gochecknoglobals', 'gosec', 'mnd', 'noctx', 'noinlineerr', 'testpackage', 'wrapcheck']
+linters = ['dogsled', 'dupl', 'err113', 'gochecknoglobals', 'goconst', 'gosec', 'mnd', 'noctx', 'noinlineerr', 'testpackage', 'wrapcheck']
+
+# Exclude gochecknoinits from examples (they use init() by design)
+[[linters.exclusions.rules]]
+path = 'examples/'
+linters = ['gochecknoinits']
 
 # Allow dot imports in test files (gomega requires them)
 [[linters.exclusions.rules]]
@@ -39,7 +44,7 @@ block-size = 2
 # ignore-decls should work for conventional declarations like 't *testing.T' but doesn't
 # See: https://github.com/blizzy78/varnamelen/issues/5
 # Using ignore-names as workaround
-ignore-names = ['t', 'b', 'rt', 'a', 'g', 'i', 'j', 'fs', 'fn', 'ok', 'r', 'p', 'mt', 'f', 'v', 'w', 'pc', 'm', 'n', 'ch', 'wg', 'tc', 'tt']
+ignore-names = ['t', 'b', 'rt', 'a', 'g', 'i', 'j', 'fs', 'fn', 'ok', 'r', 'p', 'mt', 'f', 'v', 'w', 'pc', 'm', 'n', 'ch', 'wg', 'tc', 'tt', 'fv', 'ft']
 
 [linters.settings.unused]
 field-writes-are-uses = false

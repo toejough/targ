@@ -5,8 +5,6 @@ import (
 	"context"
 	"errors"
 	"os"
-	"reflect"
-	"strings"
 
 	"github.com/toejough/targ/internal/core"
 )
@@ -47,27 +45,6 @@ type TagKind = core.TagKind
 // TagOptions contains parsed tag options for a struct field.
 type TagOptions = core.TagOptions
 
-// registry holds targets registered via Register() for later execution.
-var registry []any
-
-// Register adds targets to the global registry for later execution.
-// Typically called from init() in packages with //go:build targ.
-// Use ExecuteRegistered() in main() to run the registered targets.
-func Register(targets ...any) {
-	registry = append(registry, targets...)
-}
-
-// ExecuteRegistered runs the registered targets using os.Args and exits on error.
-// This is used by the targ buildtool for packages that use explicit registration.
-func ExecuteRegistered() {
-	RunWithOptions(RunOptions{AllowDefault: true}, registry...)
-}
-
-// ExecuteRegisteredWithOptions runs the registered targets with custom options.
-func ExecuteRegisteredWithOptions(opts RunOptions) {
-	RunWithOptions(opts, registry...)
-}
-
 // AppendBuiltinExamples adds built-in examples after custom examples.
 func AppendBuiltinExamples(
 	custom ...Example,
@@ -96,56 +73,14 @@ func Deps(args ...any) error {
 // DetectRootCommands filters a list of possible command objects to find those
 // that are NOT subcommands of any other command in the list.
 // It uses the `targ:"subcommand"` tag to identify relationships.
-func DetectRootCommands(candidates ...any) []any {
-	// 1. Find all types that are referenced as subcommands
-	subcommandTypes := make(map[reflect.Type]bool)
 
-	for _, c := range candidates {
-		v := reflect.ValueOf(c)
-		t := v.Type()
-		// Handle pointer to struct
-		if t.Kind() == reflect.Ptr {
-			t = t.Elem()
-		}
+// 1. Find all types that are referenced as subcommands
 
-		if t.Kind() != reflect.Struct {
-			continue
-		}
+// Handle pointer to struct
 
-		for i := range t.NumField() {
-			field := t.Field(i)
+// This field type is a subcommand
 
-			tag := field.Tag.Get("targ")
-			if strings.Contains(tag, "subcommand") {
-				// This field type is a subcommand
-				subType := field.Type
-				if subType.Kind() == reflect.Ptr {
-					subType = subType.Elem()
-				}
-
-				subcommandTypes[subType] = true
-			}
-		}
-	}
-
-	// 2. Filter candidates
-	var roots []any
-
-	for _, candidate := range candidates {
-		val := reflect.ValueOf(candidate)
-
-		typ := val.Type()
-		if typ.Kind() == reflect.Ptr {
-			typ = typ.Elem()
-		}
-
-		if !subcommandTypes[typ] {
-			roots = append(roots, candidate)
-		}
-	}
-
-	return roots
-}
+// 2. Filter candidates
 
 // EmptyExamples returns an empty slice to disable examples in help.
 func EmptyExamples() []Example { return core.EmptyExamples() }
@@ -154,6 +89,19 @@ func EmptyExamples() []Example { return core.EmptyExamples() }
 // This is useful for testing. Args should include the program name as the first element.
 func Execute(args []string, targets ...any) (ExecuteResult, error) {
 	return ExecuteWithOptions(args, RunOptions{AllowDefault: true}, targets...)
+}
+
+// ExecuteRegistered runs the registered targets using os.Args and exits on error.
+// This is used by the targ buildtool for packages that use explicit registration.
+func ExecuteRegistered() {
+	RunWithOptions(RunOptions{AllowDefault: true}, registry...)
+}
+
+// ExecuteRegisteredWithOptions runs the registered targets with custom options.
+// Used by generated bootstrap code.
+func ExecuteRegisteredWithOptions(opts RunOptions) {
+	opts.AllowDefault = true
+	RunWithOptions(opts, registry...)
 }
 
 // ExecuteWithOptions runs commands with given args and options, returning results.
@@ -177,6 +125,13 @@ func PrependBuiltinExamples(custom ...Example) []Example {
 	return core.PrependBuiltinExamples(custom...)
 }
 
+// Register adds targets to the global registry for later execution.
+// Typically called from init() in packages with //go:build targ.
+// Use ExecuteRegistered() in main() to run the registered targets.
+func Register(targets ...any) {
+	registry = append(registry, targets...)
+}
+
 // PrintCompletionScript outputs shell completion scripts for the given shell.
 
 // ResetDeps clears the dependency execution cache, allowing all targets
@@ -189,9 +144,6 @@ func ResetDeps() {
 // --- Public API ---
 
 // Run executes the CLI using os.Args and exits on error.
-func Run(targets ...any) {
-	RunWithOptions(RunOptions{AllowDefault: true}, targets...)
-}
 
 // RunWithOptions executes the CLI using os.Args and exits on error.
 func RunWithOptions(opts RunOptions, targets ...any) {
@@ -210,7 +162,7 @@ func RunWithOptions(opts RunOptions, targets ...any) {
 // Useful for cancellation in watch mode.
 func WithContext(ctx context.Context) DepsOption { return core.WithContext(ctx) }
 
-// RepoURL returns the repository URL detected from .git/config.
-// This is useful when you want to use the auto-detected repo URL in your
-// own MoreInfoText or other help customization.
-// Returns empty string if no .git/config is found or origin URL cannot be parsed.
+// unexported variables.
+var (
+	registry []any //nolint:gochecknoglobals // Global registry is intentional for Register() API
+)

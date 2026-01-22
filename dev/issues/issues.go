@@ -24,6 +24,16 @@ func init() {
 	)
 }
 
+// Exported variables.
+var (
+	Create   = targ.Targ(create).Description("Create a new issue locally or on GitHub")
+	Dedupe   = targ.Targ(dedupe).Description("Remove duplicate done issues from backlog")
+	List     = targ.Targ(list).Description("List issues from local file and/or GitHub")
+	Move     = targ.Targ(move).Description("Move a local or GitHub issue to a new status")
+	Update   = targ.Targ(update).Description("Update a local or GitHub issue")
+	Validate = targ.Targ(validate).Description("Validate issue formatting and structure")
+)
+
 // CreateArgs are arguments for the create command.
 type CreateArgs struct {
 	File       string `targ:"flag,default=issues.md,desc=Issue file to update"`
@@ -35,94 +45,9 @@ type CreateArgs struct {
 	Acceptance string `targ:"flag,default=TBD,desc=Acceptance criteria"`
 }
 
-// Create creates a new issue locally or on GitHub.
-var Create = targ.Targ(create).Description("Create a new issue locally or on GitHub")
-
-func create(c CreateArgs) error {
-	if c.GitHub {
-		num, err := createGitHubIssue(c.Title, c.Desc)
-		if err != nil {
-			return err
-		}
-		fmt.Printf("Created GitHub issue: %s\n", formatIssueID("github", num))
-		return nil
-	}
-
-	filePath := findIssueFile(c.File)
-	content, issues, err := loadIssues(filePath)
-	if err != nil {
-		return err
-	}
-	maxID := 0
-	for _, issue := range issues {
-		if issue.Number > maxID {
-			maxID = issue.Number
-		}
-	}
-	newID := maxID + 1
-
-	status := normalizeStatus(c.Status)
-	priority := normalizePriority(c.Priority)
-	block := []string{
-		fmt.Sprintf("### %d. %s", newID, c.Title),
-		"",
-		"#### Universal",
-		"",
-		"**Status**",
-		status,
-		"",
-		"**Description**",
-		c.Desc,
-		"",
-		"#### Planning",
-		"",
-		"**Priority**",
-		priority,
-		"",
-		"**Acceptance**",
-		c.Acceptance,
-	}
-
-	section := "backlog"
-	if strings.EqualFold(status, "done") {
-		section = "done"
-	}
-	if err := content.insert(section, block); err != nil {
-		return err
-	}
-	fmt.Printf("Created local issue: %s\n", formatIssueID("local", newID))
-	return writeIssues(filePath, content.lines)
-}
-
 // DedupeArgs are arguments for the dedupe command.
 type DedupeArgs struct {
 	File string `targ:"flag,default=issues.md,desc=Issue file to update"`
-}
-
-// Dedupe removes duplicate done issues from backlog.
-var Dedupe = targ.Targ(dedupe).Description("Remove duplicate done issues from backlog")
-
-func dedupe(c DedupeArgs) error {
-	filePath := findIssueFile(c.File)
-	content, _, err := loadIssues(filePath)
-	if err != nil {
-		return err
-	}
-	file := content
-	issues := file.issues
-	done := map[int]bool{}
-	for _, iss := range issues {
-		if iss.Section == "done" {
-			done[iss.Number] = true
-		}
-	}
-	for i := len(issues) - 1; i >= 0; i-- {
-		iss := issues[i]
-		if iss.Section == "backlog" && done[iss.Number] {
-			file.remove(iss)
-		}
-	}
-	return writeIssues(filePath, file.lines)
 }
 
 // ListArgs are arguments for the list command.
@@ -133,128 +58,11 @@ type ListArgs struct {
 	Source string `targ:"flag,default=all,desc=Issue source,enum=all|local|github"`
 }
 
-// List lists issues from local file and/or GitHub.
-var List = targ.Targ(list).Description("List issues from local file and/or GitHub")
-
-func list(c ListArgs) error {
-	type displayIssue struct {
-		ID     string
-		Status string
-		Title  string
-	}
-	var all []displayIssue
-
-	// Load local issues
-	if c.Source == "all" || c.Source == "local" {
-		file, issues, err := loadIssues(findIssueFile(c.File))
-		if err != nil && c.Source == "local" {
-			return err
-		}
-		_ = file
-		for _, issue := range issues {
-			all = append(all, displayIssue{
-				ID:     formatIssueID("local", issue.Number),
-				Status: normalizeStatus(issue.Status),
-				Title:  issue.Title,
-			})
-		}
-	}
-
-	// Load GitHub issues
-	if c.Source == "all" || c.Source == "github" {
-		ghIssues, err := listGitHubIssues("")
-		if err != nil && c.Source == "github" {
-			return err
-		}
-		if err == nil {
-			for _, issue := range ghIssues {
-				all = append(all, displayIssue{
-					ID:     formatIssueID("github", issue.Number),
-					Status: ghStateToStatus(issue.State),
-					Title:  issue.Title,
-				})
-			}
-		}
-	}
-
-	// Filter by status
-	wantStatus := normalizeStatus(c.Status)
-	var filtered []displayIssue
-	for _, issue := range all {
-		if wantStatus != "" && !strings.EqualFold(issue.Status, wantStatus) {
-			continue
-		}
-		if c.Query != "" && !strings.Contains(strings.ToLower(issue.Title), strings.ToLower(c.Query)) {
-			continue
-		}
-		filtered = append(filtered, issue)
-	}
-
-	fmt.Println("ID\tStatus\tTitle")
-	for _, issue := range filtered {
-		fmt.Printf("%s\t%s\t%s\n", issue.ID, issue.Status, issue.Title)
-	}
-	return nil
-}
-
 // MoveArgs are arguments for the move command.
 type MoveArgs struct {
 	File   string `targ:"flag,default=issues.md,desc=Issue file to update"`
 	ID     string `targ:"positional,required,desc=Issue ID (e.g. 5 for local or gh#5 for GitHub)"`
 	Status string `targ:"flag,required,desc=New status,enum=backlog|selected|in-progress|review|done|cancelled|blocked"`
-}
-
-// Move moves a local or GitHub issue to a new status.
-var Move = targ.Targ(move).Description("Move a local or GitHub issue to a new status")
-
-func move(c MoveArgs) error {
-	source, number, err := parseIssueID(c.ID)
-	if err != nil {
-		return err
-	}
-
-	status := normalizeStatus(c.Status)
-
-	if source == "github" {
-		// For GitHub, moving to done/cancelled means closing, otherwise reopening
-		if status == "done" || status == "cancelled" {
-			if err := closeGitHubIssue(number); err != nil {
-				return err
-			}
-		} else {
-			if err := reopenGitHubIssue(number); err != nil {
-				return err
-			}
-		}
-		fmt.Printf("Moved GitHub issue %s to %s\n", formatIssueID("github", number), status)
-		return nil
-	}
-
-	// Handle local issue
-	filePath := findIssueFile(c.File)
-	content, _, err := loadIssues(filePath)
-	if err != nil {
-		return err
-	}
-	file := content
-	iss, _ := file.find(number)
-	if iss == nil {
-		return fmt.Errorf("issue %d not found", number)
-	}
-	block := issueBlockLines(file.lines, *iss)
-	block = updateIssueStatus(block, status)
-	file.remove(*iss)
-
-	section := "backlog"
-	if strings.EqualFold(status, "done") {
-		section = "done"
-	}
-	if err := file.insert(section, block); err != nil {
-		return err
-	}
-
-	fmt.Printf("Moved local issue %s to %s\n", formatIssueID("local", number), status)
-	return writeIssues(filePath, file.lines)
 }
 
 // UpdateArgs are arguments for the update command.
@@ -268,110 +76,9 @@ type UpdateArgs struct {
 	Details    string `targ:"flag,desc=Implementation details"`
 }
 
-// Update updates a local or GitHub issue.
-var Update = targ.Targ(update).Description("Update a local or GitHub issue")
-
-func update(c UpdateArgs) error {
-	source, number, err := parseIssueID(c.ID)
-	if err != nil {
-		return err
-	}
-
-	if source == "github" {
-		// Handle GitHub issue update
-		ghUpdates := gitHubUpdates{}
-		if c.Desc != "" {
-			ghUpdates.Body = &c.Desc
-		}
-		// GitHub doesn't have priority/acceptance/details fields directly
-		// For status changes, we close/reopen
-		if c.Status != "" {
-			status := normalizeStatus(c.Status)
-			if status == "done" || status == "cancelled" {
-				if err := closeGitHubIssue(number); err != nil {
-					return err
-				}
-			} else {
-				if err := reopenGitHubIssue(number); err != nil {
-					return err
-				}
-			}
-		}
-		if ghUpdates.Body != nil {
-			if err := updateGitHubIssue(number, ghUpdates); err != nil {
-				return err
-			}
-		}
-		fmt.Printf("Updated GitHub issue: %s\n", formatIssueID("github", number))
-		return nil
-	}
-
-	// Handle local issue update
-	filePath := findIssueFile(c.File)
-	file, _, err := loadIssues(filePath)
-	if err != nil {
-		return err
-	}
-
-	updates := issueUpdates{}
-	if c.Status != "" {
-		status := normalizeStatus(c.Status)
-		updates.Status = &status
-	}
-	if c.Desc != "" {
-		updates.Description = &c.Desc
-	}
-	if c.Priority != "" {
-		priority := normalizePriority(c.Priority)
-		updates.Priority = &priority
-	}
-	if c.Acceptance != "" {
-		updates.Acceptance = &c.Acceptance
-	}
-	if c.Details != "" {
-		updates.Details = &c.Details
-	}
-
-	if updates == (issueUpdates{}) {
-		return fmt.Errorf("no updates provided")
-	}
-
-	if _, err := file.updateIssue(number, updates); err != nil {
-		return err
-	}
-	fmt.Printf("Updated local issue: %s\n", formatIssueID("local", number))
-	return writeIssues(filePath, file.lines)
-}
-
 // ValidateArgs are arguments for the validate command.
 type ValidateArgs struct {
 	File string `targ:"flag,default=issues.md,desc=Issue file to validate"`
-}
-
-// Validate validates issue formatting and structure.
-var Validate = targ.Targ(validate).Description("Validate issue formatting and structure")
-
-func validate(c ValidateArgs) error {
-	_, issues, err := loadIssues(findIssueFile(c.File))
-	if err != nil {
-		return err
-	}
-	seen := map[int]string{}
-	var errs []string
-	for _, issue := range issues {
-		if issue.Number == 0 {
-			continue
-		}
-		if other, ok := seen[issue.Number]; ok {
-			errs = append(errs, fmt.Sprintf("duplicate issue %d (%s vs %s)", issue.Number, other, issue.Title))
-			continue
-		}
-		seen[issue.Number] = issue.Title
-	}
-	if len(errs) > 0 {
-		return fmt.Errorf(strings.Join(errs, "; "))
-	}
-	return nil
 }
 
 type issue struct {
@@ -466,6 +173,85 @@ type issueUpdates struct {
 	Details     *string
 }
 
+func create(c CreateArgs) error {
+	if c.GitHub {
+		num, err := createGitHubIssue(c.Title, c.Desc)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("Created GitHub issue: %s\n", formatIssueID("github", num))
+		return nil
+	}
+
+	filePath := findIssueFile(c.File)
+	content, issues, err := loadIssues(filePath)
+	if err != nil {
+		return err
+	}
+	maxID := 0
+	for _, issue := range issues {
+		if issue.Number > maxID {
+			maxID = issue.Number
+		}
+	}
+	newID := maxID + 1
+
+	status := normalizeStatus(c.Status)
+	priority := normalizePriority(c.Priority)
+	block := []string{
+		fmt.Sprintf("### %d. %s", newID, c.Title),
+		"",
+		"#### Universal",
+		"",
+		"**Status**",
+		status,
+		"",
+		"**Description**",
+		c.Desc,
+		"",
+		"#### Planning",
+		"",
+		"**Priority**",
+		priority,
+		"",
+		"**Acceptance**",
+		c.Acceptance,
+	}
+
+	section := "backlog"
+	if strings.EqualFold(status, "done") {
+		section = "done"
+	}
+	if err := content.insert(section, block); err != nil {
+		return err
+	}
+	fmt.Printf("Created local issue: %s\n", formatIssueID("local", newID))
+	return writeIssues(filePath, content.lines)
+}
+
+func dedupe(c DedupeArgs) error {
+	filePath := findIssueFile(c.File)
+	content, _, err := loadIssues(filePath)
+	if err != nil {
+		return err
+	}
+	file := content
+	issues := file.issues
+	done := map[int]bool{}
+	for _, iss := range issues {
+		if iss.Section == "done" {
+			done[iss.Number] = true
+		}
+	}
+	for i := len(issues) - 1; i >= 0; i-- {
+		iss := issues[i]
+		if iss.Section == "backlog" && done[iss.Number] {
+			file.remove(iss)
+		}
+	}
+	return writeIssues(filePath, file.lines)
+}
+
 // findIssueFile searches downward from the current directory for a file named
 // issues.md. Returns the path if found, or the original path if not found.
 func findIssueFile(path string) string {
@@ -539,6 +325,67 @@ func issueBlockLines(lines []string, iss issue) []string {
 	return block
 }
 
+func list(c ListArgs) error {
+	type displayIssue struct {
+		ID     string
+		Status string
+		Title  string
+	}
+	var all []displayIssue
+
+	// Load local issues
+	if c.Source == "all" || c.Source == "local" {
+		file, issues, err := loadIssues(findIssueFile(c.File))
+		if err != nil && c.Source == "local" {
+			return err
+		}
+		_ = file
+		for _, issue := range issues {
+			all = append(all, displayIssue{
+				ID:     formatIssueID("local", issue.Number),
+				Status: normalizeStatus(issue.Status),
+				Title:  issue.Title,
+			})
+		}
+	}
+
+	// Load GitHub issues
+	if c.Source == "all" || c.Source == "github" {
+		ghIssues, err := listGitHubIssues("")
+		if err != nil && c.Source == "github" {
+			return err
+		}
+		if err == nil {
+			for _, issue := range ghIssues {
+				all = append(all, displayIssue{
+					ID:     formatIssueID("github", issue.Number),
+					Status: ghStateToStatus(issue.State),
+					Title:  issue.Title,
+				})
+			}
+		}
+	}
+
+	// Filter by status
+	wantStatus := normalizeStatus(c.Status)
+	var filtered []displayIssue
+	for _, issue := range all {
+		if wantStatus != "" && !strings.EqualFold(issue.Status, wantStatus) {
+			continue
+		}
+		if c.Query != "" && !strings.Contains(strings.ToLower(issue.Title), strings.ToLower(c.Query)) {
+			continue
+		}
+		filtered = append(filtered, issue)
+	}
+
+	fmt.Println("ID\tStatus\tTitle")
+	for _, issue := range filtered {
+		fmt.Printf("%s\t%s\t%s\n", issue.ID, issue.Status, issue.Title)
+	}
+	return nil
+}
+
 func loadIssues(path string) (*issueFile, []issue, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -549,6 +396,56 @@ func loadIssues(path string) (*issueFile, []issue, error) {
 		return nil, nil, err
 	}
 	return file, file.issues, nil
+}
+
+func move(c MoveArgs) error {
+	source, number, err := parseIssueID(c.ID)
+	if err != nil {
+		return err
+	}
+
+	status := normalizeStatus(c.Status)
+
+	if source == "github" {
+		// For GitHub, moving to done/cancelled means closing, otherwise reopening
+		if status == "done" || status == "cancelled" {
+			if err := closeGitHubIssue(number); err != nil {
+				return err
+			}
+		} else {
+			if err := reopenGitHubIssue(number); err != nil {
+				return err
+			}
+		}
+		fmt.Printf("Moved GitHub issue %s to %s\n", formatIssueID("github", number), status)
+		return nil
+	}
+
+	// Handle local issue
+	filePath := findIssueFile(c.File)
+	content, _, err := loadIssues(filePath)
+	if err != nil {
+		return err
+	}
+	file := content
+	iss, _ := file.find(number)
+	if iss == nil {
+		return fmt.Errorf("issue %d not found", number)
+	}
+	block := issueBlockLines(file.lines, *iss)
+	block = updateIssueStatus(block, status)
+	file.remove(*iss)
+
+	section := "backlog"
+	if strings.EqualFold(status, "done") {
+		section = "done"
+	}
+	if err := file.insert(section, block); err != nil {
+		return err
+	}
+
+	fmt.Printf("Moved local issue %s to %s\n", formatIssueID("local", number), status)
+	return writeIssues(filePath, file.lines)
 }
 
 func normalizePriority(priority string) string {
@@ -648,6 +545,78 @@ func parseStatus(lines []string) string {
 	return ""
 }
 
+func update(c UpdateArgs) error {
+	source, number, err := parseIssueID(c.ID)
+	if err != nil {
+		return err
+	}
+
+	if source == "github" {
+		// Handle GitHub issue update
+		ghUpdates := gitHubUpdates{}
+		if c.Desc != "" {
+			ghUpdates.Body = &c.Desc
+		}
+		// GitHub doesn't have priority/acceptance/details fields directly
+		// For status changes, we close/reopen
+		if c.Status != "" {
+			status := normalizeStatus(c.Status)
+			if status == "done" || status == "cancelled" {
+				if err := closeGitHubIssue(number); err != nil {
+					return err
+				}
+			} else {
+				if err := reopenGitHubIssue(number); err != nil {
+					return err
+				}
+			}
+		}
+		if ghUpdates.Body != nil {
+			if err := updateGitHubIssue(number, ghUpdates); err != nil {
+				return err
+			}
+		}
+		fmt.Printf("Updated GitHub issue: %s\n", formatIssueID("github", number))
+		return nil
+	}
+
+	// Handle local issue update
+	filePath := findIssueFile(c.File)
+	file, _, err := loadIssues(filePath)
+	if err != nil {
+		return err
+	}
+
+	updates := issueUpdates{}
+	if c.Status != "" {
+		status := normalizeStatus(c.Status)
+		updates.Status = &status
+	}
+	if c.Desc != "" {
+		updates.Description = &c.Desc
+	}
+	if c.Priority != "" {
+		priority := normalizePriority(c.Priority)
+		updates.Priority = &priority
+	}
+	if c.Acceptance != "" {
+		updates.Acceptance = &c.Acceptance
+	}
+	if c.Details != "" {
+		updates.Details = &c.Details
+	}
+
+	if updates == (issueUpdates{}) {
+		return fmt.Errorf("no updates provided")
+	}
+
+	if _, err := file.updateIssue(number, updates); err != nil {
+		return err
+	}
+	fmt.Printf("Updated local issue: %s\n", formatIssueID("local", number))
+	return writeIssues(filePath, file.lines)
+}
+
 func updateIssueStatus(lines []string, status string) []string {
 	for i := 0; i < len(lines); i++ {
 		if strings.TrimSpace(lines[i]) == "**Status**" {
@@ -690,6 +659,29 @@ func updateSectionField(lines []string, field string, value string) []string {
 		}
 	}
 	return append(lines, "", header, value)
+}
+
+func validate(c ValidateArgs) error {
+	_, issues, err := loadIssues(findIssueFile(c.File))
+	if err != nil {
+		return err
+	}
+	seen := map[int]string{}
+	var errs []string
+	for _, issue := range issues {
+		if issue.Number == 0 {
+			continue
+		}
+		if other, ok := seen[issue.Number]; ok {
+			errs = append(errs, fmt.Sprintf("duplicate issue %d (%s vs %s)", issue.Number, other, issue.Title))
+			continue
+		}
+		seen[issue.Number] = issue.Title
+	}
+	if len(errs) > 0 {
+		return fmt.Errorf(strings.Join(errs, "; "))
+	}
+	return nil
 }
 
 func writeIssues(path string, lines []string) error {
