@@ -124,61 +124,22 @@ func (t *Target) Retry() *Target {
 }
 
 // Run executes the target with the full execution configuration.
+// If Watch() patterns are set, Run() will re-run on file changes until context is cancelled.
 func (t *Target) Run(ctx context.Context, args ...any) error {
-	// Apply timeout if configured
-	if t.timeout > 0 {
-		var cancel context.CancelFunc
-
-		ctx, cancel = context.WithTimeout(ctx, t.timeout)
-		defer cancel()
-	}
-
-	// Run dependencies first
-	if len(t.deps) > 0 {
-		err := t.runDeps(ctx)
-		if err != nil {
-			return err
-		}
-	}
-
-	// Check cache - if hit, skip execution
-	if len(t.cache) > 0 {
-		changed, err := t.checkCache()
-		if err != nil {
-			return fmt.Errorf("cache check failed: %w", err)
-		}
-
-		if !changed {
-			// Cache hit - skip execution
-			return nil
-		}
-	}
-
-	// Execute the target with repetition handling
-	return t.runWithRepetition(ctx, args)
-}
-
-// RunWatch runs the target and then watches for file changes, re-running on each change.
-// It continues until the context is cancelled.
-// If no watch patterns are configured, it runs the target once and returns.
-func (t *Target) RunWatch(ctx context.Context, args ...any) error {
-	// Run the target once initially
-	err := t.Run(ctx, args...)
+	// Run once initially
+	err := t.runOnce(ctx, args)
 	if err != nil {
 		return err
 	}
 
-	// If no watch patterns, just return after the initial run
-	if len(t.watch) == 0 {
-		return nil
-	}
-
-	// Watch for changes and re-run
-	err = file.Watch(ctx, t.watch, file.WatchOptions{}, func(_ file.ChangeSet) error {
-		return t.Run(ctx, args...)
-	})
-	if err != nil {
-		return fmt.Errorf("watching files: %w", err)
+	// If watch patterns set, watch for changes and re-run
+	if len(t.watch) > 0 {
+		err := file.Watch(ctx, t.watch, file.WatchOptions{}, func(_ file.ChangeSet) error {
+			return t.runOnce(ctx, args)
+		})
+		if err != nil {
+			return fmt.Errorf("watching files: %w", err)
+		}
 	}
 
 	return nil
@@ -200,7 +161,7 @@ func (t *Target) Times(n int) *Target {
 }
 
 // Watch sets file patterns to watch for changes.
-// When used with RunWatch, the target will re-run when matching files change.
+// When set, Run() will re-run the target when matching files change.
 func (t *Target) Watch(patterns ...string) *Target {
 	t.watch = patterns
 	return t
@@ -333,6 +294,41 @@ func (t *Target) runDepsSerial(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// runOnce executes the target a single time with all configuration applied.
+func (t *Target) runOnce(ctx context.Context, args []any) error {
+	// Apply timeout if configured
+	if t.timeout > 0 {
+		var cancel context.CancelFunc
+
+		ctx, cancel = context.WithTimeout(ctx, t.timeout)
+		defer cancel()
+	}
+
+	// Run dependencies first
+	if len(t.deps) > 0 {
+		err := t.runDeps(ctx)
+		if err != nil {
+			return err
+		}
+	}
+
+	// Check cache - if hit, skip execution
+	if len(t.cache) > 0 {
+		changed, err := t.checkCache()
+		if err != nil {
+			return fmt.Errorf("cache check failed: %w", err)
+		}
+
+		if !changed {
+			// Cache hit - skip execution
+			return nil
+		}
+	}
+
+	// Execute the target with repetition handling
+	return t.runWithRepetition(ctx, args)
 }
 
 // runWithRepetition handles Times, While, Retry, and Backoff logic.
