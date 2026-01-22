@@ -35,6 +35,7 @@ type Target struct {
 	timeout     time.Duration // execution timeout (0 = no timeout)
 	cache       []string      // file patterns for cache invalidation
 	cacheDir    string        // directory to store cache files
+	watch       []string      // file patterns for watch mode
 }
 
 // Cache sets file patterns for cache invalidation.
@@ -134,10 +135,43 @@ func (t *Target) Run(ctx context.Context, args ...any) error {
 	return t.execute(ctx, args)
 }
 
+// RunWatch runs the target and then watches for file changes, re-running on each change.
+// It continues until the context is cancelled.
+// If no watch patterns are configured, it runs the target once and returns.
+func (t *Target) RunWatch(ctx context.Context, args ...any) error {
+	// Run the target once initially
+	err := t.Run(ctx, args...)
+	if err != nil {
+		return err
+	}
+
+	// If no watch patterns, just return after the initial run
+	if len(t.watch) == 0 {
+		return nil
+	}
+
+	// Watch for changes and re-run
+	err = file.Watch(ctx, t.watch, file.WatchOptions{}, func(_ file.ChangeSet) error {
+		return t.Run(ctx, args...)
+	})
+	if err != nil {
+		return fmt.Errorf("watching files: %w", err)
+	}
+
+	return nil
+}
+
 // Timeout sets the maximum execution time for this target.
 // If the timeout is exceeded, the context is cancelled.
 func (t *Target) Timeout(d time.Duration) *Target {
 	t.timeout = d
+	return t
+}
+
+// Watch sets file patterns to watch for changes.
+// When used with RunWatch, the target will re-run when matching files change.
+func (t *Target) Watch(patterns ...string) *Target {
+	t.watch = patterns
 	return t
 }
 

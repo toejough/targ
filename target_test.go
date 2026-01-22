@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -273,6 +274,58 @@ func TestTarget_RunReturnsError(t *testing.T) {
 	g.Expect(err).To(MatchError(expectedErr))
 }
 
+func TestTarget_RunWatchNoPatterns(t *testing.T) {
+	g := NewWithT(t)
+
+	// Without watch patterns, RunWatch should just run once and return
+	execCount := 0
+	target := targ.Targ(func() { execCount++ })
+
+	err := target.RunWatch(context.Background())
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(execCount).To(Equal(1))
+}
+
+func TestTarget_RunWatchRerunsOnFileChange(t *testing.T) {
+	g := NewWithT(t)
+
+	// Create temp dir and file for watch testing
+	tmpDir := t.TempDir()
+	inputFile := tmpDir + "/input.txt"
+
+	err := os.WriteFile(inputFile, []byte("content"), 0o644)
+	g.Expect(err).ToNot(HaveOccurred())
+
+	var execCount atomic.Int32
+
+	target := targ.Targ(func() { execCount.Add(1) }).
+		Watch(inputFile)
+
+	// Run in a goroutine with a cancellable context
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+
+	go func() {
+		done <- target.RunWatch(ctx)
+	}()
+
+	// Wait for initial run
+	g.Eventually(execCount.Load).Should(Equal(int32(1)))
+
+	// Modify the file to trigger re-run
+	err = os.WriteFile(inputFile, []byte("content2"), 0o644)
+	g.Expect(err).ToNot(HaveOccurred())
+
+	// Wait for re-run
+	g.Eventually(execCount.Load, "2s").Should(Equal(int32(2)))
+
+	// Cancel and verify it stops
+	cancel()
+
+	err = <-done
+	g.Expect(err).To(HaveOccurred()) // Should error on context cancellation
+}
+
 func TestTarget_RunWithArgs(t *testing.T) {
 	g := NewWithT(t)
 
@@ -346,6 +399,15 @@ func TestTarget_TimeoutCancelsExecution(t *testing.T) {
 	err := target.Run(context.Background())
 	g.Expect(err).To(HaveOccurred())
 	g.Expect(errors.Is(err, context.DeadlineExceeded)).To(BeTrue())
+}
+
+func TestTarget_WatchBuilderReturnsSameTarget(t *testing.T) {
+	g := NewWithT(t)
+
+	original := targ.Targ(func() {})
+	afterWatch := original.Watch("*.go")
+
+	g.Expect(afterWatch).To(BeIdenticalTo(original))
 }
 
 // unexported constants.
