@@ -51,6 +51,111 @@ func TestAddTargetToFile(t *testing.T) {
 	}
 }
 
+func TestAddTargetToFileWithOptions_AddsToExistingGroup(t *testing.T) {
+	dir := t.TempDir()
+	targFile := filepath.Join(dir, "targs.go")
+
+	// Initial file with existing groups and target
+	initial := `//go:build targ
+
+package build
+
+import "github.com/toejough/targ"
+
+var DevLintSlow = targ.Targ("golangci-lint run").Name("slow")
+var DevLint = targ.NewGroup("lint", DevLintSlow)
+var Dev = targ.NewGroup("dev", DevLint)
+`
+	if err := os.WriteFile(targFile, []byte(initial), 0o644); err != nil {
+		t.Fatalf("write error: %v", err)
+	}
+
+	// Add a new target to the existing path
+	opts := createOptions{
+		Name:     "fast",
+		ShellCmd: "golangci-lint run --fast",
+		Path:     []string{"dev", "lint"},
+	}
+
+	if err := addTargetToFileWithOptions(targFile, opts); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	content, _ := os.ReadFile(targFile)
+	contentStr := string(content)
+
+	// Should have the new target
+	if !strings.Contains(contentStr, "var DevLintFast = ") {
+		t.Errorf("expected DevLintFast variable, got:\n%s", contentStr)
+	}
+
+	// DevLint group should now contain both targets
+	if !strings.Contains(
+		contentStr,
+		`var DevLint = targ.NewGroup("lint", DevLintSlow, DevLintFast)`,
+	) {
+		t.Errorf("expected DevLint group to contain both targets, got:\n%s", contentStr)
+	}
+
+	// Dev group should remain unchanged (still contains DevLint)
+	if !strings.Contains(contentStr, `var Dev = targ.NewGroup("dev", DevLint)`) {
+		t.Errorf("expected Dev group unchanged, got:\n%s", contentStr)
+	}
+
+	// Should NOT have duplicate group declarations
+	if strings.Count(contentStr, "var DevLint = ") != 1 {
+		t.Errorf("expected exactly one DevLint declaration, got:\n%s", contentStr)
+	}
+}
+
+func TestAddTargetToFileWithOptions_AddsToPartialPath(t *testing.T) {
+	dir := t.TempDir()
+	targFile := filepath.Join(dir, "targs.go")
+
+	// Initial file with only top-level group
+	initial := `//go:build targ
+
+package build
+
+import "github.com/toejough/targ"
+
+var DevBuild = targ.Targ("go build").Name("build")
+var Dev = targ.NewGroup("dev", DevBuild)
+`
+	if err := os.WriteFile(targFile, []byte(initial), 0o644); err != nil {
+		t.Fatalf("write error: %v", err)
+	}
+
+	// Add a new target with a deeper path (dev/lint/fast)
+	opts := createOptions{
+		Name:     "fast",
+		ShellCmd: "golangci-lint run --fast",
+		Path:     []string{"dev", "lint"},
+	}
+
+	if err := addTargetToFileWithOptions(targFile, opts); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	content, _ := os.ReadFile(targFile)
+	contentStr := string(content)
+
+	// Should have the new target
+	if !strings.Contains(contentStr, "var DevLintFast = ") {
+		t.Errorf("expected DevLintFast variable, got:\n%s", contentStr)
+	}
+
+	// Should have new DevLint group (didn't exist before)
+	if !strings.Contains(contentStr, `var DevLint = targ.NewGroup("lint", DevLintFast)`) {
+		t.Errorf("expected new DevLint group, got:\n%s", contentStr)
+	}
+
+	// Dev group should now contain both DevBuild and DevLint
+	if !strings.Contains(contentStr, `var Dev = targ.NewGroup("dev", DevBuild, DevLint)`) {
+		t.Errorf("expected Dev group to contain both members, got:\n%s", contentStr)
+	}
+}
+
 func TestAddTargetToFileWithOptions_WithCache(t *testing.T) {
 	dir := t.TempDir()
 	targFile := filepath.Join(dir, "targs.go")
@@ -139,6 +244,32 @@ func TestAddTargetToFileWithOptions_WithPath(t *testing.T) {
 
 	if !strings.Contains(contentStr, `var Dev = targ.NewGroup("dev", DevLint)`) {
 		t.Errorf("expected Dev group, got:\n%s", contentStr)
+	}
+}
+
+func TestCreateGroupMemberPatch(t *testing.T) {
+	content := `var DevLint = targ.NewGroup("lint", DevLintSlow)`
+
+	patch := createGroupMemberPatch(content, "DevLint", "DevLintFast")
+	if patch == nil {
+		t.Fatal("expected patch, got nil")
+	}
+
+	if patch.old != `var DevLint = targ.NewGroup("lint", DevLintSlow)` {
+		t.Errorf("unexpected old: %q", patch.old)
+	}
+
+	if patch.new != `var DevLint = targ.NewGroup("lint", DevLintSlow, DevLintFast)` {
+		t.Errorf("unexpected new: %q", patch.new)
+	}
+}
+
+func TestCreateGroupMemberPatch_AlreadyExists(t *testing.T) {
+	content := `var DevLint = targ.NewGroup("lint", DevLintSlow, DevLintFast)`
+
+	patch := createGroupMemberPatch(content, "DevLint", "DevLintFast")
+	if patch != nil {
+		t.Error("expected nil patch when member already exists")
 	}
 }
 

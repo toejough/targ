@@ -130,6 +130,12 @@ type commandInfo struct {
 	Description string `json:"description"`
 }
 
+// contentPatch represents a string replacement in existing content.
+type contentPatch struct {
+	old string
+	new string
+}
+
 // createOptions holds parsed options for the --create flag.
 type createOptions struct {
 	Path     []string // Group path components (e.g., ["dev", "lint"] for "dev lint fast")
@@ -137,6 +143,12 @@ type createOptions struct {
 	ShellCmd string   // Shell command to execute
 	Deps     []string // Dependency target names
 	Cache    []string // Cache patterns
+}
+
+// groupModifications holds the result of processing groups for a new target.
+type groupModifications struct {
+	newCode        string         // New group declarations to append
+	contentPatches []contentPatch // Modifications to existing content
 }
 
 // listOutput is the JSON structure returned by __list command.
@@ -851,11 +863,17 @@ func addTargetToFileWithOptions(path string, opts createOptions) error {
 
 	code.WriteString("\n")
 
-	// Generate group variables if path is specified
-	groupCode := generateGroupCode(opts.Path, opts.Name, varName, string(content))
+	// Generate group modifications (new groups and patches to existing groups)
+	groupMods := generateGroupModifications(opts.Path, varName, string(content))
 
-	// Append to file
-	newContent := string(content) + code.String() + groupCode
+	// Apply patches to existing content
+	modifiedContent := string(content)
+	for _, patch := range groupMods.contentPatches {
+		modifiedContent = strings.Replace(modifiedContent, patch.old, patch.new, 1)
+	}
+
+	// Append new code
+	newContent := modifiedContent + code.String() + groupMods.newCode
 
 	err = os.WriteFile(path, []byte(newContent), filePermissionsForCode)
 	if err != nil {
@@ -1207,6 +1225,59 @@ func copyFileStrippingTag(srcPath, destPath string) error {
 	return nil
 }
 
+// createGroupMemberPatch creates a patch to add a new member to an existing group.
+// Returns nil if the member already exists in the group.
+func createGroupMemberPatch(content, groupVarName, newMember string) *contentPatch {
+	// Find the group declaration: var GroupName = targ.NewGroup("name", member1, member2)
+	// We need to add newMember before the closing parenthesis
+
+	// Find the start of the group declaration
+	pattern := fmt.Sprintf("var %s = targ.NewGroup(", groupVarName)
+
+	startIdx := strings.Index(content, pattern)
+	if startIdx == -1 {
+		return nil
+	}
+
+	// Find the closing parenthesis for this declaration
+	// We need to handle nested parentheses (though unlikely in this context)
+	parenStart := startIdx + len(pattern)
+	parenCount := 1
+	endIdx := -1
+
+	for i := parenStart; i < len(content) && parenCount > 0; i++ {
+		switch content[i] {
+		case '(':
+			parenCount++
+		case ')':
+			parenCount--
+			if parenCount == 0 {
+				endIdx = i
+			}
+		}
+	}
+
+	if endIdx == -1 {
+		return nil
+	}
+
+	// Extract the current group declaration
+	oldDecl := content[startIdx : endIdx+1]
+
+	// Check if member already exists
+	if strings.Contains(oldDecl, newMember) {
+		return nil
+	}
+
+	// Create the new declaration by inserting the member before the closing paren
+	newDecl := content[startIdx:endIdx] + ", " + newMember + ")"
+
+	return &contentPatch{
+		old: oldDecl,
+		new: newDecl,
+	}
+}
+
 // createIsolatedBuildDir creates an isolated build directory with targ files.
 // Files are copied (with build tags stripped) preserving collapsed namespace paths.
 // Returns the tmp directory path, the module path to use for imports, and a cleanup function.
@@ -1550,14 +1621,19 @@ var _ = targ.Targ
 	return targFile, nil
 }
 
-// generateGroupCode generates group variable declarations for the path.
-// It checks existing content to avoid duplicating groups.
-func generateGroupCode(path []string, _, targetVarName, existingContent string) string {
+// generateGroupModifications creates group declarations and modifications for the path.
+// For existing groups, it returns patches to add the new member.
+// For new groups, it returns code to append.
+func generateGroupModifications(
+	path []string,
+	targetVarName, existingContent string,
+) groupModifications {
+	var mods groupModifications
 	if len(path) == 0 {
-		return ""
+		return mods
 	}
 
-	var code strings.Builder
+	var newCode strings.Builder
 
 	// Build groups from innermost to outermost
 	// e.g., for path ["dev", "lint"] and target "fast":
@@ -1571,19 +1647,27 @@ func generateGroupCode(path []string, _, targetVarName, existingContent string) 
 		groupName := path[i] // Use the last component as the group's name
 
 		// Check if group already exists
-		if strings.Contains(existingContent, fmt.Sprintf("var %s = ", groupVarName)) {
-			// Group exists - we'd need to modify it, but for now just skip
-			// TODO: Support adding to existing groups
+		groupPattern := fmt.Sprintf("var %s = ", groupVarName)
+		if strings.Contains(existingContent, groupPattern) {
+			// Group exists - create a patch to add the new member
+			patch := createGroupMemberPatch(existingContent, groupVarName, childVarName)
+			if patch != nil {
+				mods.contentPatches = append(mods.contentPatches, *patch)
+			}
+
 			childVarName = groupVarName
+
 			continue
 		}
 
-		code.WriteString(fmt.Sprintf("var %s = targ.NewGroup(%q, %s)\n",
+		newCode.WriteString(fmt.Sprintf("var %s = targ.NewGroup(%q, %s)\n",
 			groupVarName, groupName, childVarName))
 		childVarName = groupVarName
 	}
 
-	return code.String()
+	mods.newCode = newCode.String()
+
+	return mods
 }
 
 // generateModuleBootstrap creates bootstrap code and computes cache key.

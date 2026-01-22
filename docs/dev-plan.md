@@ -9,7 +9,7 @@ Rebuild targ from struct-based model to function-based Target Builder pattern fo
 | Phase | Status | Description |
 |-------|--------|-------------|
 | 1 | ✅ Complete | Target Builder + Group |
-| 2 | 🔶 Partial | --create basic works; advanced flags not implemented |
+| 2 | ✅ Complete | --create with groups, deps, cache |
 | 3 | ❌ Not Started | Explicit Registration Model |
 | 4 | ✅ Complete | Execution Features (deps, cache, watch) |
 | 5 | ✅ Complete | Repetition Features (times, while, retry, backoff, timeout) |
