@@ -2187,9 +2187,8 @@ func remapPackageInfosToIsolated(
 
 	for _, info := range infos {
 		newInfo := buildtool.PackageInfo{
-			Package:  info.Package,
-			Doc:      info.Doc,
-			Commands: info.Commands,
+			Package: info.Package,
+			Doc:     info.Doc,
 		}
 
 		// Compute new directory based on collapsed paths
@@ -2214,9 +2213,8 @@ func remapPackageInfosToIsolated(
 			newPath := filepath.Join(newDir, filepath.Base(f.Path))
 			pathMapping[newPath] = f.Path // Track original path
 			newFiles = append(newFiles, buildtool.FileInfo{
-				Path:     newPath,
-				Base:     f.Base,
-				Commands: f.Commands,
+				Path: newPath,
+				Base: f.Base,
 			})
 		}
 

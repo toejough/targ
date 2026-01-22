@@ -10,13 +10,6 @@ import (
 	"unicode"
 )
 
-// Exported variables.
-var (
-	ErrMustAcceptContext = validationError("must accept context.Context")
-	ErrMustReturnError   = validationError("must return only error")
-	ErrNiladicOrContext  = validationError("must be niladic or accept context")
-)
-
 // ReflectTag parses struct field tags in the reflect format.
 type ReflectTag string
 
@@ -81,118 +74,16 @@ func CamelToKebab(s string) string {
 }
 
 // ContextImportInfo extracts context import aliases from import specs.
-func ContextImportInfo(imports []*ast.ImportSpec) (aliases map[string]bool, dotImport bool) {
-	aliases = map[string]bool{}
-
-	for _, spec := range imports {
-		path, err := strconv.Unquote(spec.Path.Value)
-		if err != nil || path != "context" {
-			continue
-		}
-
-		if spec.Name != nil {
-			if spec.Name.Name == "." {
-				dotImport = true
-				continue
-			}
-
-			if spec.Name.Name == "_" {
-				continue
-			}
-
-			aliases[spec.Name.Name] = true
-
-			continue
-		}
-
-		aliases["context"] = true
-	}
-
-	return aliases, dotImport
-}
 
 // DescriptionMethodValue extracts the description from a Description() method.
-func DescriptionMethodValue(node *ast.FuncDecl) (string, bool) {
-	if node.Name.Name != "Description" || node.Recv == nil {
-		return "", false
-	}
-
-	if node.Type.Params != nil && len(node.Type.Params.List) > 0 {
-		return "", false
-	}
-
-	if node.Type.Results == nil || len(node.Type.Results.List) != 1 {
-		return "", false
-	}
-
-	if !IsStringExpr(node.Type.Results.List[0].Type) {
-		return "", false
-	}
-
-	return ReturnStringLiteral(node.Body)
-}
-
-// FieldTypeName extracts the type name from a field expression.
-func FieldTypeName(expr ast.Expr) string {
-	switch t := expr.(type) {
-	case *ast.Ident:
-		return t.Name
-	case *ast.StarExpr:
-		if ident, ok := t.X.(*ast.Ident); ok {
-			return ident.Name
-		}
-	}
-
-	return ""
-}
 
 // FuncParamIsContext checks if a function parameter is context.Context.
-func FuncParamIsContext(expr ast.Expr, ctxAliases map[string]bool, ctxDotImport bool) bool {
-	switch t := expr.(type) {
-	case *ast.SelectorExpr:
-		if ident, ok := t.X.(*ast.Ident); ok && t.Sel != nil && t.Sel.Name == "Context" {
-			return ctxAliases[ident.Name]
-		}
-	case *ast.Ident:
-		if ctxDotImport && t.Name == "Context" {
-			return true
-		}
-	}
-
-	return false
-}
 
 // FunctionDocValue extracts the doc comment text from a function declaration.
-func FunctionDocValue(node *ast.FuncDecl) (string, bool) {
-	if node.Doc == nil {
-		return "", false
-	}
-
-	text := strings.TrimSpace(node.Doc.Text())
-	if text == "" {
-		return "", false
-	}
-
-	return text, true
-}
 
 // FunctionReturnsError checks if a function returns only an error.
-func FunctionReturnsError(fnType *ast.FuncType) bool {
-	if fnType.Results == nil || len(fnType.Results.List) == 0 {
-		return false
-	}
-
-	return len(fnType.Results.List) == 1 && IsErrorExpr(fnType.Results.List[0].Type)
-}
 
 // FunctionUsesContext checks if a function accepts context.Context as its only parameter.
-func FunctionUsesContext(fnType *ast.FuncType, ctxAliases map[string]bool, ctxDotImport bool) bool {
-	if fnType.Params == nil || len(fnType.Params.List) != 1 {
-		return false
-	}
-
-	return FuncParamIsContext(fnType.Params.List[0].Type, ctxAliases, ctxDotImport)
-}
 
 // HasBuildTag checks if file content contains the specified build tag.
 func HasBuildTag(content []byte, tag string) bool {
@@ -223,10 +114,6 @@ func HasBuildTag(content []byte, tag string) bool {
 }
 
 // IsErrorExpr checks if an expression is the error type.
-func IsErrorExpr(expr ast.Expr) bool {
-	ident, ok := expr.(*ast.Ident)
-	return ok && ident.Name == "error"
-}
 
 // IsGoSourceFile checks if a filename is a non-generated Go source file.
 func IsGoSourceFile(name string) bool {
@@ -238,67 +125,8 @@ func IsGoSourceFile(name string) bool {
 }
 
 // IsStringExpr checks if an expression is the string type.
-func IsStringExpr(expr ast.Expr) bool {
-	ident, ok := expr.(*ast.Ident)
-	return ok && ident.Name == "string"
-}
-
-// ReceiverTypeName extracts the type name from a method receiver.
-func ReceiverTypeName(recv *ast.FieldList) string {
-	if recv == nil || len(recv.List) == 0 {
-		return ""
-	}
-
-	return FieldTypeName(recv.List[0].Type)
-}
 
 // RecordSubcommandRefs records subcommand names and types from a struct's fields.
-func RecordSubcommandRefs(
-	structType *ast.StructType,
-	subcommandNames map[string]bool,
-	subcommandTypes map[string]bool,
-) bool {
-	hasSubcommand := false
-
-	for _, field := range structType.Fields.List {
-		if field.Tag == nil {
-			continue
-		}
-
-		tagValue := strings.Trim(field.Tag.Value, "`")
-		tag := NewReflectTag(tagValue)
-
-		targTag := tag.Get("targ")
-		if !strings.Contains(targTag, "subcommand") {
-			continue
-		}
-
-		hasSubcommand = true
-		nameOverride := ""
-
-		parts := strings.SplitSeq(targTag, ",")
-		for p := range parts {
-			p = strings.TrimSpace(p)
-			if after, ok := strings.CutPrefix(p, "name="); ok {
-				nameOverride = after
-			} else if after, ok := strings.CutPrefix(p, "subcommand="); ok {
-				nameOverride = after
-			}
-		}
-
-		if nameOverride != "" {
-			subcommandNames[nameOverride] = true
-		} else if len(field.Names) > 0 {
-			subcommandNames[CamelToKebab(field.Names[0].Name)] = true
-		}
-
-		if typeName := FieldTypeName(field.Type); typeName != "" {
-			subcommandTypes[typeName] = true
-		}
-	}
-
-	return hasSubcommand
-}
 
 // ReturnStringLiteral extracts a string literal from a single return statement.
 func ReturnStringLiteral(body *ast.BlockStmt) (string, bool) {
@@ -326,7 +154,11 @@ func ReturnStringLiteral(body *ast.BlockStmt) (string, bool) {
 
 // ShouldSkipDir determines if a directory should be skipped during discovery.
 func ShouldSkipDir(name string) bool {
-	return name == ".git" || name == "vendor"
+	if strings.HasPrefix(name, ".") {
+		return true // Skip hidden directories
+	}
+
+	return name == "vendor" || name == "testdata" || name == "node_modules"
 }
 
 // ShouldSkipGoFile determines if a Go file should be skipped during discovery.
@@ -367,38 +199,3 @@ func TargImportInfo(imports []*ast.ImportSpec) (aliases map[string]bool) {
 
 	return aliases
 }
-
-// ValidateFunctionSignature validates that a function has an acceptable signature.
-func ValidateFunctionSignature(
-	fnType *ast.FuncType,
-	ctxAliases map[string]bool,
-	ctxDotImport bool,
-) error {
-	paramCount := 0
-	if fnType.Params != nil {
-		paramCount = len(fnType.Params.List)
-	}
-
-	if paramCount > 1 {
-		return ErrNiladicOrContext
-	}
-
-	if paramCount == 1 &&
-		!FuncParamIsContext(fnType.Params.List[0].Type, ctxAliases, ctxDotImport) {
-		return ErrMustAcceptContext
-	}
-
-	if fnType.Results == nil || len(fnType.Results.List) == 0 {
-		return nil
-	}
-
-	if len(fnType.Results.List) == 1 && IsErrorExpr(fnType.Results.List[0].Type) {
-		return nil
-	}
-
-	return ErrMustReturnError
-}
-
-type validationError string
-
-func (e validationError) Error() string { return string(e) }

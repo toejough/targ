@@ -136,28 +136,6 @@ func TestIsGoSourceFile(t *testing.T) {
 	}
 }
 
-func TestReceiverTypeName_EmptyList(t *testing.T) {
-	t.Parallel()
-
-	// Defensive code path - empty field list
-	recv := &ast.FieldList{List: []*ast.Field{}}
-
-	result := parse.ReceiverTypeName(recv)
-	if result != "" {
-		t.Fatalf("expected empty string for empty list, got %q", result)
-	}
-}
-
-func TestReceiverTypeName_Nil(t *testing.T) {
-	t.Parallel()
-
-	// Defensive code path - nil receiver
-	result := parse.ReceiverTypeName(nil)
-	if result != "" {
-		t.Fatalf("expected empty string for nil receiver, got %q", result)
-	}
-}
-
 func TestReflectTagGet_Found(t *testing.T) {
 	t.Parallel()
 

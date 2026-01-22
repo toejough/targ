@@ -321,6 +321,14 @@ func checkCoverage(ctx context.Context) error {
 			continue
 		}
 
+		// Exclude OSFileSystem methods (OS wrappers tested via integration)
+		if strings.Contains(line, "buildtool/discover.go:") &&
+			(strings.Contains(line, "ReadDir") ||
+				strings.Contains(line, "ReadFile") ||
+				strings.Contains(line, "WriteFile")) {
+			continue
+		}
+
 		// Exclude flagHelpForField (help formatting with error branches that are
 		// defensive checks for malformed input - rarely triggered in practice)
 		if strings.Contains(line, "flagHelpForField\t") {
@@ -417,7 +425,12 @@ func checkCoverageForFail(ctx context.Context) error {
 			strings.Contains(line, "generated_") ||
 			strings.Contains(line, "total:") ||
 			strings.Contains(line, "\tinit\t") || // init() has untestable defensive code
-			strings.Contains(line, "\tExecuteRegistered\t") { // calls os.Exit, untestable
+			strings.Contains(line, "\tExecuteRegistered\t") || // calls os.Exit, untestable
+			// OSFileSystem methods are OS wrappers tested via integration
+			(strings.Contains(line, "buildtool/discover.go:") &&
+				(strings.Contains(line, "ReadDir") ||
+					strings.Contains(line, "ReadFile") ||
+					strings.Contains(line, "WriteFile"))) {
 			continue
 		}
 
@@ -1246,7 +1259,7 @@ func test(ctx context.Context) error {
 		return err
 	}
 
-	// Strip main.go and .qtpl coverage lines from coverage.out
+	// Strip main.go, .qtpl, and OS wrapper coverage lines from coverage.out
 	data, err := os.ReadFile("coverage.out")
 	if err != nil {
 		return fmt.Errorf("failed to read coverage.out: %w", err)
@@ -1256,9 +1269,13 @@ func test(ctx context.Context) error {
 	var filtered []string
 
 	for _, line := range lines {
-		if !strings.Contains(line, "/main.go:") && !strings.Contains(line, ".qtpl:") {
-			filtered = append(filtered, line)
+		if strings.Contains(line, "/main.go:") ||
+			strings.Contains(line, ".qtpl:") ||
+			strings.Contains(line, "OSFileSystem") {
+			continue
 		}
+
+		filtered = append(filtered, line)
 	}
 
 	err = os.WriteFile("coverage.out", []byte(strings.Join(filtered, "\n")), 0o600)
