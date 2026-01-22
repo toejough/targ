@@ -20,7 +20,6 @@ import (
 	"sort"
 	"strings"
 	"text/template"
-	"unicode"
 	"unicode/utf8"
 
 	"github.com/toejough/targ/buildtool"
@@ -55,30 +54,22 @@ func main() {
 	defaultPackageName     = "main" // default package name for created targ files
 	defaultTargModulePath  = "github.com/toejough/targ"
 	filePermissionsForCode = 0o644 // standard file permissions for created source files
-	helpIndentWidth        = 4     // Leading spaces in help output
-	importExtraLines       = 3     // Extra line capacity when adding import statement
-	isolatedModuleName     = "targ.build.local"
-	minArgsForCompletion   = 2  // Minimum args for __complete (binary + arg)
-	minCommandNameWidth    = 10 // Minimum column width for command names in help output
-	minSourcePatternParts  = 2  // package + pattern at minimum
-	pkgNameDefault         = "pkg"
-	pkgNameMain            = "main" // package main check for targ files
-	targLocalModule        = "targ.local"
-	targsGoFilename        = "targs.go"
+	helpIndentWidth      = 4 // Leading spaces in help output
+	isolatedModuleName   = "targ.build.local"
+	minArgsForCompletion = 2  // Minimum args for __complete (binary + arg)
+	minCommandNameWidth = 10 // Minimum column width for command names in help output
+	pkgNameMain         = "main" // package main check for targ files
+	targLocalModule = "targ.local"
 )
 
 // unexported variables.
 var (
-	errDuplicateCommandName  = errors.New("duplicate command name")
-	errDuplicateNamespace    = errors.New("duplicate namespace field")
 	errDuplicateTarget       = errors.New("target already exists")
 	errFlagRemoved           = errors.New("flag has been removed; use --create instead")
 	errInvalidUTF8Path       = errors.New("invalid utf-8 path in tagged file")
 	errModulePathNotFound    = errors.New("module path not found")
-	errNoCommandsInPackage   = errors.New("no commands found in package")
 	errPackageMainNotAllowed = errors.New("targ files cannot use 'package main'")
 	errUnknownCommand        = errors.New("unknown command")
-	errUnknownCommandKind    = errors.New("unknown command kind")
 	validTargetNameRe        = regexp.MustCompile(`^[a-z][a-z0-9-]*[a-z0-9]$|^[a-z]$`)
 )
 
@@ -134,11 +125,6 @@ type commandInfo struct {
 	Description string `json:"description"`
 }
 
-type commandSummary struct {
-	Name        string
-	Description string
-}
-
 // listOutput is the JSON structure returned by __list command.
 type listOutput struct {
 	Commands []commandInfo `json:"commands"`
@@ -162,29 +148,6 @@ type moduleTargets struct {
 	ModuleRoot string
 	ModulePath string
 	Packages   []buildtool.PackageInfo
-}
-
-type nameGenerator struct {
-	used map[string]int
-}
-
-func (g *nameGenerator) uniqueTypeName(base string) string {
-	if g.used == nil {
-		g.used = make(map[string]int)
-	}
-
-	if base == "" {
-		base = "Node"
-	}
-
-	count := g.used[base]
-
-	g.used[base] = count + 1
-	if count == 0 {
-		return base
-	}
-
-	return fmt.Sprintf("%s%d", base, count+1)
 }
 
 type namespaceNode struct {
@@ -867,28 +830,6 @@ func addTargetToFile(path, name, shellCmd string) error {
 	return nil
 }
 
-func assignNamespaceNames(root *namespaceNode, gen *nameGenerator) {
-	var walk func(node *namespaceNode)
-
-	walk = func(node *namespaceNode) {
-		names := make([]string, 0, len(node.Children))
-		for name := range node.Children {
-			names = append(names, name)
-		}
-
-		sort.Strings(names)
-
-		for _, name := range names {
-			child := node.Children[name]
-			base := segmentToIdent(child.Name)
-			child.TypeName = gen.uniqueTypeName(base)
-			child.VarName = lowerFirst(child.TypeName)
-			walk(child)
-		}
-	}
-	walk(root)
-}
-
 // buildAndQueryBinary builds the binary and queries its commands.
 func buildAndQueryBinary(
 	ctx buildContext,
@@ -1041,31 +982,6 @@ func buildMultiModuleBinaries(
 	return registry, nil
 }
 
-func buildNamespaceTree(paths map[string][]string) *namespaceNode {
-	root := &namespaceNode{Children: make(map[string]*namespaceNode)}
-
-	for file, parts := range paths {
-		if len(parts) == 0 {
-			continue
-		}
-
-		node := root
-		for _, part := range parts {
-			child := node.Children[part]
-			if child == nil {
-				child = &namespaceNode{Name: part, Children: make(map[string]*namespaceNode)}
-				node.Children[part] = child
-			}
-
-			node = child
-		}
-
-		node.File = file
-	}
-
-	return root
-}
-
 func buildSourceRoot() (string, bool) {
 	_, file, _, ok := runtime.Caller(0)
 	if !ok || file == "" {
@@ -1088,26 +1004,6 @@ func buildSourceRoot() (string, bool) {
 	}
 
 	return "", false
-}
-
-func camelToKebab(name string) string {
-	var result strings.Builder
-
-	runes := []rune(name)
-	for i, r := range runes {
-		if i > 0 && unicode.IsUpper(r) {
-			prev := runes[i-1]
-			// Insert hyphen if previous is lowercase (e.g., fooBar -> foo-bar)
-			// OR if we're at the start of a new word after an acronym (e.g., APIServer -> api-server)
-			if unicode.IsLower(prev) || (i+1 < len(runes) && unicode.IsLower(runes[i+1])) {
-				result.WriteRune('-')
-			}
-		}
-
-		result.WriteRune(unicode.ToLower(r))
-	}
-
-	return result.String()
 }
 
 // cleanupStaleModSymlinks removes stale go.mod/go.sum symlinks from before the fix.
@@ -1187,35 +1083,6 @@ func collectModuleTaggedFiles(mt moduleTargets) ([]buildtool.TaggedFile, error) 
 	}
 
 	return files, nil
-}
-
-// collectPackageFilePaths extracts all file paths from module packages.
-func collectPackageFilePaths(mt moduleTargets) []string {
-	var filePaths []string
-
-	for _, pkg := range mt.Packages {
-		for _, f := range pkg.Files {
-			filePaths = append(filePaths, f.Path)
-		}
-	}
-
-	return filePaths
-}
-
-func commandSummariesFromCommands(commands []buildtool.CommandInfo) []commandSummary {
-	summaries := make([]commandSummary, 0, len(commands))
-	for _, cmd := range commands {
-		summaries = append(summaries, commandSummary{
-			Name:        camelToKebab(cmd.Name),
-			Description: cmd.Description,
-		})
-	}
-
-	sort.Slice(summaries, func(i, j int) bool {
-		return summaries[i].Name < summaries[j].Name
-	})
-
-	return summaries
 }
 
 func commonPrefix(a, b []string) []string {
@@ -1890,14 +1757,6 @@ func looksLikeModulePath(path string) bool {
 	return strings.Contains(first, ".")
 }
 
-func lowerFirst(name string) string {
-	if name == "" {
-		return pkgNameDefault
-	}
-
-	return strings.ToLower(name[:1]) + name[1:]
-}
-
 func namespacePaths(files []string, root string) (map[string][]string, error) {
 	if len(files) == 0 {
 		return map[string][]string{}, nil
@@ -2012,47 +1871,6 @@ func prepareBuildContext(
 
 	return ctx, nil
 }
-
-func printBuildToolUsage(out io.Writer) {
-	_, _ = fmt.Fprintln(
-		out,
-		"targ is a build-tool runner that discovers tagged commands and executes them.",
-	)
-	_, _ = fmt.Fprintln(out, "")
-	_, _ = fmt.Fprintln(out, "Usage: targ [FLAGS...] COMMAND [COMMAND_ARGS...]")
-	_, _ = fmt.Fprintln(out, "")
-	_, _ = fmt.Fprintln(out, "Flags:")
-	_, _ = fmt.Fprintf(
-		out,
-		"    %-28s %s\n",
-		"--no-binary-cache",
-		"disable cached build tool binaries",
-	)
-	_, _ = fmt.Fprintf(
-		out,
-		"    %-28s %s\n",
-		"--timeout <duration>",
-		"set execution timeout (e.g., 10m, 1h)",
-	)
-	_, _ = fmt.Fprintf(
-		out,
-		"    %-28s %s\n",
-		"--completion {bash|zsh|fish}",
-		"print completion script for specified shell. Uses the current shell if none is",
-	)
-	_, _ = fmt.Fprintf(
-		out,
-		"    %-28s %s\n",
-		"",
-		"specified. The output should be eval'd/sourced in the shell to enable completions.",
-	)
-	_, _ = fmt.Fprintf(out, "    %-28s %s\n", "", "(e.g. 'targ --completion fish | source')")
-	_, _ = fmt.Fprintf(out, "    %-28s %s\n", "--help", "Print help information")
-}
-
-// Find max name length for alignment
-
-// Indent for continuation lines: 4 leading + name width + 2 padding + 1 space + 2 extra
 
 // printMultiModuleHelp prints aggregated help for all modules.
 func printMultiModuleHelp(registry []moduleRegistry) {
@@ -2325,54 +2143,6 @@ func runModuleBinary(binaryPath string, args []string, errOut io.Writer, binArg 
 	return nil
 }
 
-func sameDir(a, b string) bool {
-	absA, err := filepath.Abs(a)
-	if err != nil {
-		return false
-	}
-
-	absB, err := filepath.Abs(b)
-	if err != nil {
-		return false
-	}
-
-	return absA == absB
-}
-
-func segmentToIdent(segment string) string {
-	var out strings.Builder
-
-	capNext := true
-
-	for _, r := range segment {
-		if !unicode.IsLetter(r) && !unicode.IsDigit(r) {
-			capNext = true
-			continue
-		}
-
-		if capNext {
-			out.WriteRune(unicode.ToUpper(r))
-
-			capNext = false
-
-			continue
-		}
-
-		out.WriteRune(r)
-	}
-
-	ident := out.String()
-	if ident == "" {
-		return "Node"
-	}
-
-	if !unicode.IsLetter(rune(ident[0])) {
-		return "Node" + ident
-	}
-
-	return ident
-}
-
 // setupBinaryPath creates cache directory and returns binary path.
 func setupBinaryPath(importRoot, _ string, bootstrap moduleBootstrap) (string, error) {
 	projCache := projectCacheDir(importRoot)
@@ -2387,21 +2157,6 @@ func setupBinaryPath(importRoot, _ string, bootstrap moduleBootstrap) (string, e
 	return filepath.Join(cacheDir, "targ_"+bootstrap.cacheKey), nil
 }
 
-func singlePackageBanner(info buildtool.PackageInfo) string {
-	lines := []string{
-		fmt.Sprintf("Loaded tasks from package %q.", info.Package),
-	}
-
-	doc := strings.TrimSpace(info.Doc)
-	if doc != "" {
-		lines = append(lines, doc)
-	}
-
-	lines = append(lines, "Path: "+info.Dir)
-
-	return strings.Join(lines, "\n")
-}
-
 // skipIfVendorOrGit returns SkipDir for .git and vendor directories.
 func skipIfVendorOrGit(name string) error {
 	if name == ".git" || name == "vendor" {
@@ -2409,17 +2164,6 @@ func skipIfVendorOrGit(name string) error {
 	}
 
 	return nil
-}
-
-func sortedChildNames(node *namespaceNode) []string {
-	names := make([]string, 0, len(node.Children))
-	for name := range node.Children {
-		names = append(names, name)
-	}
-
-	sort.Strings(names)
-
-	return names
 }
 
 // stripBuildTag removes the //go:build targ line from source content.
@@ -2441,14 +2185,6 @@ func stripBuildTag(content string) string {
 	}
 
 	return strings.TrimSuffix(result.String(), "\n")
-}
-
-func subcommandTag(fieldName, segment string) string {
-	if camelToKebab(fieldName) == segment {
-		return `targ:"subcommand"`
-	}
-
-	return fmt.Sprintf(`targ:"subcommand,name=%s"`, segment)
 }
 
 // symlinkExists returns true if dst is an existing symlink.
@@ -2499,25 +2235,6 @@ func tryCachedBinary(binaryPath string) ([]commandInfo, bool) {
 	}
 
 	return cmds, true
-}
-
-func uniqueImportName(name string, used map[string]bool) string {
-	candidate := name
-	if candidate == "" {
-		candidate = pkgNameDefault
-	}
-
-	if candidate == "github.com/toejough/targ" {
-		candidate = "cmdpkg"
-	}
-
-	for used[candidate] {
-		candidate += "pkg"
-	}
-
-	used[candidate] = true
-
-	return candidate
 }
 
 // validateNoPackageMain ensures no targ files use package main.

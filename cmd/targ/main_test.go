@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -373,20 +372,6 @@ func TestParseHelpRequestIgnoresSubcommandHelp(t *testing.T) {
 	help, target = parseHelpRequest([]string{"--help"})
 	if !help || target {
 		t.Fatal("expected top-level help without target")
-	}
-}
-
-func TestPrintBuildToolUsageIncludesSummary(t *testing.T) {
-	var buf bytes.Buffer
-	printBuildToolUsage(&buf)
-
-	out := buf.String()
-	if !strings.Contains(out, "build-tool runner") {
-		t.Fatalf("expected summary in usage output, got: %s", out)
-	}
-
-	if strings.Contains(out, "More info:") {
-		t.Fatalf("did not expect epilog in usage output, got: %s", out)
 	}
 }
 
