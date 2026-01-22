@@ -40,8 +40,6 @@ type FileSystem interface {
 type OSFileSystem struct{}
 
 // ReadDir reads the named directory.
-//
-//nolint:coverage // OS wrapper tested via integration
 func (OSFileSystem) ReadDir(name string) ([]fs.DirEntry, error) {
 	entries, err := os.ReadDir(name)
 	if err != nil {
@@ -53,7 +51,7 @@ func (OSFileSystem) ReadDir(name string) ([]fs.DirEntry, error) {
 
 // ReadFile reads the named file.
 //
-//nolint:gosec,coverage // build tool reads user source files by design; OS wrapper tested via integration
+//nolint:gosec // build tool reads user source files by design
 func (OSFileSystem) ReadFile(name string) ([]byte, error) {
 	data, err := os.ReadFile(name)
 	if err != nil {
@@ -64,8 +62,6 @@ func (OSFileSystem) ReadFile(name string) ([]byte, error) {
 }
 
 // WriteFile writes data to the named file.
-//
-//nolint:coverage // OS wrapper tested via integration
 func (OSFileSystem) WriteFile(name string, data []byte, perm fs.FileMode) error {
 	err := os.WriteFile(name, data, perm)
 	if err != nil {
