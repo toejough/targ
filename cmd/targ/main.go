@@ -64,6 +64,9 @@ func main() {
 
 // unexported variables.
 var (
+	errCreateUsage = errors.New(
+		"usage: targ --create [group...] <name> [--deps ...] [--cache ...] \"<shell-command>\"",
+	)
 	errDuplicateTarget        = errors.New("target already exists")
 	errFlagRemoved            = errors.New("flag has been removed; use --create instead")
 	errInvalidUTF8Path        = errors.New("invalid utf-8 path in tagged file")
@@ -73,6 +76,7 @@ var (
 	)
 	errPackageMainNotAllowed = errors.New("targ files cannot use 'package main'")
 	errUnknownCommand        = errors.New("unknown command")
+	errUnknownCreateFlag     = errors.New("unknown flag")
 	validTargetNameRe        = regexp.MustCompile(`^[a-z][a-z0-9-]*[a-z0-9]$|^[a-z]$`)
 )
 
@@ -124,6 +128,15 @@ type buildContext struct {
 type commandInfo struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
+}
+
+// createOptions holds parsed options for the --create flag.
+type createOptions struct {
+	Path     []string // Group path components (e.g., ["dev", "lint"] for "dev lint fast")
+	Name     string   // Target name (e.g., "fast")
+	ShellCmd string   // Shell command to execute
+	Deps     []string // Dependency target names
+	Cache    []string // Cache patterns
 }
 
 // listOutput is the JSON structure returned by __list command.
@@ -390,26 +403,50 @@ func (r *targRunner) exitWithCleanup(code int) int {
 	return code
 }
 
+//nolint:funlen // Validation logic is straightforward but verbose
 func (r *targRunner) handleCreateFlag(args []string) (exitCode int, done bool) {
-	// --create requires name and shell-command arguments
-	const minCreateArgs = 2
-	if len(args) < minCreateArgs {
-		fmt.Fprintln(os.Stderr, "usage: targ --create <name> \"<shell-command>\"")
+	// Parse the create arguments
+	opts, err := parseCreateArgs(args)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
 		return 1, true
 	}
 
-	name := args[0]
-	shellCmd := args[1]
-
-	// Validate name (kebab-case)
-	if !isValidTargetName(name) {
+	// Validate target name (kebab-case)
+	if !isValidTargetName(opts.Name) {
 		fmt.Fprintf(
 			os.Stderr,
 			"invalid target name %q: must be lowercase letters, numbers, and hyphens\n",
-			name,
+			opts.Name,
 		)
 
 		return 1, true
+	}
+
+	// Validate path components (all must be valid kebab-case names)
+	for _, p := range opts.Path {
+		if !isValidTargetName(p) {
+			fmt.Fprintf(
+				os.Stderr,
+				"invalid group name %q: must be lowercase letters, numbers, and hyphens\n",
+				p,
+			)
+
+			return 1, true
+		}
+	}
+
+	// Validate dependency names
+	for _, dep := range opts.Deps {
+		if !isValidTargetName(dep) {
+			fmt.Fprintf(
+				os.Stderr,
+				"invalid dependency name %q: must be lowercase letters, numbers, and hyphens\n",
+				dep,
+			)
+
+			return 1, true
+		}
 	}
 
 	// Get working directory (startDir may not be set yet)
@@ -427,13 +464,16 @@ func (r *targRunner) handleCreateFlag(args []string) (exitCode int, done bool) {
 	}
 
 	// Add the target to the file
-	err = addTargetToFile(targFile, name, shellCmd)
+	err = addTargetToFileWithOptions(targFile, opts)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error adding target: %v\n", err)
 		return 1, true
 	}
 
-	fmt.Printf("Created target %q in %s\n", name, targFile)
+	// Build display name
+	fullPath := append(opts.Path, opts.Name) //nolint:gocritic // intentional copy
+	displayName := strings.Join(fullPath, "/")
+	fmt.Printf("Created target %q in %s\n", displayName, targFile)
 
 	return 0, true
 }
@@ -753,30 +793,69 @@ func (r *targRunner) tryRunCached(binaryPath, targBinName string) (exitCode int,
 
 // addTargetToFile adds a target variable to an existing targ file.
 func addTargetToFile(path, name, shellCmd string) error {
+	return addTargetToFileWithOptions(path, createOptions{
+		Name:     name,
+		ShellCmd: shellCmd,
+	})
+}
+
+// addTargetToFileWithOptions adds a target with full options to an existing targ file.
+func addTargetToFileWithOptions(path string, opts createOptions) error {
 	//nolint:gosec // build tool reads user source files by design
 	content, err := os.ReadFile(path)
 	if err != nil {
 		return fmt.Errorf("reading file: %w", err)
 	}
 
-	// Convert kebab-case name to PascalCase for the variable
-	varName := kebabToPascal(name)
+	// Build the full variable name including path
+	fullPath := append(opts.Path, opts.Name) //nolint:gocritic // intentional copy
+	varName := pathToPascal(fullPath)
 
 	// Check if target already exists
 	if strings.Contains(string(content), fmt.Sprintf("var %s = ", varName)) {
-		return fmt.Errorf("%w: %s", errDuplicateTarget, name)
+		return fmt.Errorf("%w: %s", errDuplicateTarget, strings.Join(fullPath, "/"))
 	}
 
-	// Escape shell command for Go string literal
-	escapedCmd := strings.ReplaceAll(shellCmd, "\\", "\\\\")
-	escapedCmd = strings.ReplaceAll(escapedCmd, "\"", "\\\"")
+	// Build the target code
+	var code strings.Builder
 
-	// Generate the target variable
-	targetCode := fmt.Sprintf("\n// %s runs: %s\nvar %s = targ.Targ(%q).Name(%q)\n",
-		varName, shellCmd, varName, escapedCmd, name)
+	// Comment
+	code.WriteString(fmt.Sprintf("\n// %s runs: %s\n", varName, opts.ShellCmd))
+
+	// Start variable declaration
+	escapedCmd := escapeGoString(opts.ShellCmd)
+	code.WriteString(fmt.Sprintf("var %s = targ.Targ(%q)", varName, escapedCmd))
+
+	// Add Name() - use just the target name, not the full path
+	code.WriteString(fmt.Sprintf(".Name(%q)", opts.Name))
+
+	// Add Deps() if specified
+	if len(opts.Deps) > 0 {
+		depVars := make([]string, len(opts.Deps))
+		for i, dep := range opts.Deps {
+			depVars[i] = kebabToPascal(dep)
+		}
+
+		code.WriteString(fmt.Sprintf(".Deps(%s)", strings.Join(depVars, ", ")))
+	}
+
+	// Add Cache() if specified
+	if len(opts.Cache) > 0 {
+		patterns := make([]string, len(opts.Cache))
+		for i, p := range opts.Cache {
+			patterns[i] = fmt.Sprintf("%q", p)
+		}
+
+		code.WriteString(fmt.Sprintf(".Cache(%s)", strings.Join(patterns, ", ")))
+	}
+
+	code.WriteString("\n")
+
+	// Generate group variables if path is specified
+	groupCode := generateGroupCode(opts.Path, opts.Name, varName, string(content))
 
 	// Append to file
-	newContent := string(content) + targetCode
+	newContent := string(content) + code.String() + groupCode
 
 	err = os.WriteFile(path, []byte(newContent), filePermissionsForCode)
 	if err != nil {
@@ -1293,6 +1372,14 @@ func ensureTargDependency(dep targDependency, importRoot string) {
 	_ = getCmd.Run()
 }
 
+// escapeGoString escapes a string for use in a Go string literal.
+func escapeGoString(s string) string {
+	s = strings.ReplaceAll(s, "\\", "\\\\")
+	s = strings.ReplaceAll(s, "\"", "\\\"")
+
+	return s
+}
+
 func extractBinName(binArg string) string {
 	if binArg == "" {
 		return "targ"
@@ -1461,6 +1548,42 @@ var _ = targ.Targ
 	}
 
 	return targFile, nil
+}
+
+// generateGroupCode generates group variable declarations for the path.
+// It checks existing content to avoid duplicating groups.
+func generateGroupCode(path []string, _, targetVarName, existingContent string) string {
+	if len(path) == 0 {
+		return ""
+	}
+
+	var code strings.Builder
+
+	// Build groups from innermost to outermost
+	// e.g., for path ["dev", "lint"] and target "fast":
+	// - DevLint group contains DevLintFast (the target)
+	// - Dev group contains DevLint
+	childVarName := targetVarName
+
+	for i := len(path) - 1; i >= 0; i-- {
+		groupPath := path[:i+1]
+		groupVarName := pathToPascal(groupPath)
+		groupName := path[i] // Use the last component as the group's name
+
+		// Check if group already exists
+		if strings.Contains(existingContent, fmt.Sprintf("var %s = ", groupVarName)) {
+			// Group exists - we'd need to modify it, but for now just skip
+			// TODO: Support adding to existing groups
+			childVarName = groupVarName
+			continue
+		}
+
+		code.WriteString(fmt.Sprintf("var %s = targ.NewGroup(%q, %s)\n",
+			groupVarName, groupName, childVarName))
+		childVarName = groupVarName
+	}
+
+	return code.String()
 }
 
 // generateModuleBootstrap creates bootstrap code and computes cache key.
@@ -1750,6 +1873,68 @@ func newBootstrapBuilder(moduleRoot, modulePath string) *bootstrapBuilder {
 	}
 }
 
+// parseCreateArgs parses arguments after --create into createOptions.
+// Format: [path...] <name> [--deps dep1 dep2...] [--cache pattern1...] "shell-command"
+// The shell command is always the last argument.
+//
+//nolint:cyclop // Parsing logic has necessary branches for each flag type
+func parseCreateArgs(args []string) (createOptions, error) {
+	var opts createOptions
+
+	// Need at least 2 args: name and shell command
+	if len(args) < 2 { //nolint:mnd // minimum: name + command
+		return opts, errCreateUsage
+	}
+
+	// Shell command is always the last argument
+	opts.ShellCmd = args[len(args)-1]
+	remaining := args[:len(args)-1]
+
+	// Parse remaining arguments
+	var pathAndName []string
+
+	i := 0
+	for i < len(remaining) {
+		arg := remaining[i]
+
+		switch {
+		case arg == "--deps":
+			// Collect deps until next flag or end
+			i++
+			for i < len(remaining) && !strings.HasPrefix(remaining[i], "--") {
+				opts.Deps = append(opts.Deps, remaining[i])
+				i++
+			}
+		case arg == "--cache":
+			// Collect cache patterns until next flag or end
+			i++
+			for i < len(remaining) && !strings.HasPrefix(remaining[i], "--") {
+				opts.Cache = append(opts.Cache, remaining[i])
+				i++
+			}
+		case strings.HasPrefix(arg, "--"):
+			return opts, fmt.Errorf("%w: %s", errUnknownCreateFlag, arg)
+		default:
+			// Non-flag argument: path component or name
+			pathAndName = append(pathAndName, arg)
+			i++
+		}
+	}
+
+	// Need at least the target name
+	if len(pathAndName) < 1 {
+		return opts, errCreateUsage
+	}
+
+	// Last of pathAndName is name, rest are path
+	opts.Name = pathAndName[len(pathAndName)-1]
+	if len(pathAndName) > 1 {
+		opts.Path = pathAndName[:len(pathAndName)-1]
+	}
+
+	return opts, nil
+}
+
 func parseHelpRequest(args []string) (bool, bool) {
 	helpRequested := false
 	sawTarget := false
@@ -1783,6 +1968,16 @@ func parseModulePath(content string) string {
 	}
 
 	return ""
+}
+
+// pathToPascal converts a path like ["dev", "lint", "fast"] to "DevLintFast".
+func pathToPascal(path []string) string {
+	var result strings.Builder
+	for _, p := range path {
+		result.WriteString(kebabToPascal(p))
+	}
+
+	return result.String()
 }
 
 // prepareBuildContext determines build roots and handles fallback module setup.

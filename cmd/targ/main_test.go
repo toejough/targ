@@ -51,6 +51,97 @@ func TestAddTargetToFile(t *testing.T) {
 	}
 }
 
+func TestAddTargetToFileWithOptions_WithCache(t *testing.T) {
+	dir := t.TempDir()
+	targFile := filepath.Join(dir, "targs.go")
+
+	initial := "//go:build targ\n\npackage build\n\nimport \"github.com/toejough/targ\"\n"
+	if err := os.WriteFile(targFile, []byte(initial), 0o644); err != nil {
+		t.Fatalf("write error: %v", err)
+	}
+
+	opts := createOptions{
+		Name:     "build",
+		ShellCmd: "go build",
+		Cache:    []string{"**/*.go", "go.mod"},
+	}
+
+	if err := addTargetToFileWithOptions(targFile, opts); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	content, _ := os.ReadFile(targFile)
+	contentStr := string(content)
+
+	if !strings.Contains(contentStr, `.Cache("**/*.go", "go.mod")`) {
+		t.Errorf("expected .Cache pattern in generated code, got:\n%s", contentStr)
+	}
+}
+
+func TestAddTargetToFileWithOptions_WithDeps(t *testing.T) {
+	dir := t.TempDir()
+	targFile := filepath.Join(dir, "targs.go")
+
+	initial := "//go:build targ\n\npackage build\n\nimport \"github.com/toejough/targ\"\n"
+	if err := os.WriteFile(targFile, []byte(initial), 0o644); err != nil {
+		t.Fatalf("write error: %v", err)
+	}
+
+	opts := createOptions{
+		Name:     "build",
+		ShellCmd: "go build",
+		Deps:     []string{"lint", "test"},
+	}
+
+	if err := addTargetToFileWithOptions(targFile, opts); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	content, _ := os.ReadFile(targFile)
+	contentStr := string(content)
+
+	if !strings.Contains(contentStr, ".Deps(Lint, Test)") {
+		t.Error("expected .Deps(Lint, Test) in generated code")
+	}
+}
+
+func TestAddTargetToFileWithOptions_WithPath(t *testing.T) {
+	dir := t.TempDir()
+	targFile := filepath.Join(dir, "targs.go")
+
+	initial := "//go:build targ\n\npackage build\n\nimport \"github.com/toejough/targ\"\n"
+	if err := os.WriteFile(targFile, []byte(initial), 0o644); err != nil {
+		t.Fatalf("write error: %v", err)
+	}
+
+	opts := createOptions{
+		Name:     "fast",
+		ShellCmd: "golangci-lint run --fast",
+		Path:     []string{"dev", "lint"},
+	}
+
+	if err := addTargetToFileWithOptions(targFile, opts); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	content, _ := os.ReadFile(targFile)
+	contentStr := string(content)
+
+	// Should have the target with full path name
+	if !strings.Contains(contentStr, "var DevLintFast = ") {
+		t.Errorf("expected DevLintFast variable, got:\n%s", contentStr)
+	}
+
+	// Should have groups
+	if !strings.Contains(contentStr, `var DevLint = targ.NewGroup("lint", DevLintFast)`) {
+		t.Errorf("expected DevLint group, got:\n%s", contentStr)
+	}
+
+	if !strings.Contains(contentStr, `var Dev = targ.NewGroup("dev", DevLint)`) {
+		t.Errorf("expected Dev group, got:\n%s", contentStr)
+	}
+}
+
 func TestEnsureFallbackModuleRoot(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("symlink behavior is restricted on windows")
@@ -363,6 +454,123 @@ func TestNamespacePaths_CompressesSegments(t *testing.T) {
 	}
 }
 
+func TestParseCreateArgs_Basic(t *testing.T) {
+	opts, err := parseCreateArgs([]string{"lint", "golangci-lint run"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if opts.Name != "lint" {
+		t.Errorf("expected name 'lint', got %q", opts.Name)
+	}
+
+	if opts.ShellCmd != "golangci-lint run" {
+		t.Errorf("expected shell command 'golangci-lint run', got %q", opts.ShellCmd)
+	}
+
+	if len(opts.Path) != 0 {
+		t.Errorf("expected empty path, got %v", opts.Path)
+	}
+}
+
+func TestParseCreateArgs_FullOptions(t *testing.T) {
+	opts, err := parseCreateArgs([]string{
+		"dev", "build",
+		"--deps", "lint", "test",
+		"--cache", "**/*.go",
+		"go build ./...",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if opts.Name != "build" {
+		t.Errorf("expected name 'build', got %q", opts.Name)
+	}
+
+	if !reflect.DeepEqual(opts.Path, []string{"dev"}) {
+		t.Errorf("expected path [dev], got %v", opts.Path)
+	}
+
+	if !reflect.DeepEqual(opts.Deps, []string{"lint", "test"}) {
+		t.Errorf("expected deps [lint test], got %v", opts.Deps)
+	}
+
+	if !reflect.DeepEqual(opts.Cache, []string{"**/*.go"}) {
+		t.Errorf("expected cache [**/*.go], got %v", opts.Cache)
+	}
+
+	if opts.ShellCmd != "go build ./..." {
+		t.Errorf("expected shell cmd 'go build ./...', got %q", opts.ShellCmd)
+	}
+}
+
+func TestParseCreateArgs_TooFewArgs(t *testing.T) {
+	_, err := parseCreateArgs([]string{"lint"})
+	if err == nil {
+		t.Error("expected error for too few args")
+	}
+}
+
+func TestParseCreateArgs_UnknownFlag(t *testing.T) {
+	_, err := parseCreateArgs([]string{"lint", "--unknown", "cmd"})
+	if err == nil {
+		t.Error("expected error for unknown flag")
+	}
+}
+
+func TestParseCreateArgs_WithCache(t *testing.T) {
+	opts, err := parseCreateArgs([]string{"build", "--cache", "**/*.go", "go.mod", "go build"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if opts.Name != "build" {
+		t.Errorf("expected name 'build', got %q", opts.Name)
+	}
+
+	expectedCache := []string{"**/*.go", "go.mod"}
+	if !reflect.DeepEqual(opts.Cache, expectedCache) {
+		t.Errorf("expected cache %v, got %v", expectedCache, opts.Cache)
+	}
+}
+
+func TestParseCreateArgs_WithDeps(t *testing.T) {
+	opts, err := parseCreateArgs([]string{"build", "--deps", "lint", "test", "go build"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if opts.Name != "build" {
+		t.Errorf("expected name 'build', got %q", opts.Name)
+	}
+
+	expectedDeps := []string{"lint", "test"}
+	if !reflect.DeepEqual(opts.Deps, expectedDeps) {
+		t.Errorf("expected deps %v, got %v", expectedDeps, opts.Deps)
+	}
+}
+
+func TestParseCreateArgs_WithPath(t *testing.T) {
+	opts, err := parseCreateArgs([]string{"dev", "lint", "fast", "golangci-lint run --fast"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if opts.Name != "fast" {
+		t.Errorf("expected name 'fast', got %q", opts.Name)
+	}
+
+	if opts.ShellCmd != "golangci-lint run --fast" {
+		t.Errorf("expected shell command 'golangci-lint run --fast', got %q", opts.ShellCmd)
+	}
+
+	expectedPath := []string{"dev", "lint"}
+	if !reflect.DeepEqual(opts.Path, expectedPath) {
+		t.Errorf("expected path %v, got %v", expectedPath, opts.Path)
+	}
+}
+
 func TestParseHelpRequestIgnoresSubcommandHelp(t *testing.T) {
 	help, target := parseHelpRequest([]string{"issues", "--help"})
 	if help && !target {
@@ -372,6 +580,27 @@ func TestParseHelpRequestIgnoresSubcommandHelp(t *testing.T) {
 	help, target = parseHelpRequest([]string{"--help"})
 	if !help || target {
 		t.Fatal("expected top-level help without target")
+	}
+}
+
+func TestPathToPascal(t *testing.T) {
+	tests := []struct {
+		path     []string
+		expected string
+	}{
+		{[]string{"lint"}, "Lint"},
+		{[]string{"dev", "lint"}, "DevLint"},
+		{[]string{"dev", "lint", "fast"}, "DevLintFast"},
+		{[]string{"my-group", "my-target"}, "MyGroupMyTarget"},
+	}
+
+	for _, tt := range tests {
+		t.Run(strings.Join(tt.path, "/"), func(t *testing.T) {
+			got := pathToPascal(tt.path)
+			if got != tt.expected {
+				t.Errorf("pathToPascal(%v) = %q, want %q", tt.path, got, tt.expected)
+			}
+		})
 	}
 }
 
