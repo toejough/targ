@@ -22,6 +22,13 @@ type GroupLike interface {
 	GetMembers() []any
 }
 
+// TargetConfigLike is optionally implemented by targets that support
+// conflict detection with CLI override flags.
+type TargetConfigLike interface {
+	// GetConfig returns (watchPatterns, cachePatterns, watchDisabled, cacheDisabled)
+	GetConfig() ([]string, []string, bool, bool)
+}
+
 // TargetLike is implemented by targ.Target for discovery integration.
 type TargetLike interface {
 	Fn() any
@@ -111,6 +118,12 @@ type commandNode struct {
 	RunMethod   reflect.Value
 	Description string
 	SourceFile  string // Source file path for build tool mode
+
+	// Target configuration for conflict detection with CLI overrides
+	WatchPatterns []string
+	CachePatterns []string
+	WatchDisabled bool
+	CacheDisabled bool
 }
 
 // --- Execution ---
@@ -289,7 +302,14 @@ func (n *commandNode) runCommandWithHooks(
 	}
 
 	// Execute with runtime overrides (times, retry, watch, cache, etc.)
-	err = ExecuteWithOverrides(ctx, opts.Overrides, nil, func() error {
+	config := TargetConfig{
+		WatchPatterns: n.WatchPatterns,
+		CachePatterns: n.CachePatterns,
+		WatchDisabled: n.WatchDisabled,
+		CacheDisabled: n.CacheDisabled,
+	}
+
+	err = ExecuteWithOverrides(ctx, opts.Overrides, config, func() error {
 		return runCommand(ctx, n, inst, nil, 0)
 	})
 	if err != nil {
@@ -1104,7 +1124,14 @@ func executeFunctionWithParents(
 	}
 
 	// Execute with runtime overrides (times, retry, watch, cache, etc.)
-	err = ExecuteWithOverrides(ctx, opts.Overrides, nil, func() error {
+	config := TargetConfig{
+		WatchPatterns: node.WatchPatterns,
+		CachePatterns: node.CachePatterns,
+		WatchDisabled: node.WatchDisabled,
+		CacheDisabled: node.CacheDisabled,
+	}
+
+	err = ExecuteWithOverrides(ctx, opts.Overrides, config, func() error {
 		return callFunctionWithArgs(ctx, node.Func, inst)
 	})
 	if err != nil {
@@ -1712,11 +1739,29 @@ func parseTargetLike(target TargetLike) (*commandNode, error) {
 	}
 
 	// Handle string (shell command) vs function
+	var node *commandNode
+
+	var err error
+
 	if cmd, ok := fn.(string); ok {
-		return parseTargetLikeString(target, cmd)
+		node = parseTargetLikeString(target, cmd)
+	} else {
+		node, err = parseTargetLikeFunc(target, fn)
+		if err != nil {
+			return nil, err
+		}
 	}
 
-	return parseTargetLikeFunc(target, fn)
+	// Extract target config if available (for conflict detection)
+	if configTarget, ok := target.(TargetConfigLike); ok {
+		watch, cache, watchDis, cacheDis := configTarget.GetConfig()
+		node.WatchPatterns = watch
+		node.CachePatterns = cache
+		node.WatchDisabled = watchDis
+		node.CacheDisabled = cacheDis
+	}
+
+	return node, nil
 }
 
 // parseTargetLikeFunc creates a commandNode for a function target.
@@ -1775,7 +1820,7 @@ func parseTargetLikeFunc(target TargetLike, fn any) (*commandNode, error) {
 }
 
 // parseTargetLikeString creates a commandNode for a shell command target.
-func parseTargetLikeString(target TargetLike, cmd string) (*commandNode, error) {
+func parseTargetLikeString(target TargetLike, cmd string) *commandNode {
 	node := &commandNode{
 		Name:        target.GetName(),
 		Description: target.GetDescription(),
@@ -1790,7 +1835,7 @@ func parseTargetLikeString(target TargetLike, cmd string) (*commandNode, error) 
 		}
 	}
 
-	return node, nil
+	return node
 }
 
 // positionalName returns the display name for a positional argument.

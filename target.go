@@ -41,6 +41,10 @@ type Target struct {
 	retry           bool          // continue despite failures
 	backoffInitial  time.Duration // initial backoff delay after failure
 	backoffMultiply float64       // backoff multiplier for exponential backoff
+
+	// Disabled flags - when true, CLI flags control the setting
+	watchDisabled bool
+	cacheDisabled bool
 }
 
 // Backoff sets exponential backoff delay after failures.
@@ -56,8 +60,17 @@ func (t *Target) Backoff(initial time.Duration, factor float64) *Target {
 // Cache sets file patterns for cache invalidation.
 // If the files matching these patterns haven't changed since the last run,
 // the target execution is skipped.
+// Pass targ.Disabled to allow CLI --cache flag to control caching.
 func (t *Target) Cache(patterns ...string) *Target {
+	if len(patterns) == 1 && patterns[0] == Disabled {
+		t.cacheDisabled = true
+		t.cache = nil
+
+		return t
+	}
+
 	t.cache = patterns
+
 	return t
 }
 
@@ -87,6 +100,12 @@ func (t *Target) Description(s string) *Target {
 // This is used internally for discovery and execution.
 func (t *Target) Fn() any {
 	return t.fn
+}
+
+// GetConfig returns the target's configuration for conflict detection.
+// Returns (watchPatterns, cachePatterns, watchDisabled, cacheDisabled).
+func (t *Target) GetConfig() ([]string, []string, bool, bool) {
+	return t.watch, t.cache, t.watchDisabled, t.cacheDisabled
 }
 
 // GetDescription returns the configured description, or empty if not set.
@@ -162,8 +181,17 @@ func (t *Target) Times(n int) *Target {
 
 // Watch sets file patterns to watch for changes.
 // When set, Run() will re-run the target when matching files change.
+// Pass targ.Disabled to allow CLI --watch flag to control watching.
 func (t *Target) Watch(patterns ...string) *Target {
+	if len(patterns) == 1 && patterns[0] == Disabled {
+		t.watchDisabled = true
+		t.watch = nil
+
+		return t
+	}
+
 	t.watch = patterns
+
 	return t
 }
 

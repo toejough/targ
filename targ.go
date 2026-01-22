@@ -11,6 +11,10 @@ import (
 
 // Exported constants.
 const (
+	// Disabled is a sentinel value for Target builder methods that indicates
+	// the setting should be controlled by CLI flags rather than compile-time config.
+	// Example: targ.Targ(Build).Watch(targ.Disabled) allows --watch flag to control watching.
+	Disabled          = "__targ_disabled__"
 	TagKindFlag       = core.TagKindFlag
 	TagKindPositional = core.TagKindPositional
 	TagKindSubcommand = core.TagKindSubcommand

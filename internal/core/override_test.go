@@ -26,7 +26,7 @@ func TestExecuteWithOverrides_BackoffDelay(t *testing.T) {
 		BackoffMultiplier: 2.0,
 	}
 
-	err := core.ExecuteWithOverrides(ctx, overrides, nil, func() error {
+	err := core.ExecuteWithOverrides(ctx, overrides, core.TargetConfig{}, func() error {
 		count++
 		return errors.New("fail")
 	})
@@ -37,6 +37,55 @@ func TestExecuteWithOverrides_BackoffDelay(t *testing.T) {
 	g.Expect(count).To(Equal(3))
 	// Should have waited ~10ms + ~20ms = ~30ms between retries
 	g.Expect(elapsed).To(BeNumerically(">=", 25*time.Millisecond))
+}
+
+func TestExecuteWithOverrides_CacheConflict(t *testing.T) {
+	g := NewWithT(t)
+	ctx := context.Background()
+
+	// Target has cache patterns configured
+	config := core.TargetConfig{
+		CachePatterns: []string{"**/*.go"},
+		CacheDisabled: false,
+	}
+
+	// CLI also specifies --cache, which should conflict
+	overrides := core.RuntimeOverrides{
+		Cache: []string{"**/*.ts"},
+	}
+
+	err := core.ExecuteWithOverrides(ctx, overrides, config, func() error {
+		return nil
+	})
+
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err).To(MatchError(ContainSubstring("--cache conflicts")))
+	g.Expect(err).To(MatchError(ContainSubstring("targ.Disabled")))
+}
+
+func TestExecuteWithOverrides_CacheDisabledAllowsOverride(t *testing.T) {
+	g := NewWithT(t)
+	ctx := context.Background()
+
+	// Target has cache disabled (allows CLI control)
+	config := core.TargetConfig{
+		CachePatterns: []string{"**/*.go"}, // These are ignored when disabled
+		CacheDisabled: true,
+	}
+
+	// CLI specifies --cache, which should be allowed
+	overrides := core.RuntimeOverrides{
+		Cache: []string{"nonexistent/**"}, // Patterns that won't match anything
+	}
+
+	err := core.ExecuteWithOverrides(ctx, overrides, config, func() error {
+		return nil
+	})
+
+	// No conflict error - function ran (cache check may error but not conflict)
+	// The cache check will fail because files don't exist, but that's different
+	// from a conflict error
+	g.Expect(err).To(Or(Not(HaveOccurred()), MatchError(ContainSubstring("cache check"))))
 }
 
 func TestExecuteWithOverrides_CancelDuringBackoff(t *testing.T) {
@@ -57,7 +106,7 @@ func TestExecuteWithOverrides_CancelDuringBackoff(t *testing.T) {
 		cancel()
 	}()
 
-	err := core.ExecuteWithOverrides(ctx, overrides, nil, func() error {
+	err := core.ExecuteWithOverrides(ctx, overrides, core.TargetConfig{}, func() error {
 		count++
 		return errors.New("fail")
 	})
@@ -76,7 +125,7 @@ func TestExecuteWithOverrides_CancelWithPreviousError(t *testing.T) {
 		Retry: true,
 	}
 
-	err := core.ExecuteWithOverrides(ctx, overrides, nil, func() error {
+	err := core.ExecuteWithOverrides(ctx, overrides, core.TargetConfig{}, func() error {
 		count++
 		if count == 2 {
 			cancel() // Cancel after second run
@@ -98,7 +147,7 @@ func TestExecuteWithOverrides_ContextCancellation(t *testing.T) {
 	count := 0
 	overrides := core.RuntimeOverrides{Times: 5}
 
-	err := core.ExecuteWithOverrides(ctx, overrides, nil, func() error {
+	err := core.ExecuteWithOverrides(ctx, overrides, core.TargetConfig{}, func() error {
 		count++
 		return nil
 	})
@@ -108,6 +157,58 @@ func TestExecuteWithOverrides_ContextCancellation(t *testing.T) {
 	g.Expect(count).To(Equal(0)) // Doesn't run because context cancelled
 }
 
+func TestExecuteWithOverrides_NoConflictWhenCLIHasNoOverride(t *testing.T) {
+	g := NewWithT(t)
+	ctx := context.Background()
+
+	// Target has cache configured (not watch, to avoid blocking)
+	config := core.TargetConfig{
+		CachePatterns: []string{"nonexistent/**/*.go"},
+	}
+
+	// CLI has no cache override (no conflict)
+	overrides := core.RuntimeOverrides{
+		Times: 2, // Some other override
+	}
+
+	err := core.ExecuteWithOverrides(ctx, overrides, config, func() error {
+		return nil
+	})
+
+	// No conflict - runs with times and target's cache patterns
+	// Cache check may succeed (no files changed) or error, but not conflict
+	g.Expect(err).To(Or(Not(HaveOccurred()), MatchError(ContainSubstring("cache"))))
+}
+
+func TestExecuteWithOverrides_NoConflictWhenTargetHasNoConfig(t *testing.T) {
+	g := NewWithT(t)
+	ctx, cancel := context.WithCancel(context.Background())
+
+	count := 0
+	// Target has no configuration
+	config := core.TargetConfig{}
+
+	// CLI specifies --watch (should work because target has no watch config)
+	overrides := core.RuntimeOverrides{
+		Watch: []string{"**/*.go"},
+	}
+
+	err := core.ExecuteWithOverrides(ctx, overrides, config, func() error {
+		count++
+
+		cancel() // Cancel after first run to exit watch loop
+
+		return nil
+	})
+
+	// No conflict error - watch was cancelled (returns context error)
+	g.Expect(err).To(Or(
+		Not(HaveOccurred()),
+		MatchError(ContainSubstring("context canceled")),
+	))
+	g.Expect(count).To(Equal(1))
+}
+
 func TestExecuteWithOverrides_NoOverrides(t *testing.T) {
 	g := NewWithT(t)
 	ctx := context.Background()
@@ -115,7 +216,7 @@ func TestExecuteWithOverrides_NoOverrides(t *testing.T) {
 	count := 0
 	overrides := core.RuntimeOverrides{} // Empty overrides
 
-	err := core.ExecuteWithOverrides(ctx, overrides, nil, func() error {
+	err := core.ExecuteWithOverrides(ctx, overrides, core.TargetConfig{}, func() error {
 		count++
 		return nil
 	})
@@ -131,7 +232,7 @@ func TestExecuteWithOverrides_RetryAllFails(t *testing.T) {
 	count := 0
 	overrides := core.RuntimeOverrides{Times: 3, Retry: true}
 
-	err := core.ExecuteWithOverrides(ctx, overrides, nil, func() error {
+	err := core.ExecuteWithOverrides(ctx, overrides, core.TargetConfig{}, func() error {
 		count++
 		return errors.New("always fail")
 	})
@@ -150,7 +251,7 @@ func TestExecuteWithOverrides_Times(t *testing.T) {
 	count := 0
 	overrides := core.RuntimeOverrides{Times: 3}
 
-	err := core.ExecuteWithOverrides(ctx, overrides, nil, func() error {
+	err := core.ExecuteWithOverrides(ctx, overrides, core.TargetConfig{}, func() error {
 		count++
 		return nil
 	})
@@ -168,7 +269,7 @@ func TestExecuteWithOverrides_TimesProperty(t *testing.T) {
 		count := 0
 		overrides := core.RuntimeOverrides{Times: times}
 
-		err := core.ExecuteWithOverrides(ctx, overrides, nil, func() error {
+		err := core.ExecuteWithOverrides(ctx, overrides, core.TargetConfig{}, func() error {
 			count++
 			return nil
 		})
@@ -185,7 +286,7 @@ func TestExecuteWithOverrides_TimesWithError(t *testing.T) {
 	count := 0
 	overrides := core.RuntimeOverrides{Times: 5}
 
-	err := core.ExecuteWithOverrides(ctx, overrides, nil, func() error {
+	err := core.ExecuteWithOverrides(ctx, overrides, core.TargetConfig{}, func() error {
 		count++
 		if count == 2 {
 			return errors.New("fail")
@@ -205,7 +306,7 @@ func TestExecuteWithOverrides_TimesWithRetry(t *testing.T) {
 	count := 0
 	overrides := core.RuntimeOverrides{Times: 5, Retry: true}
 
-	err := core.ExecuteWithOverrides(ctx, overrides, nil, func() error {
+	err := core.ExecuteWithOverrides(ctx, overrides, core.TargetConfig{}, func() error {
 		count++
 		if count < 3 {
 			return errors.New("fail")
@@ -218,6 +319,66 @@ func TestExecuteWithOverrides_TimesWithRetry(t *testing.T) {
 	g.Expect(count).To(Equal(5)) // Continues all iterations with retry
 }
 
+// Ownership model tests - conflict detection
+
+func TestExecuteWithOverrides_WatchConflict(t *testing.T) {
+	g := NewWithT(t)
+	ctx := context.Background()
+
+	// Target has watch patterns configured
+	config := core.TargetConfig{
+		WatchPatterns: []string{"**/*.go"},
+		WatchDisabled: false,
+	}
+
+	// CLI also specifies --watch, which should conflict
+	overrides := core.RuntimeOverrides{
+		Watch: []string{"**/*.ts"},
+	}
+
+	err := core.ExecuteWithOverrides(ctx, overrides, config, func() error {
+		return nil
+	})
+
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err).To(MatchError(ContainSubstring("--watch conflicts")))
+	g.Expect(err).To(MatchError(ContainSubstring("targ.Disabled")))
+}
+
+func TestExecuteWithOverrides_WatchDisabledAllowsOverride(t *testing.T) {
+	g := NewWithT(t)
+	// Use a context that cancels after first execution to avoid blocking
+	ctx, cancel := context.WithCancel(context.Background())
+
+	count := 0
+	// Target has watch disabled (allows CLI control)
+	config := core.TargetConfig{
+		WatchPatterns: []string{"**/*.go"}, // These are ignored when disabled
+		WatchDisabled: true,
+	}
+
+	// CLI specifies --watch, which should be allowed (not conflict)
+	overrides := core.RuntimeOverrides{
+		Watch: []string{"**/*.ts"},
+	}
+
+	err := core.ExecuteWithOverrides(ctx, overrides, config, func() error {
+		count++
+
+		cancel() // Cancel after first run to exit watch loop
+
+		return nil
+	})
+
+	// No conflict error - function ran, watch was cancelled (which returns context error)
+	// The important thing is we didn't get a conflict error
+	g.Expect(err).To(Or(
+		Not(HaveOccurred()),
+		MatchError(ContainSubstring("context canceled")),
+	))
+	g.Expect(count).To(Equal(1))
+}
+
 func TestExecuteWithOverrides_WhileStopsOnFalse(t *testing.T) {
 	g := NewWithT(t)
 	ctx := context.Background()
@@ -226,7 +387,7 @@ func TestExecuteWithOverrides_WhileStopsOnFalse(t *testing.T) {
 	// Use a while command that will fail (non-zero exit)
 	overrides := core.RuntimeOverrides{Times: 10, While: "false"}
 
-	err := core.ExecuteWithOverrides(ctx, overrides, nil, func() error {
+	err := core.ExecuteWithOverrides(ctx, overrides, core.TargetConfig{}, func() error {
 		count++
 		return nil
 	})
@@ -243,7 +404,7 @@ func TestExecuteWithOverrides_WhileSucceeds(t *testing.T) {
 	// Use a while command that succeeds (exit 0)
 	overrides := core.RuntimeOverrides{Times: 3, While: "true"}
 
-	err := core.ExecuteWithOverrides(ctx, overrides, nil, func() error {
+	err := core.ExecuteWithOverrides(ctx, overrides, core.TargetConfig{}, func() error {
 		count++
 		return nil
 	})

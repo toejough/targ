@@ -34,23 +34,45 @@ func (o RuntimeOverrides) hasAny() bool {
 		o.While != ""
 }
 
+// TargetConfig holds compile-time configuration from a Target for conflict detection.
+type TargetConfig struct {
+	WatchPatterns []string
+	CachePatterns []string
+	WatchDisabled bool // True if target explicitly allows CLI --watch
+	CacheDisabled bool // True if target explicitly allows CLI --cache
+}
+
 // ExecuteWithOverrides runs a function with runtime overrides applied.
 // The fn argument should be a function that executes the command once.
+// The config parameter holds compile-time Target configuration for conflict detection.
 func ExecuteWithOverrides(
 	ctx context.Context,
 	overrides RuntimeOverrides,
-	cachePatterns []string,
+	config TargetConfig,
 	fn func() error,
 ) error {
-	// If no overrides are active, just run the function
-	if !overrides.hasAny() && len(cachePatterns) == 0 {
+	// Check for conflicts between CLI overrides and Target config
+	err := checkConflicts(overrides, config)
+	if err != nil {
+		return err
+	}
+
+	// If no overrides are active and no compile-time config, just run the function
+	if !overrides.hasAny() && len(config.CachePatterns) == 0 {
 		return fn()
 	}
 
-	// Merge cache patterns from override and compile-time
+	// Merge cache patterns: CLI overrides take precedence if Target allows (disabled)
+	// Otherwise use Target's patterns (conflict was checked above)
 	allCachePatterns := overrides.Cache
-	if len(cachePatterns) > 0 {
-		allCachePatterns = append(allCachePatterns, cachePatterns...)
+	if len(config.CachePatterns) > 0 && len(overrides.Cache) == 0 {
+		allCachePatterns = config.CachePatterns
+	}
+
+	// Merge watch patterns similarly
+	allWatchPatterns := overrides.Watch
+	if len(config.WatchPatterns) > 0 && len(overrides.Watch) == 0 {
+		allWatchPatterns = config.WatchPatterns
 	}
 
 	// Create the execution function that handles cache, times, retry, etc.
@@ -58,9 +80,9 @@ func ExecuteWithOverrides(
 		return executeOnce(ctx, overrides, allCachePatterns, fn)
 	}
 
-	// If watch mode is enabled, wrap in watch loop
-	if len(overrides.Watch) > 0 {
-		return executeWithWatch(ctx, overrides.Watch, execFn)
+	// If watch mode is enabled (from CLI or Target), wrap in watch loop
+	if len(allWatchPatterns) > 0 {
+		return executeWithWatch(ctx, allWatchPatterns, execFn)
 	}
 
 	return execFn()
@@ -155,13 +177,34 @@ var (
 		"--backoff format must be duration,multiplier (e.g., 1s,2.0)",
 	)
 	errBackoffRequiresValue = errors.New("--backoff requires a value")
+	errCacheConflict        = errors.New(
+		"--cache conflicts with target's cache configuration; use .Cache(targ.Disabled) to allow CLI override",
+	)
 	errCacheRequiresPattern = errors.New("--cache requires a pattern")
 	errDepModeInvalid       = errors.New("--dep-mode must be 'serial' or 'parallel'")
 	errDepModeRequiresValue = errors.New("--dep-mode requires a value")
 	errTimesRequiresValue   = errors.New("--times requires a numeric value")
+	errWatchConflict        = errors.New(
+		"--watch conflicts with target's watch configuration; use .Watch(targ.Disabled) to allow CLI override",
+	)
 	errWatchRequiresPattern = errors.New("--watch requires a pattern")
 	errWhileRequiresCommand = errors.New("--while requires a command")
 )
+
+// checkConflicts verifies CLI overrides don't conflict with Target config.
+func checkConflicts(overrides RuntimeOverrides, config TargetConfig) error {
+	// Check watch conflict: CLI --watch vs Target.Watch()
+	if len(overrides.Watch) > 0 && len(config.WatchPatterns) > 0 && !config.WatchDisabled {
+		return errWatchConflict
+	}
+
+	// Check cache conflict: CLI --cache vs Target.Cache()
+	if len(overrides.Cache) > 0 && len(config.CachePatterns) > 0 && !config.CacheDisabled {
+		return errCacheConflict
+	}
+
+	return nil
+}
 
 // checkWhileCondition runs a shell command and returns true if it succeeds.
 func checkWhileCondition(ctx context.Context, cmd string) bool {

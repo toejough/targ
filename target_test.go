@@ -144,6 +144,18 @@ func TestTarget_CacheBuilderReturnsSameTarget(t *testing.T) {
 	g.Expect(afterCache).To(BeIdenticalTo(original))
 }
 
+func TestTarget_CacheDisabledSetsFlag(t *testing.T) {
+	g := NewWithT(t)
+
+	target := targ.Targ(func() {}).Cache(targ.Disabled)
+
+	// GetConfig returns (watch, cache, watchDisabled, cacheDisabled)
+	_, cache, _, cacheDisabled := target.GetConfig()
+
+	g.Expect(cacheDisabled).To(BeTrue())
+	g.Expect(cache).To(BeNil()) // Patterns cleared when disabled
+}
+
 func TestTarget_CacheHitSkipsExecution(t *testing.T) {
 	g := NewWithT(t)
 
@@ -516,6 +528,18 @@ func TestTarget_WatchBuilderReturnsSameTarget(t *testing.T) {
 	afterWatch := original.Watch("*.go")
 
 	g.Expect(afterWatch).To(BeIdenticalTo(original))
+}
+
+func TestTarget_WatchDisabledSetsFlag(t *testing.T) {
+	g := NewWithT(t)
+
+	target := targ.Targ(func() {}).Watch(targ.Disabled)
+
+	// GetConfig returns (watch, cache, watchDisabled, cacheDisabled)
+	watch, _, watchDisabled, _ := target.GetConfig()
+
+	g.Expect(watchDisabled).To(BeTrue())
+	g.Expect(watch).To(BeNil()) // Patterns cleared when disabled
 }
 
 func TestTarget_WhileBuilderReturnsSameTarget(t *testing.T) {
