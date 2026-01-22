@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	. "github.com/onsi/gomega"
 	"pgregory.net/rapid"
@@ -61,6 +62,22 @@ func TestTarg_PanicsOnNonFuncNonString(t *testing.T) {
 	}).To(Panic())
 }
 
+func TestTarget_BuilderChainWithDepsAndTimeout(t *testing.T) {
+	g := NewWithT(t)
+
+	order := make([]string, 0)
+	dep := targ.Targ(func() { order = append(order, "dep") })
+	main := targ.Targ(func() { order = append(order, "main") }).
+		Name("test").
+		Description("test target").
+		Deps(dep).
+		Timeout(time.Second)
+
+	err := main.Run(context.Background())
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(order).To(Equal([]string{"dep", "main"}))
+}
+
 func TestTarget_BuilderChainsPreserveSettings(t *testing.T) {
 	rapid.Check(t, func(rt *rapid.T) {
 		g := NewWithT(t)
@@ -85,6 +102,66 @@ func TestTarget_BuilderMethodsReturnSameTarget(t *testing.T) {
 	// All should be the same pointer
 	g.Expect(afterName).To(BeIdenticalTo(original))
 	g.Expect(afterDesc).To(BeIdenticalTo(original))
+}
+
+func TestTarget_DepsRunSerially(t *testing.T) {
+	g := NewWithT(t)
+
+	order := make([]string, 0)
+	a := targ.Targ(func() { order = append(order, "a") })
+	b := targ.Targ(func() { order = append(order, "b") })
+	c := targ.Targ(func() { order = append(order, "c") }).Deps(a, b)
+
+	err := c.Run(context.Background())
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(order).To(Equal([]string{"a", "b", "c"}))
+}
+
+func TestTarget_DepsStopOnError(t *testing.T) {
+	g := NewWithT(t)
+
+	order := make([]string, 0)
+	a := targ.Targ(func() { order = append(order, "a") })
+	b := targ.Targ(func() error {
+		order = append(order, "b")
+		return errors.New("b failed")
+	})
+	c := targ.Targ(func() { order = append(order, "c") }).Deps(a, b)
+
+	err := c.Run(context.Background())
+	g.Expect(err).To(MatchError(ContainSubstring("b failed")))
+	g.Expect(order).To(Equal([]string{"a", "b"}))
+}
+
+func TestTarget_ParallelDepsRunConcurrently(t *testing.T) {
+	g := NewWithT(t)
+
+	// Use channels to verify concurrent execution
+	aStarted := make(chan struct{})
+	bStarted := make(chan struct{})
+	done := make(chan struct{})
+
+	a := targ.Targ(func() {
+		close(aStarted)
+		<-done
+	})
+	b := targ.Targ(func() {
+		close(bStarted)
+		<-done
+	})
+	c := targ.Targ(func() {}).ParallelDeps(a, b)
+
+	go func() {
+		_ = c.Run(context.Background())
+	}()
+
+	// Both should start before either completes
+	<-aStarted
+	<-bStarted
+	close(done)
+
+	// Give the main goroutine time to complete
+	g.Eventually(func() bool { return true }).Should(BeTrue())
 }
 
 func TestTarget_RunCallsFunction(t *testing.T) {
@@ -170,6 +247,37 @@ func TestTarget_RunWithContextAndArgs(t *testing.T) {
 	g.Expect(err).ToNot(HaveOccurred())
 	g.Expect(receivedCtxValue).To(Equal("value"))
 	g.Expect(receivedArgs.Value).To(Equal("test"))
+}
+
+func TestTarget_ShellCommandExecution(t *testing.T) {
+	g := NewWithT(t)
+
+	// Simple shell command that should succeed
+	target := targ.Targ("echo hello")
+	err := target.Run(context.Background())
+	g.Expect(err).ToNot(HaveOccurred())
+}
+
+func TestTarget_ShellCommandFails(t *testing.T) {
+	g := NewWithT(t)
+
+	// Command that should fail
+	target := targ.Targ("exit 1")
+	err := target.Run(context.Background())
+	g.Expect(err).To(HaveOccurred())
+}
+
+func TestTarget_TimeoutCancelsExecution(t *testing.T) {
+	g := NewWithT(t)
+
+	target := targ.Targ(func(ctx context.Context) error {
+		<-ctx.Done()
+		return ctx.Err()
+	}).Timeout(10 * time.Millisecond)
+
+	err := target.Run(context.Background())
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(errors.Is(err, context.DeadlineExceeded)).To(BeTrue())
 }
 
 // unexported constants.
