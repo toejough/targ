@@ -1911,14 +1911,25 @@ func printTargFlags(opts RunOptions, isRoot bool) {
 	}
 }
 
-// printTopLevelCommand prints a top-level command (like "issues" or "targets").
-func printTopLevelCommand(node *commandNode) {
-	// Command name and description on same line: "  name    description"
+// printTopLevelCommand prints a top-level command with aligned description.
+// width is the column width for the name (for alignment).
+func printTopLevelCommand(node *commandNode, width int) {
 	if node.Description != "" {
-		fmt.Printf("  %s    %s\n", node.Name, node.Description)
+		fmt.Printf("  %-*s  %s\n", width, node.Name, node.Description)
 	} else {
 		fmt.Printf("  %s\n", node.Name)
 	}
+}
+
+// maxNameWidth returns the maximum name length among nodes.
+func maxNameWidth(nodes []*commandNode) int {
+	max := 0
+	for _, node := range nodes {
+		if len(node.Name) > max {
+			max = len(node.Name)
+		}
+	}
+	return max
 }
 
 // getNodeSourceFile returns the source file for a node, checking subcommands if needed.
@@ -1990,8 +2001,9 @@ func printUsage(nodes []*commandNode, opts RunOptions) {
 			fmt.Println()
 		}
 		fmt.Printf("\n  [%s]\n", group.source)
+		width := maxNameWidth(group.nodes)
 		for _, node := range group.nodes {
-			printTopLevelCommand(node)
+			printTopLevelCommand(node, width)
 		}
 	}
 
