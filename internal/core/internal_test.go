@@ -2137,6 +2137,70 @@ func TestParseTarget_TargetLike_StringCommandNoName(t *testing.T) {
 	g.Expect(node.Name).To(Equal("golangci-lint"))
 }
 
+func TestParseTarget_TargetLike_StringCommandWithVars(t *testing.T) {
+	g := NewWithT(t)
+
+	target := &mockTarget{
+		fn:          "kubectl apply -n $namespace -f $file",
+		name:        "deploy",
+		description: "Deploy to Kubernetes",
+	}
+
+	node, err := parseTarget(target)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(node).ToNot(BeNil())
+
+	if node == nil {
+		t.Fatal("node is nil")
+	}
+
+	g.Expect(node.Name).To(Equal("deploy"))
+	g.Expect(node.ShellCommand).To(Equal("kubectl apply -n $namespace -f $file"))
+	g.Expect(node.ShellVars).To(Equal([]string{"namespace", "file"}))
+}
+
+func TestParseTarget_TargetLike_StringCommandWithBraceVars(t *testing.T) {
+	g := NewWithT(t)
+
+	target := &mockTarget{
+		fn:   "echo ${name}suffix ${port}",
+		name: "test",
+	}
+
+	node, err := parseTarget(target)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(node).ToNot(BeNil())
+
+	if node == nil {
+		t.Fatal("node is nil")
+	}
+
+	// Variables should be extracted in order, lowercase
+	g.Expect(node.ShellVars).To(Equal([]string{"name", "port"}))
+}
+
+func TestShellVarFlagHelp(t *testing.T) {
+	g := NewWithT(t)
+
+	vars := []string{"namespace", "file", "name"}
+	flags := shellVarFlagHelp(vars)
+
+	g.Expect(flags).To(HaveLen(3))
+
+	// First flag: namespace with short -n
+	g.Expect(flags[0].Name).To(Equal("namespace"))
+	g.Expect(flags[0].Short).To(Equal("n"))
+	g.Expect(flags[0].Required).To(BeTrue())
+
+	// Second flag: file with short -f
+	g.Expect(flags[1].Name).To(Equal("file"))
+	g.Expect(flags[1].Short).To(Equal("f"))
+
+	// Third flag: name - no short (n already used)
+	g.Expect(flags[2].Name).To(Equal("name"))
+	g.Expect(flags[2].Short).To(Equal("")) // n already taken
+}
+
 func TestParseTarget_TargetLike_WithFunction(t *testing.T) {
 	g := NewWithT(t)
 

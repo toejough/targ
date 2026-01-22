@@ -14,12 +14,12 @@ Rebuild targ from struct-based model to function-based Target Builder pattern fo
 | 4 | ✅ Complete | Execution Features (deps, cache, watch) |
 | 5 | ✅ Complete | Repetition Features (times, while, retry, backoff, timeout) |
 | 6 | ✅ Complete | Runtime Overrides |
-| 7 | ❌ Not Started | Shell Support |
+| 7 | ✅ Complete | Shell Support |
 | 8 | ❌ Not Started | --sync Remote Import |
 | 9 | ❌ Not Started | Additional Global Flags |
 | 10 | ❌ Not Started | Remove Struct Model |
 
-**Next**: Phase 3 (Explicit Registration) or Phase 7 (Shell Support)
+**Next**: Phase 3 (Explicit Registration) or Phase 8 (--sync Remote Import)
 
 ## Approach
 
@@ -551,39 +551,29 @@ targ build --deps lint test -- deploy   # -- ends variadic and resets path
 
 ---
 
-## Phase 7: Shell Support (targ.Shell + String Targets)
+## Phase 7: Shell Support (targ.Shell + String Targets) ✅ COMPLETE
 
-### 7.1 targ.Shell(ctx, cmd, args)
+### 7.1 targ.Shell(ctx, cmd, args) ✅
 
-**New function**: `shell.go`
+**Implemented in**: `shell.go`
 
-**Properties**:
+- `targ.Shell(ctx, cmd, args)` executes shell commands with $var substitution
+- Variables are matched case-insensitively to struct fields
+- Unknown $var returns error
+- Context cancellation propagates
 
-```go
-// $var substitution from struct fields
-rapid.Check(t, func(t *rapid.T) {
-    name := rapid.StringMatching(`[a-z]+`).Draw(t, "name")
-    args := struct{ Name string }{Name: name}
+### 7.2 String Targets: targ.Targ("cmd $var") ✅
 
-    result := substituteVars("echo $name", args)
-    gomega.Expect(result).To(gomega.Equal(fmt.Sprintf("echo %s", name)))
-})
+**Implemented in**: `internal/core/command.go`
 
-// Unknown $var errors
-// Context cancellation propagates
-```
-
-### 7.2 String Targets: targ.Targ("cmd $var")
-
-**Properties**:
-
-- Infers flags from $var
-- Short flags from first letter
-- Collision skips short for later args
+- Infers flags from $var placeholders
+- Short flags from first letter (collision skips)
+- Required flags for all variables
+- CLI execution via `executeShellCommand()`
 
 ### 7.3 Migrate dev/targets.go
 
-Convert shell-heavy targets to use `targ.Shell()` or string targets:
+**Remaining**: Convert shell-heavy targets to use `targ.Shell()` or string targets:
 
 ```go
 var lint = targ.Targ("golangci-lint run ./...").Description("Run linter")

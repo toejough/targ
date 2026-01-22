@@ -9,11 +9,14 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"runtime"
 	"slices"
 	"sort"
 	"strings"
 	"unicode"
+
+	"github.com/toejough/targ/sh"
 )
 
 // GroupLike is implemented by targ.Group for discovery integration.
@@ -101,6 +104,9 @@ var (
 	errTargetInvalidFnType       = errors.New("Target.Fn() must be func or string")
 	errUnableToDetermineFuncName = errors.New("unable to determine function name")
 	errUnsupportedFieldType      = errors.New("unsupported subcommand field type")
+
+	// shellVarPattern matches $var or ${var} style variables in shell commands.
+	shellVarPattern = regexp.MustCompile(`\$\{?([a-zA-Z_][a-zA-Z0-9_]*)\}?`)
 )
 
 type commandInstance struct {
@@ -118,6 +124,10 @@ type commandNode struct {
 	RunMethod   reflect.Value
 	Description string
 	SourceFile  string // Source file path for build tool mode
+
+	// Shell command support
+	ShellCommand string   // Shell command string (e.g., "kubectl apply -n $namespace")
+	ShellVars    []string // Variable names extracted from ShellCommand (lowercase)
 
 	// Target configuration for conflict detection with CLI overrides
 	WatchPatterns []string
@@ -260,6 +270,10 @@ func (n *commandNode) executeWithParents(
 
 	if n.Func.IsValid() {
 		return executeFunctionWithParents(ctx, args, n, parents, visited, explicit, opts)
+	}
+
+	if n.ShellCommand != "" {
+		return executeShellCommand(ctx, args, n, parents, visited, explicit, opts)
 	}
 
 	return n.executeStructCommand(ctx, args, parents, visited, explicit, opts)
@@ -903,6 +917,11 @@ func checkRequiredFlags(specs []*flagSpec, visited map[string]bool) error {
 }
 
 func collectFlagHelp(node *commandNode) ([]flagHelp, error) {
+	// Shell command targets: generate flags from $var placeholders
+	if len(node.ShellVars) > 0 {
+		return shellVarFlagHelp(node.ShellVars), nil
+	}
+
 	if node.Type == nil {
 		return nil, nil
 	}
@@ -926,6 +945,33 @@ func collectFlagHelp(node *commandNode) ([]flagHelp, error) {
 	}
 
 	return flags, nil
+}
+
+// shellVarFlagHelp generates synthetic flag help for shell command variables.
+func shellVarFlagHelp(vars []string) []flagHelp {
+	flags := make([]flagHelp, 0, len(vars))
+	usedShorts := make(map[rune]bool)
+
+	for _, varName := range vars {
+		flag := flagHelp{
+			Name:        varName,
+			Placeholder: "VALUE",
+			Required:    true, // All shell vars are required
+		}
+
+		// Assign short flag from first letter if not already used
+		if len(varName) > 0 {
+			firstRune := rune(varName[0])
+			if !usedShorts[firstRune] {
+				flag.Short = string(firstRune)
+				usedShorts[firstRune] = true
+			}
+		}
+
+		flags = append(flags, flag)
+	}
+
+	return flags
 }
 
 func collectFlagHelpChain(node *commandNode) ([]flagHelp, error) {
@@ -1144,6 +1190,166 @@ func executeFunctionWithParents(
 	}
 
 	return result.remaining, nil
+}
+
+// executeShellCommand handles execution of shell command targets with $var substitution.
+//
+//nolint:funlen // Function handles complete execution flow including parsing and substitution
+func executeShellCommand(
+	ctx context.Context,
+	args []string,
+	node *commandNode,
+	parents []commandInstance,
+	_ map[string]bool, // visited - not used for shell commands
+	_ bool, // explicit - not used for shell commands
+	opts RunOptions,
+) ([]string, error) {
+	// Parse flags from args to get variable values
+	varValues := make(map[string]string)
+	remaining := make([]string, 0, len(args))
+	shortToLong := buildShortToLongMap(node.ShellVars)
+
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+
+		// Handle --help
+		if arg == "--help" || arg == "-h" {
+			printCommandHelp(node, opts)
+
+			return nil, nil
+		}
+
+		// Handle long flags
+		if strings.HasPrefix(arg, "--") {
+			flagName := strings.TrimPrefix(arg, "--")
+			value := ""
+
+			// Handle --flag=value syntax
+			if idx := strings.Index(flagName, "="); idx != -1 {
+				value = flagName[idx+1:]
+				flagName = flagName[:idx]
+			} else if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
+				// Handle --flag value syntax
+				i++
+				value = args[i]
+			}
+
+			if isShellVar(flagName, node.ShellVars) {
+				varValues[strings.ToLower(flagName)] = value
+			} else {
+				remaining = append(remaining, arg)
+			}
+
+			continue
+		}
+
+		// Handle short flags
+		if strings.HasPrefix(arg, "-") && len(arg) > 1 {
+			shortFlag := string(arg[1])
+			if longName, ok := shortToLong[shortFlag]; ok {
+				value := ""
+				if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
+					i++
+					value = args[i]
+				}
+
+				varValues[longName] = value
+
+				continue
+			}
+		}
+
+		remaining = append(remaining, arg)
+	}
+
+	// In help-only mode, skip execution
+	if opts.HelpOnly {
+		return remaining, nil
+	}
+
+	// Check that all required variables are provided
+	for _, varName := range node.ShellVars {
+		if _, ok := varValues[varName]; !ok {
+			return nil, fmt.Errorf("%w: --%s", errMissingRequiredFlag, varName)
+		}
+	}
+
+	err := runPersistentHooks(ctx, parents, "PersistentBefore")
+	if err != nil {
+		return nil, err
+	}
+
+	// Execute with runtime overrides
+	config := TargetConfig{
+		WatchPatterns: node.WatchPatterns,
+		CachePatterns: node.CachePatterns,
+		WatchDisabled: node.WatchDisabled,
+		CacheDisabled: node.CacheDisabled,
+	}
+
+	err = ExecuteWithOverrides(ctx, opts.Overrides, config, func() error {
+		return runShellWithVars(ctx, node.ShellCommand, varValues)
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	err = runPersistentHooks(ctx, reverseChain(parents), "PersistentAfter")
+	if err != nil {
+		return nil, err
+	}
+
+	return remaining, nil
+}
+
+// buildShortToLongMap builds a map from short flag letters to long flag names.
+func buildShortToLongMap(vars []string) map[string]string {
+	result := make(map[string]string)
+	usedShorts := make(map[rune]bool)
+
+	for _, varName := range vars {
+		if len(varName) > 0 {
+			firstRune := rune(varName[0])
+			if !usedShorts[firstRune] {
+				result[string(firstRune)] = varName
+				usedShorts[firstRune] = true
+			}
+		}
+	}
+
+	return result
+}
+
+// isShellVar checks if a flag name matches one of the shell variables.
+func isShellVar(name string, vars []string) bool {
+	for _, v := range vars {
+		if strings.EqualFold(name, v) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// runShellWithVars substitutes variables and executes a shell command.
+func runShellWithVars(ctx context.Context, cmd string, vars map[string]string) error {
+	// Substitute $var and ${var} patterns
+	substituted := shellVarPattern.ReplaceAllStringFunc(cmd, func(match string) string {
+		submatch := shellVarPattern.FindStringSubmatch(match)
+		if len(submatch) < 2 {
+			return match
+		}
+
+		varName := strings.ToLower(submatch[1])
+		if val, ok := vars[varName]; ok {
+			return val
+		}
+
+		return match
+	})
+
+	// Execute via sh -c
+	return sh.RunContext(ctx, "sh", "-c", substituted)
 }
 
 func expandFlagGroup(arg, group string, shortInfo map[string]bool) ([]string, error) {
@@ -1822,9 +2028,10 @@ func parseTargetLikeFunc(target TargetLike, fn any) (*commandNode, error) {
 // parseTargetLikeString creates a commandNode for a shell command target.
 func parseTargetLikeString(target TargetLike, cmd string) *commandNode {
 	node := &commandNode{
-		Name:        target.GetName(),
-		Description: target.GetDescription(),
-		Subcommands: make(map[string]*commandNode),
+		Name:         target.GetName(),
+		Description:  target.GetDescription(),
+		Subcommands:  make(map[string]*commandNode),
+		ShellCommand: cmd,
 	}
 
 	// If no name set, use the first word of the command
@@ -1835,7 +2042,36 @@ func parseTargetLikeString(target TargetLike, cmd string) *commandNode {
 		}
 	}
 
+	// Extract variable names from the command (e.g., $namespace, ${file})
+	node.ShellVars = extractShellVars(cmd)
+
 	return node
+}
+
+// extractShellVars extracts unique variable names from a shell command.
+// Returns lowercase variable names in order of first occurrence.
+func extractShellVars(cmd string) []string {
+	matches := shellVarPattern.FindAllStringSubmatch(cmd, -1)
+	if len(matches) == 0 {
+		return nil
+	}
+
+	seen := make(map[string]bool)
+	var vars []string
+
+	for _, match := range matches {
+		if len(match) < 2 {
+			continue
+		}
+
+		varName := strings.ToLower(match[1])
+		if !seen[varName] {
+			seen[varName] = true
+			vars = append(vars, varName)
+		}
+	}
+
+	return vars
 }
 
 // positionalName returns the display name for a positional argument.
