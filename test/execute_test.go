@@ -541,6 +541,169 @@ func TestTimeout_PerCommandExceeded(t *testing.T) {
 	}
 }
 
+// --- Target/Group Tests ---
+
+func TestTarget_BasicExecution(t *testing.T) {
+	called := false
+	target := targ.Targ(func() { called = true })
+
+	_, err := targ.Execute([]string{"app"}, target)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !called {
+		t.Fatal("expected target function to be called")
+	}
+}
+
+func TestTarget_CustomName_RoutesWithMultipleRoots(t *testing.T) {
+	var calledTarget string
+	first := targ.Targ(func() { calledTarget = "first" }).Name("first")
+	custom := targ.Targ(func() { calledTarget = "custom" }).Name("my-target")
+
+	_, err := targ.Execute([]string{"app", "my-target"}, first, custom)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if calledTarget != "custom" {
+		t.Fatalf("expected 'custom' to be called, got %q", calledTarget)
+	}
+}
+
+func TestTarget_WithArgs(t *testing.T) {
+	type Args struct {
+		Name string `targ:"flag"`
+	}
+
+	var gotName string
+	target := targ.Targ(func(args Args) {
+		gotName = args.Name
+	})
+
+	result, err := targ.Execute([]string{"app", "--name", "test"}, target)
+	if err != nil {
+		t.Fatalf("unexpected error: %v, output: %s", err, result.Output)
+	}
+
+	if gotName != "test" {
+		t.Fatalf("expected name='test', got %q", gotName)
+	}
+}
+
+func TestTarget_WithEmbeddedArgs(t *testing.T) {
+	type CommonArgs struct {
+		Verbose bool `targ:"flag,short=v"`
+	}
+
+	type DeployArgs struct {
+		CommonArgs
+		Env string `targ:"flag"`
+	}
+
+	var gotVerbose bool
+	var gotEnv string
+	target := targ.Targ(func(args DeployArgs) {
+		gotVerbose = args.Verbose
+		gotEnv = args.Env
+	})
+
+	result, err := targ.Execute([]string{"app", "--verbose", "--env", "prod"}, target)
+	if err != nil {
+		t.Fatalf("unexpected error: %v, output: %s", err, result.Output)
+	}
+
+	if !gotVerbose {
+		t.Fatal("expected verbose=true")
+	}
+	if gotEnv != "prod" {
+		t.Fatalf("expected env='prod', got %q", gotEnv)
+	}
+}
+
+func TestGroup_RoutesToMembers(t *testing.T) {
+	called := false
+	sub := targ.Targ(func() { called = true }).Name("sub")
+	group := targ.NewGroup("grp", sub)
+
+	// Group as single root (default) - go directly to member name
+	_, err := targ.Execute([]string{"app", "sub"}, group)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !called {
+		t.Fatal("expected sub target to be called")
+	}
+}
+
+func TestGroup_AsNamedRoot(t *testing.T) {
+	called := false
+	sub := targ.Targ(func() { called = true }).Name("sub")
+	group := targ.NewGroup("grp", sub)
+	other := targ.Targ(func() {}).Name("other")
+
+	// Group as one of multiple roots - need to specify group name
+	_, err := targ.Execute([]string{"app", "grp", "sub"}, group, other)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !called {
+		t.Fatal("expected sub target to be called")
+	}
+}
+
+func TestGroup_MultipleMembers(t *testing.T) {
+	var calledTarget string
+	build := targ.Targ(func() { calledTarget = "build" }).Name("build")
+	test := targ.Targ(func() { calledTarget = "test" }).Name("test")
+	group := targ.NewGroup("dev", build, test)
+
+	// Single root group - go directly to member
+	_, err := targ.Execute([]string{"app", "test"}, group)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if calledTarget != "test" {
+		t.Fatalf("expected 'test' to be called, got %q", calledTarget)
+	}
+}
+
+func TestGroup_NestedRouting(t *testing.T) {
+	called := false
+	inner := targ.Targ(func() { called = true }).Name("inner")
+	innerGroup := targ.NewGroup("inner-grp", inner)
+	outerGroup := targ.NewGroup("outer", innerGroup)
+
+	// Single root (outer) - route through inner-grp to inner
+	_, err := targ.Execute([]string{"app", "inner-grp", "inner"}, outerGroup)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !called {
+		t.Fatal("expected inner target to be called")
+	}
+}
+
+func TestMultipleRoots_RoutesCorrectly(t *testing.T) {
+	var calledTarget string
+	build := targ.Targ(func() { calledTarget = "build" }).Name("build")
+	test := targ.Targ(func() { calledTarget = "test" }).Name("test")
+
+	_, err := targ.Execute([]string{"app", "test"}, build, test)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if calledTarget != "test" {
+		t.Fatalf("expected 'test' to be called, got %q", calledTarget)
+	}
+}
+
 // unexported constants.
 const (
 	testNameAlice = "Alice"

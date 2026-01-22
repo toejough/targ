@@ -316,11 +316,32 @@ func collectInstanceFlagSpecs(
 		return nil, nil
 	}
 
+	return collectStructFlagSpecs(inst, inst.node.Type, inst.value, usedNames)
+}
+
+func collectStructFlagSpecs(
+	inst commandInstance,
+	typ reflect.Type,
+	val reflect.Value,
+	usedNames map[string]bool,
+) ([]*flagSpec, error) {
 	var specs []*flagSpec
 
-	typ := inst.node.Type
 	for i := range typ.NumField() {
-		spec, ok, err := collectFieldFlagSpec(inst, typ.Field(i), inst.value.Field(i), usedNames)
+		field := typ.Field(i)
+		fieldVal := val.Field(i)
+
+		// Handle embedded (anonymous) structs by recursing into them
+		if field.Anonymous && field.Type.Kind() == reflect.Struct {
+			embeddedSpecs, err := collectStructFlagSpecs(inst, field.Type, fieldVal, usedNames)
+			if err != nil {
+				return nil, err
+			}
+			specs = append(specs, embeddedSpecs...)
+			continue
+		}
+
+		spec, ok, err := collectFieldFlagSpec(inst, field, fieldVal, usedNames)
 		if err != nil {
 			return nil, err
 		}
@@ -338,11 +359,25 @@ func collectPositionalSpecs(node *commandNode, inst reflect.Value) ([]positional
 		return nil, nil
 	}
 
-	typ := node.Type
+	return collectStructPositionalSpecs(node.Type, inst)
+}
+
+func collectStructPositionalSpecs(typ reflect.Type, inst reflect.Value) ([]positionalSpec, error) {
 	specs := make([]positionalSpec, 0, typ.NumField())
 
 	for i := range typ.NumField() {
 		field := typ.Field(i)
+		fieldVal := inst.Field(i)
+
+		// Handle embedded (anonymous) structs by recursing into them
+		if field.Anonymous && field.Type.Kind() == reflect.Struct {
+			embeddedSpecs, err := collectStructPositionalSpecs(field.Type, fieldVal)
+			if err != nil {
+				return nil, err
+			}
+			specs = append(specs, embeddedSpecs...)
+			continue
+		}
 
 		opts, err := tagOptionsForField(inst, field)
 		if err != nil {
@@ -357,7 +392,6 @@ func collectPositionalSpecs(node *commandNode, inst reflect.Value) ([]positional
 			return nil, fmt.Errorf("%w: %s", errFieldNotExported, field.Name)
 		}
 
-		fieldVal := inst.Field(i)
 		specs = append(specs, positionalSpec{
 			field:    field,
 			value:    fieldVal,
