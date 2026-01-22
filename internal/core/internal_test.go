@@ -195,7 +195,7 @@ func TestAppendBuiltinExamples(t *testing.T) {
 	g.Expect(examples).To(HaveLen(3))
 	g.Expect(examples[0].Title).To(Equal("Custom"))
 	g.Expect(examples[1].Title).To(Equal("Enable shell completion"))
-	g.Expect(examples[2].Title).To(ContainSubstring("Chain commands"))
+	g.Expect(examples[2].Title).To(ContainSubstring("Run multiple"))
 }
 
 func TestApplyTagOptionsOverride_MethodReturnsError(t *testing.T) {
@@ -509,8 +509,8 @@ func TestBuiltinExamples(t *testing.T) {
 	g.Expect(examples).To(HaveLen(2))
 	g.Expect(examples[0].Title).To(Equal("Enable shell completion"))
 	g.Expect(examples[0].Code).To(ContainSubstring("--completion"))
-	g.Expect(examples[1].Title).To(ContainSubstring("Chain commands"))
-	g.Expect(examples[1].Code).To(ContainSubstring("^"))
+	g.Expect(examples[1].Title).To(ContainSubstring("Run multiple"))
+	g.Expect(examples[1].Code).To(ContainSubstring("targ"))
 }
 
 func TestCallStringMethod_NonExistentMethod(t *testing.T) {
@@ -2484,7 +2484,7 @@ func TestPrependBuiltinExamples(t *testing.T) {
 
 	if len(examples) >= 3 {
 		g.Expect(examples[0].Title).To(Equal("Enable shell completion"))
-		g.Expect(examples[1].Title).To(ContainSubstring("Chain commands"))
+		g.Expect(examples[1].Title).To(ContainSubstring("Run multiple"))
 		g.Expect(examples[2].Title).To(Equal("Custom"))
 	}
 }
@@ -2752,7 +2752,7 @@ func TestPrintExamples_Nil(t *testing.T) {
 
 	g.Expect(output).To(ContainSubstring("Examples:"))
 	g.Expect(output).To(ContainSubstring("Enable shell completion"))
-	g.Expect(output).To(ContainSubstring("Chain commands"))
+	g.Expect(output).To(ContainSubstring("Run multiple"))
 }
 
 func TestPrintExamples_NotRoot(t *testing.T) {
@@ -2766,7 +2766,7 @@ func TestPrintExamples_NotRoot(t *testing.T) {
 
 	g.Expect(output).To(ContainSubstring("Examples:"))
 	g.Expect(output).NotTo(ContainSubstring("Enable shell completion"))
-	g.Expect(output).To(ContainSubstring("Chain commands"))
+	g.Expect(output).To(ContainSubstring("Run multiple"))
 }
 
 func TestPrintFlagWithWrappedEnum(t *testing.T) {

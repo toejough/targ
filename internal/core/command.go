@@ -53,7 +53,33 @@ func builtinExamplesForNodes(nodes []*commandNode) []Example {
 // chainExample returns an example showing command chaining.
 // If nodes are provided, uses actual command names.
 func chainExample(nodes []*commandNode) Example {
-	// Get up to 2 command names from different source files
+	// Check if any nodes have subcommands (nested structure)
+	var groupWithSub *commandNode
+	var subName string
+	var otherCmd string
+
+	for _, node := range nodes {
+		if len(node.Subcommands) > 0 && groupWithSub == nil {
+			groupWithSub = node
+			// Get first subcommand name
+			for name := range node.Subcommands {
+				subName = name
+				break
+			}
+		} else if groupWithSub != nil && otherCmd == "" {
+			otherCmd = node.Name
+		}
+	}
+
+	// If we have nested groups, show ^ example
+	if groupWithSub != nil && otherCmd != "" {
+		return Example{
+			Title: "Chain nested commands (^ returns to root)",
+			Code:  fmt.Sprintf("targ %s %s ^ %s", groupWithSub.Name, subName, otherCmd),
+		}
+	}
+
+	// Flat structure - show simple chaining
 	var names []string
 	seenSources := make(map[string]bool)
 
@@ -65,14 +91,13 @@ func chainExample(nodes []*commandNode) Example {
 		}
 	}
 
-	// Fall back to generic if not enough commands
 	if len(names) < 2 {
 		names = []string{"build", "test"}
 	}
 
 	return Example{
-		Title: "Chain commands (^ separates independent commands)",
-		Code:  fmt.Sprintf("targ %s ^ %s", names[0], names[1]),
+		Title: "Run multiple commands",
+		Code:  fmt.Sprintf("targ %s %s", names[0], names[1]),
 	}
 }
 
