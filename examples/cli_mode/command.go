@@ -1,31 +1,30 @@
-// Package main demonstrates CLI mode usage.
+// Package main demonstrates CLI mode usage with the Target/Group model.
 package main
 
 import "fmt"
 
-type Build struct {
+// --- Build ---
+
+type BuildArgs struct {
 	Target string `targ:"flag"`
 }
 
-func (b *Build) Run() {
-	fmt.Printf("Building target: %s\n", b.Target)
+func build(args BuildArgs) {
+	fmt.Printf("Building target: %s\n", args.Target)
 }
 
-type Clean struct{}
+// --- Clean ---
 
-func (c *Clean) Run() {
+func clean() {
 	fmt.Println("Cleaning...")
 }
 
-type Deploy struct {
-	Staging *StagingCmd `targ:"subcommand"`
-	Prod    *ProdCmd    `targ:"subcommand"`
+// --- Deploy ---
+
+func deployStaging() {
+	fmt.Println("Deploying to Staging")
 }
 
-type ProdCmd struct{}
-
-func (p *ProdCmd) Run() { fmt.Println("Deploying to Prod") }
-
-type StagingCmd struct{}
-
-func (s *StagingCmd) Run() { fmt.Println("Deploying to Staging") }
+func deployProd() {
+	fmt.Println("Deploying to Prod")
+}

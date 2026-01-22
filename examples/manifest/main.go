@@ -1,4 +1,4 @@
-// Package main demonstrates manifest-based targ usage.
+// Package main demonstrates manifest-based targ usage with the Target/Group model.
 package main
 
 import (
@@ -7,47 +7,40 @@ import (
 	"github.com/toejough/targ"
 )
 
+func init() {
+	targ.Register(
+		targ.NewGroup("build",
+			targ.Targ(buildDocker).Name("docker").Description("Build Docker image"),
+			targ.Targ(buildLinux).Name("linux").Description("Build Linux binary"),
+		),
+		targ.Targ(deploy).Name("deploy").Description("Deployment commands"),
+	)
+}
+
 func main() {
-	// Run Targ with a single root; subcommands are optional.
-	targ.Run(Root{})
+	targ.ExecuteRegistered()
 }
 
-// --- Command Definitions ---
+// --- Build ---
 
-type Build struct {
-	// Build subcommands
-	Docker *BuildDocker `targ:"subcommand,desc=Build Docker image"`
-	Linux  *BuildLinux  `targ:"subcommand,desc=Build Linux binary"`
-}
-
-// Run prints a building message.
-func (b *Build) Run() { fmt.Println("Building...") }
-
-type BuildDocker struct {
+type BuildDockerArgs struct {
 	Tag string `targ:"flag,desc=Docker image tag"`
 }
 
-// Run builds and tags a Docker image.
-func (b *BuildDocker) Run() { fmt.Println("Building Docker") }
+func buildDocker(args BuildDockerArgs) {
+	fmt.Printf("Building Docker image with tag: %s\n", args.Tag)
+}
 
-type BuildLinux struct{}
+func buildLinux() {
+	fmt.Println("Building Linux binary")
+}
 
-// Run builds the Linux binary.
-func (b *BuildLinux) Run() { fmt.Println("Building Linux") }
+// --- Deploy ---
 
-type Deploy struct {
+type DeployArgs struct {
 	Env string `targ:"flag,desc=Deployment environment"`
 }
 
-// Run deploys the application to an environment.
-func (d *Deploy) Run() { fmt.Println("Deploying...") }
-
-// Root is the manifest defining the entire tree structure ("Table of Contents" for your CLI).
-type Root struct {
-	// Top-level commands
-	Build  *Build  `targ:"subcommand,desc=Build related commands"`
-	Deploy *Deploy `targ:"subcommand,desc=Deployment commands"`
-
-	// Global flags (optional)
-	Verbose bool `targ:"flag,global"`
+func deploy(args DeployArgs) {
+	fmt.Printf("Deploying to %s...\n", args.Env)
 }
