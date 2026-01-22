@@ -23,6 +23,7 @@ Rebuild targ from struct-based model to function-based Target Builder pattern fo
 **Stack**: imptest (DI/mocks), rapid (property-based), gomega (assertions)
 
 **E2E without side effects**:
+
 - Use existing `runEnv` interface and `ExecuteEnv` for testing
 - Use `sh.execCommand` injection point for exec mocking
 - Use `FileSystem` interface in buildtool for file operations
@@ -56,6 +57,7 @@ func (t *Target) Description(s string) *Target
 Start minimal - just enough for `targ.Targ("cmd")` to work. Add execution features (deps, cache, etc.) in later phases.
 
 **Properties**:
+
 ```go
 // Targ accepts function
 rapid.Check(t, func(t *rapid.T) {
@@ -96,6 +98,7 @@ func Group(name string, members ...any) *Group
 ```
 
 **Properties**:
+
 ```go
 // Group accepts Targets and nested Groups
 rapid.Check(t, func(t *rapid.T) {
@@ -115,6 +118,7 @@ rapid.Check(t, func(t *rapid.T) {
 Extend to handle `*Target` and `*Group` in addition to existing structs.
 
 **Properties**:
+
 - `parseTarget(*Target)` creates commandNode
 - `parseTarget(*Group)` creates commandNode with children
 - String targets (from `Targ("cmd")`) execute via shell
@@ -138,11 +142,13 @@ targ --create dev lint fast "golangci-lint run"  # creates dev/lint/fast
 ```
 
 **Behavior**:
+
 - Creates groups as needed for nested paths
 - Generates `targ.Targ("cmd")` code
 - Appends to existing targ file (or creates ./targs.go)
 
 **Properties**:
+
 ```go
 // Path creates nested groups
 rapid.Check(t, func(t *rapid.T) {
@@ -164,10 +170,12 @@ rapid.Check(t, func(t *rapid.T) {
 **Files**: `cmd/targ/main.go`
 
 Remove:
+
 - `handleInitFlag`, `handleAliasFlag`, `handleMoveFlag`
 - All supporting functions (~800 LOC)
 
 **Functional check**:
+
 - `targ --create test "echo hello"` works
 - `targ build` still works
 - Old flags error with "use --create instead"
@@ -177,6 +185,7 @@ Remove:
 **Files**: `cmd/targ/main.go` - `extractTargFlags`
 
 **Properties**:
+
 - `--no-binary-cache` disables binary caching
 - `--no-cache` still works (deprecation warning)
 
@@ -191,6 +200,7 @@ Remove:
 Convert existing struct-based targets to function + Target builder pattern:
 
 **Before** (current):
+
 ```go
 type Coverage struct {
     HTML bool `targ:"flag,desc=Open HTML report"`
@@ -199,6 +209,7 @@ func (c *Coverage) Run() error { ... }
 ```
 
 **After** (new):
+
 ```go
 func Coverage(args CoverageArgs) error { ... }
 var coverage = targ.Targ(Coverage).Description("Display coverage report")
@@ -228,6 +239,7 @@ func (t *Target) Watch(patterns ...string) *Target
 Reuse existing `internal/core/deps.go` dep tracking logic.
 
 **Properties**:
+
 ```go
 // Each dep executes exactly once
 rapid.Check(t, func(t *rapid.T) {
@@ -252,6 +264,7 @@ rapid.Check(t, func(t *rapid.T) {
 Reuse `file/checksum.go`.
 
 **Properties**:
+
 - Cache hit skips execution
 - Cache miss runs execution
 - File change invalidates cache
@@ -262,6 +275,7 @@ Reuse `file/checksum.go`.
 Reuse `file/watch.go`.
 
 **Properties**:
+
 - File change triggers re-run
 - `targ.ResetDeps()` clears dep cache
 - Ctrl+C cancels cleanly
@@ -286,6 +300,7 @@ Implement repetition and resilience features.
 ### 5.1 .Times() and .While()
 
 **Properties**:
+
 ```go
 // Times stops on failure without retry
 rapid.Check(t, func(t *rapid.T) {
@@ -309,6 +324,7 @@ rapid.Check(t, func(t *rapid.T) {
 ### 5.2 .Retry() and .Backoff()
 
 **Properties**:
+
 ```go
 // Times completes all with retry
 rapid.Check(t, func(t *rapid.T) {
@@ -330,6 +346,7 @@ rapid.Check(t, func(t *rapid.T) {
 ### 5.3 .Timeout()
 
 **Properties**:
+
 - Cancels context after duration
 - Nested timeouts: inner wins if smaller
 
@@ -360,6 +377,7 @@ Add CLI flags that override compile-time settings.
 **Files**: `internal/core/parse.go`
 
 **Properties**:
+
 ```go
 // Flags parse correctly
 rapid.Check(t, func(t *rapid.T) {
@@ -376,6 +394,7 @@ rapid.Check(t, func(t *rapid.T) {
 ### 6.2 Ownership Model (targ.Disabled)
 
 **Properties**:
+
 - `.Watch(targ.Disabled)` allows user-defined --watch
 - Without Disabled: conflict = error
 - User-defined flag receives parsed value
@@ -393,6 +412,7 @@ Test override flags on local targets: `targ build --watch "**/*.go"`
 **New function**: `shell.go`
 
 **Properties**:
+
 ```go
 // $var substitution from struct fields
 rapid.Check(t, func(t *rapid.T) {
@@ -410,6 +430,7 @@ rapid.Check(t, func(t *rapid.T) {
 ### 7.2 String Targets: targ.Targ("cmd $var")
 
 **Properties**:
+
 - Infers flags from $var
 - Short flags from first letter
 - Collision skips short for later args
@@ -431,6 +452,7 @@ targ --sync github.com/foo/bar
 ```
 
 **Properties**:
+
 - Creates/updates import
 - Registers exported targets
 - Naming conflicts error clearly
@@ -457,6 +479,7 @@ targ -s ./dev/targs.go build
 ### 9.3 --to-func, --to-string
 
 **Properties**:
+
 - `--to-func` expands string target
 - `--to-string` errors if not simple Shell
 
@@ -473,6 +496,7 @@ Final cleanup. At this point, dev/targets.go should already be fully migrated to
 **Prerequisite**: All tests pass with Target-only model, dev/targets.go uses no struct targets
 
 **Files**:
+
 - `internal/core/command.go` - Remove struct parsing (~1,500 LOC)
 - `cmd/targ/main.go` - Remove struct wrapper generation (~500 LOC)
 
@@ -482,17 +506,17 @@ Final cleanup. At this point, dev/targets.go should already be fully migrated to
 
 ## Critical Files
 
-| File | Role |
-|------|------|
-| `targ.go` | Public API (Targ, Group, Shell, Run) |
-| `target.go` | Target type and builder (new) |
-| `group.go` | Group type (new) |
-| `internal/core/command.go` | Execution logic, Target integration |
-| `internal/core/run_env.go` | Testing abstraction (extend) |
-| `internal/core/deps.go` | Dependency tracking (reuse) |
-| `cmd/targ/main.go` | Build tool, discovery, flags |
-| `internal/create/create.go` | --create scaffold (new) |
-| `dev/targets.go` | Local targets to migrate as we go |
+| File                        | Role                                 |
+| --------------------------- | ------------------------------------ |
+| `targ.go`                   | Public API (Targ, Group, Shell, Run) |
+| `target.go`                 | Target type and builder (new)        |
+| `group.go`                  | Group type (new)                     |
+| `internal/core/command.go`  | Execution logic, Target integration  |
+| `internal/core/run_env.go`  | Testing abstraction (extend)         |
+| `internal/core/deps.go`     | Dependency tracking (reuse)          |
+| `cmd/targ/main.go`          | Build tool, discovery, flags         |
+| `internal/create/create.go` | --create scaffold (new)              |
+| `dev/targets.go`            | Local targets to migrate as we go    |
 
 ---
 
@@ -513,6 +537,7 @@ Stop and talk through if:
 **All tests are property-based** using rapid/imptest/gomega. No separate "unit tests" - everything is expressed as properties that must hold.
 
 **Fuzz testing** at boundaries where unbounded input is possible:
+
 - CLI argument parsing (user input)
 - File pattern matching (user input)
 - Shell command parsing (user input)
@@ -521,7 +546,7 @@ Stop and talk through if:
 
 If you can't quickly enumerate all input combinations, fuzz it.
 
-**Linter compliance**: After tests pass, run `targ check` and address all concerns. Do not apply blanket linter ignore flags (file-level or config-level) without discussing first.
+**Linter compliance**: After tests pass, run `targ targets check` and address all concerns. Do not apply blanket linter ignore flags (file-level or config-level) without discussing first.
 
 ---
 
@@ -536,6 +561,7 @@ After each phase:
 5. **Migration check**: Local targets use new patterns
 
 Final verification:
+
 1. All dev/targets.go targets use Target builder pattern
 2. Run via `targ <target>` - all targets work
 3. Test execution modifiers: `targ build --watch "**/*.go"`
