@@ -195,9 +195,38 @@ Remove:
 
 ---
 
-## Phase 3: Migrate dev/targets.go to Target Builder
+## Phase 3: Switch to Explicit Registration Model
 
-Convert existing struct-based targets to function + Target builder pattern:
+The architecture specifies explicit registration via `targ.Run()` in init(), not discovery of exports. This phase switches from the current "discover exports and generate wrappers" model to "import package and let init() handle registration".
+
+### 3.1 Add targ.Run() Detection to Buildtool
+
+**Files**: `buildtool/discover.go`
+
+Detect if a package uses the new explicit registration model:
+
+- Scan init() functions for `targ.Run()` calls
+- If found: generate minimal bootstrap that just imports the package
+- If not found: use old discovery (backwards compat during transition)
+
+**Properties**:
+
+```go
+// Package with targ.Run() in init uses new model
+rapid.Check(t, func(t *rapid.T) {
+    src := `//go:build targ
+package dev
+func init() { targ.Run(myTarget) }`
+    info := parsePackage(src)
+    gomega.Expect(info.UsesExplicitRegistration).To(gomega.BeTrue())
+})
+```
+
+**Functional check**: Both old and new models work
+
+### 3.2 Migrate dev/targets.go
+
+Convert existing targets to function + Target builder pattern with explicit registration.
 
 **Before** (current):
 
@@ -206,16 +235,73 @@ type Coverage struct {
     HTML bool `targ:"flag,desc=Open HTML report"`
 }
 func (c *Coverage) Run() error { ... }
+
+func Tidy(ctx context.Context) error { ... }
 ```
 
 **After** (new):
 
 ```go
-func Coverage(args CoverageArgs) error { ... }
-var coverage = targ.Targ(Coverage).Description("Display coverage report")
+type CoverageArgs struct {
+    HTML bool `targ:"flag,desc=Open HTML report"`
+}
+func coverage(ctx context.Context, args CoverageArgs) error { ... }
+var Coverage = targ.Targ(coverage).Description("Display coverage report")
+
+func tidy(ctx context.Context) error { ... }
+var Tidy = targ.Targ(tidy).Description("Tidy go.mod")
+
+func init() {
+    targ.Run(Coverage, Tidy, /* ... all targets */)
+}
 ```
 
-**Functional check**: `targ coverage` works with new pattern
+**Functional check**: `targ targets <cmd>` works with new pattern
+
+### 3.3 Migrate dev/issues/*.go
+
+Same pattern for issue management targets:
+
+**Before**:
+
+```go
+type Create struct {
+    Title string `targ:"flag,required,desc=Issue title"`
+}
+func (c *Create) Run() error { ... }
+```
+
+**After**:
+
+```go
+type CreateArgs struct {
+    Title string `targ:"flag,required,desc=Issue title"`
+}
+func create(args CreateArgs) error { ... }
+var Create = targ.Targ(create).Description("Create a new issue")
+
+func init() {
+    targ.Run(Create, List, Move, Update, Validate, Dedupe)
+}
+```
+
+**Functional check**: `targ targets issues <cmd>` works
+
+### 3.4 Remove Old Discovery Code
+
+Once both dev/targets.go and dev/issues are migrated and working:
+
+**Files**: `buildtool/discover.go`, `cmd/targ/main.go`
+
+Remove:
+
+- Function/struct scanning for command discovery
+- Wrapper type generation
+- Namespace struct generation
+
+Only the new "import and let init() register" model remains.
+
+**Functional check**: `targ targets <cmd>` still works, codebase is simpler
 
 ---
 
