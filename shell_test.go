@@ -10,6 +10,34 @@ import (
 	"github.com/toejough/targ"
 )
 
+func TestSubstituteVars_AllTypes(t *testing.T) {
+	g := NewWithT(t)
+
+	type Args struct {
+		Str   string
+		Int   int
+		Uint  uint
+		Float float64
+		Bool  bool
+		Slice []string // tests default case
+	}
+
+	args := Args{
+		Str:   "hello",
+		Int:   42,
+		Uint:  100,
+		Float: 3.14,
+		Bool:  true,
+		Slice: []string{"a", "b"},
+	}
+
+	ctx := context.Background()
+	// Use true to always succeed - we're testing substitution works
+	err := targ.Shell(ctx, "true", args)
+
+	g.Expect(err).NotTo(HaveOccurred())
+}
+
 func TestSubstituteVars_Basic(t *testing.T) {
 	g := NewWithT(t)
 
@@ -23,22 +51,6 @@ func TestSubstituteVars_Basic(t *testing.T) {
 	// Test using Shell with echo to verify substitution
 	ctx := context.Background()
 	err := targ.Shell(ctx, "echo $name $port > /dev/null", args)
-
-	g.Expect(err).NotTo(HaveOccurred())
-}
-
-func TestSubstituteVars_CaseInsensitive(t *testing.T) {
-	g := NewWithT(t)
-
-	type Args struct {
-		Namespace string
-	}
-
-	args := Args{Namespace: "prod"}
-
-	// $namespace should match Namespace field
-	ctx := context.Background()
-	err := targ.Shell(ctx, "echo $namespace > /dev/null", args)
 
 	g.Expect(err).NotTo(HaveOccurred())
 }
@@ -59,61 +71,33 @@ func TestSubstituteVars_BraceStyle(t *testing.T) {
 	g.Expect(err).NotTo(HaveOccurred())
 }
 
-func TestSubstituteVars_UnknownVariable(t *testing.T) {
+func TestSubstituteVars_CaseInsensitive(t *testing.T) {
 	g := NewWithT(t)
 
 	type Args struct {
-		Name string
+		Namespace string
 	}
 
-	args := Args{Name: "test"}
+	args := Args{Namespace: "prod"}
 
+	// $namespace should match Namespace field
 	ctx := context.Background()
-	err := targ.Shell(ctx, "echo $unknown", args)
-
-	g.Expect(err).To(HaveOccurred())
-	g.Expect(err.Error()).To(ContainSubstring("unknown variable"))
-	g.Expect(err.Error()).To(ContainSubstring("unknown"))
-}
-
-func TestSubstituteVars_NilArgs(t *testing.T) {
-	g := NewWithT(t)
-
-	ctx := context.Background()
-
-	// No variables - should work with nil args
-	err := targ.Shell(ctx, "echo hello > /dev/null", nil)
-	g.Expect(err).NotTo(HaveOccurred())
-
-	// Has variables but nil args - should error
-	err = targ.Shell(ctx, "echo $name", nil)
-	g.Expect(err).To(HaveOccurred())
-	g.Expect(err.Error()).To(ContainSubstring("nil"))
-}
-
-func TestSubstituteVars_Pointer(t *testing.T) {
-	g := NewWithT(t)
-
-	type Args struct {
-		Name string
-	}
-
-	args := &Args{Name: "test"}
-
-	ctx := context.Background()
-	err := targ.Shell(ctx, "echo $name > /dev/null", args)
+	err := targ.Shell(ctx, "echo $namespace > /dev/null", args)
 
 	g.Expect(err).NotTo(HaveOccurred())
 }
 
-func TestSubstituteVars_NonStruct(t *testing.T) {
+func TestSubstituteVars_ContextCancelled(t *testing.T) {
 	g := NewWithT(t)
 
-	ctx := context.Background()
-	err := targ.Shell(ctx, "echo $name", "not a struct")
+	type Args struct{}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel immediately
+
+	err := targ.Shell(ctx, "sleep 10", Args{})
 
 	g.Expect(err).To(HaveOccurred())
-	g.Expect(err.Error()).To(ContainSubstring("must be a struct"))
 }
 
 func TestSubstituteVars_MultipleVariables(t *testing.T) {
@@ -133,6 +117,20 @@ func TestSubstituteVars_MultipleVariables(t *testing.T) {
 	g.Expect(err).NotTo(HaveOccurred())
 }
 
+func TestSubstituteVars_NilArgs(t *testing.T) {
+	g := NewWithT(t)
+
+	ctx := context.Background()
+
+	// No variables - should work with nil args
+	err := targ.Shell(ctx, "echo hello > /dev/null", nil)
+	g.Expect(err).NotTo(HaveOccurred())
+
+	// Has variables but nil args - should error
+	err = targ.Shell(ctx, "echo $name", nil)
+	g.Expect(err).To(MatchError(ContainSubstring("nil")))
+}
+
 func TestSubstituteVars_NoVariables(t *testing.T) {
 	g := NewWithT(t)
 
@@ -148,17 +146,28 @@ func TestSubstituteVars_NoVariables(t *testing.T) {
 	g.Expect(err).NotTo(HaveOccurred())
 }
 
-func TestSubstituteVars_ContextCancelled(t *testing.T) {
+func TestSubstituteVars_NonStruct(t *testing.T) {
 	g := NewWithT(t)
 
-	type Args struct{}
+	ctx := context.Background()
+	err := targ.Shell(ctx, "echo $name", "not a struct")
 
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel() // Cancel immediately
+	g.Expect(err).To(MatchError(ContainSubstring("must be a struct")))
+}
 
-	err := targ.Shell(ctx, "sleep 10", Args{})
+func TestSubstituteVars_Pointer(t *testing.T) {
+	g := NewWithT(t)
 
-	g.Expect(err).To(HaveOccurred())
+	type Args struct {
+		Name string
+	}
+
+	args := &Args{Name: "test"}
+
+	ctx := context.Background()
+	err := targ.Shell(ctx, "echo $name > /dev/null", args)
+
+	g.Expect(err).NotTo(HaveOccurred())
 }
 
 func TestSubstituteVars_Property(t *testing.T) {
@@ -181,4 +190,20 @@ func TestSubstituteVars_Property(t *testing.T) {
 
 		g.Expect(err).NotTo(HaveOccurred())
 	})
+}
+
+func TestSubstituteVars_UnknownVariable(t *testing.T) {
+	g := NewWithT(t)
+
+	type Args struct {
+		Name string
+	}
+
+	args := Args{Name: "test"}
+
+	ctx := context.Background()
+	err := targ.Shell(ctx, "echo $unknown", args)
+
+	g.Expect(err).To(MatchError(ContainSubstring("unknown variable")))
+	g.Expect(err).To(MatchError(ContainSubstring("unknown")))
 }

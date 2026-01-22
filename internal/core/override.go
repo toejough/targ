@@ -192,56 +192,6 @@ func ExtractOverrides(args []string) (RuntimeOverrides, []string, error) {
 	return overrides, remaining, nil
 }
 
-// extractDepsVariadic extracts --deps and its variadic arguments.
-// Deps values continue until the next flag (--something) or path reset (--).
-func extractDepsVariadic(args []string) ([]string, []string, error) {
-	var deps []string
-
-	remaining := make([]string, 0, len(args))
-
-	inDeps := false
-
-	for _, arg := range args {
-		if inDeps {
-			// Check if this ends the variadic sequence
-			if arg == "--" || strings.HasPrefix(arg, "-") {
-				// If we hit a flag/-- but have no deps collected, that's an error
-				if len(deps) == 0 {
-					return nil, nil, errDepsRequiresTarget
-				}
-
-				// End of deps sequence
-				inDeps = false
-
-				// If it's --, it's a path reset - add to remaining for the path parser
-				// Other flags also go to remaining
-				remaining = append(remaining, arg)
-
-				continue
-			}
-			// Add to deps
-			deps = append(deps, arg)
-
-			continue
-		}
-
-		if arg == "--deps" {
-			inDeps = true
-
-			continue
-		}
-
-		remaining = append(remaining, arg)
-	}
-
-	// If we ended while in deps mode without any deps, that's an error
-	if inDeps && len(deps) == 0 {
-		return nil, nil, errDepsRequiresTarget
-	}
-
-	return remaining, deps, nil
-}
-
 // unexported variables.
 var (
 	errBackoffInvalidFormat = errors.New(
@@ -251,20 +201,20 @@ var (
 	errCacheConflict        = errors.New(
 		"--cache conflicts with target's cache configuration; use .Cache(targ.Disabled) to allow CLI override",
 	)
+	errCacheDirRequiresPath = errors.New("--cache-dir requires a path")
 	errCacheRequiresPattern = errors.New("--cache requires a pattern")
 	errDepModeInvalid       = errors.New("--dep-mode must be 'serial' or 'parallel'")
 	errDepModeRequiresValue = errors.New("--dep-mode requires a value")
-	errTimesRequiresValue   = errors.New("--times requires a numeric value")
-	errWatchConflict        = errors.New(
+	errDepsConflict         = errors.New(
+		"--deps conflicts with target's dependency configuration; dependencies must be defined in one place (code or CLI)",
+	)
+	errDepsRequiresTarget = errors.New("--deps requires at least one target")
+	errTimesRequiresValue = errors.New("--times requires a numeric value")
+	errWatchConflict      = errors.New(
 		"--watch conflicts with target's watch configuration; use .Watch(targ.Disabled) to allow CLI override",
 	)
 	errWatchRequiresPattern = errors.New("--watch requires a pattern")
 	errWhileRequiresCommand = errors.New("--while requires a command")
-	errDepsConflict         = errors.New(
-		"--deps conflicts with target's dependency configuration; dependencies must be defined in one place (code or CLI)",
-	)
-	errDepsRequiresTarget   = errors.New("--deps requires at least one target")
-	errCacheDirRequiresPath = errors.New("--cache-dir requires a path")
 )
 
 // checkConflicts verifies CLI overrides don't conflict with Target config.
@@ -297,7 +247,7 @@ func checkWhileCondition(ctx context.Context, cmd string) bool {
 
 // executeOnce handles a single execution with cache, times, retry, while, and backoff.
 //
-//nolint:cyclop,funlen // Handles multiple execution modifiers (cache, times, retry, while, backoff)
+//nolint:cyclop,funlen,gocognit // Handles multiple execution modifiers (cache, times, retry, while, backoff)
 func executeOnce(
 	ctx context.Context,
 	overrides RuntimeOverrides,
@@ -402,6 +352,56 @@ func executeWithWatch(
 	return nil
 }
 
+// extractDepsVariadic extracts --deps and its variadic arguments.
+// Deps values continue until the next flag (--something) or path reset (--).
+func extractDepsVariadic(args []string) ([]string, []string, error) {
+	var deps []string
+
+	remaining := make([]string, 0, len(args))
+
+	inDeps := false
+
+	for _, arg := range args {
+		if inDeps {
+			// Check if this ends the variadic sequence
+			if arg == "--" || strings.HasPrefix(arg, "-") {
+				// If we hit a flag/-- but have no deps collected, that's an error
+				if len(deps) == 0 {
+					return nil, nil, errDepsRequiresTarget
+				}
+
+				// End of deps sequence
+				inDeps = false
+
+				// If it's --, it's a path reset - add to remaining for the path parser
+				// Other flags also go to remaining
+				remaining = append(remaining, arg)
+
+				continue
+			}
+			// Add to deps
+			deps = append(deps, arg)
+
+			continue
+		}
+
+		if arg == "--deps" {
+			inDeps = true
+
+			continue
+		}
+
+		remaining = append(remaining, arg)
+	}
+
+	// If we ended while in deps mode without any deps, that's an error
+	if inDeps && len(deps) == 0 {
+		return nil, nil, errDepsRequiresTarget
+	}
+
+	return remaining, deps, nil
+}
+
 func handleBackoffFlag(
 	arg string,
 	args []string,
@@ -441,32 +441,6 @@ func handleBackoffFlag(
 	return false, nil
 }
 
-func handleCacheFlag(
-	arg string,
-	args []string,
-	index int,
-	overrides *RuntimeOverrides,
-	skip *bool,
-) (bool, error) {
-	if arg == "--cache" {
-		if index+1 >= len(args) {
-			return true, errCacheRequiresPattern
-		}
-
-		overrides.Cache = append(overrides.Cache, args[index+1])
-		*skip = true
-
-		return true, nil
-	}
-
-	if after, ok := strings.CutPrefix(arg, "--cache="); ok {
-		overrides.Cache = append(overrides.Cache, after)
-		return true, nil
-	}
-
-	return false, nil
-}
-
 func handleCacheDirFlag(
 	arg string,
 	args []string,
@@ -487,6 +461,32 @@ func handleCacheDirFlag(
 
 	if after, ok := strings.CutPrefix(arg, "--cache-dir="); ok {
 		overrides.CacheDir = after
+		return true, nil
+	}
+
+	return false, nil
+}
+
+func handleCacheFlag(
+	arg string,
+	args []string,
+	index int,
+	overrides *RuntimeOverrides,
+	skip *bool,
+) (bool, error) {
+	if arg == "--cache" {
+		if index+1 >= len(args) {
+			return true, errCacheRequiresPattern
+		}
+
+		overrides.Cache = append(overrides.Cache, args[index+1])
+		*skip = true
+
+		return true, nil
+	}
+
+	if after, ok := strings.CutPrefix(arg, "--cache="); ok {
+		overrides.Cache = append(overrides.Cache, after)
 		return true, nil
 	}
 

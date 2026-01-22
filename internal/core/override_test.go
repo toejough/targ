@@ -157,6 +157,53 @@ func TestExecuteWithOverrides_ContextCancellation(t *testing.T) {
 	g.Expect(count).To(Equal(0)) // Doesn't run because context cancelled
 }
 
+func TestExecuteWithOverrides_DepsConflict(t *testing.T) {
+	g := NewWithT(t)
+	ctx := context.Background()
+
+	// Target has deps configured
+	config := core.TargetConfig{
+		HasDeps: true,
+	}
+
+	// CLI also specifies --deps, which should conflict
+	overrides := core.RuntimeOverrides{
+		Deps: []string{"lint", "test"},
+	}
+
+	err := core.ExecuteWithOverrides(ctx, overrides, config, func() error {
+		return nil
+	})
+
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err).To(MatchError(ContainSubstring("--deps conflicts")))
+}
+
+func TestExecuteWithOverrides_DepsNoConflictWhenTargetHasNoDeps(t *testing.T) {
+	g := NewWithT(t)
+	ctx := context.Background()
+
+	count := 0
+	// Target has no deps configured
+	config := core.TargetConfig{
+		HasDeps: false,
+	}
+
+	// CLI specifies --deps
+	overrides := core.RuntimeOverrides{
+		Deps: []string{"lint", "test"},
+	}
+
+	err := core.ExecuteWithOverrides(ctx, overrides, config, func() error {
+		count++
+		return nil
+	})
+
+	// No conflict error - function ran
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(count).To(Equal(1))
+}
+
 func TestExecuteWithOverrides_NoConflictWhenCLIHasNoOverride(t *testing.T) {
 	g := NewWithT(t)
 	ctx := context.Background()
@@ -518,6 +565,38 @@ func TestExtractOverrides_Cache(t *testing.T) {
 	g.Expect(remaining).To(Equal([]string{"build"}))
 }
 
+func TestExtractOverrides_CacheDir(t *testing.T) {
+	g := NewWithT(t)
+
+	args := []string{"build", "--cache-dir", "/tmp/cache"}
+	overrides, remaining, err := core.ExtractOverrides(args)
+
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(overrides.CacheDir).To(Equal("/tmp/cache"))
+	g.Expect(remaining).To(Equal([]string{"build"}))
+}
+
+func TestExtractOverrides_CacheDirEquals(t *testing.T) {
+	g := NewWithT(t)
+
+	args := []string{"build", "--cache-dir=.my-cache"}
+	overrides, remaining, err := core.ExtractOverrides(args)
+
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(overrides.CacheDir).To(Equal(".my-cache"))
+	g.Expect(remaining).To(Equal([]string{"build"}))
+}
+
+func TestExtractOverrides_CacheDirMissing(t *testing.T) {
+	g := NewWithT(t)
+
+	args := []string{"build", "--cache-dir"}
+	_, _, err := core.ExtractOverrides(args)
+
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("requires"))
+}
+
 func TestExtractOverrides_CacheEquals(t *testing.T) {
 	g := NewWithT(t)
 
@@ -624,6 +703,59 @@ func TestExtractOverrides_DepModeSerial(t *testing.T) {
 	g.Expect(err).NotTo(HaveOccurred())
 	g.Expect(overrides.DepMode).To(Equal("serial"))
 	g.Expect(remaining).To(Equal([]string{"build"}))
+}
+
+func TestExtractOverrides_Deps(t *testing.T) {
+	g := NewWithT(t)
+
+	args := []string{"build", "--deps", "lint", "test"}
+	overrides, remaining, err := core.ExtractOverrides(args)
+
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(overrides.Deps).To(Equal([]string{"lint", "test"}))
+	g.Expect(remaining).To(Equal([]string{"build"}))
+}
+
+func TestExtractOverrides_DepsEmptyBeforeFlag(t *testing.T) {
+	g := NewWithT(t)
+
+	args := []string{"build", "--deps", "--timeout", "5m"}
+	_, _, err := core.ExtractOverrides(args)
+
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("requires"))
+}
+
+func TestExtractOverrides_DepsEndsOnDoubleDash(t *testing.T) {
+	g := NewWithT(t)
+
+	args := []string{"build", "--deps", "lint", "test", "--", "deploy"}
+	overrides, remaining, err := core.ExtractOverrides(args)
+
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(overrides.Deps).To(Equal([]string{"lint", "test"}))
+	g.Expect(remaining).To(Equal([]string{"build", "--", "deploy"}))
+}
+
+func TestExtractOverrides_DepsEndsOnFlag(t *testing.T) {
+	g := NewWithT(t)
+
+	args := []string{"build", "--deps", "lint", "test", "--timeout", "5m"}
+	overrides, remaining, err := core.ExtractOverrides(args)
+
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(overrides.Deps).To(Equal([]string{"lint", "test"}))
+	g.Expect(remaining).To(Equal([]string{"build", "--timeout", "5m"}))
+}
+
+func TestExtractOverrides_DepsMissing(t *testing.T) {
+	g := NewWithT(t)
+
+	args := []string{"build", "--deps"}
+	_, _, err := core.ExtractOverrides(args)
+
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("requires"))
 }
 
 func TestExtractOverrides_NoOverrides(t *testing.T) {
@@ -789,138 +921,6 @@ func TestExtractOverrides_WhileMissing(t *testing.T) {
 	g := NewWithT(t)
 
 	args := []string{"build", "--while"}
-	_, _, err := core.ExtractOverrides(args)
-
-	g.Expect(err).To(HaveOccurred())
-	g.Expect(err.Error()).To(ContainSubstring("requires"))
-}
-
-func TestExtractOverrides_Deps(t *testing.T) {
-	g := NewWithT(t)
-
-	args := []string{"build", "--deps", "lint", "test"}
-	overrides, remaining, err := core.ExtractOverrides(args)
-
-	g.Expect(err).NotTo(HaveOccurred())
-	g.Expect(overrides.Deps).To(Equal([]string{"lint", "test"}))
-	g.Expect(remaining).To(Equal([]string{"build"}))
-}
-
-func TestExtractOverrides_DepsEndsOnFlag(t *testing.T) {
-	g := NewWithT(t)
-
-	args := []string{"build", "--deps", "lint", "test", "--timeout", "5m"}
-	overrides, remaining, err := core.ExtractOverrides(args)
-
-	g.Expect(err).NotTo(HaveOccurred())
-	g.Expect(overrides.Deps).To(Equal([]string{"lint", "test"}))
-	g.Expect(remaining).To(Equal([]string{"build", "--timeout", "5m"}))
-}
-
-func TestExtractOverrides_DepsEndsOnDoubleDash(t *testing.T) {
-	g := NewWithT(t)
-
-	args := []string{"build", "--deps", "lint", "test", "--", "deploy"}
-	overrides, remaining, err := core.ExtractOverrides(args)
-
-	g.Expect(err).NotTo(HaveOccurred())
-	g.Expect(overrides.Deps).To(Equal([]string{"lint", "test"}))
-	g.Expect(remaining).To(Equal([]string{"build", "--", "deploy"}))
-}
-
-func TestExtractOverrides_DepsMissing(t *testing.T) {
-	g := NewWithT(t)
-
-	args := []string{"build", "--deps"}
-	_, _, err := core.ExtractOverrides(args)
-
-	g.Expect(err).To(HaveOccurred())
-	g.Expect(err.Error()).To(ContainSubstring("requires"))
-}
-
-func TestExtractOverrides_DepsEmptyBeforeFlag(t *testing.T) {
-	g := NewWithT(t)
-
-	args := []string{"build", "--deps", "--timeout", "5m"}
-	_, _, err := core.ExtractOverrides(args)
-
-	g.Expect(err).To(HaveOccurred())
-	g.Expect(err.Error()).To(ContainSubstring("requires"))
-}
-
-func TestExecuteWithOverrides_DepsConflict(t *testing.T) {
-	g := NewWithT(t)
-	ctx := context.Background()
-
-	// Target has deps configured
-	config := core.TargetConfig{
-		HasDeps: true,
-	}
-
-	// CLI also specifies --deps, which should conflict
-	overrides := core.RuntimeOverrides{
-		Deps: []string{"lint", "test"},
-	}
-
-	err := core.ExecuteWithOverrides(ctx, overrides, config, func() error {
-		return nil
-	})
-
-	g.Expect(err).To(HaveOccurred())
-	g.Expect(err).To(MatchError(ContainSubstring("--deps conflicts")))
-}
-
-func TestExecuteWithOverrides_DepsNoConflictWhenTargetHasNoDeps(t *testing.T) {
-	g := NewWithT(t)
-	ctx := context.Background()
-
-	count := 0
-	// Target has no deps configured
-	config := core.TargetConfig{
-		HasDeps: false,
-	}
-
-	// CLI specifies --deps
-	overrides := core.RuntimeOverrides{
-		Deps: []string{"lint", "test"},
-	}
-
-	err := core.ExecuteWithOverrides(ctx, overrides, config, func() error {
-		count++
-		return nil
-	})
-
-	// No conflict error - function ran
-	g.Expect(err).NotTo(HaveOccurred())
-	g.Expect(count).To(Equal(1))
-}
-
-func TestExtractOverrides_CacheDir(t *testing.T) {
-	g := NewWithT(t)
-
-	args := []string{"build", "--cache-dir", "/tmp/cache"}
-	overrides, remaining, err := core.ExtractOverrides(args)
-
-	g.Expect(err).NotTo(HaveOccurred())
-	g.Expect(overrides.CacheDir).To(Equal("/tmp/cache"))
-	g.Expect(remaining).To(Equal([]string{"build"}))
-}
-
-func TestExtractOverrides_CacheDirEquals(t *testing.T) {
-	g := NewWithT(t)
-
-	args := []string{"build", "--cache-dir=.my-cache"}
-	overrides, remaining, err := core.ExtractOverrides(args)
-
-	g.Expect(err).NotTo(HaveOccurred())
-	g.Expect(overrides.CacheDir).To(Equal(".my-cache"))
-	g.Expect(remaining).To(Equal([]string{"build"}))
-}
-
-func TestExtractOverrides_CacheDirMissing(t *testing.T) {
-	g := NewWithT(t)
-
-	args := []string{"build", "--cache-dir"}
 	_, _, err := core.ExtractOverrides(args)
 
 	g.Expect(err).To(HaveOccurred())

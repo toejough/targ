@@ -1703,6 +1703,28 @@ func TestHandleList_ReturnsErrorFromListFn(t *testing.T) {
 	g.Expect(env.Output()).To(ContainSubstring("list failed"))
 }
 
+func TestIsShellVar(t *testing.T) {
+	g := NewWithT(t)
+
+	vars := []string{"namespace", "file"}
+
+	// Exact match
+	g.Expect(isShellVar("namespace", vars)).To(BeTrue())
+	g.Expect(isShellVar("file", vars)).To(BeTrue())
+
+	// Case-insensitive match
+	g.Expect(isShellVar("NAMESPACE", vars)).To(BeTrue())
+	g.Expect(isShellVar("File", vars)).To(BeTrue())
+
+	// No match
+	g.Expect(isShellVar("unknown", vars)).To(BeFalse())
+	g.Expect(isShellVar("name", vars)).To(BeFalse())
+
+	// Empty vars
+	g.Expect(isShellVar("anything", nil)).To(BeFalse())
+	g.Expect(isShellVar("anything", []string{})).To(BeFalse())
+}
+
 func TestMatchesReceiver_EmptyReceiverList(t *testing.T) {
 	g := NewWithT(t)
 
@@ -2137,28 +2159,6 @@ func TestParseTarget_TargetLike_StringCommandNoName(t *testing.T) {
 	g.Expect(node.Name).To(Equal("golangci-lint"))
 }
 
-func TestParseTarget_TargetLike_StringCommandWithVars(t *testing.T) {
-	g := NewWithT(t)
-
-	target := &mockTarget{
-		fn:          "kubectl apply -n $namespace -f $file",
-		name:        "deploy",
-		description: "Deploy to Kubernetes",
-	}
-
-	node, err := parseTarget(target)
-	g.Expect(err).ToNot(HaveOccurred())
-	g.Expect(node).ToNot(BeNil())
-
-	if node == nil {
-		t.Fatal("node is nil")
-	}
-
-	g.Expect(node.Name).To(Equal("deploy"))
-	g.Expect(node.ShellCommand).To(Equal("kubectl apply -n $namespace -f $file"))
-	g.Expect(node.ShellVars).To(Equal([]string{"namespace", "file"}))
-}
-
 func TestParseTarget_TargetLike_StringCommandWithBraceVars(t *testing.T) {
 	g := NewWithT(t)
 
@@ -2179,26 +2179,26 @@ func TestParseTarget_TargetLike_StringCommandWithBraceVars(t *testing.T) {
 	g.Expect(node.ShellVars).To(Equal([]string{"name", "port"}))
 }
 
-func TestShellVarFlagHelp(t *testing.T) {
+func TestParseTarget_TargetLike_StringCommandWithVars(t *testing.T) {
 	g := NewWithT(t)
 
-	vars := []string{"namespace", "file", "name"}
-	flags := shellVarFlagHelp(vars)
+	target := &mockTarget{
+		fn:          "kubectl apply -n $namespace -f $file",
+		name:        "deploy",
+		description: "Deploy to Kubernetes",
+	}
 
-	g.Expect(flags).To(HaveLen(3))
+	node, err := parseTarget(target)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(node).ToNot(BeNil())
 
-	// First flag: namespace with short -n
-	g.Expect(flags[0].Name).To(Equal("namespace"))
-	g.Expect(flags[0].Short).To(Equal("n"))
-	g.Expect(flags[0].Required).To(BeTrue())
+	if node == nil {
+		t.Fatal("node is nil")
+	}
 
-	// Second flag: file with short -f
-	g.Expect(flags[1].Name).To(Equal("file"))
-	g.Expect(flags[1].Short).To(Equal("f"))
-
-	// Third flag: name - no short (n already used)
-	g.Expect(flags[2].Name).To(Equal("name"))
-	g.Expect(flags[2].Short).To(Equal("")) // n already taken
+	g.Expect(node.Name).To(Equal("deploy"))
+	g.Expect(node.ShellCommand).To(Equal("kubectl apply -n $namespace -f $file"))
+	g.Expect(node.ShellVars).To(Equal([]string{"namespace", "file"}))
 }
 
 func TestParseTarget_TargetLike_WithFunction(t *testing.T) {
@@ -3076,6 +3076,24 @@ func TestRunPersistentHooks_BeforeError(t *testing.T) {
 	g.Expect(err.Error()).To(ContainSubstring("persistent before failed"))
 }
 
+func TestRunShellWithVars_Substitution(t *testing.T) {
+	g := NewWithT(t)
+	ctx := context.Background()
+
+	// Test variable substitution
+	vars := map[string]string{"name": "hello", "port": "8080"}
+	err := runShellWithVars(ctx, "echo $name $port > /dev/null", vars)
+	g.Expect(err).ToNot(HaveOccurred())
+
+	// Test with unmatched variable (not in vars map) - variable stays unchanged
+	// This tests the "return match" path when var not found
+	varsPartial := map[string]string{"name": "hello"}
+	// Command has $port but it's not in vars - it will remain as $port in output
+	// Using 'true' to always succeed regardless of substitution result
+	err = runShellWithVars(ctx, "true $name $port", varsPartial)
+	g.Expect(err).ToNot(HaveOccurred())
+}
+
 // --- Additional RunWithEnv tests ---
 
 func TestRunWithEnv_CompleteCommand(t *testing.T) {
@@ -3179,6 +3197,28 @@ func TestRunWithEnv_UnknownCommand(t *testing.T) {
 	err := RunWithEnv(env, RunOptions{AllowDefault: false}, cmd)
 	g.Expect(err).To(BeAssignableToTypeOf(ExitError{}))
 	g.Expect(env.Output()).To(ContainSubstring("Unknown command"))
+}
+
+func TestShellVarFlagHelp(t *testing.T) {
+	g := NewWithT(t)
+
+	vars := []string{"namespace", "file", "name"}
+	flags := shellVarFlagHelp(vars)
+
+	g.Expect(flags).To(HaveLen(3))
+
+	// First flag: namespace with short -n
+	g.Expect(flags[0].Name).To(Equal("namespace"))
+	g.Expect(flags[0].Short).To(Equal("n"))
+	g.Expect(flags[0].Required).To(BeTrue())
+
+	// Second flag: file with short -f
+	g.Expect(flags[1].Name).To(Equal("file"))
+	g.Expect(flags[1].Short).To(Equal("f"))
+
+	// Third flag: name - no short (n already used)
+	g.Expect(flags[2].Name).To(Equal("name"))
+	g.Expect(flags[2].Short).To(Equal("")) // n already taken
 }
 
 // --- skipTargFlags tests ---

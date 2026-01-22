@@ -104,7 +104,6 @@ var (
 	errTargetInvalidFnType       = errors.New("Target.Fn() must be func or string")
 	errUnableToDetermineFuncName = errors.New("unable to determine function name")
 	errUnsupportedFieldType      = errors.New("unsupported subcommand field type")
-
 	// shellVarPattern matches $var or ${var} style variables in shell commands.
 	shellVarPattern = regexp.MustCompile(`\$\{?([a-zA-Z_][a-zA-Z0-9_]*)\}?`)
 )
@@ -616,6 +615,24 @@ func buildPositionalParts(node *commandNode) ([]string, error) {
 	return parts, nil
 }
 
+// buildShortToLongMap builds a map from short flag letters to long flag names.
+func buildShortToLongMap(vars []string) map[string]string {
+	result := make(map[string]string)
+	usedShorts := make(map[rune]bool)
+
+	for _, varName := range vars {
+		if len(varName) > 0 {
+			firstRune := rune(varName[0])
+			if !usedShorts[firstRune] {
+				result[string(firstRune)] = varName
+				usedShorts[firstRune] = true
+			}
+		}
+	}
+
+	return result
+}
+
 func buildUsageLine(node *commandNode) (string, error) {
 	parts, err := buildUsageParts(node)
 	if err != nil {
@@ -947,33 +964,6 @@ func collectFlagHelp(node *commandNode) ([]flagHelp, error) {
 	return flags, nil
 }
 
-// shellVarFlagHelp generates synthetic flag help for shell command variables.
-func shellVarFlagHelp(vars []string) []flagHelp {
-	flags := make([]flagHelp, 0, len(vars))
-	usedShorts := make(map[rune]bool)
-
-	for _, varName := range vars {
-		flag := flagHelp{
-			Name:        varName,
-			Placeholder: "VALUE",
-			Required:    true, // All shell vars are required
-		}
-
-		// Assign short flag from first letter if not already used
-		if len(varName) > 0 {
-			firstRune := rune(varName[0])
-			if !usedShorts[firstRune] {
-				flag.Short = string(firstRune)
-				usedShorts[firstRune] = true
-			}
-		}
-
-		flags = append(flags, flag)
-	}
-
-	return flags
-}
-
 func collectFlagHelpChain(node *commandNode) ([]flagHelp, error) {
 	chain := nodeChain(node)
 
@@ -1194,7 +1184,7 @@ func executeFunctionWithParents(
 
 // executeShellCommand handles execution of shell command targets with $var substitution.
 //
-//nolint:funlen // Function handles complete execution flow including parsing and substitution
+//nolint:cyclop,funlen,gocognit // Function handles complete execution flow including parsing and substitution
 func executeShellCommand(
 	ctx context.Context,
 	args []string,
@@ -1220,8 +1210,8 @@ func executeShellCommand(
 		}
 
 		// Handle long flags
-		if strings.HasPrefix(arg, "--") {
-			flagName := strings.TrimPrefix(arg, "--")
+		if after, ok := strings.CutPrefix(arg, "--"); ok {
+			flagName := after
 			value := ""
 
 			// Handle --flag=value syntax
@@ -1248,6 +1238,7 @@ func executeShellCommand(
 			shortFlag := string(arg[1])
 			if longName, ok := shortToLong[shortFlag]; ok {
 				value := ""
+
 				if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
 					i++
 					value = args[i]
@@ -1300,56 +1291,6 @@ func executeShellCommand(
 	}
 
 	return remaining, nil
-}
-
-// buildShortToLongMap builds a map from short flag letters to long flag names.
-func buildShortToLongMap(vars []string) map[string]string {
-	result := make(map[string]string)
-	usedShorts := make(map[rune]bool)
-
-	for _, varName := range vars {
-		if len(varName) > 0 {
-			firstRune := rune(varName[0])
-			if !usedShorts[firstRune] {
-				result[string(firstRune)] = varName
-				usedShorts[firstRune] = true
-			}
-		}
-	}
-
-	return result
-}
-
-// isShellVar checks if a flag name matches one of the shell variables.
-func isShellVar(name string, vars []string) bool {
-	for _, v := range vars {
-		if strings.EqualFold(name, v) {
-			return true
-		}
-	}
-
-	return false
-}
-
-// runShellWithVars substitutes variables and executes a shell command.
-func runShellWithVars(ctx context.Context, cmd string, vars map[string]string) error {
-	// Substitute $var and ${var} patterns
-	substituted := shellVarPattern.ReplaceAllStringFunc(cmd, func(match string) string {
-		submatch := shellVarPattern.FindStringSubmatch(match)
-		if len(submatch) < 2 {
-			return match
-		}
-
-		varName := strings.ToLower(submatch[1])
-		if val, ok := vars[varName]; ok {
-			return val
-		}
-
-		return match
-	})
-
-	// Execute via sh -c
-	return sh.RunContext(ctx, "sh", "-c", substituted)
 }
 
 func expandFlagGroup(arg, group string, shortInfo map[string]bool) ([]string, error) {
@@ -1413,6 +1354,33 @@ func expandShortFlagGroups(args []string, specs []*flagSpec) ([]string, error) {
 	}
 
 	return expanded, nil
+}
+
+// extractShellVars extracts unique variable names from a shell command.
+// Returns lowercase variable names in order of first occurrence.
+func extractShellVars(cmd string) []string {
+	matches := shellVarPattern.FindAllStringSubmatch(cmd, -1)
+	if len(matches) == 0 {
+		return nil
+	}
+
+	seen := make(map[string]bool)
+
+	var vars []string
+
+	for _, match := range matches {
+		if len(match) < 2 { //nolint:mnd // regex submatch: [full, capture]
+			continue
+		}
+
+		varName := strings.ToLower(match[1])
+		if !seen[varName] {
+			seen[varName] = true
+			vars = append(vars, varName)
+		}
+	}
+
+	return vars
 }
 
 func extractTagOptionsResult(results []reflect.Value, fallback TagOptions) (TagOptions, error) {
@@ -1689,6 +1657,17 @@ func isContextType(t reflect.Type) bool {
 
 func isErrorType(t reflect.Type) bool {
 	return t.Implements(reflect.TypeFor[error]())
+}
+
+// isShellVar checks if a flag name matches one of the shell variables.
+func isShellVar(name string, vars []string) bool {
+	for _, v := range vars {
+		if strings.EqualFold(name, v) {
+			return true
+		}
+	}
+
+	return false
 }
 
 func lookupMethod(receiver reflect.Value, name string) (reflect.Value, bool) {
@@ -2046,32 +2025,6 @@ func parseTargetLikeString(target TargetLike, cmd string) *commandNode {
 	node.ShellVars = extractShellVars(cmd)
 
 	return node
-}
-
-// extractShellVars extracts unique variable names from a shell command.
-// Returns lowercase variable names in order of first occurrence.
-func extractShellVars(cmd string) []string {
-	matches := shellVarPattern.FindAllStringSubmatch(cmd, -1)
-	if len(matches) == 0 {
-		return nil
-	}
-
-	seen := make(map[string]bool)
-	var vars []string
-
-	for _, match := range matches {
-		if len(match) < 2 {
-			continue
-		}
-
-		varName := strings.ToLower(match[1])
-		if !seen[varName] {
-			seen[varName] = true
-			vars = append(vars, varName)
-		}
-	}
-
-	return vars
 }
 
 // positionalName returns the display name for a positional argument.
@@ -2506,6 +2459,59 @@ func runPersistentHooks(ctx context.Context, chain []commandInstance, methodName
 	}
 
 	return nil
+}
+
+// runShellWithVars substitutes variables and executes a shell command.
+func runShellWithVars(ctx context.Context, cmd string, vars map[string]string) error {
+	// Substitute $var and ${var} patterns
+	substituted := shellVarPattern.ReplaceAllStringFunc(cmd, func(match string) string {
+		submatch := shellVarPattern.FindStringSubmatch(match)
+		if len(submatch) < 2 { //nolint:mnd // regex submatch: [full, capture]
+			return match
+		}
+
+		varName := strings.ToLower(submatch[1])
+		if val, ok := vars[varName]; ok {
+			return val
+		}
+
+		return match
+	})
+
+	// Execute via sh -c
+	err := sh.RunContext(ctx, "sh", "-c", substituted)
+	if err != nil {
+		return fmt.Errorf("shell command failed: %w", err)
+	}
+
+	return nil
+}
+
+// shellVarFlagHelp generates synthetic flag help for shell command variables.
+func shellVarFlagHelp(vars []string) []flagHelp {
+	flags := make([]flagHelp, 0, len(vars))
+	usedShorts := make(map[rune]bool)
+
+	for _, varName := range vars {
+		flag := flagHelp{
+			Name:        varName,
+			Placeholder: "VALUE",
+			Required:    true, // All shell vars are required
+		}
+
+		// Assign short flag from first letter if not already used
+		if len(varName) > 0 {
+			firstRune := rune(varName[0])
+			if !usedShorts[firstRune] {
+				flag.Short = string(firstRune)
+				usedShorts[firstRune] = true
+			}
+		}
+
+		flags = append(flags, flag)
+	}
+
+	return flags
 }
 
 func skipShortExpansion(arg string, longInfo map[string]bool) bool {

@@ -512,6 +512,81 @@ func TestRepeatedFlags_IntSlice(t *testing.T) {
 	}
 }
 
+func TestStringTarget_NoVars_ExecutesDirectly(t *testing.T) {
+	// String target without variables should just execute
+	target := targ.Targ("true").Name("simple-cmd")
+
+	result, err := targ.Execute([]string{"app"}, target)
+	if err != nil {
+		t.Fatalf("unexpected error: %v, output: %s", err, result.Output)
+	}
+}
+
+func TestStringTarget_WithVars_EqualsValueSyntax(t *testing.T) {
+	// Test --flag=value syntax
+	target := targ.Targ("echo $name $port").Name("test-cmd")
+
+	result, err := targ.Execute([]string{"app", "--name=hello", "--port=8080"}, target)
+	if err != nil {
+		t.Fatalf("unexpected error: %v, output: %s", err, result.Output)
+	}
+}
+
+func TestStringTarget_WithVars_InfersFlags(t *testing.T) {
+	// String target with $var should create flags from variables
+	target := targ.Targ("echo $name $port").Name("test-cmd")
+
+	// Execute with --name and --port flags (inferred from $vars)
+	// Note: Single root = default, so no command name needed
+	result, err := targ.Execute([]string{"app", "--name", "hello", "--port", "8080"}, target)
+	if err != nil {
+		t.Fatalf("unexpected error: %v, output: %s", err, result.Output)
+	}
+}
+
+func TestStringTarget_WithVars_MissingRequiredFlag(t *testing.T) {
+	target := targ.Targ("echo $name $port").Name("test-cmd")
+
+	// Missing --port should fail
+	_, err := targ.Execute([]string{"app", "--name", "hello"}, target)
+	if err == nil {
+		t.Fatal("expected error for missing required flag")
+	}
+}
+
+func TestStringTarget_WithVars_MixedSyntax(t *testing.T) {
+	// Test mixing --flag=value and --flag value syntax
+	target := targ.Targ("echo $name $port").Name("test-cmd")
+
+	// Mix equals syntax with space syntax
+	result, err := targ.Execute([]string{"app", "--name=hello", "--port", "8080"}, target)
+	if err != nil {
+		t.Fatalf("unexpected error: %v, output: %s", err, result.Output)
+	}
+}
+
+func TestStringTarget_WithVars_MultiRoot(t *testing.T) {
+	// With multiple roots, need to specify command name
+	target := targ.Targ("echo $name").Name("echo-cmd")
+	other := targ.Targ(func() {}).Name("other")
+
+	result, err := targ.Execute([]string{"app", "echo-cmd", "--name", "hello"}, target, other)
+	if err != nil {
+		t.Fatalf("unexpected error: %v, output: %s", err, result.Output)
+	}
+}
+
+func TestStringTarget_WithVars_ShortFlags(t *testing.T) {
+	// First letters should become short flags
+	target := targ.Targ("echo $name $port").Name("test-cmd")
+
+	// Use short flags -n and -p
+	result, err := targ.Execute([]string{"app", "-n", "hello", "-p", "8080"}, target)
+	if err != nil {
+		t.Fatalf("unexpected error: %v, output: %s", err, result.Output)
+	}
+}
+
 // --- Target/Group Tests ---
 
 func TestTarget_BasicExecution(t *testing.T) {
@@ -710,60 +785,6 @@ func TestTimeout_PerCommandExceeded(t *testing.T) {
 	)
 	if err == nil {
 		t.Fatal("expected timeout error")
-	}
-}
-
-func TestStringTarget_WithVars_InfersFlags(t *testing.T) {
-	// String target with $var should create flags from variables
-	target := targ.Targ("echo $name $port").Name("test-cmd")
-
-	// Execute with --name and --port flags (inferred from $vars)
-	// Note: Single root = default, so no command name needed
-	result, err := targ.Execute([]string{"app", "--name", "hello", "--port", "8080"}, target)
-	if err != nil {
-		t.Fatalf("unexpected error: %v, output: %s", err, result.Output)
-	}
-}
-
-func TestStringTarget_WithVars_ShortFlags(t *testing.T) {
-	// First letters should become short flags
-	target := targ.Targ("echo $name $port").Name("test-cmd")
-
-	// Use short flags -n and -p
-	result, err := targ.Execute([]string{"app", "-n", "hello", "-p", "8080"}, target)
-	if err != nil {
-		t.Fatalf("unexpected error: %v, output: %s", err, result.Output)
-	}
-}
-
-func TestStringTarget_WithVars_MissingRequiredFlag(t *testing.T) {
-	target := targ.Targ("echo $name $port").Name("test-cmd")
-
-	// Missing --port should fail
-	_, err := targ.Execute([]string{"app", "--name", "hello"}, target)
-	if err == nil {
-		t.Fatal("expected error for missing required flag")
-	}
-}
-
-func TestStringTarget_WithVars_MultiRoot(t *testing.T) {
-	// With multiple roots, need to specify command name
-	target := targ.Targ("echo $name").Name("echo-cmd")
-	other := targ.Targ(func() {}).Name("other")
-
-	result, err := targ.Execute([]string{"app", "echo-cmd", "--name", "hello"}, target, other)
-	if err != nil {
-		t.Fatalf("unexpected error: %v, output: %s", err, result.Output)
-	}
-}
-
-func TestStringTarget_NoVars_ExecutesDirectly(t *testing.T) {
-	// String target without variables should just execute
-	target := targ.Targ("true").Name("simple-cmd")
-
-	result, err := targ.Execute([]string{"app"}, target)
-	if err != nil {
-		t.Fatalf("unexpected error: %v, output: %s", err, result.Output)
 	}
 }
 
