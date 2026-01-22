@@ -185,6 +185,7 @@ func checkCoverage(ctx context.Context) error {
 		}
 
 		// Exclude entry points that call os.Exit
+		// Coverage format: "targ.go:100:					ExecuteRegistered		0.0%"
 		if strings.Contains(line, "\tRun\t") || strings.Contains(line, "\tRunWithOptions\t") ||
 			strings.Contains(line, "\tExecuteRegistered\t") || strings.Contains(line, "\tExecuteRegisteredWithOptions\t") {
 			continue
@@ -322,10 +323,11 @@ func checkCoverage(ctx context.Context) error {
 		}
 
 		// Exclude OSFileSystem methods (OS wrappers tested via integration)
+		// Coverage format: "buildtool/discover.go:43:			ReadDir				0.0%"
 		if strings.Contains(line, "buildtool/discover.go:") &&
-			(strings.Contains(line, "ReadDir") ||
-				strings.Contains(line, "ReadFile") ||
-				strings.Contains(line, "WriteFile")) {
+			(strings.Contains(line, "\tReadDir\t") ||
+				strings.Contains(line, "\tReadFile\t") ||
+				strings.Contains(line, "\tWriteFile\t")) {
 			continue
 		}
 
@@ -520,6 +522,11 @@ func deadcode(ctx context.Context) error {
 		// Quicktemplate generates both Write* and string-returning functions
 		// We use the Write* versions, so the string-returning ones appear dead
 		"impgen/run/.*\\.qtpl:.*: unreachable func:",
+		// Entry points used by generated bootstrap code (not visible to deadcode)
+		": unreachable func: ExecuteRegisteredWithOptions$",
+		": unreachable func: ExecuteRegistered$",
+		": unreachable func: Run$",
+		": unreachable func: RunWithOptions$",
 	}
 
 	lines := strings.Split(out, "\n")
