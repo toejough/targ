@@ -9,9 +9,23 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"github.com/toejough/targ"
 )
 
-type Create struct {
+func init() {
+	targ.Register(
+		Create,
+		Dedupe,
+		List,
+		Move,
+		Update,
+		Validate,
+	)
+}
+
+// CreateArgs are arguments for the create command.
+type CreateArgs struct {
 	File       string `targ:"flag,default=issues.md,desc=Issue file to update"`
 	GitHub     bool   `targ:"flag,desc=Create issue on GitHub instead of locally"`
 	Title      string `targ:"flag,required,desc=Issue title"`
@@ -21,11 +35,10 @@ type Create struct {
 	Acceptance string `targ:"flag,default=TBD,desc=Acceptance criteria"`
 }
 
-func (c *Create) Description() string {
-	return "Create a new issue locally or on GitHub"
-}
+// Create creates a new issue locally or on GitHub.
+var Create = targ.Targ(create).Description("Create a new issue locally or on GitHub")
 
-func (c *Create) Run() error {
+func create(c CreateArgs) error {
 	if c.GitHub {
 		num, err := createGitHubIssue(c.Title, c.Desc)
 		if err != nil {
@@ -81,15 +94,15 @@ func (c *Create) Run() error {
 	return writeIssues(filePath, content.lines)
 }
 
-type Dedupe struct {
+// DedupeArgs are arguments for the dedupe command.
+type DedupeArgs struct {
 	File string `targ:"flag,default=issues.md,desc=Issue file to update"`
 }
 
-func (c *Dedupe) Description() string {
-	return "Remove duplicate done issues from backlog"
-}
+// Dedupe removes duplicate done issues from backlog.
+var Dedupe = targ.Targ(dedupe).Description("Remove duplicate done issues from backlog")
 
-func (c *Dedupe) Run() error {
+func dedupe(c DedupeArgs) error {
 	filePath := findIssueFile(c.File)
 	content, _, err := loadIssues(filePath)
 	if err != nil {
@@ -112,18 +125,18 @@ func (c *Dedupe) Run() error {
 	return writeIssues(filePath, file.lines)
 }
 
-type List struct {
+// ListArgs are arguments for the list command.
+type ListArgs struct {
 	File   string `targ:"flag,default=issues.md,desc=Issue file to read"`
 	Status string `targ:"flag,desc=Filter by status,enum=backlog|selected|in-progress|review|done|cancelled|blocked"`
 	Query  string `targ:"flag,desc=Case-insensitive title filter"`
 	Source string `targ:"flag,default=all,desc=Issue source,enum=all|local|github"`
 }
 
-func (c *List) Description() string {
-	return "List issues from local file and/or GitHub"
-}
+// List lists issues from local file and/or GitHub.
+var List = targ.Targ(list).Description("List issues from local file and/or GitHub")
 
-func (c *List) Run() error {
+func list(c ListArgs) error {
 	type displayIssue struct {
 		ID     string
 		Status string
@@ -184,17 +197,17 @@ func (c *List) Run() error {
 	return nil
 }
 
-type Move struct {
+// MoveArgs are arguments for the move command.
+type MoveArgs struct {
 	File   string `targ:"flag,default=issues.md,desc=Issue file to update"`
 	ID     string `targ:"positional,required,desc=Issue ID (e.g. 5 for local or gh#5 for GitHub)"`
 	Status string `targ:"flag,required,desc=New status,enum=backlog|selected|in-progress|review|done|cancelled|blocked"`
 }
 
-func (c *Move) Description() string {
-	return "Move a local or GitHub issue to a new status"
-}
+// Move moves a local or GitHub issue to a new status.
+var Move = targ.Targ(move).Description("Move a local or GitHub issue to a new status")
 
-func (c *Move) Run() error {
+func move(c MoveArgs) error {
 	source, number, err := parseIssueID(c.ID)
 	if err != nil {
 		return err
@@ -244,7 +257,8 @@ func (c *Move) Run() error {
 	return writeIssues(filePath, file.lines)
 }
 
-type Update struct {
+// UpdateArgs are arguments for the update command.
+type UpdateArgs struct {
 	File       string `targ:"flag,default=issues.md,desc=Issue file to update"`
 	ID         string `targ:"positional,required,desc=Issue ID (e.g. 5 for local or gh#5 for GitHub)"`
 	Status     string `targ:"flag,desc=New status,enum=backlog|selected|in-progress|review|done|cancelled|blocked"`
@@ -254,11 +268,10 @@ type Update struct {
 	Details    string `targ:"flag,desc=Implementation details"`
 }
 
-func (c *Update) Description() string {
-	return "Update a local or GitHub issue"
-}
+// Update updates a local or GitHub issue.
+var Update = targ.Targ(update).Description("Update a local or GitHub issue")
 
-func (c *Update) Run() error {
+func update(c UpdateArgs) error {
 	source, number, err := parseIssueID(c.ID)
 	if err != nil {
 		return err
@@ -330,15 +343,15 @@ func (c *Update) Run() error {
 	return writeIssues(filePath, file.lines)
 }
 
-type Validate struct {
+// ValidateArgs are arguments for the validate command.
+type ValidateArgs struct {
 	File string `targ:"flag,default=issues.md,desc=Issue file to validate"`
 }
 
-func (c *Validate) Description() string {
-	return "Validate issue formatting and structure"
-}
+// Validate validates issue formatting and structure.
+var Validate = targ.Targ(validate).Description("Validate issue formatting and structure")
 
-func (c *Validate) Run() error {
+func validate(c ValidateArgs) error {
 	_, issues, err := loadIssues(findIssueFile(c.File))
 	if err != nil {
 		return err

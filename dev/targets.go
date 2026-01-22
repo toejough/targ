@@ -29,43 +29,80 @@ import (
 	"github.com/toejough/testredundancy"
 )
 
-// Coverage displays the coverage report.
-type Coverage struct {
+func init() {
+	targ.Register(
+		Check,
+		CheckCoverage,
+		CheckCoverageForFail,
+		CheckForFail,
+		CheckNils,
+		CheckNilsFix,
+		CheckNilsForFail,
+		Clean,
+		Coverage,
+		Deadcode,
+		DeleteDeadcode,
+		FindRedundantTests,
+		Fmt,
+		Fuzz,
+		Generate,
+		InstallTools,
+		Lint,
+		LintFast,
+		LintForFail,
+		Modernize,
+		Mutate,
+		ReorderDecls,
+		ReorderDeclsCheck,
+		Test,
+		TestForFail,
+		Tidy,
+		TodoCheck,
+		Watch,
+	)
+}
+
+// CoverageArgs are arguments for the coverage command.
+type CoverageArgs struct {
 	HTML bool `targ:"flag,desc=Open HTML report in browser"`
 }
 
-func (c *Coverage) Description() string {
-	return "Display coverage report"
-}
+// Coverage displays the coverage report.
+var Coverage = targ.Targ(coverage).Description("Display coverage report")
 
-func (c *Coverage) Run() error {
-	if c.HTML {
+func coverage(args CoverageArgs) error {
+	if args.HTML {
 		return sh.RunV("go", "tool", "cover", "-html=coverage.out")
 	}
 	return sh.RunV("go", "tool", "cover", "-func=coverage.out")
 }
 
 // Check runs all checks & fixes on the code, in order of correctness.
-func Check(ctx context.Context) error {
+var Check = targ.Targ(check).Description("Run all checks & fixes")
+
+func check(ctx context.Context) error {
 	fmt.Println("Checking...")
 
 	return targ.Deps(
-		func() error { return DeleteDeadcode(ctx) }, // no use doing anything else to dead code
-		func() error { return Fmt(ctx) },            // after dead code removal, format code including imports
-		func() error { return Tidy(ctx) },           // clean up the module dependencies
-		func() error { return Modernize(ctx) },      // no use doing anything else to old code patterns
-		func() error { return CheckNils(ctx) },      // is it nil free?
-		func() error { return CheckCoverage(ctx) },  // does our code work?
-		func() error { return ReorderDecls(ctx) },   // linter will yell about declaration order if not correct
-		func() error { return Lint(ctx) },
+		DeleteDeadcode, // no use doing anything else to dead code
+		Fmt,            // after dead code removal, format code including imports
+		Tidy,           // clean up the module dependencies
+		Modernize,      // no use doing anything else to old code patterns
+		CheckNils,      // is it nil free?
+		CheckCoverage,  // does our code work?
+		ReorderDecls,   // linter will yell about declaration order if not correct
+		Lint,
+		targ.WithContext(ctx),
 	)
 }
 
 // CheckCoverage checks that function coverage meets the minimum threshold.
-func CheckCoverage(ctx context.Context) error {
+var CheckCoverage = targ.Targ(checkCoverage).Description("Check function coverage")
+
+func checkCoverage(ctx context.Context) error {
 	fmt.Println("Checking coverage...")
 
-	if err := targ.Deps(func() error { return Test(ctx) }); err != nil {
+	if err := targ.Deps(Test, targ.WithContext(ctx)); err != nil {
 		return err
 	}
 
@@ -303,7 +340,9 @@ func CheckCoverage(ctx context.Context) error {
 
 // CheckCoverageForFail checks coverage from existing coverage.out (doesn't run tests).
 // Must be run after TestForFail which generates coverage.out.
-func CheckCoverageForFail(ctx context.Context) error {
+var CheckCoverageForFail = targ.Targ(checkCoverageForFail).Description("Check coverage (no test run)")
+
+func checkCoverageForFail(ctx context.Context) error {
 	fmt.Println("Checking coverage...")
 
 	// Merge duplicate coverage blocks from cross-package testing
@@ -358,7 +397,9 @@ func CheckCoverageForFail(ctx context.Context) error {
 }
 
 // CheckForFail runs all checks on the code for determining whether any fail.
-func CheckForFail(ctx context.Context) error {
+var CheckForFail = targ.Targ(checkForFail).Description("Run all checks (fail-fast)")
+
+func checkForFail(ctx context.Context) error {
 	fmt.Println("Checking...")
 
 	return targ.Deps(
@@ -374,7 +415,9 @@ func CheckForFail(ctx context.Context) error {
 }
 
 // CheckNils checks for nils: applies fixes, then validates.
-func CheckNils(ctx context.Context) error {
+var CheckNils = targ.Targ(checkNils).Description("Check for nil issues")
+
+func checkNils(ctx context.Context) error {
 	return targ.Deps(
 		CheckNilsFix,
 		CheckNilsForFail,
@@ -383,25 +426,33 @@ func CheckNils(ctx context.Context) error {
 }
 
 // CheckNilsFix applies any auto-fixable nil issues.
-func CheckNilsFix(ctx context.Context) error {
+var CheckNilsFix = targ.Targ(checkNilsFix).Description("Fix nil issues")
+
+func checkNilsFix(ctx context.Context) error {
 	fmt.Println("Fixing nil issues...")
 	return sh.RunContext(ctx, "nilaway", "-fix", "./...")
 }
 
 // CheckNilsForFail checks for nils and fails on any issues.
-func CheckNilsForFail(ctx context.Context) error {
+var CheckNilsForFail = targ.Targ(checkNilsForFail).Description("Check for nil issues (fail)")
+
+func checkNilsForFail(ctx context.Context) error {
 	fmt.Println("Checking for nil issues...")
 	return sh.RunContext(ctx, "nilaway", "./...")
 }
 
 // Clean cleans up the dev env.
-func Clean() {
+var Clean = targ.Targ(clean).Description("Clean dev environment")
+
+func clean() {
 	fmt.Println("Cleaning...")
 	os.Remove("coverage.out")
 }
 
 // Deadcode checks that there's no dead code in codebase.
-func Deadcode(ctx context.Context) error {
+var Deadcode = targ.Targ(deadcode).Description("Check for dead code")
+
+func deadcode(ctx context.Context) error {
 	fmt.Println("Checking for dead code...")
 
 	out, err := sh.OutputContext(ctx, "deadcode", "-test", "./...")
@@ -452,7 +503,9 @@ func Deadcode(ctx context.Context) error {
 }
 
 // DeleteDeadcode removes unreachable functions from the codebase.
-func DeleteDeadcode(ctx context.Context) error {
+var DeleteDeadcode = targ.Targ(deleteDeadcode).Description("Delete dead code")
+
+func deleteDeadcode(ctx context.Context) error {
 	fmt.Println("Deleting dead code...")
 
 	out, err := output(ctx, "deadcode", "-test", "./...")
@@ -518,7 +571,9 @@ func DeleteDeadcode(ctx context.Context) error {
 
 // FindRedundantTests identifies unit tests that don't provide unique coverage beyond golden+UAT tests.
 // This is a convenience wrapper for this repository's specific configuration.
-func FindRedundantTests() error {
+var FindRedundantTests = targ.Targ(findRedundantTests).Description("Find redundant tests")
+
+func findRedundantTests() error {
 	config := testredundancy.Config{
 		BaselineTests: []testredundancy.BaselineTestSpec{
 			{Package: "./impgen/run", TestPattern: "TestUATConsistency"},
@@ -535,14 +590,18 @@ func FindRedundantTests() error {
 }
 
 // Fmt formats the codebase using golangci-lint formatters.
-func Fmt(ctx context.Context) error {
+var Fmt = targ.Targ(fmtCode).Description("Format codebase")
+
+func fmtCode(ctx context.Context) error {
 	fmt.Println("Formatting...")
 	return sh.RunContext(ctx, "golangci-lint", "run", "-c", "dev/golangci-fmt.toml")
 }
 
 // Fuzz runs the fuzz tests.
 // Discovers all Fuzz* functions in *_test.go files and runs each for 1000 iterations.
-func Fuzz() error {
+var Fuzz = targ.Targ(fuzz).Description("Run fuzz tests")
+
+func fuzz() error {
 	fmt.Println("Running fuzz tests...")
 
 	// Find all test files
@@ -604,8 +663,10 @@ func Fuzz() error {
 	return nil
 }
 
-// Generate runs go generate on all packages
-func Generate() error {
+// Generate runs go generate on all packages.
+var Generate = targ.Targ(generate).Description("Run go generate")
+
+func generate() error {
 	fmt.Println("Generating...")
 
 	// Run go generate with modified PATH
@@ -618,19 +679,25 @@ func Generate() error {
 }
 
 // InstallTools installs development tooling.
-func InstallTools() error {
+var InstallTools = targ.Targ(installTools).Description("Install dev tools")
+
+func installTools() error {
 	fmt.Println("Installing development tools...")
 	return sh.Run("./dev/dev-install.sh")
 }
 
 // Lint lints the codebase.
-func Lint(ctx context.Context) error {
+var Lint = targ.Targ(lint).Description("Lint codebase")
+
+func lint(ctx context.Context) error {
 	fmt.Println("Linting...")
 	return sh.RunContext(ctx, "golangci-lint", "run", "-c", "dev/golangci-lint.toml")
 }
 
 // LintFast runs only fast linters for quick fail-fast checks.
-func LintFast(ctx context.Context) error {
+var LintFast = targ.Targ(lintFast).Description("Run fast linters")
+
+func lintFast(ctx context.Context) error {
 	fmt.Println("Running fast linters...")
 
 	return sh.RunContext(ctx,
@@ -641,7 +708,9 @@ func LintFast(ctx context.Context) error {
 }
 
 // LintForFail lints the codebase purely to find out whether anything fails.
-func LintForFail(ctx context.Context) error {
+var LintForFail = targ.Targ(lintForFail).Description("Lint for pass/fail")
+
+func lintForFail(ctx context.Context) error {
 	fmt.Println("Linting to check for overall pass/fail...")
 
 	return sh.RunContext(ctx,
@@ -655,7 +724,9 @@ func LintForFail(ctx context.Context) error {
 }
 
 // Modernize updates the codebase to use modern Go patterns.
-func Modernize(ctx context.Context) error {
+var Modernize = targ.Targ(modernize).Description("Modernize codebase")
+
+func modernize(ctx context.Context) error {
 	fmt.Println("Modernizing codebase...")
 
 	return sh.RunContext(ctx, "go", "run", "golang.org/x/tools/go/analysis/passes/modernize/cmd/modernize@latest",
@@ -663,7 +734,9 @@ func Modernize(ctx context.Context) error {
 }
 
 // Mutate runs the mutation tests.
-func Mutate() error {
+var Mutate = targ.Targ(mutate).Description("Run mutation tests")
+
+func mutate() error {
 	fmt.Println("Running mutation tests...")
 
 	if err := targ.Deps(CheckForFail); err != nil {
@@ -682,7 +755,9 @@ func Mutate() error {
 }
 
 // ReorderDecls reorders declarations in Go files per conventions.
-func ReorderDecls(ctx context.Context) error {
+var ReorderDecls = targ.Targ(reorderDecls).Description("Reorder declarations")
+
+func reorderDecls(ctx context.Context) error {
 	_ = ctx // Reserved for future cancellation support
 	fmt.Println("Reordering declarations...")
 
@@ -749,7 +824,9 @@ func ReorderDecls(ctx context.Context) error {
 }
 
 // ReorderDeclsCheck checks which files need reordering without modifying them.
-func ReorderDeclsCheck(ctx context.Context) error {
+var ReorderDeclsCheck = targ.Targ(reorderDeclsCheck).Description("Check declaration order")
+
+func reorderDeclsCheck(ctx context.Context) error {
 	_ = ctx // Reserved for future cancellation support
 	fmt.Println("Checking declaration order...")
 
@@ -862,7 +939,9 @@ func ReorderDeclsCheck(ctx context.Context) error {
 }
 
 // Test runs the unit tests.
-func Test(ctx context.Context) error {
+var Test = targ.Targ(test).Description("Run unit tests")
+
+func test(ctx context.Context) error {
 	fmt.Println("Running unit tests...")
 
 	if err := targ.Deps(Generate); err != nil {
@@ -910,7 +989,9 @@ func Test(ctx context.Context) error {
 
 // TestForFail runs the unit tests purely to find out whether any fail.
 // Also generates coverage.out for CheckCoverageForFail.
-func TestForFail(ctx context.Context) error {
+var TestForFail = targ.Targ(testForFail).Description("Run tests (fail-fast)")
+
+func testForFail(ctx context.Context) error {
 	fmt.Println("Running unit tests for overall pass/fail...")
 
 	if err := targ.Deps(Generate); err != nil {
@@ -930,19 +1011,25 @@ func TestForFail(ctx context.Context) error {
 }
 
 // Tidy tidies up go.mod.
-func Tidy(ctx context.Context) error {
+var Tidy = targ.Targ(tidy).Description("Tidy go.mod")
+
+func tidy(ctx context.Context) error {
 	fmt.Println("Tidying go.mod...")
 	return sh.RunContext(ctx, "go", "mod", "tidy")
 }
 
 // TodoCheck checks for TODO and FIXME comments using golangci-lint.
-func TodoCheck() error {
+var TodoCheck = targ.Targ(todoCheck).Description("Check for TODOs")
+
+func todoCheck() error {
 	fmt.Println("Checking for TODOs...")
 	return sh.Run("golangci-lint", "run", "-c", "dev/golangci-todos.toml")
 }
 
 // Watch re-runs Check whenever files change.
-func Watch(ctx context.Context) error {
+var Watch = targ.Targ(watch).Description("Watch and re-run checks")
+
+func watch(ctx context.Context) error {
 	fmt.Println("Watching...")
 
 	var (
@@ -983,7 +1070,7 @@ func Watch(ctx context.Context) error {
 
 		targ.ResetDeps() // Clear execution cache so targets run again
 
-		err := Check(checkCtx)
+		err := check(checkCtx)
 		if errors.Is(err, context.Canceled) {
 			fmt.Println("Check cancelled, restarting...")
 		} else if err != nil {
