@@ -18,7 +18,6 @@ import (
 	"runtime/debug"
 	"slices"
 	"sort"
-	"strconv"
 	"strings"
 	"text/template"
 	"unicode"
@@ -36,7 +35,6 @@ const (
 	bootstrapTemplate = `
 package main
 
-{{- if .UsesExplicitRegistration }}
 import (
 	"github.com/toejough/targ"
 	"github.com/toejough/targ/sh"
@@ -51,102 +49,6 @@ func main() {
 		Description: {{ printf "%q" .Description }},
 	})
 }
-{{- else }}
-import (
-	"github.com/toejough/targ"
-	"github.com/toejough/targ/sh"
-{{- if .UsesContext }}
-	"context"
-{{- end }}
-{{- if .BannerLit }}
-	"fmt"
-	"os"
-{{- end }}
-{{- range .Imports }}
-{{- if and (ne .Path "github.com/toejough/targ") (ne .Path "github.com/toejough/targ/sh") (ne .Alias "") }}
-	{{ .Alias }} "{{ .Path }}"
-{{- else if and (ne .Path "github.com/toejough/targ") (ne .Path "github.com/toejough/targ/sh") }}
-	"{{ .Path }}"
-{{- end }}
-{{- end }}
-)
-
-{{- range .FuncWrappers }}
-type {{ .TypeName }} struct{}
-
-func (c *{{ .TypeName }}) Run({{ if .UsesContext }}ctx context.Context{{ end }}) error {
-{{- if .UsesContext }}
-{{- if .ReturnsError }}
-	return {{ .FuncExpr }}(ctx)
-{{- else }}
-	{{ .FuncExpr }}(ctx)
-	return nil
-{{- end }}
-{{- else }}
-{{- if .ReturnsError }}
-	return {{ .FuncExpr }}()
-{{- else }}
-	{{ .FuncExpr }}()
-	return nil
-{{- end }}
-{{- end }}
-}
-
-func (c *{{ .TypeName }}) Name() string {
-	return "{{ .Name }}"
-}
-{{- if .SourceFile }}
-func (c *{{ .TypeName }}) SourceFile() string {
-	return {{ printf "%q" .SourceFile }}
-}
-{{- end }}
-{{- end }}
-
-{{- range .Nodes }}
-type {{ .TypeName }} struct {
-{{- range .Fields }}
-	{{ .Name }} {{ .TypeExpr }} ` + "`{{ .TagLit }}`" + `
-{{- end }}
-}
-{{- if .Description }}
-func (c *{{ .TypeName }}) Description() string {
-	return {{ printf "%q" .Description }}
-}
-{{- end }}
-{{- if .SourceFile }}
-func (c *{{ .TypeName }}) SourceFile() string {
-	return {{ printf "%q" .SourceFile }}
-}
-{{- end }}
-{{- end }}
-
-func main() {
-	sh.EnableCleanup()
-{{- if .BannerLit }}
-	if len(os.Args) == 1 || (len(os.Args) > 1 && (os.Args[1] == "-h" || os.Args[1] == "--help")) {
-		fmt.Println({{ .BannerLit }})
-		fmt.Println()
-	}
-{{- end }}
-{{- range .Nodes }}
-	{{ .VarName }} := &{{ .TypeName }}{}
-{{- end }}
-
-	roots := []interface{}{
-{{- range .RootExprs }}
-		{{ . }},
-{{- end }}
-	}
-
-	opts := targ.RunOptions{
-		AllowDefault: {{ .AllowDefault }},
-{{- if .Description }}
-		Description: {{ printf "%q" .Description }},
-{{- end }}
-	}
-	targ.RunWithOptions(opts, roots...)
-}
-{{- end }}
 `
 	commandNamePadding     = 2 // Padding after command name column
 	completeCommand        = "__complete"
@@ -181,165 +83,18 @@ var (
 )
 
 type bootstrapBuilder struct {
-	absStart                 string
-	moduleRoot               string
-	modulePath               string
-	imports                  []bootstrapImport
-	usedImports              map[string]bool
-	fileCommands             map[string][]bootstrapCommand
-	funcWrappers             []bootstrapFuncWrapper
-	usesContext              bool
-	wrapperNames             *nameGenerator
-	pathMapping              map[string]string // maps isolated paths to original paths
-	explicitRegPackages      []string          // import paths for packages using targ.Register()
-	hasExplicitRegistration  bool              // true if any package uses explicit registration
-	hasDiscoveredCommands    bool              // true if any package uses old discovery model
+	absStart            string
+	moduleRoot          string
+	modulePath          string
+	pathMapping         map[string]string // maps isolated paths to original paths
+	explicitRegPackages []string          // import paths for packages using targ.Register()
 }
 
-func (b *bootstrapBuilder) addFuncCommand(
-	pkgName string,
-	cmd buildtool.CommandInfo,
-	prefix string,
-) {
-	base := segmentToIdent(pkgName) + segmentToIdent(cmd.Name) + "Func"
-	typeName := b.wrapperNames.uniqueTypeName(base)
-
-	b.funcWrappers = append(b.funcWrappers, bootstrapFuncWrapper{
-		TypeName:     typeName,
-		Name:         cmd.Name,
-		FuncExpr:     prefix + cmd.Name,
-		SourceFile:   cmd.File,
-		UsesContext:  cmd.UsesContext,
-		ReturnsError: cmd.ReturnsError,
-	})
-
-	if cmd.UsesContext {
-		b.usesContext = true
-	}
-
-	b.fileCommands[cmd.File] = append(b.fileCommands[cmd.File], bootstrapCommand{
-		Name:      cmd.Name,
-		TypeExpr:  "*" + typeName,
-		ValueExpr: "&" + typeName + "{}",
-	})
-}
-
-func (b *bootstrapBuilder) addStructCommand(cmd buildtool.CommandInfo, prefix string) {
-	b.fileCommands[cmd.File] = append(b.fileCommands[cmd.File], bootstrapCommand{
-		Name:      cmd.Name,
-		TypeExpr:  "*" + prefix + cmd.Name,
-		ValueExpr: "&" + prefix + cmd.Name + "{}",
-	})
-}
-
-func (b *bootstrapBuilder) buildResult(
-	startDir string,
-	infos []buildtool.PackageInfo,
-) (bootstrapData, error) {
-	// If all packages use explicit registration, generate simple bootstrap
-	if b.hasExplicitRegistration && !b.hasDiscoveredCommands {
-		return bootstrapData{
-			UsesExplicitRegistration: true,
-			BlankImports:             b.explicitRegPackages,
-			Description:              "Targ discovers and runs build targets you write in Go.",
-		}, nil
-	}
-
-	// Mixed mode not supported yet - error if both are used
-	if b.hasExplicitRegistration && b.hasDiscoveredCommands {
-		return bootstrapData{}, errors.New("mixed explicit registration and discovery not supported")
-	}
-
-	// Old discovery model
-	filePaths := b.sortedFilePaths()
-
-	paths, err := namespacePaths(filePaths, startDir)
-	if err != nil {
-		return bootstrapData{}, err
-	}
-
-	tree := buildNamespaceTree(paths)
-	assignNamespaceNames(tree, &nameGenerator{})
-
-	rootExprs := b.collectRootExprs(filePaths, paths, tree)
-
-	// Build map from file path to package doc
-	// Also map by directory for namespace nodes (which may have any file from the package)
-	pkgDocs := make(map[string]string)
-
-	for _, info := range infos {
-		doc := strings.TrimSpace(info.Doc)
-		if doc == "" {
-			continue
-		}
-
-		for _, cmd := range info.Commands {
-			pkgDocs[cmd.File] = doc
-		}
-		// Also map by directory for files not in commands (namespace nodes use one file)
-		for _, f := range info.Files {
-			pkgDocs[f.Path] = doc
-		}
-	}
-
-	var nodes []bootstrapNode
-
-	err = collectNamespaceNodes(tree, b.fileCommands, pkgDocs, b.pathMapping, &nodes)
-	if err != nil {
-		return bootstrapData{}, err
-	}
-
-	bannerLit := ""
-	// Default description for targ build tool mode
-	description := "Targ discovers and runs build targets you write in Go."
-
-	if len(infos) == 1 {
-		bannerLit = strconv.Quote(singlePackageBanner(infos[0]))
-	}
-
+func (b *bootstrapBuilder) buildResult() bootstrapData {
 	return bootstrapData{
-		AllowDefault: false,
-		BannerLit:    bannerLit,
-		Description:  description,
-		Imports:      b.imports,
-		RootExprs:    rootExprs,
-		Nodes:        nodes,
-		FuncWrappers: b.funcWrappers,
-		UsesContext:  b.usesContext,
-	}, nil
-}
-
-func (b *bootstrapBuilder) collectRootExprs(
-	filePaths []string,
-	paths map[string][]string,
-	tree *namespaceNode,
-) []string {
-	rootExprs := make([]string, 0)
-
-	for _, path := range filePaths {
-		if len(paths[path]) != 0 {
-			continue
-		}
-
-		for _, cmd := range b.fileCommands[path] {
-			rootExprs = append(rootExprs, cmd.ValueExpr)
-		}
+		BlankImports: b.explicitRegPackages,
+		Description:  "Targ discovers and runs build targets you write in Go.",
 	}
-
-	rootNames := make([]string, 0, len(tree.Children))
-	for name := range tree.Children {
-		rootNames = append(rootNames, name)
-	}
-
-	sort.Strings(rootNames)
-
-	for _, name := range rootNames {
-		if child := tree.Children[name]; child != nil {
-			rootExprs = append(rootExprs, child.VarName)
-		}
-	}
-
-	return rootExprs
 }
 
 func (b *bootstrapBuilder) computeImportPath(dir string) string {
@@ -351,129 +106,20 @@ func (b *bootstrapBuilder) computeImportPath(dir string) string {
 	return b.modulePath + "/" + filepath.ToSlash(rel)
 }
 
-func (b *bootstrapBuilder) processCommand(
-	pkgName string,
-	cmd buildtool.CommandInfo,
-	prefix string,
-) error {
-	switch cmd.Kind {
-	case buildtool.CommandStruct:
-		b.addStructCommand(cmd, prefix)
-	case buildtool.CommandFunc:
-		b.addFuncCommand(pkgName, cmd, prefix)
-	default:
-		return fmt.Errorf("%w: %s", errUnknownCommandKind, cmd.Name)
-	}
-
-	return nil
-}
-
 func (b *bootstrapBuilder) processPackage(info buildtool.PackageInfo) error {
-	// Handle explicit registration packages
-	if info.UsesExplicitRegistration {
-		importPath := b.computeImportPath(info.Dir)
-		b.explicitRegPackages = append(b.explicitRegPackages, importPath)
-		b.hasExplicitRegistration = true
-
-		return nil
+	if !info.UsesExplicitRegistration {
+		return fmt.Errorf("package %s does not use explicit registration (targ.Register in init)", info.Package)
 	}
 
-	// Old discovery model
-	if len(info.Commands) == 0 {
-		return fmt.Errorf("%w: %s", errNoCommandsInPackage, info.Package)
-	}
-
-	b.hasDiscoveredCommands = true
-	local := sameDir(b.absStart, info.Dir)
-	prefix := b.setupImport(info, local)
-
-	for _, cmd := range info.Commands {
-		err := b.processCommand(info.Package, cmd, prefix)
-		if err != nil {
-			return err
-		}
-	}
+	importPath := b.computeImportPath(info.Dir)
+	b.explicitRegPackages = append(b.explicitRegPackages, importPath)
 
 	return nil
-}
-
-func (b *bootstrapBuilder) setupImport(info buildtool.PackageInfo, _ bool) string {
-	// Always import and prefix - bootstrap is package main, so it can't
-	// access symbols from target packages without importing them
-	importPath := b.computeImportPath(info.Dir)
-	importName := uniqueImportName(info.Package, b.usedImports)
-
-	b.imports = append(b.imports, bootstrapImport{
-		Path:  importPath,
-		Alias: importName,
-	})
-
-	return importName + "."
-}
-
-func (b *bootstrapBuilder) sortedFilePaths() []string {
-	filePaths := make([]string, 0, len(b.fileCommands))
-
-	for path := range b.fileCommands {
-		sort.Slice(b.fileCommands[path], func(i, j int) bool {
-			return b.fileCommands[path][i].Name < b.fileCommands[path][j].Name
-		})
-		filePaths = append(filePaths, path)
-	}
-
-	sort.Strings(filePaths)
-
-	return filePaths
-}
-
-type bootstrapCommand struct {
-	Name      string
-	TypeExpr  string
-	ValueExpr string
 }
 
 type bootstrapData struct {
-	AllowDefault             bool
-	BannerLit                string
-	Description              string
-	Imports                  []bootstrapImport
-	RootExprs                []string
-	Nodes                    []bootstrapNode
-	FuncWrappers             []bootstrapFuncWrapper
-	UsesContext              bool
-	UsesExplicitRegistration bool     // true if using targ.Register() model
-	BlankImports             []string // import paths for explicit registration packages
-}
-
-type bootstrapField struct {
-	Name      string
-	TypeExpr  string
-	TagLit    string
-	ValueExpr string
-	SetValue  bool
-}
-
-type bootstrapFuncWrapper struct {
-	TypeName     string
-	Name         string
-	FuncExpr     string
-	SourceFile   string
-	UsesContext  bool
-	ReturnsError bool
-}
-
-type bootstrapImport struct {
-	Path  string
-	Alias string
-}
-
-type bootstrapNode struct {
-	Name        string
-	TypeName    string
-	VarName     string
-	Description string
-	SourceFile  string
-	Fields      []bootstrapField
+	Description  string
+	BlankImports []string // import paths for explicit registration packages
 }
 
 type buildContext struct {
@@ -862,19 +508,10 @@ func (r *targRunner) handleIsolatedModule(infos []buildtool.PackageInfo) int {
 		return r.exitWithCleanup(1)
 	}
 
-	filePaths := collectFilePaths(isolatedInfos)
-
-	collapsedPaths, err := namespacePaths(filePaths, isolatedDir)
-	if err != nil {
-		r.logError("Error computing namespace paths", err)
-		return r.exitWithCleanup(1)
-	}
-
 	bootstrap, err := r.prepareBootstrapWithMapping(
 		isolatedInfos,
 		isolatedDir,
 		isolatedModuleName,
-		collapsedPaths,
 		pathMapping,
 	)
 	if err != nil {
@@ -968,19 +605,13 @@ func (r *targRunner) handleSingleModule(infos []buildtool.PackageInfo) int {
 		return r.handleIsolatedModule(infos)
 	}
 
-	collapsedPaths, err := namespacePaths(filePaths, r.startDir)
-	if err != nil {
-		r.logError("Error computing namespace paths", err)
-		return r.exitWithCleanup(1)
-	}
-
 	importRoot, modulePath, _, err := findModuleForPath(filePaths[0])
 	if err != nil {
 		r.logError("Error checking for module", err)
 		return r.exitWithCleanup(1)
 	}
 
-	bootstrap, err := r.prepareBootstrap(infos, importRoot, modulePath, collapsedPaths)
+	bootstrap, err := r.prepareBootstrap(infos, importRoot, modulePath)
 	if err != nil {
 		r.logError("", err)
 		return r.exitWithCleanup(1)
@@ -1019,9 +650,8 @@ func (r *targRunner) logError(prefix string, err error) {
 func (r *targRunner) prepareBootstrap(
 	infos []buildtool.PackageInfo,
 	importRoot, modulePath string,
-	collapsedPaths map[string][]string,
 ) (moduleBootstrap, error) {
-	data, err := buildBootstrapData(infos, r.startDir, importRoot, modulePath, collapsedPaths)
+	data, err := buildBootstrapData(infos, r.startDir, importRoot, modulePath)
 	if err != nil {
 		return moduleBootstrap{}, fmt.Errorf("error preparing bootstrap: %w", err)
 	}
@@ -1061,11 +691,10 @@ func (r *targRunner) prepareBootstrap(
 func (r *targRunner) prepareBootstrapWithMapping(
 	infos []buildtool.PackageInfo,
 	importRoot, modulePath string,
-	collapsedPaths map[string][]string,
 	pathMapping map[string]string,
 ) (moduleBootstrap, error) {
 	data, err := buildBootstrapDataWithMapping(
-		infos, r.startDir, importRoot, modulePath, collapsedPaths, pathMapping,
+		infos, r.startDir, importRoot, modulePath, pathMapping,
 	)
 	if err != nil {
 		return moduleBootstrap{}, fmt.Errorf("error preparing bootstrap: %w", err)
@@ -1301,9 +930,8 @@ func buildBootstrapData(
 	startDir string,
 	moduleRoot string,
 	modulePath string,
-	_ map[string][]string,
 ) (bootstrapData, error) {
-	return buildBootstrapDataWithMapping(infos, startDir, moduleRoot, modulePath, nil, nil)
+	return buildBootstrapDataWithMapping(infos, startDir, moduleRoot, modulePath, nil)
 }
 
 func buildBootstrapDataWithMapping(
@@ -1311,7 +939,6 @@ func buildBootstrapDataWithMapping(
 	startDir string,
 	moduleRoot string,
 	modulePath string,
-	_ map[string][]string,
 	pathMapping map[string]string,
 ) (bootstrapData, error) {
 	absStart, err := filepath.Abs(startDir)
@@ -1329,30 +956,7 @@ func buildBootstrapDataWithMapping(
 		}
 	}
 
-	return builder.buildResult(startDir, infos)
-}
-
-func buildCommandFields(
-	node *namespaceNode,
-	commands []bootstrapCommand,
-	usedNames map[string]bool,
-) ([]bootstrapField, error) {
-	fields := make([]bootstrapField, 0, len(commands))
-
-	for _, cmd := range commands {
-		if usedNames[cmd.Name] {
-			return nil, fmt.Errorf("%w: %q under %q", errDuplicateCommandName, cmd.Name, node.Name)
-		}
-
-		usedNames[cmd.Name] = true
-		fields = append(fields, bootstrapField{
-			Name:     cmd.Name,
-			TypeExpr: cmd.TypeExpr,
-			TagLit:   `targ:"subcommand"`,
-		})
-	}
-
-	return fields, nil
+	return builder.buildResult(), nil
 }
 
 // buildModuleBinary builds a single module's binary and queries its commands.
@@ -1435,46 +1039,6 @@ func buildMultiModuleBinaries(
 	}
 
 	return registry, nil
-}
-
-func buildNamespaceFields(
-	node *namespaceNode,
-	names []string,
-	fileCommands map[string][]bootstrapCommand,
-) ([]bootstrapField, error) {
-	fields := make([]bootstrapField, 0, len(node.Children))
-	usedNames := map[string]bool{}
-
-	for _, name := range names {
-		child := node.Children[name]
-		if child == nil {
-			continue
-		}
-
-		fieldName := segmentToIdent(child.Name)
-
-		if usedNames[fieldName] {
-			return nil, fmt.Errorf("%w: %q under %q", errDuplicateNamespace, fieldName, node.Name)
-		}
-
-		usedNames[fieldName] = true
-		fields = append(fields, bootstrapField{
-			Name:     fieldName,
-			TypeExpr: "*" + child.TypeName,
-			TagLit:   subcommandTag(fieldName, child.Name),
-		})
-	}
-
-	if node.File != "" {
-		cmdFields, err := buildCommandFields(node, fileCommands[node.File], usedNames)
-		if err != nil {
-			return nil, err
-		}
-
-		fields = append(fields, cmdFields...)
-	}
-
-	return fields, nil
 }
 
 func buildNamespaceTree(paths map[string][]string) *namespaceNode {
@@ -1623,16 +1187,6 @@ func collectModuleTaggedFiles(mt moduleTargets) ([]buildtool.TaggedFile, error) 
 	}
 
 	return files, nil
-}
-
-func collectNamespaceNodes(
-	root *namespaceNode,
-	fileCommands map[string][]bootstrapCommand,
-	pkgDocs map[string]string,
-	pathMapping map[string]string,
-	out *[]bootstrapNode,
-) error {
-	return walkNamespaceTree(root, root, fileCommands, pkgDocs, pathMapping, out)
 }
 
 // collectPackageFilePaths extracts all file paths from module packages.
@@ -2108,19 +1662,11 @@ func generateModuleBootstrap(
 	mt moduleTargets,
 	startDir, importRoot string,
 ) (moduleBootstrap, error) {
-	filePaths := collectPackageFilePaths(mt)
-
-	collapsedPaths, err := namespacePaths(filePaths, startDir)
-	if err != nil {
-		return moduleBootstrap{}, fmt.Errorf("computing namespace paths: %w", err)
-	}
-
 	data, err := buildBootstrapData(
 		mt.Packages,
 		startDir,
 		importRoot,
 		mt.ModulePath,
-		collapsedPaths,
 	)
 	if err != nil {
 		return moduleBootstrap{}, fmt.Errorf("preparing bootstrap: %w", err)
@@ -2402,13 +1948,9 @@ func namespacePaths(files []string, root string) (map[string][]string, error) {
 
 func newBootstrapBuilder(absStart, moduleRoot, modulePath string) *bootstrapBuilder {
 	return &bootstrapBuilder{
-		absStart:     absStart,
-		moduleRoot:   moduleRoot,
-		modulePath:   modulePath,
-		imports:      []bootstrapImport{{Path: "github.com/toejough/targ"}},
-		usedImports:  map[string]bool{"github.com/toejough/targ": true},
-		fileCommands: make(map[string][]bootstrapCommand),
-		wrapperNames: &nameGenerator{},
+		absStart:   absStart,
+		moduleRoot: moduleRoot,
+		modulePath: modulePath,
 	}
 }
 
@@ -2993,61 +2535,6 @@ func validateNoPackageMain(mt moduleTargets) error {
 	return nil
 }
 
-func walkNamespaceTree(
-	node, root *namespaceNode,
-	fileCommands map[string][]bootstrapCommand,
-	pkgDocs map[string]string,
-	pathMapping map[string]string,
-	out *[]bootstrapNode,
-) error {
-	names := sortedChildNames(node)
-
-	for _, name := range names {
-		child := node.Children[name]
-		if child == nil {
-			continue
-		}
-
-		err := walkNamespaceTree(child, root, fileCommands, pkgDocs, pathMapping, out)
-		if err != nil {
-			return err
-		}
-	}
-
-	if node == root {
-		return nil
-	}
-
-	fields, err := buildNamespaceFields(node, names, fileCommands)
-	if err != nil {
-		return err
-	}
-
-	// Look up package doc for this namespace
-	description := ""
-
-	sourceFile := node.File
-	if node.File != "" {
-		description = pkgDocs[node.File]
-		// Map isolated path to original path if available
-		if pathMapping != nil {
-			if original, ok := pathMapping[node.File]; ok {
-				sourceFile = original
-			}
-		}
-	}
-
-	*out = append(*out, bootstrapNode{
-		Name:        node.Name,
-		TypeName:    node.TypeName,
-		VarName:     node.VarName,
-		Description: description,
-		SourceFile:  sourceFile,
-		Fields:      fields,
-	})
-
-	return nil
-}
 
 func writeBootstrapFile(dir string, data []byte) (string, func() error, error) {
 	//nolint:gosec,mnd // standard directory permissions for bootstrap
