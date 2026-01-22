@@ -4,6 +4,23 @@
 
 Rebuild targ from struct-based model to function-based Target Builder pattern following TDD with property-based testing.
 
+## Current Status
+
+| Phase | Status | Description |
+|-------|--------|-------------|
+| 1 | ✅ Complete | Target Builder + Group |
+| 2 | 🔶 Partial | --create basic works; advanced flags not implemented |
+| 3 | ❌ Not Started | Explicit Registration Model |
+| 4 | ✅ Complete | Execution Features (deps, cache, watch) |
+| 5 | ✅ Complete | Repetition Features (times, while, retry, backoff, timeout) |
+| 6 | 🔶 Partial | Runtime Overrides (--timeout, --deps, --cache-dir missing) |
+| 7 | ❌ Not Started | Shell Support |
+| 8 | ❌ Not Started | --sync Remote Import |
+| 9 | ❌ Not Started | Additional Global Flags |
+| 10 | ❌ Not Started | Remove Struct Model |
+
+**Next**: Complete Phase 6 (--timeout, --deps, --cache-dir), then Phase 3 or 7
+
 ## Approach
 
 **Implement replacement + remove old together**: Never leave functionality gaps. When removing --init/--alias, have --create working first.
@@ -132,13 +149,29 @@ Extend to handle `*Target` and `*Group` in addition to existing structs.
 
 Now that Target exists, implement --create and remove obsolete flags.
 
+### Status
+
+**COMPLETE**:
+- 2.2 Remove --init, --alias, --move (errors with migration message)
+- 2.3 Rename --no-cache to --no-binary-cache
+- 2.4 Remove --keep
+- Basic --create works: `targ --create name "cmd"`
+
+**NOT YET IMPLEMENTED**:
+- 2.1 Advanced --create: `--deps`, `--cache` flags
+- Group path creation: `targ --create dev lint fast "cmd"`
+
 ### 2.1 Implement --create
 
-**New**: `internal/create/create.go`
+**Current**: Basic `targ --create name "cmd"` works (inline in main.go)
+
+**Remaining**: `internal/create/create.go` package with:
 
 ```
 targ --create lint "golangci-lint run"
 targ --create dev lint fast "golangci-lint run"  # creates dev/lint/fast
+targ --create --deps build test lint "cmd"       # with dependencies
+targ --create --cache "**/*.go" build "cmd"      # with cache patterns
 ```
 
 **Behavior**:
@@ -481,54 +514,52 @@ Add timeout/retry to flaky targets if any exist.
 
 Add CLI flags that override compile-time settings.
 
-### 6.1 Add Override Flags
+### Status
+
+**COMPLETE**:
+- `--times N` - number of iterations
+- `--retry` - continue on failure
+- `--watch "pattern"` - file patterns (variadic)
+- `--cache "pattern"` - cache patterns (variadic)
+- `--backoff D,M` - exponential backoff
+- `--while "cmd"` - shell predicate
+- `--dep-mode parallel|serial` - dependency mode
+- Ownership model with `targ.Disabled`
+
+**NOT YET IMPLEMENTED**:
+- `--timeout duration` - execution timeout
+- `--deps target1 target2` - override dependencies (variadic)
+- `--cache-dir "path"` - custom cache directory
+
+### 6.1 Variadic Flag Syntax
+
+Variadic flags (`--watch`, `--cache`, `--deps`) collect multiple values until the next flag or `--`:
 
 ```
---watch "pattern"
---cache "pattern"
---cache-dir "path"
---timeout duration
---deps target1,target2
---dep-mode parallel
---times N
---while "cmd"
---retry
---backoff D,M
+targ build --watch "**/*.go" "**/*.mod" --timeout 5m
+targ build --deps lint test --dep-mode parallel
+targ build --deps lint test -- deploy   # -- ends variadic and resets path
 ```
 
-**Files**: `internal/core/parse.go`
-
-**Behavior**:
-
-- `--cache-dir` sets custom cache directory (default: `.targ-cache`)
-- Help output shows cache directory in use
-
-**Properties**:
-
-```go
-// Flags parse correctly
-rapid.Check(t, func(t *rapid.T) {
-    times := rapid.IntRange(1, 100).Draw(t, "times")
-    args := []string{"targ", "--times", strconv.Itoa(times), "build"}
-    parsed := parseArgs(args)
-    gomega.Expect(parsed.times).To(gomega.Equal(times))
-})
-
-// Invalid flags error clearly
-// Override applies to correct target
-```
+**Files**: `internal/core/override.go`
 
 ### 6.2 Ownership Model (targ.Disabled)
 
-**Properties**:
+**COMPLETE**:
+- `.Watch(targ.Disabled)` allows CLI --watch
+- `.Cache(targ.Disabled)` allows CLI --cache
+- Without Disabled: CLI override conflicts with Target config = error
+- Error messages explain how to use `targ.Disabled`
 
-- `.Watch(targ.Disabled)` allows user-defined --watch
-- Without Disabled: conflict = error
-- User-defined flag receives parsed value
+**NOT YET IMPLEMENTED**:
+- `--deps` errors if target has `.Deps()` configured (single source of truth)
 
-### 6.3 Migrate dev/targets.go
+### 6.3 Remaining Work
 
-Test override flags on local targets: `targ build --watch "**/*.go"`
+1. Implement `--timeout` flag parsing and application
+2. Implement `--deps` variadic flag with path traversal
+3. Implement `--cache-dir` flag
+4. Add deps conflict detection (`--deps` + `.Deps()` = error)
 
 ---
 

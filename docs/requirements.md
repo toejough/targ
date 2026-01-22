@@ -68,6 +68,9 @@ What exists and how it's structured.
 - Select targets by pattern without naming each explicitly
 - User intent is unambiguous (or has clear defaults per operation)
 - User-facing and internal representations convert losslessly
+- Path traversal continues from current group after hitting a target
+- `--` resets path to root for accessing top-level targets after nested ones
+- Name collisions between top-level targets and groups error at registration
 
 ### Sources
 

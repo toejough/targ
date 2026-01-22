@@ -301,17 +301,24 @@ Without `ResetDeps()`, deps only run on the first iteration.
 Users can override execution settings via CLI flags:
 
 ```
-targ build --watch "**/*.go"
-targ build --cache "**/*.go,go.sum"
+targ build --watch "**/*.go" "**/*.mod"
+targ build --cache "**/*.go" "go.sum"
 targ build --timeout 5m
 targ build --no-cache
-targ build --deps lint,test
-targ build --deps lint,test --dep-mode parallel
+targ build --deps lint test
+targ build --deps lint test --dep-mode parallel
 targ build --times 3
 targ build --times 3 --retry
 targ build --times 3 --retry --backoff 1s,2
 targ build --while "test -f .lock"
 targ build --while "pgrep server" --retry --backoff 1s,2
+```
+
+**Variadic flags**: `--watch`, `--cache`, and `--deps` accept multiple values. Values continue until the next flag (`--foo`) or path reset (`--`):
+
+```
+targ build --deps lint test --timeout 5m  # deps: lint, test (ends at --timeout)
+targ build --deps lint test -- deploy     # deps: lint, test; then run build, deploy
 ```
 
 **Repetition flags**:
@@ -325,6 +332,7 @@ targ build --while "pgrep server" --retry --backoff 1s,2
 
 - **targ manages by default**: `--watch`, `--cache`, `--timeout`, `--deps`, `--dep-mode`, `--times`, `--while`, `--retry`, `--backoff` are reserved flags
 - **Conflict = error**: If your args struct defines a field that conflicts with a targ-managed flag, targ errors
+- **Single source of truth**: `--deps` errors if target has `.Deps()` configured; dependencies must be defined in exactly one place (code or CLI, not both)
 - **targ.Disabled = you take over**: Disable targ's management, define the flag yourself, use targ APIs
 
 ```go
@@ -386,16 +394,25 @@ Stack-based traversal with glob support. Same syntax for all operations (run, in
 ```
 targ dev build test          # dev/build, dev/test
 targ dev lint fast full      # dev/lint/fast, dev/lint/full
-targ dev build ^ prod deploy # dev/build, then prod/deploy
+targ dev build -- prod deploy # dev/build, then prod/deploy
 targ dev lint *              # all targets under dev/lint
 targ dev **                  # all targets under dev, recursively
 targ ** test                 # all targets named "test" anywhere
 ```
 
-- Names push onto the stack (descend into groups, or select targets at current level)
-- `^` resets the stack to root
+**Traversal rules**:
+- Words traverse into groups until reaching a target
+- After hitting a target, the next word continues from the current group level
+- `--` resets to root (use for top-level targets after nested ones)
 - `*` matches any single level
 - `**` matches any depth (fish-style)
+
+**Examples**:
+```
+targ dev build lint          # dev/build, dev/lint (both under dev/)
+targ dev lint fast full      # dev/lint/fast, dev/lint/full (both under dev/lint/)
+targ dev build -- issue start # dev/build, then issue/start (-- resets to root)
+```
 
 ### Why explicit names?
 
@@ -587,7 +604,7 @@ targ --completion fish | source
 - Target and subcommand names
 - Flags (`--long` and `-short` forms)
 - Enum values for flags and positionals
-- `^` for root reset
+- `--` for root reset
 - Sibling commands at current level
 
 ---
