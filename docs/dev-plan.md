@@ -365,6 +365,7 @@ Add CLI flags that override compile-time settings.
 ```
 --watch "pattern"
 --cache "pattern"
+--cache-dir "path"
 --timeout duration
 --deps target1,target2
 --dep-mode parallel
@@ -375,6 +376,11 @@ Add CLI flags that override compile-time settings.
 ```
 
 **Files**: `internal/core/parse.go`
+
+**Behavior**:
+
+- `--cache-dir` sets custom cache directory (default: `.targ-cache`)
+- Help output shows cache directory in use
 
 **Properties**:
 
