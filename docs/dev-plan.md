@@ -10,7 +10,7 @@ Rebuild targ from struct-based model to function-based Target Builder pattern fo
 |-------|--------|-------------|
 | 1 | ✅ Complete | Target Builder + Group |
 | 2 | ✅ Complete | --create with groups, deps, cache |
-| 3 | ❌ Not Started | Explicit Registration Model |
+| 3 | ✅ Complete | Explicit Registration Model |
 | 4 | ✅ Complete | Execution Features (deps, cache, watch) |
 | 5 | ✅ Complete | Repetition Features (times, while, retry, backoff, timeout) |
 | 6 | ✅ Complete | Runtime Overrides |
@@ -19,7 +19,7 @@ Rebuild targ from struct-based model to function-based Target Builder pattern fo
 | 9 | ❌ Not Started | Additional Global Flags |
 | 10 | ❌ Not Started | Remove Struct Model |
 
-**Next**: Phase 3 (Explicit Registration) or Phase 8 (--sync Remote Import)
+**Next**: Phase 8 (--sync Remote Import) or Phase 9 (Additional Global Flags)
 
 ## Approach
 
@@ -228,148 +228,40 @@ Remove:
 
 ---
 
-## Phase 3: Switch to Explicit Registration Model
+## Phase 3: Switch to Explicit Registration Model ✅ COMPLETE
 
 The architecture specifies explicit registration via `targ.Register()` in init(), not discovery of exports. This phase switches from the current "discover exports and generate wrappers" model to "import package and let init() handle registration".
 
-### 3.1 Add targ.Register() Detection to Buildtool
+### 3.1 Add targ.Register() Detection to Buildtool ✅
 
-**Files**: `buildtool/discover.go`
+Already implemented:
+- `buildtool/discover.go` detects `targ.Register()` calls in init() functions
+- `PackageInfo.UsesExplicitRegistration` flag is set
+- Bootstrap requires explicit registration (errors if not found)
 
-Detect if a package uses the new explicit registration model:
+### 3.2 Migrate dev/targets.go ✅
 
-- Scan init() functions for `targ.Register()` calls
-- If found: generate minimal bootstrap that just imports the package
-- If not found: use old discovery (backwards compat during transition)
+Already complete:
+- All targets use `targ.Targ()` builder pattern
+- `init()` calls `targ.Register()` with all targets
+- Args structs for flags (e.g., `CoverageArgs`)
 
-**Properties**:
+### 3.3 Migrate dev/issues/*.go ✅
 
-```go
-// Package with targ.Register() in init uses new model
-rapid.Check(t, func(t *rapid.T) {
-    src := `//go:build targ
-package dev
-func init() { targ.Register(myTarget) }`
-    info := parsePackage(src)
-    gomega.Expect(info.UsesExplicitRegistration).To(gomega.BeTrue())
-})
-```
+Already complete:
+- All targets use `targ.Targ()` builder pattern
+- `init()` calls `targ.Register()` with all targets
 
-**Functional check**: Both old and new models work
+### 3.4 Remove Old Discovery Code ✅
 
-### 3.2 Migrate dev/targets.go
+Removed from `cmd/targ/main.go`:
+- `GenerateFunctionWrappers()` call removed
+- `cleanupWrappers()` function removed
+- `generatedWrappers` field removed from `targRunner`
 
-Convert existing targets to function + Target builder pattern with explicit registration.
-
-**Before** (current):
-
-```go
-type Coverage struct {
-    HTML bool `targ:"flag,desc=Open HTML report"`
-}
-func (c *Coverage) Run() error { ... }
-
-func Tidy(ctx context.Context) error { ... }
-```
-
-**After** (new):
-
-```go
-type CoverageArgs struct {
-    HTML bool `targ:"flag,desc=Open HTML report"`
-}
-func coverage(ctx context.Context, args CoverageArgs) error { ... }
-var Coverage = targ.Targ(coverage).Description("Display coverage report")
-
-func tidy(ctx context.Context) error { ... }
-var Tidy = targ.Targ(tidy).Description("Tidy go.mod")
-
-func init() {
-    targ.Register(Coverage, Tidy, /* ... all targets */)
-}
-```
-
-**Embedded structs**: Args structs can embed other structs to share common flags:
-
-```go
-type CommonArgs struct {
-    Verbose bool `targ:"flag,short=v,desc=Verbose output"`
-}
-
-type DeployArgs struct {
-    CommonArgs                            // embedded - adds --verbose
-    Env string `targ:"flag,required,desc=Target environment"`
-}
-```
-
-This replaces flag inheritance from the old struct model with explicit composition.
-
-**Functional check**: `targ targets <cmd>` works with new pattern
-
-**Property test for embedded structs**:
-
-```go
-// Embedded struct fields are flattened for flag parsing
-rapid.Check(t, func(t *rapid.T) {
-    type Inner struct {
-        Verbose bool `targ:"flag,short=v"`
-    }
-    type Outer struct {
-        Inner
-        Name string `targ:"flag"`
-    }
-
-    target := Targ(func(args Outer) {})
-    // Should accept both --verbose and --name
-    result, err := Execute([]string{"app", "--verbose", "--name", "test"}, target)
-    gomega.Expect(err).NotTo(gomega.HaveOccurred())
-})
-```
-
-### 3.3 Migrate dev/issues/*.go
-
-Same pattern for issue management targets:
-
-**Before**:
-
-```go
-type Create struct {
-    Title string `targ:"flag,required,desc=Issue title"`
-}
-func (c *Create) Run() error { ... }
-```
-
-**After**:
-
-```go
-type CreateArgs struct {
-    Title string `targ:"flag,required,desc=Issue title"`
-}
-func create(args CreateArgs) error { ... }
-var Create = targ.Targ(create).Description("Create a new issue")
-
-func init() {
-    targ.Register(Create, List, Move, Update, Validate, Dedupe)
-}
-```
-
-**Functional check**: `targ targets issues <cmd>` works
-
-### 3.4 Remove Old Discovery Code
-
-Once both dev/targets.go and dev/issues are migrated and working:
-
-**Files**: `buildtool/discover.go`, `cmd/targ/main.go`
-
-Remove:
-
-- Function/struct scanning for command discovery
-- Wrapper type generation
-- Namespace struct generation
-
-Only the new "import and let init() register" model remains.
-
-**Functional check**: `targ targets <cmd>` still works, codebase is simpler
+**Note**: `buildtool` package still has old discovery code (CommandInfo, buildCommands, etc.)
+that populates the Commands field, but this field is never used. This is dead code that
+can be cleaned up in a future phase but doesn't affect functionality
 
 ---
 

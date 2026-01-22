@@ -261,12 +261,11 @@ type targDependency struct {
 
 // targRunner holds state for a single targ invocation.
 type targRunner struct {
-	binArg            string
-	args              []string
-	errOut            io.Writer
-	startDir          string
-	generatedWrappers []string
-	noBinaryCache     bool
+	binArg        string
+	args          []string
+	errOut        io.Writer
+	startDir      string
+	noBinaryCache bool
 }
 
 func (r *targRunner) buildAndRun(
@@ -307,39 +306,7 @@ func (r *targRunner) buildAndRunWithOptions(
 	return r.executeBuiltBinary(binaryPath, targBinName)
 }
 
-func (r *targRunner) cleanupWrappers() {
-	for _, path := range r.generatedWrappers {
-		_ = os.Remove(path)
-	}
-}
-
-func (r *targRunner) discoverAndGenerateWrappers() ([]buildtool.PackageInfo, error) {
-	taggedDirs, err := buildtool.SelectTaggedDirs(buildtool.OSFileSystem{}, buildtool.Options{
-		StartDir: r.startDir,
-		BuildTag: "targ",
-	})
-	if err != nil {
-		return nil, fmt.Errorf("error discovering commands: %w", err)
-	}
-
-	for _, dir := range taggedDirs {
-		wrapper, err := buildtool.GenerateFunctionWrappers(
-			buildtool.OSFileSystem{},
-			buildtool.GenerateOptions{
-				Dir:        dir.Path,
-				BuildTag:   "targ",
-				OnlyTagged: true,
-			},
-		)
-		if err != nil {
-			return nil, fmt.Errorf("error generating command wrappers: %w", err)
-		}
-
-		if wrapper != "" {
-			r.generatedWrappers = append(r.generatedWrappers, wrapper)
-		}
-	}
-
+func (r *targRunner) discoverPackages() ([]buildtool.PackageInfo, error) {
 	infos, err := buildtool.Discover(buildtool.OSFileSystem{}, buildtool.Options{
 		StartDir: r.startDir,
 		BuildTag: "targ",
@@ -405,13 +372,10 @@ func (r *targRunner) executeBuiltBinary(binaryPath, targBinName string) int {
 		return r.exitWithCleanup(1)
 	}
 
-	r.cleanupWrappers()
-
 	return 0
 }
 
 func (r *targRunner) exitWithCleanup(code int) int {
-	r.cleanupWrappers()
 	return code
 }
 
@@ -568,8 +532,6 @@ func (r *targRunner) handleMultiModule(
 		r.logError("Error building module binaries", err)
 		return r.exitWithCleanup(1)
 	}
-
-	r.cleanupWrappers()
 
 	if helpRequested && !helpTargets {
 		printMultiModuleHelp(registry)
@@ -735,8 +697,8 @@ func (r *targRunner) run() int {
 		return 1
 	}
 
-	// Discovery and wrapper generation
-	infos, err := r.discoverAndGenerateWrappers()
+	// Discover targ packages
+	infos, err := r.discoverPackages()
 	if err != nil {
 		r.logError("", err)
 		return 1
@@ -797,8 +759,6 @@ func (r *targRunner) tryRunCached(binaryPath, targBinName string) (exitCode int,
 
 		return r.exitWithCleanup(1), true
 	}
-
-	r.cleanupWrappers()
 
 	return 0, true
 }
