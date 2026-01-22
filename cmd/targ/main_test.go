@@ -9,6 +9,86 @@ import (
 	"testing"
 )
 
+func TestAddImportToTargFile(t *testing.T) {
+	dir := t.TempDir()
+	targFile := filepath.Join(dir, "targs.go")
+
+	initial := `//go:build targ
+
+package build
+
+import "github.com/toejough/targ"
+
+var Lint = targ.Targ("golangci-lint run")
+`
+	if err := os.WriteFile(targFile, []byte(initial), 0o644); err != nil {
+		t.Fatalf("write error: %v", err)
+	}
+
+	err := addImportToTargFile(targFile, "github.com/foo/bar")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	content, err := os.ReadFile(targFile)
+	if err != nil {
+		t.Fatalf("read error: %v", err)
+	}
+
+	contentStr := string(content)
+
+	// Should have the new blank import
+	if !strings.Contains(contentStr, `_ "github.com/foo/bar"`) {
+		t.Errorf("expected blank import, got:\n%s", contentStr)
+	}
+
+	// Should still have the original import
+	if !strings.Contains(contentStr, `"github.com/toejough/targ"`) {
+		t.Errorf("expected targ import to remain, got:\n%s", contentStr)
+	}
+
+	// Should still have the target
+	if !strings.Contains(contentStr, "var Lint") {
+		t.Errorf("expected Lint variable to remain, got:\n%s", contentStr)
+	}
+}
+
+func TestAddImportToTargFile_GroupedImports(t *testing.T) {
+	dir := t.TempDir()
+	targFile := filepath.Join(dir, "targs.go")
+
+	initial := `//go:build targ
+
+package build
+
+import (
+	"github.com/toejough/targ"
+)
+
+var Lint = targ.Targ("golangci-lint run")
+`
+	if err := os.WriteFile(targFile, []byte(initial), 0o644); err != nil {
+		t.Fatalf("write error: %v", err)
+	}
+
+	err := addImportToTargFile(targFile, "github.com/foo/bar")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	content, err := os.ReadFile(targFile)
+	if err != nil {
+		t.Fatalf("read error: %v", err)
+	}
+
+	contentStr := string(content)
+
+	// Should have both imports in the import block
+	if !strings.Contains(contentStr, `_ "github.com/foo/bar"`) {
+		t.Errorf("expected blank import, got:\n%s", contentStr)
+	}
+}
+
 func TestAddTargetToFile(t *testing.T) {
 	dir := t.TempDir()
 	targFile := filepath.Join(dir, "targs.go")
@@ -244,6 +324,57 @@ func TestAddTargetToFileWithOptions_WithPath(t *testing.T) {
 
 	if !strings.Contains(contentStr, `var Dev = targ.NewGroup("dev", DevLint)`) {
 		t.Errorf("expected Dev group, got:\n%s", contentStr)
+	}
+}
+
+func TestCheckImportExists_Exists(t *testing.T) {
+	dir := t.TempDir()
+	targFile := filepath.Join(dir, "targs.go")
+
+	content := `//go:build targ
+
+package build
+
+import (
+	"github.com/toejough/targ"
+	_ "github.com/foo/bar"
+)
+`
+	if err := os.WriteFile(targFile, []byte(content), 0o644); err != nil {
+		t.Fatalf("write error: %v", err)
+	}
+
+	exists, err := checkImportExists(targFile, "github.com/foo/bar")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !exists {
+		t.Error("expected import to exist")
+	}
+}
+
+func TestCheckImportExists_NotExists(t *testing.T) {
+	dir := t.TempDir()
+	targFile := filepath.Join(dir, "targs.go")
+
+	content := `//go:build targ
+
+package build
+
+import "github.com/toejough/targ"
+`
+	if err := os.WriteFile(targFile, []byte(content), 0o644); err != nil {
+		t.Fatalf("write error: %v", err)
+	}
+
+	exists, err := checkImportExists(targFile, "github.com/foo/bar")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if exists {
+		t.Error("expected import to not exist")
 	}
 }
 
@@ -711,6 +842,31 @@ func TestParseHelpRequestIgnoresSubcommandHelp(t *testing.T) {
 	help, target = parseHelpRequest([]string{"--help"})
 	if !help || target {
 		t.Fatal("expected top-level help without target")
+	}
+}
+
+func TestParseSyncArgs_Basic(t *testing.T) {
+	opts, err := parseSyncArgs([]string{"github.com/foo/bar"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if opts.PackagePath != "github.com/foo/bar" {
+		t.Errorf("expected package path 'github.com/foo/bar', got %q", opts.PackagePath)
+	}
+}
+
+func TestParseSyncArgs_InvalidPath(t *testing.T) {
+	_, err := parseSyncArgs([]string{"invalid-path"})
+	if err == nil {
+		t.Error("expected error for invalid package path")
+	}
+}
+
+func TestParseSyncArgs_NoArgs(t *testing.T) {
+	_, err := parseSyncArgs([]string{})
+	if err == nil {
+		t.Error("expected error for no args")
 	}
 }
 

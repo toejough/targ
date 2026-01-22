@@ -9,6 +9,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"go/ast"
+	"go/format"
+	"go/parser"
+	"go/token"
 	"io"
 	"os"
 	"os/exec"
@@ -18,6 +22,7 @@ import (
 	"runtime/debug"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"text/template"
 	"unicode/utf8"
@@ -67,14 +72,19 @@ var (
 	errCreateUsage = errors.New(
 		"usage: targ --create [group...] <name> [--deps ...] [--cache ...] \"<shell-command>\"",
 	)
-	errDuplicateTarget        = errors.New("target already exists")
-	errFlagRemoved            = errors.New("flag has been removed; use --create instead")
+	errDuplicateTarget    = errors.New("target already exists")
+	errFlagRemoved        = errors.New("flag has been removed; use --create instead")
+	errInvalidPackagePath = errors.New(
+		"invalid package path: must be a module path (e.g., github.com/user/repo)",
+	)
 	errInvalidUTF8Path        = errors.New("invalid utf-8 path in tagged file")
 	errModulePathNotFound     = errors.New("module path not found")
 	errNoExplicitRegistration = errors.New(
 		"package does not use explicit registration (targ.Register in init)",
 	)
+	errPackageAlreadySynced  = errors.New("package already synced")
 	errPackageMainNotAllowed = errors.New("targ files cannot use 'package main'")
+	errSyncUsage             = errors.New("usage: targ --sync <package-path>")
 	errUnknownCommand        = errors.New("unknown command")
 	errUnknownCreateFlag     = errors.New("unknown flag")
 	validTargetNameRe        = regexp.MustCompile(`^[a-z][a-z0-9-]*[a-z0-9]$|^[a-z]$`)
@@ -251,6 +261,11 @@ func (n *namespaceNode) sortedChildren() []*namespaceNode {
 	}
 
 	return children
+}
+
+// syncOptions holds parsed options for the --sync flag.
+type syncOptions struct {
+	PackagePath string // Module path to sync (e.g., "github.com/foo/bar")
 }
 
 type targDependency struct {
@@ -464,6 +479,10 @@ func (r *targRunner) handleEarlyFlags() (exitCode int, done bool) {
 		if isCreateFlag(arg) {
 			return r.handleCreateFlag(r.args[i+1:])
 		}
+
+		if isSyncFlag(arg) {
+			return r.handleSyncFlag(r.args[i+1:])
+		}
 	}
 
 	return 0, false
@@ -611,6 +630,59 @@ func (r *targRunner) handleSingleModule(infos []buildtool.PackageInfo) int {
 
 	// Build and run
 	return r.buildAndRun(importRoot, binaryPath, targBinName, bootstrap.code)
+}
+
+func (r *targRunner) handleSyncFlag(args []string) (exitCode int, done bool) {
+	// Parse the sync arguments
+	opts, err := parseSyncArgs(args)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1, true
+	}
+
+	// Get working directory
+	startDir, err := os.Getwd()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error getting working directory: %v\n", err)
+		return 1, true
+	}
+
+	// Find or create targ file
+	targFile, err := findOrCreateTargFile(startDir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error finding/creating targ file: %v\n", err)
+		return 1, true
+	}
+
+	// Check if import already exists
+	exists, err := checkImportExists(targFile, opts.PackagePath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error checking imports: %v\n", err)
+		return 1, true
+	}
+
+	if exists {
+		fmt.Fprintf(os.Stderr, "%v: %s\n", errPackageAlreadySynced, opts.PackagePath)
+		return 1, true
+	}
+
+	// Fetch the package
+	err = fetchPackage(opts.PackagePath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to fetch package: %v\n", err)
+		return 1, true
+	}
+
+	// Add the import to the targ file
+	err = addImportToTargFile(targFile, opts.PackagePath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error adding import: %v\n", err)
+		return 1, true
+	}
+
+	fmt.Printf("Synced package %q to %s\n", opts.PackagePath, targFile)
+
+	return 0, true
 }
 
 func (r *targRunner) logError(prefix string, err error) {
@@ -761,6 +833,71 @@ func (r *targRunner) tryRunCached(binaryPath, targBinName string) (exitCode int,
 	}
 
 	return 0, true
+}
+
+// addImportToTargFile adds a blank import for the given package to the targ file.
+func addImportToTargFile(path, packagePath string) error {
+	//nolint:gosec // build tool reads user source files by design
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("reading file: %w", err)
+	}
+
+	fset := token.NewFileSet()
+
+	file, err := parser.ParseFile(fset, path, content, parser.ParseComments)
+	if err != nil {
+		return fmt.Errorf("parsing file: %w", err)
+	}
+
+	// Add the blank import
+	importSpec := &ast.ImportSpec{
+		Name: ast.NewIdent("_"),
+		Path: &ast.BasicLit{
+			Kind:  token.STRING,
+			Value: strconv.Quote(packagePath),
+		},
+	}
+
+	// Find or create import declaration
+	var importDecl *ast.GenDecl
+
+	for _, decl := range file.Decls {
+		genDecl, ok := decl.(*ast.GenDecl)
+		if ok && genDecl.Tok == token.IMPORT {
+			importDecl = genDecl
+
+			break
+		}
+	}
+
+	if importDecl != nil {
+		// Add to existing import block
+		importDecl.Specs = append(importDecl.Specs, importSpec)
+	} else {
+		// Create new import declaration
+		importDecl = &ast.GenDecl{
+			Tok:   token.IMPORT,
+			Specs: []ast.Spec{importSpec},
+		}
+		// Insert after package declaration
+		file.Decls = append([]ast.Decl{importDecl}, file.Decls...)
+	}
+
+	// Format and write back
+	var buf bytes.Buffer
+
+	err = format.Node(&buf, fset, file)
+	if err != nil {
+		return fmt.Errorf("formatting file: %w", err)
+	}
+
+	err = os.WriteFile(path, buf.Bytes(), filePermissionsForCode)
+	if err != nil {
+		return fmt.Errorf("writing file: %w", err)
+	}
+
+	return nil
 }
 
 // addTargetToFile adds a target variable to an existing targ file.
@@ -1000,6 +1137,35 @@ func buildSourceRoot() (string, bool) {
 	}
 
 	return "", false
+}
+
+// checkImportExists checks if a blank import for the given package already exists in the file.
+func checkImportExists(path, packagePath string) (bool, error) {
+	//nolint:gosec // build tool reads user source files by design
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return false, fmt.Errorf("reading file: %w", err)
+	}
+
+	fset := token.NewFileSet()
+
+	file, err := parser.ParseFile(fset, path, content, parser.ImportsOnly)
+	if err != nil {
+		return false, fmt.Errorf("parsing file: %w", err)
+	}
+
+	for _, imp := range file.Imports {
+		importPath, err := strconv.Unquote(imp.Path.Value)
+		if err != nil {
+			continue
+		}
+
+		if importPath == packagePath {
+			return true, nil
+		}
+	}
+
+	return false, nil
 }
 
 // cleanupStaleModSymlinks removes stale go.mod/go.sum symlinks from before the fix.
@@ -1452,6 +1618,20 @@ func extractTargFlags(args []string) (noBinaryCache bool, remaining []string) {
 	return noBinaryCache, remaining
 }
 
+// fetchPackage runs go get to fetch a package.
+func fetchPackage(packagePath string) error {
+	cmd := exec.CommandContext(context.Background(), "go", "get", packagePath)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	err := cmd.Run()
+	if err != nil {
+		return fmt.Errorf("go get %s: %w", packagePath, err)
+	}
+
+	return nil
+}
+
 // findCommandBinary finds the binary path for a command in the registry.
 func findCommandBinary(registry []moduleRegistry, cmdName string) (string, bool) {
 	for _, reg := range registry {
@@ -1789,6 +1969,11 @@ func isRemovedFlag(arg string) bool {
 	}
 }
 
+// isSyncFlag checks if the argument is the --sync flag.
+func isSyncFlag(arg string) bool {
+	return arg == "--sync"
+}
+
 // isValidTargetName returns true if the name is valid for a target (kebab-case).
 // Must start with lowercase letter, contain only lowercase letters, numbers, and hyphens,
 // and cannot end with a hyphen.
@@ -2012,6 +2197,25 @@ func parseModulePath(content string) string {
 	}
 
 	return ""
+}
+
+// parseSyncArgs parses arguments after --sync into syncOptions.
+// Format: --sync <package-path>
+func parseSyncArgs(args []string) (syncOptions, error) {
+	var opts syncOptions
+
+	if len(args) < 1 {
+		return opts, errSyncUsage
+	}
+
+	opts.PackagePath = args[0]
+
+	// Validate that it looks like a module path
+	if !looksLikeModulePath(opts.PackagePath) {
+		return opts, fmt.Errorf("%w: %s", errInvalidPackagePath, opts.PackagePath)
+	}
+
+	return opts, nil
 }
 
 // pathToPascal converts a path like ["dev", "lint", "fast"] to "DevLintFast".

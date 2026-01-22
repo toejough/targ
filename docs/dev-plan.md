@@ -15,11 +15,11 @@ Rebuild targ from struct-based model to function-based Target Builder pattern fo
 | 5 | ✅ Complete | Repetition Features (times, while, retry, backoff, timeout) |
 | 6 | ✅ Complete | Runtime Overrides |
 | 7 | ✅ Complete | Shell Support |
-| 8 | ❌ Not Started | --sync Remote Import |
+| 8 | ✅ Complete | --sync Remote Import |
 | 9 | ❌ Not Started | Additional Global Flags |
 | 10 | ❌ Not Started | Remove Struct Model |
 
-**Next**: Phase 8 (--sync Remote Import) or Phase 9 (Additional Global Flags)
+**Current**: Phase 9 (Additional Global Flags)
 
 ## Approach
 
@@ -259,9 +259,11 @@ Removed from `cmd/targ/main.go`:
 - `cleanupWrappers()` function removed
 - `generatedWrappers` field removed from `targRunner`
 
-**Note**: `buildtool` package still has old discovery code (CommandInfo, buildCommands, etc.)
-that populates the Commands field, but this field is never used. This is dead code that
-can be cleaned up in a future phase but doesn't affect functionality
+Removed from `buildtool/`:
+- `CommandInfo`, `CommandKind`, and all command parsing logic
+- `generate.go` and `generate_test.go` (~850 LOC)
+- `FieldTypeName`, `ReceiverTypeName`, validation errors from parse.go
+- ~2000 lines of dead code total
 
 ---
 
@@ -473,18 +475,87 @@ var lint = targ.Targ("golangci-lint run ./...").Description("Run linter")
 
 ---
 
-## Phase 8: --sync Remote Import
+## Phase 8: --sync Remote Import ✅ COMPLETE
 
 ```
 targ --sync github.com/foo/bar
 ```
 
-**Properties**:
+### Overview
 
-- Creates/updates import
-- Registers exported targets
-- Naming conflicts error clearly
-- Source tracking in help output
+Adds a blank import to the local targ file, causing the remote package's `init()` to run and register its targets via `targ.Register()`.
+
+### Implementation
+
+**Data flow:**
+```
+targ --sync github.com/foo/bar
+  → parseSyncArgs() → validate module path
+  → findOrCreateTargFile() → locate targs.go
+  → checkImportNotExists() → prevent duplicates
+  → fetchPackage() → go get github.com/foo/bar
+  → addImportToTargFile() → add `_ "github.com/foo/bar"`
+  → print success
+```
+
+**New functions in cmd/targ/main.go:**
+- `isSyncFlag(arg string) bool`
+- `handleSyncFlag(args []string) (int, bool)`
+- `parseSyncArgs(args []string) (syncOptions, error)`
+- `fetchPackage(packagePath string) error` - runs `go get`
+- `addImportToTargFile(path, packagePath string) error` - uses go/parser
+
+**Generated code after sync:**
+```go
+import (
+    "github.com/toejough/targ"
+    _ "github.com/foo/bar"  // synced remote targets
+)
+```
+
+### Design decisions
+
+- **No validation** of whether remote package uses targ.Register() - if it doesn't, nothing happens
+- Uses `go get` to fetch package (leverages Go module system)
+- Uses `go/parser` and `go/format` for clean import manipulation
+
+### Error messages
+
+| Case | Message |
+|------|---------|
+| No package | `usage: targ --sync <package-path>` |
+| Invalid path | `invalid package path "foo": must be a module path` |
+| Already synced | `package already synced: github.com/foo/bar` |
+| Fetch failed | `failed to fetch package: <error>` |
+
+### Help output (automatic)
+
+Source tracking works automatically - synced targets report their source file:
+```
+Commands:
+  [targets.go]
+  build     Local target
+
+  [github.com/foo/bar/targets.go]
+  test      Synced from remote
+```
+
+### Tasks
+
+- [x] Add `isSyncFlag()` and modify `handleEarlyFlags()` to detect `--sync`
+- [x] Add `parseSyncArgs()` to parse and validate package path
+- [x] Add `fetchPackage()` to run `go get`
+- [x] Add `addImportToTargFile()` using go/parser and go/format
+- [x] Add `checkImportExists()` to check for duplicate imports
+- [x] Add error handling (duplicate, invalid path, fetch failure)
+- [x] Add tests
+
+### Verification
+
+1. Run `targ check` after implementation
+2. Test: `targ --sync` with a real or test package
+3. Verify `targ --help` shows synced targets with source
+4. Verify duplicate sync errors correctly
 
 ---
 
