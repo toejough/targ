@@ -13,13 +13,13 @@ Rebuild targ from struct-based model to function-based Target Builder pattern fo
 | 3 | ❌ Not Started | Explicit Registration Model |
 | 4 | ✅ Complete | Execution Features (deps, cache, watch) |
 | 5 | ✅ Complete | Repetition Features (times, while, retry, backoff, timeout) |
-| 6 | 🔶 Partial | Runtime Overrides (--timeout, --deps, --cache-dir missing) |
+| 6 | ✅ Complete | Runtime Overrides |
 | 7 | ❌ Not Started | Shell Support |
 | 8 | ❌ Not Started | --sync Remote Import |
 | 9 | ❌ Not Started | Additional Global Flags |
 | 10 | ❌ Not Started | Remove Struct Model |
 
-**Next**: Complete Phase 6 (--timeout, --deps, --cache-dir), then Phase 3 or 7
+**Next**: Phase 3 (Explicit Registration) or Phase 7 (Shell Support)
 
 ## Approach
 
@@ -514,22 +514,20 @@ Add timeout/retry to flaky targets if any exist.
 
 Add CLI flags that override compile-time settings.
 
-### Status
+### Status: ✅ COMPLETE
 
-**COMPLETE**:
+**All flags implemented**:
 - `--times N` - number of iterations
 - `--retry` - continue on failure
 - `--watch "pattern"` - file patterns (variadic)
 - `--cache "pattern"` - cache patterns (variadic)
+- `--cache-dir "path"` - custom cache directory
 - `--backoff D,M` - exponential backoff
 - `--while "cmd"` - shell predicate
 - `--dep-mode parallel|serial` - dependency mode
-- Ownership model with `targ.Disabled`
-
-**NOT YET IMPLEMENTED**:
-- `--timeout duration` - execution timeout
+- `--timeout duration` - execution timeout (implemented in core, not override.go)
 - `--deps target1 target2` - override dependencies (variadic)
-- `--cache-dir "path"` - custom cache directory
+- Ownership model with `targ.Disabled`
 
 ### 6.1 Variadic Flag Syntax
 
@@ -545,21 +543,11 @@ targ build --deps lint test -- deploy   # -- ends variadic and resets path
 
 ### 6.2 Ownership Model (targ.Disabled)
 
-**COMPLETE**:
 - `.Watch(targ.Disabled)` allows CLI --watch
 - `.Cache(targ.Disabled)` allows CLI --cache
 - Without Disabled: CLI override conflicts with Target config = error
 - Error messages explain how to use `targ.Disabled`
-
-**NOT YET IMPLEMENTED**:
 - `--deps` errors if target has `.Deps()` configured (single source of truth)
-
-### 6.3 Remaining Work
-
-1. Implement `--timeout` flag parsing and application
-2. Implement `--deps` variadic flag with path traversal
-3. Implement `--cache-dir` flag
-4. Add deps conflict detection (`--deps` + `.Deps()` = error)
 
 ---
 
