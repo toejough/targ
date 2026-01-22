@@ -681,25 +681,46 @@ func buildUsagePartsForPath(node *commandNode, binName, fullPath string) []strin
 	return parts
 }
 
-func callFunction(ctx context.Context, fn reflect.Value) error {
+// callFunctionWithArgs calls a function with context and/or struct args.
+// Handles: func(), func(ctx), func(args), func(ctx, args)
+func callFunctionWithArgs(ctx context.Context, fn reflect.Value, argsInst reflect.Value) error {
 	if !fn.IsValid() || (fn.Kind() == reflect.Func && fn.IsNil()) {
 		return errNilFunctionCommand
 	}
 
-	err := validateFuncType(fn.Type())
-	if err != nil {
-		return err
+	ft := fn.Type()
+	var callArgs []reflect.Value
+
+	for i := range ft.NumIn() {
+		paramType := ft.In(i)
+
+		// Check if this param is context.Context
+		if isContextType(paramType) {
+			callArgs = append(callArgs, reflect.ValueOf(ctx))
+			continue
+		}
+
+		// Otherwise it's the args struct - use the parsed instance
+		if argsInst.IsValid() && argsInst.Type() == paramType {
+			callArgs = append(callArgs, argsInst)
+		} else if argsInst.IsValid() && argsInst.CanAddr() && argsInst.Addr().Type() == paramType {
+			// Handle pointer to struct
+			callArgs = append(callArgs, argsInst.Addr())
+		} else {
+			// Create zero value if no instance
+			callArgs = append(callArgs, reflect.Zero(paramType))
+		}
 	}
 
-	var args []reflect.Value
-	if fn.Type().NumIn() == 1 {
-		args = []reflect.Value{reflect.ValueOf(ctx)}
-	}
+	results := fn.Call(callArgs)
 
-	results := fn.Call(args)
-	if len(results) == 1 && !results[0].IsNil() {
-		if err, ok := results[0].Interface().(error); ok {
-			return err
+	// Check for error return
+	if len(results) > 0 {
+		last := results[len(results)-1]
+		if last.Type().Implements(reflect.TypeFor[error]()) && !last.IsNil() {
+			if err, ok := last.Interface().(error); ok {
+				return err
+			}
 		}
 	}
 
@@ -965,15 +986,24 @@ func executeFunctionWithParents(
 	explicit bool,
 	opts RunOptions,
 ) ([]string, error) {
-	specs, _, err := collectFlagSpecs(parents)
+	// Create instance for current node if it has a Type (struct arg)
+	inst, err := nodeInstance(node)
+	if err != nil {
+		return nil, err
+	}
+
+	// Build chain including current node for flag collection
+	chain := slices.Concat(parents, []commandInstance{{node: node, value: inst}})
+
+	specs, _, err := collectFlagSpecs(chain)
 	if err != nil {
 		return nil, err
 	}
 
 	result, err := parseCommandArgs(
-		nil,
-		reflect.Value{},
-		parents,
+		node,
+		inst,
+		chain,
 		args,
 		visited,
 		explicit,
@@ -1003,7 +1033,7 @@ func executeFunctionWithParents(
 		return nil, err
 	}
 
-	err = callFunction(ctx, node.Func)
+	err = callFunctionWithArgs(ctx, node.Func, inst)
 	if err != nil {
 		return nil, err
 	}
