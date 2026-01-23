@@ -157,7 +157,9 @@ func ShouldSkipDir(name string) bool {
 		return true // Skip hidden directories
 	}
 
-	return name == "vendor" || name == "testdata" || name == "node_modules"
+	// Skip internal directories - they're implementation details pulled in via imports,
+	// not target packages that need targ.Register()
+	return name == "vendor" || name == "testdata" || name == "internal"
 }
 
 // ShouldSkipGoFile determines if a Go file should be skipped during discovery.

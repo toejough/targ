@@ -390,8 +390,18 @@ func checkThinAPI(ctx context.Context) error {
 			return nil
 		}
 
-		// Skip generated files
+		// Skip generated files by name
 		if strings.Contains(path, "generated_") {
+			return nil
+		}
+
+		// Skip files with build tags or generated markers
+		skip, err := hasBuildTagOrGenerated(path)
+		if err != nil {
+			return err
+		}
+
+		if skip {
 			return nil
 		}
 
@@ -951,6 +961,36 @@ func checkValueSpecThinness(fset *token.FileSet, path string, tok token.Token, v
 	}
 
 	return nil
+}
+
+// hasBuildTagOrGenerated checks if a file has build tags or generated markers.
+func hasBuildTagOrGenerated(path string) (bool, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return false, fmt.Errorf("failed to open %s: %w", path, err)
+	}
+	defer file.Close()
+
+	buf := make([]byte, 500) // Read enough to catch build tags and generated markers
+
+	n, err := file.Read(buf)
+	if err != nil && err != io.EOF {
+		return false, fmt.Errorf("failed to read %s: %w", path, err)
+	}
+
+	content := string(buf[:n])
+
+	// Check for build tags
+	if strings.Contains(content, "//go:build ") || strings.Contains(content, "// +build ") {
+		return true, nil
+	}
+
+	// Check for generated markers
+	if strings.Contains(content, "Code generated") || strings.Contains(content, "DO NOT EDIT") {
+		return true, nil
+	}
+
+	return false, nil
 }
 
 func funcDeclName(fn *ast.FuncDecl) string {
