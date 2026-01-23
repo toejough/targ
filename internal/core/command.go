@@ -79,8 +79,11 @@ var (
 	errNilFunctionCommand    = errors.New("nil function command")
 	errNilTarget             = errors.New("nil target")
 	errShortFlagGroupNotBool = errors.New("short flag group must contain only boolean flags")
-	errTagOptsInvalidInput   = errors.New("TagOptions must accept (string, TagOptions)")
-	errTagOptsInvalidOutput  = errors.New("TagOptions must return (TagOptions, error)")
+	errStructNotSupported    = errors.New(
+		"struct commands are not supported; use targ.Targ(fn) instead",
+	)
+	errTagOptsInvalidInput     = errors.New("TagOptions must accept (string, TagOptions)")
+	errTagOptsInvalidOutput    = errors.New("TagOptions must return (TagOptions, error)")
 	errTagOptsInvalidSignature = errors.New(
 		"TagOptions must accept (string, TagOptions) and return (TagOptions, error)",
 	)
@@ -164,35 +167,7 @@ func (n *commandNode) executeWithParents(
 	}
 
 	// Struct commands are no longer supported
-	return nil, errors.New("struct commands are not supported; use targ.Targ(fn) instead")
-}
-
-// executeGroupWithParents handles navigation through groups (nodes with Subcommands but no Func).
-func executeGroupWithParents(
-	ctx context.Context,
-	args []string,
-	node *commandNode,
-	parents []commandInstance,
-	visited map[string]bool,
-	opts RunOptions,
-) ([]string, error) {
-	if len(args) == 0 {
-		// No subcommand specified - return remaining args
-		return args, nil
-	}
-
-	// Look for matching subcommand
-	subName := args[0]
-	for name, sub := range node.Subcommands {
-		if strings.EqualFold(name, subName) {
-			// Found matching subcommand - execute it
-			chain := slices.Concat(parents, []commandInstance{{node: node}})
-			return sub.executeWithParents(ctx, args[1:], chain, visited, true, opts)
-		}
-	}
-
-	// No matching subcommand - return all args
-	return args, nil
+	return nil, errStructNotSupported
 }
 
 type flagHelp struct {
@@ -795,7 +770,6 @@ func detectTagKind(opts *TagOptions, tag, fieldName string) {
 	}
 }
 
-//nolint:funlen // Function handles complete execution flow including parsing and flag collection
 func executeFunctionWithParents(
 	ctx context.Context,
 	args []string,
@@ -806,10 +780,7 @@ func executeFunctionWithParents(
 	opts RunOptions,
 ) ([]string, error) {
 	// Create instance for current node if it has a Type (struct arg)
-	inst, err := nodeInstance(node)
-	if err != nil {
-		return nil, err
-	}
+	inst := nodeInstance(node)
 
 	// Build chain including current node for flag collection
 	chain := slices.Concat(parents, []commandInstance{{node: node, value: inst}})
@@ -863,6 +834,34 @@ func executeFunctionWithParents(
 	}
 
 	return result.remaining, nil
+}
+
+// executeGroupWithParents handles navigation through groups (nodes with Subcommands but no Func).
+func executeGroupWithParents(
+	ctx context.Context,
+	args []string,
+	node *commandNode,
+	parents []commandInstance,
+	visited map[string]bool,
+	opts RunOptions,
+) ([]string, error) {
+	if len(args) == 0 {
+		// No subcommand specified - return remaining args
+		return args, nil
+	}
+
+	// Look for matching subcommand
+	subName := args[0]
+	for name, sub := range node.Subcommands {
+		if strings.EqualFold(name, subName) {
+			// Found matching subcommand - execute it
+			chain := slices.Concat(parents, []commandInstance{{node: node}})
+			return sub.executeWithParents(ctx, args[1:], chain, visited, true, opts)
+		}
+	}
+
+	// No matching subcommand - return all args
+	return args, nil
 }
 
 // executeShellCommand handles execution of shell command targets with $var substitution.
@@ -1323,16 +1322,16 @@ func nodeHasAddressableValue(node *commandNode) bool {
 		node.Value.Kind() == reflect.Struct && node.Value.CanAddr()
 }
 
-func nodeInstance(node *commandNode) (reflect.Value, error) {
+func nodeInstance(node *commandNode) reflect.Value {
 	if nodeHasAddressableValue(node) {
-		return node.Value, nil
+		return node.Value
 	}
 
 	if node == nil || node.Type == nil {
-		return reflect.Value{}, nil
+		return reflect.Value{}
 	}
 
-	return reflect.New(node.Type).Elem(), nil
+	return reflect.New(node.Type).Elem()
 }
 
 func parseFunc(v reflect.Value) (*commandNode, error) {
@@ -1411,7 +1410,7 @@ func parseTarget(t any) (*commandNode, error) {
 	}
 
 	// Struct commands are no longer supported
-	return nil, errors.New("struct commands are not supported; use targ.Targ(fn) instead")
+	return nil, errStructNotSupported
 }
 
 // parseTargetLike creates a commandNode from a TargetLike (targ.Target).

@@ -10,7 +10,6 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"go/ast"
 	"io"
 	"os"
 	"path/filepath"
@@ -29,6 +28,60 @@ type FlagParseCmdArgs struct {
 	Name    string `targ:"flag,short=n"`
 	Verbose bool   `targ:"flag,short=v"`
 	Count   int    `targ:"flag,short=c"`
+}
+
+// TagOptionsErrorArgs tests error handling in TagOptions method.
+type TagOptionsErrorArgs struct {
+	Mode string `targ:"flag"`
+}
+
+// TagOptions returns an error to test error handling.
+func (TagOptionsErrorArgs) TagOptions(_ string, _ TagOptions) (TagOptions, error) {
+	return TagOptions{}, errors.New("tag options error")
+}
+
+// TagOptionsOverrideArgs tests the TagOptions method on args structs.
+type TagOptionsOverrideArgs struct {
+	Env string `targ:"positional,enum=dev|prod"`
+}
+
+// TagOptions dynamically modifies enum values at runtime.
+func (t TagOptionsOverrideArgs) TagOptions(field string, opts TagOptions) (TagOptions, error) {
+	if field == "Env" {
+		opts.Enum = "dev|staging|prod"
+	}
+
+	return opts, nil
+}
+
+// TagOptionsWrongCountArgs has a TagOptions method with wrong number of args.
+type TagOptionsWrongCountArgs struct {
+	Mode string `targ:"flag"`
+}
+
+// TagOptions has wrong number of inputs (3 instead of 2).
+func (TagOptionsWrongCountArgs) TagOptions(_, _ string, _ TagOptions) (TagOptions, error) {
+	return TagOptions{}, nil
+}
+
+// TagOptionsWrongInputArgs has a TagOptions method with wrong input types.
+type TagOptionsWrongInputArgs struct {
+	Mode string `targ:"flag"`
+}
+
+// TagOptions has wrong input types (int instead of string).
+func (TagOptionsWrongInputArgs) TagOptions(_ int, _ TagOptions) (TagOptions, error) {
+	return TagOptions{}, nil
+}
+
+// TagOptionsWrongOutputArgs has a TagOptions method with wrong output types.
+type TagOptionsWrongOutputArgs struct {
+	Mode string `targ:"flag"`
+}
+
+// TagOptions has wrong output types (string instead of error).
+func (TagOptionsWrongOutputArgs) TagOptions(_ string, _ TagOptions) (TagOptions, string) {
+	return TagOptions{}, ""
 }
 
 func InvalidParamFunc(_ int) {}
@@ -51,6 +104,103 @@ func TestAppendBuiltinExamples(t *testing.T) {
 	g.Expect(examples[0].Title).To(Equal("Custom"))
 	g.Expect(examples[1].Title).To(Equal("Enable shell completion"))
 	g.Expect(examples[2].Title).To(ContainSubstring("Run multiple"))
+}
+
+func TestApplyTagOptionsOverride_Error(t *testing.T) {
+	g := NewWithT(t)
+
+	// Test that TagOptions method errors are propagated during execution
+	fn := func(_ TagOptionsErrorArgs) {}
+	target := &mockTarget{fn: fn, name: "test"}
+	node, err := parseTargetLike(target)
+	g.Expect(err).NotTo(HaveOccurred())
+
+	if node == nil {
+		t.Fatal("unexpected nil node")
+	}
+
+	// The error should occur during execution when TagOptions is called
+	err = node.execute(context.Background(), []string{"--mode", "test"}, RunOptions{})
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("tag options error"))
+}
+
+// --- applyTagOptionsOverride tests ---
+
+func TestApplyTagOptionsOverride_Success(t *testing.T) {
+	g := NewWithT(t)
+
+	// Test that TagOptions method is called and modifies the options
+	var gotEnv string
+
+	fn := func(args TagOptionsOverrideArgs) { gotEnv = args.Env }
+	target := &mockTarget{fn: fn, name: "test"}
+	node, err := parseTargetLike(target)
+	g.Expect(err).NotTo(HaveOccurred())
+
+	if node == nil {
+		t.Fatal("unexpected nil node")
+	}
+
+	// The TagOptions method changes enum from "dev|prod" to "dev|staging|prod"
+	// so "staging" should be accepted
+	err = node.execute(context.Background(), []string{"staging"}, RunOptions{})
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(gotEnv).To(Equal("staging"))
+}
+
+func TestApplyTagOptionsOverride_WrongArgCount(t *testing.T) {
+	g := NewWithT(t)
+
+	// Test that TagOptions method with wrong arg count returns an error
+	fn := func(_ TagOptionsWrongCountArgs) {}
+	target := &mockTarget{fn: fn, name: "test"}
+	node, err := parseTargetLike(target)
+	g.Expect(err).NotTo(HaveOccurred())
+
+	if node == nil {
+		t.Fatal("unexpected nil node")
+	}
+
+	err = node.execute(context.Background(), []string{"--mode", "test"}, RunOptions{})
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("TagOptions"))
+}
+
+func TestApplyTagOptionsOverride_WrongInputTypes(t *testing.T) {
+	g := NewWithT(t)
+
+	// Test that TagOptions method with wrong input types returns an error
+	fn := func(_ TagOptionsWrongInputArgs) {}
+	target := &mockTarget{fn: fn, name: "test"}
+	node, err := parseTargetLike(target)
+	g.Expect(err).NotTo(HaveOccurred())
+
+	if node == nil {
+		t.Fatal("unexpected nil node")
+	}
+
+	err = node.execute(context.Background(), []string{"--mode", "test"}, RunOptions{})
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("must accept"))
+}
+
+func TestApplyTagOptionsOverride_WrongOutputTypes(t *testing.T) {
+	g := NewWithT(t)
+
+	// Test that TagOptions method with wrong output types returns an error
+	fn := func(_ TagOptionsWrongOutputArgs) {}
+	target := &mockTarget{fn: fn, name: "test"}
+	node, err := parseTargetLike(target)
+	g.Expect(err).NotTo(HaveOccurred())
+
+	if node == nil {
+		t.Fatal("unexpected nil node")
+	}
+
+	err = node.execute(context.Background(), []string{"--mode", "test"}, RunOptions{})
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("must return"))
 }
 
 func TestApplyTimeout_DisableTimeout(t *testing.T) {
@@ -221,6 +371,33 @@ func TestBuildUsageLineForPath_WithSubcommands(t *testing.T) {
 
 	result := buildUsageLineForPath(node, "targ", "cmd")
 	g.Expect(result).To(ContainSubstring("[subcommand]"))
+}
+
+func TestBuildUsageLine_Success(t *testing.T) {
+	g := NewWithT(t)
+
+	node := &commandNode{
+		Name: "cmd",
+	}
+
+	result, err := buildUsageLine(node)
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(result).To(Equal("cmd"))
+}
+
+func TestBuildUsageLine_WithTagOptionsError(t *testing.T) {
+	g := NewWithT(t)
+
+	// Use a type with a TagOptions method that errors
+	node := &commandNode{
+		Name:  "cmd",
+		Type:  reflect.TypeFor[TagOptionsErrorArgs](),
+		Value: reflect.ValueOf(TagOptionsErrorArgs{}),
+	}
+
+	_, err := buildUsageLine(node)
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("tag options error"))
 }
 
 // --- Examples tests ---
@@ -1325,6 +1502,7 @@ func TestFlagDefaultPlaceholder(t *testing.T) {
 	}
 
 	target := &mockTarget{fn: func(_ DefaultFlagArgs) {}, name: "test"}
+
 	cmd, err := parseTargetLike(target)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -1347,6 +1525,7 @@ func TestFlagEnumUsage(t *testing.T) {
 	}
 
 	target := &mockTarget{fn: func(_ EnumFlagArgs) {}, name: "test"}
+
 	cmd, err := parseTargetLike(target)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -1367,10 +1546,15 @@ func TestFlagParsing_IntFlagEqualsFormat(t *testing.T) {
 	g := NewWithT(t)
 
 	var gotCount int
+
 	fn := func(args FlagParseCmdArgs) { gotCount = args.Count }
 	target := &mockTarget{fn: fn, name: "test"}
 	node, err := parseTargetLike(target)
 	g.Expect(err).NotTo(HaveOccurred())
+
+	if node == nil {
+		t.Fatal("unexpected nil node")
+	}
 
 	err = node.execute(context.Background(), []string{"-c=42"}, RunOptions{})
 	g.Expect(err).NotTo(HaveOccurred())
@@ -1381,10 +1565,15 @@ func TestFlagParsing_LongFlagEqualsFormat(t *testing.T) {
 	g := NewWithT(t)
 
 	var gotName string
+
 	fn := func(args FlagParseCmdArgs) { gotName = args.Name }
 	target := &mockTarget{fn: fn, name: "test"}
 	node, err := parseTargetLike(target)
 	g.Expect(err).NotTo(HaveOccurred())
+
+	if node == nil {
+		t.Fatal("unexpected nil node")
+	}
 
 	err = node.execute(context.Background(), []string{"--name=hello"}, RunOptions{})
 	g.Expect(err).NotTo(HaveOccurred())
@@ -1395,10 +1584,15 @@ func TestFlagParsing_ShortFlagEqualsFormat(t *testing.T) {
 	g := NewWithT(t)
 
 	var gotName string
+
 	fn := func(args FlagParseCmdArgs) { gotName = args.Name }
 	target := &mockTarget{fn: fn, name: "test"}
 	node, err := parseTargetLike(target)
 	g.Expect(err).NotTo(HaveOccurred())
+
+	if node == nil {
+		t.Fatal("unexpected nil node")
+	}
 
 	err = node.execute(context.Background(), []string{"-n=world"}, RunOptions{})
 	g.Expect(err).NotTo(HaveOccurred())
@@ -1413,6 +1607,10 @@ func TestFlagParsing_UnknownLongFlag(t *testing.T) {
 	node, err := parseTargetLike(target)
 	g.Expect(err).NotTo(HaveOccurred())
 
+	if node == nil {
+		t.Fatal("unexpected nil node")
+	}
+
 	err = node.execute(context.Background(), []string{"--unknown"}, RunOptions{})
 	g.Expect(err).To(HaveOccurred())
 	g.Expect(err.Error()).To(ContainSubstring("--unknown"))
@@ -1425,6 +1623,10 @@ func TestFlagParsing_UnknownShortFlag(t *testing.T) {
 	target := &mockTarget{fn: fn, name: "test"}
 	node, err := parseTargetLike(target)
 	g.Expect(err).NotTo(HaveOccurred())
+
+	if node == nil {
+		t.Fatal("unexpected nil node")
+	}
 
 	err = node.execute(context.Background(), []string{"-x"}, RunOptions{})
 	g.Expect(err).To(HaveOccurred())
@@ -1592,63 +1794,6 @@ func TestIsShellVar(t *testing.T) {
 	g.Expect(isShellVar("anything", []string{})).To(BeFalse())
 }
 
-func TestMatchesReceiver_EmptyReceiverList(t *testing.T) {
-	g := NewWithT(t)
-
-	fnDecl := &ast.FuncDecl{
-		Name: ast.NewIdent("Run"),
-		Recv: &ast.FieldList{List: []*ast.Field{}},
-	}
-
-	g.Expect(matchesReceiver(fnDecl, "MyType")).To(BeFalse())
-}
-
-// --- matchesReceiver tests ---
-
-func TestMatchesReceiver_NoReceiver(t *testing.T) {
-	g := NewWithT(t)
-
-	// Function without receiver
-	fnDecl := &ast.FuncDecl{
-		Name: ast.NewIdent("Run"),
-		Recv: nil, // no receiver
-	}
-
-	g.Expect(matchesReceiver(fnDecl, "MyType")).To(BeFalse())
-}
-
-func TestMatchesReceiver_PointerReceiver(t *testing.T) {
-	g := NewWithT(t)
-
-	fnDecl := &ast.FuncDecl{
-		Name: ast.NewIdent("Run"),
-		Recv: &ast.FieldList{
-			List: []*ast.Field{
-				{Type: &ast.StarExpr{X: ast.NewIdent("MyType")}},
-			},
-		},
-	}
-
-	g.Expect(matchesReceiver(fnDecl, "MyType")).To(BeTrue())
-	g.Expect(matchesReceiver(fnDecl, "OtherType")).To(BeFalse())
-}
-
-func TestMatchesReceiver_ValueReceiver(t *testing.T) {
-	g := NewWithT(t)
-
-	fnDecl := &ast.FuncDecl{
-		Name: ast.NewIdent("Run"),
-		Recv: &ast.FieldList{
-			List: []*ast.Field{
-				{Type: ast.NewIdent("MyType")},
-			},
-		},
-	}
-
-	g.Expect(matchesReceiver(fnDecl, "MyType")).To(BeTrue())
-	g.Expect(matchesReceiver(fnDecl, "OtherType")).To(BeFalse())
-}
-
 func TestMissingPositionalError_Unit_WithName(t *testing.T) {
 	g := NewWithT(t)
 
@@ -1688,6 +1833,10 @@ func TestMissingPositionalError_WithName(t *testing.T) {
 	node, err := parseTargetLike(target)
 	g.Expect(err).NotTo(HaveOccurred())
 
+	if node == nil {
+		t.Fatal("unexpected nil node")
+	}
+
 	// Execute without providing the required positional
 	err = node.execute(context.TODO(), []string{}, RunOptions{})
 	g.Expect(err).To(HaveOccurred())
@@ -1705,6 +1854,10 @@ func TestMissingPositionalError_WithoutName(t *testing.T) {
 	target := &mockTarget{fn: fn, name: "test"}
 	node, err := parseTargetLike(target)
 	g.Expect(err).NotTo(HaveOccurred())
+
+	if node == nil {
+		t.Fatal("unexpected nil node")
+	}
 
 	// Execute without providing the required positional
 	err = node.execute(context.TODO(), []string{}, RunOptions{})
@@ -1743,8 +1896,11 @@ func TestParseFlagAdvancesVariadicPositional(t *testing.T) {
 		Flag string   `targ:"flag"`
 	}
 
-	var gotArgs []string
-	var gotFlag string
+	var (
+		gotArgs []string
+		gotFlag string
+	)
+
 	fn := func(args VariadicThenFlagArgs) {
 		gotArgs = args.Args
 		gotFlag = args.Flag
@@ -1752,6 +1908,10 @@ func TestParseFlagAdvancesVariadicPositional(t *testing.T) {
 	target := &mockTarget{fn: fn, name: "test"}
 	node, err := parseTargetLike(target)
 	g.Expect(err).NotTo(HaveOccurred())
+
+	if node == nil {
+		t.Fatal("unexpected nil node")
+	}
 
 	// "arg1" "arg2" go to variadic positional, then --flag triggers advancement
 	err = node.execute(context.TODO(), []string{"arg1", "arg2", "--flag", "value"}, RunOptions{})
@@ -2115,6 +2275,7 @@ func TestPlaceholderTagInUsage(t *testing.T) {
 	}
 
 	target := &mockTarget{fn: func(_ PlaceholderCmdArgs) {}, name: "test"}
+
 	cmd, err := parseTargetLike(target)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -2142,6 +2303,7 @@ func TestPositionalEnumUsage(t *testing.T) {
 	}
 
 	target := &mockTarget{fn: func(_ EnumPositionalArgs) {}, name: "test"}
+
 	cmd, err := parseTargetLike(target)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -2822,6 +2984,60 @@ func TestPrintUsage_WithNestedSubcommands(t *testing.T) {
 	g.Expect(output).To(ContainSubstring("path.go]"))
 }
 
+func TestRegisterFlagName_DuplicateName(t *testing.T) {
+	g := NewWithT(t)
+
+	spec := &flagSpec{name: "verbose", short: "v"}
+	usedNames := map[string]bool{"verbose": true}
+
+	err := registerFlagName(spec, usedNames)
+	g.Expect(err).To(HaveOccurred())
+
+	if err != nil {
+		g.Expect(err.Error()).To(ContainSubstring("verbose"))
+	}
+}
+
+func TestRegisterFlagName_DuplicateShort(t *testing.T) {
+	g := NewWithT(t)
+
+	spec := &flagSpec{name: "verbose", short: "v"}
+	usedNames := map[string]bool{"v": true}
+
+	err := registerFlagName(spec, usedNames)
+	g.Expect(err).To(HaveOccurred())
+
+	if err != nil {
+		g.Expect(err.Error()).To(ContainSubstring("v"))
+	}
+}
+
+func TestRegisterFlagName_NoShort(t *testing.T) {
+	g := NewWithT(t)
+
+	spec := &flagSpec{name: "verbose", short: ""}
+	usedNames := make(map[string]bool)
+
+	err := registerFlagName(spec, usedNames)
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(usedNames["verbose"]).To(BeTrue())
+	g.Expect(usedNames).NotTo(HaveKey(""))
+}
+
+// --- registerFlagName tests ---
+
+func TestRegisterFlagName_Success(t *testing.T) {
+	g := NewWithT(t)
+
+	spec := &flagSpec{name: "verbose", short: "v"}
+	usedNames := make(map[string]bool)
+
+	err := registerFlagName(spec, usedNames)
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(usedNames["verbose"]).To(BeTrue())
+	g.Expect(usedNames["v"]).To(BeTrue())
+}
+
 func TestRelativeSourcePathWithGetwd_GetwdError(t *testing.T) {
 	g := NewWithT(t)
 
@@ -2920,7 +3136,10 @@ func TestRunWithEnv_DefaultModeExecutionError(t *testing.T) {
 	g := NewWithT(t)
 
 	// A command that returns an error
-	target := &mockTarget{fn: func() error { return errors.New("command error") }, name: "error-target"}
+	target := &mockTarget{
+		fn:   func() error { return errors.New("command error") },
+		name: "error-target",
+	}
 	env := &ExecuteEnv{args: []string{"cmd"}}
 	err := RunWithEnv(env, RunOptions{AllowDefault: true}, target)
 	g.Expect(err).To(BeAssignableToTypeOf(ExitError{}))
@@ -3085,6 +3304,10 @@ func TestSliceFlagMissingValue(t *testing.T) {
 	node, err := parseTargetLike(target)
 	g.Expect(err).NotTo(HaveOccurred())
 
+	if node == nil {
+		t.Fatal("unexpected nil node")
+	}
+
 	err = node.execute(context.TODO(), []string{"--files"}, RunOptions{})
 	g.Expect(err).To(HaveOccurred())
 	g.Expect(err.Error()).To(ContainSubstring("flag needs an argument"))
@@ -3099,10 +3322,15 @@ func TestSliceFlagParsing(t *testing.T) {
 
 	// Test with multiple values
 	var gotFiles []string
+
 	fn := func(args SliceCmdArgs) { gotFiles = args.Files }
 	target := &mockTarget{fn: fn, name: "test"}
 	node, err := parseTargetLike(target)
 	g.Expect(err).NotTo(HaveOccurred())
+
+	if node == nil {
+		t.Fatal("unexpected nil node")
+	}
 
 	err = node.execute(context.TODO(), []string{"--files", "a.txt", "b.txt", "c.txt"}, RunOptions{})
 	g.Expect(err).NotTo(HaveOccurred())
@@ -3118,8 +3346,11 @@ func TestSliceFlagStopsAtDoubleDash(t *testing.T) {
 	}
 
 	// Test that slice parsing stops at --
-	var gotFiles []string
-	var gotArg string
+	var (
+		gotFiles []string
+		gotArg   string
+	)
+
 	fn := func(args SliceCmdArgs) {
 		gotFiles = args.Files
 		gotArg = args.Arg
@@ -3127,6 +3358,10 @@ func TestSliceFlagStopsAtDoubleDash(t *testing.T) {
 	target := &mockTarget{fn: fn, name: "test"}
 	node, err := parseTargetLike(target)
 	g.Expect(err).NotTo(HaveOccurred())
+
+	if node == nil {
+		t.Fatal("unexpected nil node")
+	}
 
 	err = node.execute(
 		context.TODO(),
@@ -3147,8 +3382,11 @@ func TestSliceFlagStopsAtFlag(t *testing.T) {
 	}
 
 	// Test that slice parsing stops at another flag
-	var gotFiles []string
-	var gotVerbose bool
+	var (
+		gotFiles   []string
+		gotVerbose bool
+	)
+
 	fn := func(args SliceCmdArgs) {
 		gotFiles = args.Files
 		gotVerbose = args.Verbose
@@ -3156,6 +3394,10 @@ func TestSliceFlagStopsAtFlag(t *testing.T) {
 	target := &mockTarget{fn: fn, name: "test"}
 	node, err := parseTargetLike(target)
 	g.Expect(err).NotTo(HaveOccurred())
+
+	if node == nil {
+		t.Fatal("unexpected nil node")
+	}
 
 	err = node.execute(context.TODO(), []string{"--files", "a.txt", "b.txt", "-v"}, RunOptions{})
 	g.Expect(err).NotTo(HaveOccurred())
@@ -3198,6 +3440,88 @@ func TestSuggestInstanceFlags_NilType(t *testing.T) {
 	g.Expect(seen).To(BeEmpty())
 }
 
+// --- tagOptionsForField tests ---
+
+func TestTagOptionsForField_EmptyTag(t *testing.T) {
+	g := NewWithT(t)
+
+	// Test field with no targ tag defaults to flag
+	type Args struct {
+		Name string // no targ tag
+	}
+
+	inst := reflect.ValueOf(Args{})
+	typ := reflect.TypeFor[Args]()
+	field := typ.Field(0)
+
+	opts, err := tagOptionsForField(inst, field)
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(opts.Kind).To(Equal(TagKindFlag))
+	g.Expect(opts.Name).To(Equal("name")) // lowercase of field name
+}
+
+func TestTagOptionsForField_EmptyTagWithOverride(t *testing.T) {
+	g := NewWithT(t)
+
+	// Test field with no targ tag but with TagOptions override
+	inst := reflect.ValueOf(TagOptionsOverrideArgs{})
+	typ := reflect.TypeFor[TagOptionsOverrideArgs]()
+	field := typ.Field(0) // Env field
+
+	opts, err := tagOptionsForField(inst, field)
+	g.Expect(err).NotTo(HaveOccurred())
+	// The TagOptions method changes enum from "dev|prod" to "dev|staging|prod"
+	g.Expect(opts.Enum).To(Equal("dev|staging|prod"))
+}
+
+// --- tagOptionsInstance tests ---
+
+func TestTagOptionsInstance_NilNode(t *testing.T) {
+	g := NewWithT(t)
+
+	result := tagOptionsInstance(nil)
+	g.Expect(result.IsValid()).To(BeFalse())
+}
+
+func TestTagOptionsInstance_NoTypeNoValue(t *testing.T) {
+	g := NewWithT(t)
+
+	node := &commandNode{}
+
+	result := tagOptionsInstance(node)
+	g.Expect(result.IsValid()).To(BeFalse())
+}
+
+func TestTagOptionsInstance_TypeWithoutValue(t *testing.T) {
+	g := NewWithT(t)
+
+	type Args struct {
+		Name string
+	}
+
+	node := &commandNode{Type: reflect.TypeFor[Args]()}
+
+	result := tagOptionsInstance(node)
+	g.Expect(result.IsValid()).To(BeTrue())
+	// Should return a zero value of the type
+	g.Expect(result.Interface()).To(Equal(Args{}))
+}
+
+func TestTagOptionsInstance_ValidValue(t *testing.T) {
+	g := NewWithT(t)
+
+	type Args struct {
+		Name string
+	}
+
+	inst := reflect.ValueOf(Args{Name: "test"})
+	node := &commandNode{Value: inst}
+
+	result := tagOptionsInstance(node)
+	g.Expect(result.IsValid()).To(BeTrue())
+	g.Expect(result.Interface()).To(Equal(Args{Name: "test"}))
+}
+
 // --- Usage Line Formatting ---
 
 func TestUsageLine_NoSubcommandWithRequiredPositional(t *testing.T) {
@@ -3208,6 +3532,7 @@ func TestUsageLine_NoSubcommandWithRequiredPositional(t *testing.T) {
 	}
 
 	target := &mockTarget{fn: func(_ MoveCmdArgs) {}, name: "test"}
+
 	cmd, err := parseTargetLike(target)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -3244,8 +3569,11 @@ func TestVariadicPositionalStopsAtDoubleDash(t *testing.T) {
 		Flag string   `targ:"flag"`
 	}
 
-	var gotArgs []string
-	var gotFlag string
+	var (
+		gotArgs []string
+		gotFlag string
+	)
+
 	fn := func(args VariadicPosCmdArgs) {
 		gotArgs = args.Args
 		gotFlag = args.Flag
@@ -3253,6 +3581,10 @@ func TestVariadicPositionalStopsAtDoubleDash(t *testing.T) {
 	target := &mockTarget{fn: fn, name: "test"}
 	node, err := parseTargetLike(target)
 	g.Expect(err).NotTo(HaveOccurred())
+
+	if node == nil {
+		t.Fatal("unexpected nil node")
+	}
 
 	// Test that variadic positional stops at -- and next args are parsed as flags
 	err = node.execute(context.TODO(), []string{"a", "b", "--", "--flag", "value"}, RunOptions{})
@@ -3314,7 +3646,6 @@ const (
 	bashShell = "bash"
 )
 
-
 type helpTestCmdArgs struct {
 	Name string `targ:"flag"`
 }
@@ -3357,7 +3688,6 @@ type posIdxArgs struct {
 	Verbose bool   `targ:"flag,short=v"`
 	Files   string `targ:"flag,variadic"`
 }
-
 
 type testPlainType struct{}
 

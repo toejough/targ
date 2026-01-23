@@ -12,32 +12,6 @@ import (
 	"github.com/toejough/targ/internal/core"
 )
 
-// Helper functions to create targets for tests
-
-func oneTarget() *core.Target {
-	return core.Targ(func() { multiSubOneCalls++ }).Name("one")
-}
-
-func twoTarget() *core.Target {
-	return core.Targ(func() { multiSubTwoCalls++ }).Name("two")
-}
-
-func multiSubRootGroup() *core.Group {
-	return core.NewGroup("multi-sub-root", oneTarget(), twoTarget())
-}
-
-func discoverTarget() *core.Target {
-	return core.Targ(func() { multiRootDiscoverCalls++ }).Name("discover")
-}
-
-func flashOnlyTarget() *core.Target {
-	return core.Targ(func() { multiRootFlashCalls++ }).Name("flash-only")
-}
-
-func firmwareGroup() *core.Group {
-	return core.NewGroup("firmware", flashOnlyTarget())
-}
-
 func ContextFunc(ctx context.Context) {
 	if ctx != nil {
 		helloWorldCalled = true
@@ -264,6 +238,28 @@ func TestRunWithEnv_GlobalHelpWithArgsMultiRoot(t *testing.T) {
 	}
 }
 
+func TestRunWithEnv_GroupUnknownSubcommand(t *testing.T) {
+	helloTarget := core.Targ(func() {}).Name("hello")
+	root := core.NewGroup("root", helloTarget)
+
+	// Call group with unknown subcommand - should error
+	_, err := core.Execute([]string{"cmd", "unknown"}, root)
+	if err == nil {
+		t.Fatal("expected error for unknown subcommand")
+	}
+}
+
+func TestRunWithEnv_GroupWithNoSubcommand(t *testing.T) {
+	helloTarget := core.Targ(func() {}).Name("hello")
+	root := core.NewGroup("root", helloTarget)
+
+	// Call group with no subcommand - should show help (no error)
+	_, err := core.Execute([]string{"cmd"}, root)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestRunWithEnv_MultipleRoots_SubcommandThenRoot(t *testing.T) {
 	multiRootFlashCalls = 0
 	multiRootDiscoverCalls = 0
@@ -387,4 +383,30 @@ func captureStdoutRun(t *testing.T, fn func()) string {
 	_ = r.Close()
 
 	return buf.String()
+}
+
+func discoverTarget() *core.Target {
+	return core.Targ(func() { multiRootDiscoverCalls++ }).Name("discover")
+}
+
+func firmwareGroup() *core.Group {
+	return core.NewGroup("firmware", flashOnlyTarget())
+}
+
+func flashOnlyTarget() *core.Target {
+	return core.Targ(func() { multiRootFlashCalls++ }).Name("flash-only")
+}
+
+func multiSubRootGroup() *core.Group {
+	return core.NewGroup("multi-sub-root", oneTarget(), twoTarget())
+}
+
+// Helper functions to create targets for tests
+
+func oneTarget() *core.Target {
+	return core.Targ(func() { multiSubOneCalls++ }).Name("one")
+}
+
+func twoTarget() *core.Target {
+	return core.Targ(func() { multiSubTwoCalls++ }).Name("two")
 }

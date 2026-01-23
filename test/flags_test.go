@@ -40,6 +40,17 @@ type RequiredShortFlagArgs struct {
 	Name string `targ:"required,short=n"`
 }
 
+// --- Custom unmarshaler types (these stay - they're not commands) ---
+
+type SetterValue struct {
+	Value string
+}
+
+func (s *SetterValue) Set(value string) error {
+	s.Value = value + "!"
+	return nil
+}
+
 type ShortBoolFlagsArgs struct {
 	Verbose bool `targ:"flag,short=v"`
 	Force   bool `targ:"flag,short=f"`
@@ -59,17 +70,6 @@ type ShortMixedFlagsArgs struct {
 // Instead of runtime override, we use static tag attributes.
 type TagOptionsOverrideArgs struct {
 	Mode string `targ:"flag,name=stage,short=s,enum=dev|prod"`
-}
-
-// --- Custom unmarshaler types (these stay - they're not commands) ---
-
-type SetterValue struct {
-	Value string
-}
-
-func (s *SetterValue) Set(value string) error {
-	s.Value = value + "!"
-	return nil
 }
 
 type TextValue struct {
@@ -101,8 +101,10 @@ func TestCustomFlagName(t *testing.T) {
 }
 
 func TestCustomTypes(t *testing.T) {
-	var gotName TextValue
-	var gotNick SetterValue
+	var (
+		gotName TextValue
+		gotNick SetterValue
+	)
 
 	target := targ.Targ(func(args CustomTypeFlagsArgs) {
 		gotName = args.Name
@@ -143,9 +145,11 @@ func TestDefaultEnvFlags_EnvOverrides(t *testing.T) {
 }
 
 func TestDefaultFlags(t *testing.T) {
-	var gotName string
-	var gotCount int
-	var gotEnabled bool
+	var (
+		gotName    string
+		gotCount   int
+		gotEnabled bool
+	)
 
 	target := targ.Targ(func(args DefaultFlagsArgs) {
 		gotName = args.Name
@@ -250,8 +254,10 @@ func TestShortFlagGroupsRejectValueFlags(t *testing.T) {
 }
 
 func TestShortFlags(t *testing.T) {
-	var gotName string
-	var gotAge int
+	var (
+		gotName string
+		gotAge  int
+	)
 
 	target := targ.Targ(func(args ShortFlagsArgs) {
 		gotName = args.Name

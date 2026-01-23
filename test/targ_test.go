@@ -10,72 +10,6 @@ import (
 	"github.com/toejough/targ"
 )
 
-func continueOnErrorTarget() *targ.Target {
-	return targ.Targ(func() error {
-		return targ.Deps(incrementCount, incrementCount, targ.ContinueOnError())
-	}).Name("continue-on-error")
-}
-
-func depsTarget() *targ.Target {
-	return targ.Targ(func() error {
-		return targ.Deps(incrementCount, incrementCount)
-	}).Name("deps")
-}
-
-func parallelDepsTarget() *targ.Target {
-	return targ.Targ(func() error {
-		return targ.Deps(incrementCount, incrementCount, targ.Parallel())
-	}).Name("parallel-deps")
-}
-
-func resetDepsTarget() *targ.Target {
-	return targ.Targ(func() error {
-		// First call runs the target
-		err := targ.Deps(incrementCount)
-		if err != nil {
-			return err
-		}
-
-		if atomic.LoadInt32(&testCallCount) != 1 {
-			resetTestError = "expected 1 call after first Deps"
-			return nil
-		}
-
-		// Second call should skip (already ran)
-		err = targ.Deps(incrementCount)
-		if err != nil {
-			return err
-		}
-
-		if atomic.LoadInt32(&testCallCount) != 1 {
-			resetTestError = "expected still 1 call after second Deps"
-			return nil
-		}
-
-		// After reset, runs again
-		targ.ResetDeps()
-
-		err = targ.Deps(incrementCount)
-		if err != nil {
-			return err
-		}
-
-		if atomic.LoadInt32(&testCallCount) != 2 {
-			resetTestError = "expected 2 calls after ResetDeps"
-			return nil
-		}
-
-		return nil
-	}).Name("reset-deps")
-}
-
-func withContextTarget() *targ.Target {
-	return targ.Targ(func() error {
-		ctx := context.Background()
-		return targ.Deps(setCalled, targ.WithContext(ctx))
-	}).Name("with-context")
-}
-
 // TestAppendBuiltinExamples verifies custom examples come before built-ins.
 func TestAppendBuiltinExamples(t *testing.T) {
 	custom := targ.Example{Title: "Custom", Code: "custom"}
@@ -199,10 +133,76 @@ var (
 	testCalled     bool
 )
 
+func continueOnErrorTarget() *targ.Target {
+	return targ.Targ(func() error {
+		return targ.Deps(incrementCount, incrementCount, targ.ContinueOnError())
+	}).Name("continue-on-error")
+}
+
+func depsTarget() *targ.Target {
+	return targ.Targ(func() error {
+		return targ.Deps(incrementCount, incrementCount)
+	}).Name("deps")
+}
+
 func incrementCount() {
 	atomic.AddInt32(&testCallCount, 1)
 }
 
+func parallelDepsTarget() *targ.Target {
+	return targ.Targ(func() error {
+		return targ.Deps(incrementCount, incrementCount, targ.Parallel())
+	}).Name("parallel-deps")
+}
+
+func resetDepsTarget() *targ.Target {
+	return targ.Targ(func() error {
+		// First call runs the target
+		err := targ.Deps(incrementCount)
+		if err != nil {
+			return err
+		}
+
+		if atomic.LoadInt32(&testCallCount) != 1 {
+			resetTestError = "expected 1 call after first Deps"
+			return nil
+		}
+
+		// Second call should skip (already ran)
+		err = targ.Deps(incrementCount)
+		if err != nil {
+			return err
+		}
+
+		if atomic.LoadInt32(&testCallCount) != 1 {
+			resetTestError = "expected still 1 call after second Deps"
+			return nil
+		}
+
+		// After reset, runs again
+		targ.ResetDeps()
+
+		err = targ.Deps(incrementCount)
+		if err != nil {
+			return err
+		}
+
+		if atomic.LoadInt32(&testCallCount) != 2 {
+			resetTestError = "expected 2 calls after ResetDeps"
+			return nil
+		}
+
+		return nil
+	}).Name("reset-deps")
+}
+
 func setCalled() {
 	testCalled = true
+}
+
+func withContextTarget() *targ.Target {
+	return targ.Targ(func() error {
+		ctx := context.Background()
+		return targ.Deps(setCalled, targ.WithContext(ctx))
+	}).Name("with-context")
 }

@@ -104,6 +104,7 @@ func TestCompletion_EscapedSpace(t *testing.T) {
 
 func TestCompletion_FlagSuggestion(t *testing.T) {
 	target := core.Targ(func(_ EnumCmdArgs) {}).Name("enum-cmd")
+
 	out := captureCompletion(t, target, "app --")
 	if !strings.Contains(out, "--mode") {
 		t.Fatalf("expected --mode flag suggestion, got: %q", out)
@@ -199,6 +200,7 @@ func TestCompletion_QuotedArg(t *testing.T) {
 func TestCompletion_SingleQuotedArg(t *testing.T) {
 	// Test single quotes
 	target := core.Targ(func(_ EnumCmdArgs) {}).Name("enum-cmd")
+
 	out := captureCompletion(t, target, `app --mode 'de`)
 	if !strings.Contains(out, "dev") {
 		t.Fatalf("expected dev suggestion with single quoted arg, got: %q", out)
@@ -207,6 +209,7 @@ func TestCompletion_SingleQuotedArg(t *testing.T) {
 
 func TestCompletion_SingleRootAtRoot(t *testing.T) {
 	target := core.Targ(func(_ EnumCmdArgs) {}).Name("enum-cmd")
+
 	out := captureCompletion(t, target, "app ")
 	if !strings.Contains(out, "enum-cmd") {
 		t.Fatalf("expected enum-cmd suggestion, got: %q", out)
@@ -230,6 +233,7 @@ func TestCompletion_SingleRootWithRemaining(t *testing.T) {
 
 func TestCompletion_SuggestsEnumValuesAfterFlag(t *testing.T) {
 	target := core.Targ(func(_ EnumCmdArgs) {}).Name("enum-cmd")
+
 	out := captureCompletion(t, target, "app --mode ")
 	if !strings.Contains(out, "dev") || !strings.Contains(out, "prod") {
 		t.Fatalf("expected enum suggestions, got: %q", out)
@@ -238,6 +242,7 @@ func TestCompletion_SuggestsEnumValuesAfterFlag(t *testing.T) {
 
 func TestCompletion_SuggestsEnumValuesAfterShortFlag(t *testing.T) {
 	target := core.Targ(func(_ EnumCmdArgs) {}).Name("enum-cmd")
+
 	out := captureCompletion(t, target, "app -m ")
 	if !strings.Contains(out, "dev") || !strings.Contains(out, "prod") {
 		t.Fatalf("expected enum suggestions for short flag, got: %q", out)
@@ -247,8 +252,10 @@ func TestCompletion_SuggestsEnumValuesAfterShortFlag(t *testing.T) {
 func TestCompletion_SuggestsPositionalValues(t *testing.T) {
 	// Simplified test - uses static enum instead of dynamic TagOptions
 	target := core.Targ(func(_ PositionalCompletionCmdArgs) {}).Name("pos-cmd")
+
 	out := captureCompletion(t, target, "app ")
-	if !strings.Contains(out, "10") || !strings.Contains(out, "20") || !strings.Contains(out, "30") {
+	if !strings.Contains(out, "10") || !strings.Contains(out, "20") ||
+		!strings.Contains(out, "30") {
 		t.Fatalf("expected positional suggestions, got: %q", out)
 	}
 }

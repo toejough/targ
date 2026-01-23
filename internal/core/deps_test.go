@@ -26,8 +26,10 @@ func TestDepsErrorCached(t *testing.T) {
 		if args.Err {
 			return core.Deps(depErr)
 		}
+
 		return core.Deps(depOnce, depOnce)
 	})
+
 	_, err := core.Execute([]string{"cmd", "--err"}, target)
 	if err == nil {
 		t.Fatal("expected error")
@@ -44,6 +46,7 @@ func TestDepsRunsOnce(t *testing.T) {
 	target := core.Targ(func(_ DepRootArgs) error {
 		return core.Deps(depOnce, depOnce)
 	})
+
 	_, err := core.Execute([]string{"cmd"}, target)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -56,6 +59,7 @@ func TestDepsRunsOnce(t *testing.T) {
 
 func TestDepsTargetRunsOnce(t *testing.T) {
 	var depCalled int
+
 	depTarget := core.Targ(func() { depCalled++ }).Name("dep")
 	target := core.Targ(func() error {
 		return core.Deps(depTarget, depTarget)

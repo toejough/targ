@@ -11,6 +11,10 @@ import (
 	"github.com/toejough/targ"
 )
 
+type ExecuteTestArgs struct {
+	Name string `targ:"flag"`
+}
+
 // Args struct types for Target functions (these stay - they have no Run() method).
 
 type InterleavedFlagsArgs struct {
@@ -36,10 +40,6 @@ type RepeatedFlagsArgs struct {
 
 type RepeatedIntFlagsArgs struct {
 	Counts []int `targ:"flag"`
-}
-
-type ExecuteTestArgs struct {
-	Name string `targ:"flag"`
 }
 
 func TestExecuteWithOptions_AllowDefault(t *testing.T) {
@@ -106,6 +106,7 @@ func TestExecute_Success(t *testing.T) {
 	t.Parallel()
 
 	var gotName string
+
 	called := false
 
 	target := targ.Targ(func(args ExecuteTestArgs) {
@@ -130,7 +131,7 @@ func TestExecute_Success(t *testing.T) {
 func TestExecute_UnknownCommand(t *testing.T) {
 	t.Parallel()
 
-	target := targ.Targ(func(args ExecuteTestArgs) {}).Name("test-cmd")
+	target := targ.Targ(func(_ ExecuteTestArgs) {}).Name("test-cmd")
 
 	result, err := targ.ExecuteWithOptions(
 		[]string{"app", "unknown"},
@@ -251,8 +252,10 @@ func TestInterleavedFlags_IntType(t *testing.T) {
 }
 
 func TestInterleavedFlags_ReconstructOrder(t *testing.T) {
-	var gotIncludes []targ.Interleaved[string]
-	var gotExcludes []targ.Interleaved[string]
+	var (
+		gotIncludes []targ.Interleaved[string]
+		gotExcludes []targ.Interleaved[string]
+	)
 
 	target := targ.Targ(func(args InterleavedFlagsArgs) {
 		gotIncludes = args.Include
@@ -296,8 +299,10 @@ func TestInterleavedFlags_ReconstructOrder(t *testing.T) {
 }
 
 func TestInterleavedFlags_TracksPosition(t *testing.T) {
-	var gotIncludes []targ.Interleaved[string]
-	var gotExcludes []targ.Interleaved[string]
+	var (
+		gotIncludes []targ.Interleaved[string]
+		gotExcludes []targ.Interleaved[string]
+	)
 
 	target := targ.Targ(func(args InterleavedFlagsArgs) {
 		gotIncludes = args.Include
@@ -470,7 +475,10 @@ func TestRepeatedFlags_IntSlice(t *testing.T) {
 		gotCounts = args.Counts
 	})
 
-	_, err := targ.Execute([]string{"app", "--counts", "1", "--counts", "2", "--counts", "3"}, target)
+	_, err := targ.Execute(
+		[]string{"app", "--counts", "1", "--counts", "2", "--counts", "3"},
+		target,
+	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -735,7 +743,7 @@ func TestTimeout_MultiCommandDifferentTimeouts(t *testing.T) {
 	fastCalled := false
 	slowCalled := false
 
-	fast := targ.Targ(func(ctx context.Context) error {
+	fast := targ.Targ(func(_ context.Context) error {
 		fastCalled = true
 		return nil
 	}).Name("fast-cmd")

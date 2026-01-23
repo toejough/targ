@@ -652,11 +652,7 @@ func completionParse(
 
 	chain := make([]commandInstance, 0, len(chainNodes))
 	for _, current := range chainNodes {
-		inst, err := nodeInstance(current)
-		if err != nil {
-			return nil, parseResult{}, err
-		}
-
+		inst := nodeInstance(current)
 		chain = append(chain, commandInstance{node: current, value: inst})
 	}
 
