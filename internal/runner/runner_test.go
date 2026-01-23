@@ -395,6 +395,158 @@ import "github.com/toejough/targ"
 	}
 }
 
+func TestConvertFuncTargetToString(t *testing.T) {
+	dir := t.TempDir()
+	targFile := filepath.Join(dir, "targs.go")
+
+	initial := `//go:build targ
+
+package build
+
+import "github.com/toejough/targ"
+import "github.com/toejough/targ/sh"
+
+var Lint = targ.Targ(lint).Name("lint")
+
+func lint() error {
+	return sh.Run("golangci-lint", "run")
+}
+`
+	if err := os.WriteFile(targFile, []byte(initial), 0o644); err != nil {
+		t.Fatalf("write error: %v", err)
+	}
+
+	ok, err := runner.ConvertFuncTargetToString(targFile, "lint")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !ok {
+		t.Fatal("expected conversion to succeed")
+	}
+
+	content, err := os.ReadFile(targFile)
+	if err != nil {
+		t.Fatalf("read error: %v", err)
+	}
+
+	contentStr := string(content)
+
+	// Should have string instead of function reference
+	if !strings.Contains(contentStr, `targ.Targ("golangci-lint run")`) {
+		t.Errorf("expected string target, got:\n%s", contentStr)
+	}
+
+	// Should NOT have function declaration
+	if strings.Contains(contentStr, "func lint()") {
+		t.Errorf("expected lint function to be removed, got:\n%s", contentStr)
+	}
+}
+
+func TestConvertFuncTargetToString_ComplexFunc(t *testing.T) {
+	dir := t.TempDir()
+	targFile := filepath.Join(dir, "targs.go")
+
+	// Function with multiple statements should not be converted
+	initial := `//go:build targ
+
+package build
+
+import "github.com/toejough/targ"
+import "github.com/toejough/targ/sh"
+import "fmt"
+
+var Lint = targ.Targ(lint).Name("lint")
+
+func lint() error {
+	fmt.Println("Running lint...")
+	return sh.Run("golangci-lint", "run")
+}
+`
+	if err := os.WriteFile(targFile, []byte(initial), 0o644); err != nil {
+		t.Fatalf("write error: %v", err)
+	}
+
+	_, err := runner.ConvertFuncTargetToString(targFile, "lint")
+	if err == nil {
+		t.Error("expected error for complex function")
+	}
+}
+
+func TestConvertStringTargetToFunc(t *testing.T) {
+	dir := t.TempDir()
+	targFile := filepath.Join(dir, "targs.go")
+
+	initial := `//go:build targ
+
+package build
+
+import "github.com/toejough/targ"
+
+var Lint = targ.Targ("golangci-lint run").Name("lint")
+`
+	if err := os.WriteFile(targFile, []byte(initial), 0o644); err != nil {
+		t.Fatalf("write error: %v", err)
+	}
+
+	ok, err := runner.ConvertStringTargetToFunc(targFile, "lint")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !ok {
+		t.Fatal("expected conversion to succeed")
+	}
+
+	content, err := os.ReadFile(targFile)
+	if err != nil {
+		t.Fatalf("read error: %v", err)
+	}
+
+	contentStr := string(content)
+
+	// Should have function reference instead of string
+	if strings.Contains(contentStr, `targ.Targ("golangci-lint run")`) {
+		t.Errorf("expected string to be replaced, got:\n%s", contentStr)
+	}
+
+	// Should have function declaration
+	if !strings.Contains(contentStr, "func lint()") {
+		t.Errorf("expected lint function, got:\n%s", contentStr)
+	}
+
+	// Should have sh.Run call
+	if !strings.Contains(contentStr, "sh.Run(") {
+		t.Errorf("expected sh.Run call, got:\n%s", contentStr)
+	}
+}
+
+func TestConvertStringTargetToFunc_NotFound(t *testing.T) {
+	dir := t.TempDir()
+	targFile := filepath.Join(dir, "targs.go")
+
+	initial := `//go:build targ
+
+package build
+
+import "github.com/toejough/targ"
+
+var Build = targ.Targ("go build").Name("build")
+`
+	if err := os.WriteFile(targFile, []byte(initial), 0o644); err != nil {
+		t.Fatalf("write error: %v", err)
+	}
+
+	ok, err := runner.ConvertStringTargetToFunc(targFile, "lint")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if ok {
+		t.Error("expected conversion to return false for non-existent target")
+	}
+}
+
 func TestCreateGroupMemberPatch(t *testing.T) {
 	content := `var DevLint = targ.NewGroup("lint", DevLintSlow)`
 
@@ -454,6 +606,153 @@ func TestEnsureFallbackModuleRoot(t *testing.T) {
 
 	if info.Mode()&os.ModeSymlink == 0 {
 		t.Fatalf("expected symlink at %s", link)
+	}
+}
+
+func TestExtractTargFlags_DeprecatedNoCache(t *testing.T) {
+	args := []string{"--no-cache", "build"}
+
+	flags, _ := runner.ExtractTargFlags(args)
+
+	if !flags.NoBinaryCache {
+		t.Error("expected NoBinaryCache to be true (via deprecated --no-cache)")
+	}
+}
+
+func TestExtractTargFlags_Empty(t *testing.T) {
+	args := []string{}
+
+	flags, remaining := runner.ExtractTargFlags(args)
+
+	if flags.NoBinaryCache {
+		t.Error("expected NoBinaryCache to be false")
+	}
+
+	if flags.SourceDir != "" {
+		t.Errorf("expected empty source dir, got %q", flags.SourceDir)
+	}
+
+	if len(remaining) != 0 {
+		t.Errorf("expected empty remaining, got %v", remaining)
+	}
+}
+
+func TestExtractTargFlags_NoBinaryCache(t *testing.T) {
+	args := []string{"--no-binary-cache", "build"}
+
+	flags, remaining := runner.ExtractTargFlags(args)
+
+	if !flags.NoBinaryCache {
+		t.Error("expected NoBinaryCache to be true")
+	}
+
+	if len(remaining) != 1 || remaining[0] != "build" {
+		t.Errorf("expected remaining [build], got %v", remaining)
+	}
+}
+
+func TestExtractTargFlags_ShortSAfterTarget(t *testing.T) {
+	// -s AFTER target name is passed through (for target's own flags)
+	args := []string{"build", "-s", "value"}
+
+	flags, remaining := runner.ExtractTargFlags(args)
+
+	if flags.SourceDir != "" {
+		t.Errorf("expected empty source dir (position-sensitive), got %q", flags.SourceDir)
+	}
+
+	if len(remaining) != 3 {
+		t.Errorf("expected remaining [build -s value], got %v", remaining)
+	}
+}
+
+func TestExtractTargFlags_SourceAfterTarget(t *testing.T) {
+	// --source AFTER target name is passed through (not recognized as global)
+	args := []string{"build", "--source", "/some/path"}
+
+	flags, remaining := runner.ExtractTargFlags(args)
+
+	if flags.SourceDir != "" {
+		t.Errorf("expected empty source dir (position-sensitive), got %q", flags.SourceDir)
+	}
+
+	if len(remaining) != 3 {
+		t.Errorf("expected remaining to have 3 elements, got %v", remaining)
+	}
+}
+
+func TestExtractTargFlags_SourceLong(t *testing.T) {
+	args := []string{"--source", "/some/path", "build"}
+
+	flags, remaining := runner.ExtractTargFlags(args)
+
+	if flags.SourceDir != "/some/path" {
+		t.Errorf("expected source dir '/some/path', got %q", flags.SourceDir)
+	}
+
+	if len(remaining) != 1 || remaining[0] != "build" {
+		t.Errorf("expected remaining [build], got %v", remaining)
+	}
+}
+
+func TestExtractTargFlags_SourceMissingPath(t *testing.T) {
+	// Test when --source is provided without a following argument
+	args := []string{"--source"}
+
+	flags, _ := runner.ExtractTargFlags(args)
+
+	// Source should be empty since no path argument followed
+	if flags.SourceDir != "" {
+		t.Errorf("expected empty source dir when path missing, got %q", flags.SourceDir)
+	}
+}
+
+func TestExtractTargFlags_SourceShort(t *testing.T) {
+	args := []string{"-s", "/some/path", "build"}
+
+	flags, remaining := runner.ExtractTargFlags(args)
+
+	if flags.SourceDir != "/some/path" {
+		t.Errorf("expected source dir '/some/path', got %q", flags.SourceDir)
+	}
+
+	if len(remaining) != 1 || remaining[0] != "build" {
+		t.Errorf("expected remaining [build], got %v", remaining)
+	}
+}
+
+func TestExtractTargFlags_SourceWithEquals(t *testing.T) {
+	// The current implementation doesn't support --source=/path format
+	// This test documents current behavior (equals sign not supported)
+	args := []string{"--source=/some/path", "build"}
+
+	flags, remaining := runner.ExtractTargFlags(args)
+
+	// Current behavior: --source=/some/path is not recognized, passed through
+	if flags.SourceDir != "" {
+		t.Errorf("unexpected source dir %q (equals format not supported)", flags.SourceDir)
+	}
+
+	if len(remaining) != 2 {
+		t.Errorf("expected remaining to have 2 elements, got %v", remaining)
+	}
+}
+
+func TestExtractTargFlags_SourceWithOtherFlags(t *testing.T) {
+	args := []string{"--no-binary-cache", "-s", "/some/path", "build"}
+
+	flags, remaining := runner.ExtractTargFlags(args)
+
+	if !flags.NoBinaryCache {
+		t.Error("expected NoBinaryCache to be true")
+	}
+
+	if flags.SourceDir != "/some/path" {
+		t.Errorf("expected source dir '/some/path', got %q", flags.SourceDir)
+	}
+
+	if len(remaining) != 1 || remaining[0] != "build" {
+		t.Errorf("expected remaining [build], got %v", remaining)
 	}
 }
 
@@ -932,304 +1231,5 @@ func TestWriteBootstrapFileCleanup(t *testing.T) {
 	_, err = os.Stat(path)
 	if !os.IsNotExist(err) {
 		t.Fatalf("expected bootstrap file to be removed, got: %v", err)
-	}
-}
-
-func TestExtractTargFlags_SourceLong(t *testing.T) {
-	args := []string{"--source", "/some/path", "build"}
-
-	flags, remaining := runner.ExtractTargFlags(args)
-
-	if flags.SourceDir != "/some/path" {
-		t.Errorf("expected source dir '/some/path', got %q", flags.SourceDir)
-	}
-
-	if len(remaining) != 1 || remaining[0] != "build" {
-		t.Errorf("expected remaining [build], got %v", remaining)
-	}
-}
-
-func TestExtractTargFlags_SourceShort(t *testing.T) {
-	args := []string{"-s", "/some/path", "build"}
-
-	flags, remaining := runner.ExtractTargFlags(args)
-
-	if flags.SourceDir != "/some/path" {
-		t.Errorf("expected source dir '/some/path', got %q", flags.SourceDir)
-	}
-
-	if len(remaining) != 1 || remaining[0] != "build" {
-		t.Errorf("expected remaining [build], got %v", remaining)
-	}
-}
-
-func TestExtractTargFlags_SourceWithOtherFlags(t *testing.T) {
-	args := []string{"--no-binary-cache", "-s", "/some/path", "build"}
-
-	flags, remaining := runner.ExtractTargFlags(args)
-
-	if !flags.NoBinaryCache {
-		t.Error("expected NoBinaryCache to be true")
-	}
-
-	if flags.SourceDir != "/some/path" {
-		t.Errorf("expected source dir '/some/path', got %q", flags.SourceDir)
-	}
-
-	if len(remaining) != 1 || remaining[0] != "build" {
-		t.Errorf("expected remaining [build], got %v", remaining)
-	}
-}
-
-func TestExtractTargFlags_SourceAfterTarget(t *testing.T) {
-	// --source AFTER target name is passed through (not recognized as global)
-	args := []string{"build", "--source", "/some/path"}
-
-	flags, remaining := runner.ExtractTargFlags(args)
-
-	if flags.SourceDir != "" {
-		t.Errorf("expected empty source dir (position-sensitive), got %q", flags.SourceDir)
-	}
-
-	if len(remaining) != 3 {
-		t.Errorf("expected remaining to have 3 elements, got %v", remaining)
-	}
-}
-
-func TestExtractTargFlags_ShortSAfterTarget(t *testing.T) {
-	// -s AFTER target name is passed through (for target's own flags)
-	args := []string{"build", "-s", "value"}
-
-	flags, remaining := runner.ExtractTargFlags(args)
-
-	if flags.SourceDir != "" {
-		t.Errorf("expected empty source dir (position-sensitive), got %q", flags.SourceDir)
-	}
-
-	if len(remaining) != 3 {
-		t.Errorf("expected remaining [build -s value], got %v", remaining)
-	}
-}
-
-func TestExtractTargFlags_NoBinaryCache(t *testing.T) {
-	args := []string{"--no-binary-cache", "build"}
-
-	flags, remaining := runner.ExtractTargFlags(args)
-
-	if !flags.NoBinaryCache {
-		t.Error("expected NoBinaryCache to be true")
-	}
-
-	if len(remaining) != 1 || remaining[0] != "build" {
-		t.Errorf("expected remaining [build], got %v", remaining)
-	}
-}
-
-func TestExtractTargFlags_DeprecatedNoCache(t *testing.T) {
-	args := []string{"--no-cache", "build"}
-
-	flags, _ := runner.ExtractTargFlags(args)
-
-	if !flags.NoBinaryCache {
-		t.Error("expected NoBinaryCache to be true (via deprecated --no-cache)")
-	}
-}
-
-func TestExtractTargFlags_SourceWithEquals(t *testing.T) {
-	// The current implementation doesn't support --source=/path format
-	// This test documents current behavior (equals sign not supported)
-	args := []string{"--source=/some/path", "build"}
-
-	flags, remaining := runner.ExtractTargFlags(args)
-
-	// Current behavior: --source=/some/path is not recognized, passed through
-	if flags.SourceDir != "" {
-		t.Errorf("unexpected source dir %q (equals format not supported)", flags.SourceDir)
-	}
-
-	if len(remaining) != 2 {
-		t.Errorf("expected remaining to have 2 elements, got %v", remaining)
-	}
-}
-
-func TestExtractTargFlags_SourceMissingPath(t *testing.T) {
-	// Test when --source is provided without a following argument
-	args := []string{"--source"}
-
-	flags, _ := runner.ExtractTargFlags(args)
-
-	// Source should be empty since no path argument followed
-	if flags.SourceDir != "" {
-		t.Errorf("expected empty source dir when path missing, got %q", flags.SourceDir)
-	}
-}
-
-func TestExtractTargFlags_Empty(t *testing.T) {
-	args := []string{}
-
-	flags, remaining := runner.ExtractTargFlags(args)
-
-	if flags.NoBinaryCache {
-		t.Error("expected NoBinaryCache to be false")
-	}
-
-	if flags.SourceDir != "" {
-		t.Errorf("expected empty source dir, got %q", flags.SourceDir)
-	}
-
-	if len(remaining) != 0 {
-		t.Errorf("expected empty remaining, got %v", remaining)
-	}
-}
-
-func TestConvertStringTargetToFunc(t *testing.T) {
-	dir := t.TempDir()
-	targFile := filepath.Join(dir, "targs.go")
-
-	initial := `//go:build targ
-
-package build
-
-import "github.com/toejough/targ"
-
-var Lint = targ.Targ("golangci-lint run").Name("lint")
-`
-	if err := os.WriteFile(targFile, []byte(initial), 0o644); err != nil {
-		t.Fatalf("write error: %v", err)
-	}
-
-	ok, err := runner.ConvertStringTargetToFunc(targFile, "lint")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if !ok {
-		t.Fatal("expected conversion to succeed")
-	}
-
-	content, err := os.ReadFile(targFile)
-	if err != nil {
-		t.Fatalf("read error: %v", err)
-	}
-
-	contentStr := string(content)
-
-	// Should have function reference instead of string
-	if strings.Contains(contentStr, `targ.Targ("golangci-lint run")`) {
-		t.Errorf("expected string to be replaced, got:\n%s", contentStr)
-	}
-
-	// Should have function declaration
-	if !strings.Contains(contentStr, "func lint()") {
-		t.Errorf("expected lint function, got:\n%s", contentStr)
-	}
-
-	// Should have sh.Run call
-	if !strings.Contains(contentStr, "sh.Run(") {
-		t.Errorf("expected sh.Run call, got:\n%s", contentStr)
-	}
-}
-
-func TestConvertStringTargetToFunc_NotFound(t *testing.T) {
-	dir := t.TempDir()
-	targFile := filepath.Join(dir, "targs.go")
-
-	initial := `//go:build targ
-
-package build
-
-import "github.com/toejough/targ"
-
-var Build = targ.Targ("go build").Name("build")
-`
-	if err := os.WriteFile(targFile, []byte(initial), 0o644); err != nil {
-		t.Fatalf("write error: %v", err)
-	}
-
-	ok, err := runner.ConvertStringTargetToFunc(targFile, "lint")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if ok {
-		t.Error("expected conversion to return false for non-existent target")
-	}
-}
-
-func TestConvertFuncTargetToString(t *testing.T) {
-	dir := t.TempDir()
-	targFile := filepath.Join(dir, "targs.go")
-
-	initial := `//go:build targ
-
-package build
-
-import "github.com/toejough/targ"
-import "github.com/toejough/targ/sh"
-
-var Lint = targ.Targ(lint).Name("lint")
-
-func lint() error {
-	return sh.Run("golangci-lint", "run")
-}
-`
-	if err := os.WriteFile(targFile, []byte(initial), 0o644); err != nil {
-		t.Fatalf("write error: %v", err)
-	}
-
-	ok, err := runner.ConvertFuncTargetToString(targFile, "lint")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if !ok {
-		t.Fatal("expected conversion to succeed")
-	}
-
-	content, err := os.ReadFile(targFile)
-	if err != nil {
-		t.Fatalf("read error: %v", err)
-	}
-
-	contentStr := string(content)
-
-	// Should have string instead of function reference
-	if !strings.Contains(contentStr, `targ.Targ("golangci-lint run")`) {
-		t.Errorf("expected string target, got:\n%s", contentStr)
-	}
-
-	// Should NOT have function declaration
-	if strings.Contains(contentStr, "func lint()") {
-		t.Errorf("expected lint function to be removed, got:\n%s", contentStr)
-	}
-}
-
-func TestConvertFuncTargetToString_ComplexFunc(t *testing.T) {
-	dir := t.TempDir()
-	targFile := filepath.Join(dir, "targs.go")
-
-	// Function with multiple statements should not be converted
-	initial := `//go:build targ
-
-package build
-
-import "github.com/toejough/targ"
-import "github.com/toejough/targ/sh"
-import "fmt"
-
-var Lint = targ.Targ(lint).Name("lint")
-
-func lint() error {
-	fmt.Println("Running lint...")
-	return sh.Run("golangci-lint", "run")
-}
-`
-	if err := os.WriteFile(targFile, []byte(initial), 0o644); err != nil {
-		t.Fatalf("write error: %v", err)
-	}
-
-	_, err := runner.ConvertFuncTargetToString(targFile, "lint")
-	if err == nil {
-		t.Error("expected error for complex function")
 	}
 }

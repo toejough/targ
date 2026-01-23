@@ -789,6 +789,42 @@ func TestExtractOverrides_NoOverrides(t *testing.T) {
 	g.Expect(remaining).To(Equal([]string{"build", "--verbose", "arg1"}))
 }
 
+func TestExtractOverrides_ParallelAfterTarget(t *testing.T) {
+	g := NewWithT(t)
+
+	// --parallel AFTER target name is passed through (not recognized as global)
+	args := []string{"app", "build", "--parallel"}
+	overrides, remaining, err := core.ExtractOverrides(args)
+
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(overrides.Parallel).To(BeFalse())
+	g.Expect(remaining).To(Equal([]string{"app", "build", "--parallel"}))
+}
+
+func TestExtractOverrides_ParallelBeforeTarget(t *testing.T) {
+	g := NewWithT(t)
+
+	// --parallel BEFORE target names is recognized as global flag
+	args := []string{"app", "--parallel", "build", "test"}
+	overrides, remaining, err := core.ExtractOverrides(args)
+
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(overrides.Parallel).To(BeTrue())
+	g.Expect(remaining).To(Equal([]string{"app", "build", "test"}))
+}
+
+func TestExtractOverrides_ParallelShortBeforeTarget(t *testing.T) {
+	g := NewWithT(t)
+
+	// -p BEFORE target names is recognized as global flag
+	args := []string{"app", "-p", "build", "test"}
+	overrides, remaining, err := core.ExtractOverrides(args)
+
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(overrides.Parallel).To(BeTrue())
+	g.Expect(remaining).To(Equal([]string{"app", "build", "test"}))
+}
+
 func TestExtractOverrides_Retry(t *testing.T) {
 	g := NewWithT(t)
 
@@ -798,6 +834,18 @@ func TestExtractOverrides_Retry(t *testing.T) {
 	g.Expect(err).NotTo(HaveOccurred())
 	g.Expect(overrides.Retry).To(BeTrue())
 	g.Expect(remaining).To(Equal([]string{"build", "arg1"}))
+}
+
+func TestExtractOverrides_ShortPAfterTarget(t *testing.T) {
+	g := NewWithT(t)
+
+	// -p AFTER target name is passed through (for target's own flags like --port)
+	args := []string{"app", "build", "-p", "8080"}
+	overrides, remaining, err := core.ExtractOverrides(args)
+
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(overrides.Parallel).To(BeFalse())
+	g.Expect(remaining).To(Equal([]string{"app", "build", "-p", "8080"}))
 }
 
 func TestExtractOverrides_Times(t *testing.T) {
@@ -943,52 +991,4 @@ func TestExtractOverrides_WhileMissing(t *testing.T) {
 
 	g.Expect(err).To(HaveOccurred())
 	g.Expect(err.Error()).To(ContainSubstring("requires"))
-}
-
-func TestExtractOverrides_ParallelBeforeTarget(t *testing.T) {
-	g := NewWithT(t)
-
-	// --parallel BEFORE target names is recognized as global flag
-	args := []string{"app", "--parallel", "build", "test"}
-	overrides, remaining, err := core.ExtractOverrides(args)
-
-	g.Expect(err).NotTo(HaveOccurred())
-	g.Expect(overrides.Parallel).To(BeTrue())
-	g.Expect(remaining).To(Equal([]string{"app", "build", "test"}))
-}
-
-func TestExtractOverrides_ParallelShortBeforeTarget(t *testing.T) {
-	g := NewWithT(t)
-
-	// -p BEFORE target names is recognized as global flag
-	args := []string{"app", "-p", "build", "test"}
-	overrides, remaining, err := core.ExtractOverrides(args)
-
-	g.Expect(err).NotTo(HaveOccurred())
-	g.Expect(overrides.Parallel).To(BeTrue())
-	g.Expect(remaining).To(Equal([]string{"app", "build", "test"}))
-}
-
-func TestExtractOverrides_ParallelAfterTarget(t *testing.T) {
-	g := NewWithT(t)
-
-	// --parallel AFTER target name is passed through (not recognized as global)
-	args := []string{"app", "build", "--parallel"}
-	overrides, remaining, err := core.ExtractOverrides(args)
-
-	g.Expect(err).NotTo(HaveOccurred())
-	g.Expect(overrides.Parallel).To(BeFalse())
-	g.Expect(remaining).To(Equal([]string{"app", "build", "--parallel"}))
-}
-
-func TestExtractOverrides_ShortPAfterTarget(t *testing.T) {
-	g := NewWithT(t)
-
-	// -p AFTER target name is passed through (for target's own flags like --port)
-	args := []string{"app", "build", "-p", "8080"}
-	overrides, remaining, err := core.ExtractOverrides(args)
-
-	g.Expect(err).NotTo(HaveOccurred())
-	g.Expect(overrides.Parallel).To(BeFalse())
-	g.Expect(remaining).To(Equal([]string{"app", "build", "-p", "8080"}))
 }

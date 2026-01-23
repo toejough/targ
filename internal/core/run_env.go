@@ -299,6 +299,7 @@ func (e *runExecutor) executeDefaultParallel() error {
 			)
 			if err != nil {
 				errCh <- fmt.Errorf("%s: %w", cmdName, err)
+
 				cancel() // Cancel siblings on first error
 			}
 		}(arg)
@@ -393,6 +394,7 @@ func (e *runExecutor) executeMultiRootParallel() error {
 			)
 			if err != nil {
 				errCh <- fmt.Errorf("%s: %w", cmdName, err)
+
 				cancel() // Cancel siblings on first error
 			}
 		}(matched, arg)
