@@ -15,7 +15,6 @@ const (
 	Disabled          = "__targ_disabled__"
 	TagKindFlag       = core.TagKindFlag
 	TagKindPositional = core.TagKindPositional
-	TagKindSubcommand = core.TagKindSubcommand
 	TagKindUnknown    = core.TagKindUnknown
 )
 
@@ -67,18 +66,6 @@ func ContinueOnError() DepsOption { return core.ContinueOnError() }
 func Deps(args ...any) error {
 	return core.Deps(args...)
 }
-
-// DetectRootCommands filters a list of possible command objects to find those
-// that are NOT subcommands of any other command in the list.
-// It uses the `targ:"subcommand"` tag to identify relationships.
-
-// 1. Find all types that are referenced as subcommands
-
-// Handle pointer to struct
-
-// This field type is a subcommand
-
-// 2. Filter candidates
 
 // EmptyExamples returns an empty slice to disable examples in help.
 func EmptyExamples() []Example { return core.EmptyExamples() }

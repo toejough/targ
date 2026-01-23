@@ -4,7 +4,6 @@ package core
 const (
 	TagKindFlag       TagKind = "flag"
 	TagKindPositional TagKind = "positional"
-	TagKindSubcommand TagKind = "subcommand"
 	TagKindUnknown    TagKind = "unknown"
 )
 

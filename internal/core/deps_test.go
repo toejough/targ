@@ -12,33 +12,23 @@ import (
 	"github.com/toejough/targ/internal/core"
 )
 
-// Test structs for dependency execution.
+// Test args struct for dependency execution.
 
-type DepRoot struct {
-	Err bool
-}
-
-func (d *DepRoot) Run() error {
-	if d.Err {
-		return core.Deps(depErr)
-	}
-
-	return core.Deps(depOnce, depOnce)
-}
-
-type DepStruct struct {
-	Called int
-}
-
-func (d *DepStruct) Run() {
-	d.Called++
+type DepRootArgs struct {
+	Err bool `targ:"flag"`
 }
 
 func TestDepsErrorCached(t *testing.T) {
 	depCount = 0
 
 	// Run through Execute which sets up the dep tracker
-	_, err := core.Execute([]string{"cmd", "--err"}, &DepRoot{})
+	target := core.Targ(func(args DepRootArgs) error {
+		if args.Err {
+			return core.Deps(depErr)
+		}
+		return core.Deps(depOnce, depOnce)
+	})
+	_, err := core.Execute([]string{"cmd", "--err"}, target)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -51,7 +41,10 @@ func TestDepsErrorCached(t *testing.T) {
 func TestDepsRunsOnce(t *testing.T) {
 	depCount = 0
 
-	_, err := core.Execute([]string{"cmd"}, &DepRoot{})
+	target := core.Targ(func(_ DepRootArgs) error {
+		return core.Deps(depOnce, depOnce)
+	})
+	_, err := core.Execute([]string{"cmd"}, target)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -61,19 +54,20 @@ func TestDepsRunsOnce(t *testing.T) {
 	}
 }
 
-func TestDepsStructRunsOnce(t *testing.T) {
-	dep := &DepStruct{}
-	target := func() error {
-		return core.Deps(dep, dep)
-	}
+func TestDepsTargetRunsOnce(t *testing.T) {
+	var depCalled int
+	depTarget := core.Targ(func() { depCalled++ }).Name("dep")
+	target := core.Targ(func() error {
+		return core.Deps(depTarget, depTarget)
+	})
 
 	_, err := core.Execute([]string{"cmd"}, target)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if dep.Called != 1 {
-		t.Fatalf("expected struct dep to run once, got %d", dep.Called)
+	if depCalled != 1 {
+		t.Fatalf("expected target dep to run once, got %d", depCalled)
 	}
 }
 
@@ -163,7 +157,7 @@ func TestDeps_InvalidTypeViaDeps(t *testing.T) {
 
 func TestDeps_NilPointerTarget(t *testing.T) {
 	// Pass a typed nil pointer through Deps
-	var nilPtr *DepStruct
+	var nilPtr *core.Target
 
 	target := func() error {
 		return core.Deps(nilPtr)

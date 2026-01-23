@@ -149,24 +149,23 @@ var Dev = targ.Group("dev", format, build, Lint)
 ### Current Implementation
 
 ```go
-// Struct fields with subcommand tag
-type Math struct {
-    Add *AddCmd `targ:"subcommand"`
-    Run *RunCmd `targ:"subcommand=run"`
-}
+// Groups defined with targ.NewGroup
+var Math = targ.NewGroup("math", Add, Multiply)
 
-// Parent structs CAN be executable (have Run() method)
-func (m *Math) Run() { ... }
+var Add = targ.Targ(add).Name("add")
+var Multiply = targ.Targ(multiply).Name("multiply")
+
+// Groups are not executable - only Targets are
 ```
 
 ### Decision Points
 
-| Feature             | Architecture              | Current                | Change Type |
-| ------------------- | ------------------------- | ---------------------- | ----------- |
-| Group definition    | `targ.Group("name", ...)` | Struct fields with tag | **CHANGE**  |
-| Group executability | Non-executable            | Can have `Run()`       | **CHANGE**  |
-| Naming              | Explicit string           | Field name or tag      | CHANGE      |
-| Nesting             | Via `*Group` members      | Via struct composition | CHANGE      |
+| Feature             | Architecture              | Current                   | Status       |
+| ------------------- | ------------------------- | ------------------------- | ------------ |
+| Group definition    | `targ.Group("name", ...)` | `targ.NewGroup("name",..)`| IMPLEMENTED  |
+| Group executability | Non-executable            | Non-executable            | IMPLEMENTED  |
+| Naming              | Explicit string           | Explicit string           | IMPLEMENTED  |
+| Nesting             | Via `*Group` members      | Via `*Group` members      | IMPLEMENTED  |
 
 ---
 

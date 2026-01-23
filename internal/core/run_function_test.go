@@ -12,18 +12,31 @@ import (
 	"github.com/toejough/targ/internal/core"
 )
 
-type FuncSubcommandRoot struct {
-	Hello func() `targ:"subcommand"`
+// Helper functions to create targets for tests
+
+func oneTarget() *core.Target {
+	return core.Targ(func() { multiSubOneCalls++ }).Name("one")
 }
 
-type MultiSubRoot struct {
-	One *multiSubOne `targ:"subcommand"`
-	Two *multiSubTwo `targ:"subcommand"`
+func twoTarget() *core.Target {
+	return core.Targ(func() { multiSubTwoCalls++ }).Name("two")
 }
 
-type TestCmdStruct struct{}
+func multiSubRootGroup() *core.Group {
+	return core.NewGroup("multi-sub-root", oneTarget(), twoTarget())
+}
 
-func (t *TestCmdStruct) Run() {}
+func discoverTarget() *core.Target {
+	return core.Targ(func() { multiRootDiscoverCalls++ }).Name("discover")
+}
+
+func flashOnlyTarget() *core.Target {
+	return core.Targ(func() { multiRootFlashCalls++ }).Name("flash-only")
+}
+
+func firmwareGroup() *core.Group {
+	return core.NewGroup("firmware", flashOnlyTarget())
+}
 
 func ContextFunc(ctx context.Context) {
 	if ctx != nil {
@@ -55,8 +68,8 @@ func TestRunWithEnv_CaretResetsToRoot(t *testing.T) {
 
 	_, err := core.Execute(
 		[]string{"cmd", "multi-sub-root", "one", "^", "discover"},
-		&MultiSubRoot{},
-		&discoverRoot{},
+		multiSubRootGroup(),
+		discoverTarget(),
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -151,9 +164,8 @@ func TestRunWithEnv_FunctionReturnsError(t *testing.T) {
 
 func TestRunWithEnv_FunctionSubcommand(t *testing.T) {
 	called := false
-	root := FuncSubcommandRoot{
-		Hello: func() { called = true },
-	}
+	helloTarget := core.Targ(func() { called = true }).Name("hello")
+	root := core.NewGroup("root", helloTarget)
 
 	_, err := core.Execute([]string{"cmd", "hello"}, root)
 	if err != nil {
@@ -259,8 +271,8 @@ func TestRunWithEnv_MultipleRoots_SubcommandThenRoot(t *testing.T) {
 	_, err := core.ExecuteWithOptions(
 		[]string{"cmd", "firmware", "flash-only", "discover"},
 		core.RunOptions{AllowDefault: false},
-		&firmwareRoot{},
-		&discoverRoot{},
+		firmwareGroup(),
+		discoverTarget(),
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -279,7 +291,7 @@ func TestRunWithEnv_MultipleSubcommands(t *testing.T) {
 	multiSubOneCalls = 0
 	multiSubTwoCalls = 0
 
-	_, err := core.Execute([]string{"cmd", "one", "two"}, &MultiSubRoot{})
+	_, err := core.Execute([]string{"cmd", "one", "two"}, multiSubRootGroup())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -295,8 +307,9 @@ func TestRunWithEnv_MultipleSubcommands(t *testing.T) {
 
 func TestRunWithEnv_MultipleTargets_FunctionByName(t *testing.T) {
 	helloWorldCalled = false
+	otherTarget := core.Targ(func() {}).Name("other")
 
-	_, err := core.Execute([]string{"cmd", "hello-world"}, HelloWorld, &TestCmdStruct{})
+	_, err := core.Execute([]string{"cmd", "hello-world"}, HelloWorld, otherTarget)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -346,30 +359,6 @@ var (
 	multiSubOneCalls       int
 	multiSubTwoCalls       int
 )
-
-type discoverRoot struct{}
-
-func (d *discoverRoot) Name() string { return "discover" }
-
-func (d *discoverRoot) Run() { multiRootDiscoverCalls++ }
-
-type firmwareFlashOnly struct{}
-
-func (f *firmwareFlashOnly) Run() { multiRootFlashCalls++ }
-
-type firmwareRoot struct {
-	FlashOnly *firmwareFlashOnly `targ:"subcommand=flash-only"`
-}
-
-func (f *firmwareRoot) Name() string { return "firmware" }
-
-type multiSubOne struct{}
-
-func (o *multiSubOne) Run() { multiSubOneCalls++ }
-
-type multiSubTwo struct{}
-
-func (m *multiSubTwo) Run() { multiSubTwoCalls++ }
 
 func captureStdoutRun(t *testing.T, fn func()) string {
 	t.Helper()

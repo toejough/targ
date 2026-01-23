@@ -161,33 +161,27 @@ Configure fields with `targ:"..."` struct tags:
 | `enum=a\|b\|c` | Allowed values (enables completion)         |
 | `default=X`    | Default value                               |
 | `env=VAR`      | Default from environment variable           |
-| `global`       | Flag available to all subcommands           |
-| `subcommand`   | Field is a subcommand                       |
-| `subcommand=X` | Subcommand with custom name                 |
 
 Combine with commas: `targ:"positional,required,enum=dev|prod"`
 
-## Subcommands
+## Groups
 
-Define subcommands with struct fields:
+Use `targ.NewGroup` to organize targets into named groups:
 
 ```go
-type Math struct {
-    Add *AddCmd `targ:"subcommand"`
-    Mul *MulCmd `targ:"subcommand=multiply"`
-}
+var Math = targ.NewGroup("math", Add, Multiply)
 
-func (m *Math) Run() {
-    fmt.Println("Usage: math <add|multiply>")
-}
-
-type AddCmd struct {
+var Add = targ.Targ(func(args struct {
     A, B int `targ:"positional"`
-}
+}) {
+    fmt.Printf("%d\n", args.A+args.B)
+}).Name("add")
 
-func (a *AddCmd) Run() {
-    fmt.Printf("%d\n", a.A+a.B)
-}
+var Multiply = targ.Targ(func(args struct {
+    A, B int `targ:"positional"`
+}) {
+    fmt.Printf("%d\n", args.A*args.B)
+}).Name("multiply")
 ```
 
 ```bash

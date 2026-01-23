@@ -7,50 +7,61 @@ import (
 	"github.com/toejough/targ"
 )
 
-type CustomFlagName struct {
+// --- Args struct types for Target functions ---
+
+type CustomFlagNameArgs struct {
 	User string `targ:"name=user_name"`
 }
 
-func (c *CustomFlagName) Run() {}
-
-type CustomTypeFlags struct {
+type CustomTypeFlagsArgs struct {
 	Name TextValue   `targ:"flag"`
 	Nick SetterValue `targ:"flag"`
 }
 
-func (c *CustomTypeFlags) Run() {}
-
-type DefaultEnvFlags struct {
+type DefaultEnvFlagsArgs struct {
 	Name string `targ:"default=Alice,env=TEST_DEFAULT_NAME_FLAG"`
 }
 
-func (c *DefaultEnvFlags) Run() {}
-
-type DefaultFlags struct {
+type DefaultFlagsArgs struct {
 	Name    string `targ:"default=Alice"`
 	Count   int    `targ:"default=42"`
 	Enabled bool   `targ:"default=true"`
 }
 
-func (c *DefaultFlags) Run() {}
-
-type EnvFlag struct {
+type EnvFlagArgs struct {
 	User string `targ:"env=TEST_USER_FLAG"`
 }
 
-func (c *EnvFlag) Run() {}
-
-type RequiredFlag struct {
+type RequiredFlagArgs struct {
 	ID string `targ:"required"`
 }
 
-func (c *RequiredFlag) Run() {}
-
-type RequiredShortFlag struct {
+type RequiredShortFlagArgs struct {
 	Name string `targ:"required,short=n"`
 }
 
-func (c *RequiredShortFlag) Run() {}
+type ShortBoolFlagsArgs struct {
+	Verbose bool `targ:"flag,short=v"`
+	Force   bool `targ:"flag,short=f"`
+}
+
+type ShortFlagsArgs struct {
+	Name string `targ:"flag,short=n"`
+	Age  int    `targ:"flag,short=a"`
+}
+
+type ShortMixedFlagsArgs struct {
+	Verbose bool   `targ:"flag,short=v"`
+	Name    string `targ:"flag,short=n"`
+}
+
+// TagOptionsOverrideArgs tests static tag attributes (replacing dynamic TagOptions method).
+// Instead of runtime override, we use static tag attributes.
+type TagOptionsOverrideArgs struct {
+	Mode string `targ:"flag,name=stage,short=s,enum=dev|prod"`
+}
+
+// --- Custom unmarshaler types (these stay - they're not commands) ---
 
 type SetterValue struct {
 	Value string
@@ -59,45 +70,6 @@ type SetterValue struct {
 func (s *SetterValue) Set(value string) error {
 	s.Value = value + "!"
 	return nil
-}
-
-type ShortBoolFlags struct {
-	Verbose bool `targ:"flag,short=v"`
-	Force   bool `targ:"flag,short=f"`
-}
-
-func (c *ShortBoolFlags) Run() {}
-
-type ShortFlags struct {
-	Name string `targ:"flag,short=n"`
-	Age  int    `targ:"flag,short=a"`
-}
-
-func (c *ShortFlags) Run() {}
-
-type ShortMixedFlags struct {
-	Verbose bool   `targ:"flag,short=v"`
-	Name    string `targ:"flag,short=n"`
-}
-
-func (c *ShortMixedFlags) Run() {}
-
-type TagOptionsOverride struct {
-	Mode string `targ:"flag,enum=dev|prod"`
-}
-
-func (c *TagOptionsOverride) Run() {}
-
-func (c *TagOptionsOverride) TagOptions(
-	field string,
-	opts targ.TagOptions,
-) (targ.TagOptions, error) {
-	if field == "Mode" {
-		opts.Name = "stage"
-		opts.Short = "s"
-	}
-
-	return opts, nil
 }
 
 type TextValue struct {
@@ -109,68 +81,92 @@ func (tv *TextValue) UnmarshalText(text []byte) error {
 	return nil
 }
 
-func TestCustomFlagName(t *testing.T) {
-	cmd := &CustomFlagName{}
+// --- Tests ---
 
-	_, err := targ.Execute([]string{"app", "--user_name", "Bob"}, cmd)
+func TestCustomFlagName(t *testing.T) {
+	var gotUser string
+
+	target := targ.Targ(func(args CustomFlagNameArgs) {
+		gotUser = args.User
+	})
+
+	_, err := targ.Execute([]string{"app", "--user_name", "Bob"}, target)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if cmd.User != "Bob" {
-		t.Errorf("expected User='Bob', got '%s'", cmd.User)
+	if gotUser != "Bob" {
+		t.Errorf("expected User='Bob', got '%s'", gotUser)
 	}
 }
 
 func TestCustomTypes(t *testing.T) {
-	cmd := &CustomTypeFlags{}
+	var gotName TextValue
+	var gotNick SetterValue
 
-	_, err := targ.Execute([]string{"app", "--name", "alice", "--nick", "bob"}, cmd)
+	target := targ.Targ(func(args CustomTypeFlagsArgs) {
+		gotName = args.Name
+		gotNick = args.Nick
+	})
+
+	_, err := targ.Execute([]string{"app", "--name", "alice", "--nick", "bob"}, target)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if cmd.Name.Value != "ALICE" {
-		t.Fatalf("expected ALICE via UnmarshalText, got %q", cmd.Name.Value)
+	if gotName.Value != "ALICE" {
+		t.Fatalf("expected ALICE via UnmarshalText, got %q", gotName.Value)
 	}
 
-	if cmd.Nick.Value != "bob!" {
-		t.Fatalf("expected bob! via Set, got %q", cmd.Nick.Value)
+	if gotNick.Value != "bob!" {
+		t.Fatalf("expected bob! via Set, got %q", gotNick.Value)
 	}
 }
 
 func TestDefaultEnvFlags_EnvOverrides(t *testing.T) {
 	t.Setenv("TEST_DEFAULT_NAME_FLAG", "Bob")
 
-	cmd := &DefaultEnvFlags{}
+	var gotName string
 
-	_, err := targ.Execute([]string{"app"}, cmd)
+	target := targ.Targ(func(args DefaultEnvFlagsArgs) {
+		gotName = args.Name
+	})
+
+	_, err := targ.Execute([]string{"app"}, target)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if cmd.Name != "Bob" {
-		t.Errorf("expected Name='Bob', got '%s'", cmd.Name)
+	if gotName != "Bob" {
+		t.Errorf("expected Name='Bob', got '%s'", gotName)
 	}
 }
 
 func TestDefaultFlags(t *testing.T) {
-	cmd := &DefaultFlags{}
+	var gotName string
+	var gotCount int
+	var gotEnabled bool
 
-	_, err := targ.Execute([]string{"app"}, cmd)
+	target := targ.Targ(func(args DefaultFlagsArgs) {
+		gotName = args.Name
+		gotCount = args.Count
+		gotEnabled = args.Enabled
+	})
+
+	_, err := targ.Execute([]string{"app"}, target)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if cmd.Name != "Alice" {
-		t.Errorf("expected Name='Alice', got '%s'", cmd.Name)
+	if gotName != "Alice" {
+		t.Errorf("expected Name='Alice', got '%s'", gotName)
 	}
 
-	if cmd.Count != 42 {
-		t.Errorf("expected Count=42, got %d", cmd.Count)
+	if gotCount != 42 {
+		t.Errorf("expected Count=42, got %d", gotCount)
 	}
 
-	if !cmd.Enabled {
+	if !gotEnabled {
 		t.Error("expected Enabled=true")
 	}
 }
@@ -178,22 +174,26 @@ func TestDefaultFlags(t *testing.T) {
 func TestEnvFlag(t *testing.T) {
 	t.Setenv("TEST_USER_FLAG", "EnvAlice")
 
-	cmd := &EnvFlag{}
+	var gotUser string
 
-	_, err := targ.Execute([]string{"app"}, cmd)
+	target := targ.Targ(func(args EnvFlagArgs) {
+		gotUser = args.User
+	})
+
+	_, err := targ.Execute([]string{"app"}, target)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if cmd.User != "EnvAlice" {
-		t.Errorf("expected User='EnvAlice', got '%s'", cmd.User)
+	if gotUser != "EnvAlice" {
+		t.Errorf("expected User='EnvAlice', got '%s'", gotUser)
 	}
 }
 
 func TestLongFlagsRequireDoubleDash(t *testing.T) {
-	cmd := &ShortFlags{}
+	target := targ.Targ(func(_ ShortFlagsArgs) {})
 
-	_, err := targ.Execute([]string{"app", "-name", "Alice"}, cmd)
+	_, err := targ.Execute([]string{"app", "-name", "Alice"}, target)
 	if err == nil {
 		t.Fatal("expected error for single-dash long flag")
 	}
@@ -201,18 +201,18 @@ func TestLongFlagsRequireDoubleDash(t *testing.T) {
 }
 
 func TestRequiredFlag(t *testing.T) {
-	cmd := &RequiredFlag{}
+	target := targ.Targ(func(_ RequiredFlagArgs) {})
 
-	_, err := targ.Execute([]string{"app"}, cmd)
+	_, err := targ.Execute([]string{"app"}, target)
 	if err == nil {
 		t.Fatal("expected error for missing required flag")
 	}
 }
 
 func TestRequiredShortFlagErrorIncludesShort(t *testing.T) {
-	cmd := &RequiredShortFlag{}
+	target := targ.Targ(func(_ RequiredShortFlagArgs) {})
 
-	result, err := targ.Execute([]string{"app"}, cmd)
+	result, err := targ.Execute([]string{"app"}, target)
 	if err == nil {
 		t.Fatal("expected error for missing required flag")
 	}
@@ -223,53 +223,70 @@ func TestRequiredShortFlagErrorIncludesShort(t *testing.T) {
 }
 
 func TestShortFlagGroups(t *testing.T) {
-	cmd := &ShortBoolFlags{}
+	var gotVerbose, gotForce bool
 
-	_, err := targ.Execute([]string{"app", "-vf"}, cmd)
+	target := targ.Targ(func(args ShortBoolFlagsArgs) {
+		gotVerbose = args.Verbose
+		gotForce = args.Force
+	})
+
+	_, err := targ.Execute([]string{"app", "-vf"}, target)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if !cmd.Verbose || !cmd.Force {
-		t.Fatalf("expected both flags set, got verbose=%v force=%v", cmd.Verbose, cmd.Force)
+	if !gotVerbose || !gotForce {
+		t.Fatalf("expected both flags set, got verbose=%v force=%v", gotVerbose, gotForce)
 	}
 }
 
 func TestShortFlagGroupsRejectValueFlags(t *testing.T) {
-	cmd := &ShortMixedFlags{}
+	target := targ.Targ(func(_ ShortMixedFlagsArgs) {})
 
-	_, err := targ.Execute([]string{"app", "-vn"}, cmd)
+	_, err := targ.Execute([]string{"app", "-vn"}, target)
 	if err == nil {
 		t.Fatal("expected error for grouped short flag with value")
 	}
 }
 
 func TestShortFlags(t *testing.T) {
-	cmd := &ShortFlags{}
+	var gotName string
+	var gotAge int
 
-	_, err := targ.Execute([]string{"app", "-n", "Alice", "-a", "30"}, cmd)
+	target := targ.Targ(func(args ShortFlagsArgs) {
+		gotName = args.Name
+		gotAge = args.Age
+	})
+
+	_, err := targ.Execute([]string{"app", "-n", "Alice", "-a", "30"}, target)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if cmd.Name != "Alice" {
-		t.Errorf("expected Name='Alice', got '%s'", cmd.Name)
+	if gotName != "Alice" {
+		t.Errorf("expected Name='Alice', got '%s'", gotName)
 	}
 
-	if cmd.Age != 30 {
-		t.Errorf("expected Age=30, got %d", cmd.Age)
+	if gotAge != 30 {
+		t.Errorf("expected Age=30, got %d", gotAge)
 	}
 }
 
 func TestTagOptionsOverride(t *testing.T) {
-	cmd := &TagOptionsOverride{}
+	// Note: This test now uses static tag attributes instead of a dynamic TagOptions method.
+	// The behavior is the same (--stage flag with short -s), just configured statically.
+	var gotMode string
 
-	_, err := targ.Execute([]string{"app", "--stage", "alpha"}, cmd)
+	target := targ.Targ(func(args TagOptionsOverrideArgs) {
+		gotMode = args.Mode
+	})
+
+	_, err := targ.Execute([]string{"app", "--stage", "alpha"}, target)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if cmd.Mode != "alpha" {
-		t.Fatalf("expected mode=alpha, got %q", cmd.Mode)
+	if gotMode != "alpha" {
+		t.Fatalf("expected mode=alpha, got %q", gotMode)
 	}
 }

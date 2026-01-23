@@ -327,6 +327,12 @@ func (e *runExecutor) executeMultiRoot() error {
 	remaining := e.rest
 
 	for len(remaining) > 0 {
+		// Handle caret (^) to reset to root level
+		if remaining[0] == "^" {
+			remaining = remaining[1:]
+			continue
+		}
+
 		matched := e.findMatchingRoot(remaining[0])
 
 		if matched == nil {

@@ -11,116 +11,49 @@ import (
 	"github.com/toejough/targ"
 )
 
-type ExecuteDefaultCmd struct {
-	Called bool
-}
+// Args struct types for Target functions (these stay - they have no Run() method).
 
-func (c *ExecuteDefaultCmd) Run() {
-	c.Called = true
-}
-
-type ExecuteErrorCmd struct{}
-
-func (c *ExecuteErrorCmd) Run() error {
-	return errors.New("command failed")
-}
-
-type ExecuteTestCmd struct {
-	Name   string `targ:"flag"`
-	Called bool
-}
-
-func (c *ExecuteTestCmd) Run() {
-	c.Called = true
-}
-
-type FastCmd struct {
-	Called bool
-}
-
-func (c *FastCmd) Run(_ context.Context) error {
-	c.Called = true
-	return nil
-}
-
-type InterleavedFlagsCmd struct {
+type InterleavedFlagsArgs struct {
 	Include []targ.Interleaved[string] `targ:"flag"`
 	Exclude []targ.Interleaved[string] `targ:"flag"`
 }
 
-func (c *InterleavedFlagsCmd) Run() {}
-
-type InterleavedIntCmd struct {
+type InterleavedIntArgs struct {
 	Values []targ.Interleaved[int] `targ:"flag"`
 }
 
-func (c *InterleavedIntCmd) Run() {}
-
-type MapStringIntCmd struct {
+type MapStringIntArgs struct {
 	Ports map[string]int `targ:"flag"`
 }
 
-func (c *MapStringIntCmd) Run() {}
-
-type MapStringStringCmd struct {
+type MapStringStringArgs struct {
 	Labels map[string]string `targ:"flag"`
 }
 
-func (c *MapStringStringCmd) Run() {}
-
-type RepeatedFlagsCmd struct {
+type RepeatedFlagsArgs struct {
 	Tags []string `targ:"flag"`
 }
 
-func (c *RepeatedFlagsCmd) Run() {}
-
-type RepeatedIntFlagsCmd struct {
+type RepeatedIntFlagsArgs struct {
 	Counts []int `targ:"flag"`
 }
 
-func (c *RepeatedIntFlagsCmd) Run() {}
-
-type SlowCmd struct {
-	Called bool
-}
-
-func (c *SlowCmd) Run(ctx context.Context) error {
-	c.Called = true
-
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-time.After(1 * time.Second):
-		return nil
-	}
-}
-
-type TimeoutCmd struct {
-	Called bool
-}
-
-func (c *TimeoutCmd) Run(ctx context.Context) error {
-	c.Called = true
-
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-time.After(10 * time.Millisecond):
-		return nil
-	}
+type ExecuteTestArgs struct {
+	Name string `targ:"flag"`
 }
 
 func TestExecuteWithOptions_AllowDefault(t *testing.T) {
 	t.Parallel()
 
-	cmd := &ExecuteDefaultCmd{}
+	called := false
+	target := targ.Targ(func() { called = true })
 
-	_, err := targ.ExecuteWithOptions([]string{"app"}, targ.RunOptions{AllowDefault: true}, cmd)
+	_, err := targ.ExecuteWithOptions([]string{"app"}, targ.RunOptions{AllowDefault: true}, target)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if !cmd.Called {
+	if !called {
 		t.Fatal("expected default command to be called")
 	}
 }
@@ -128,14 +61,15 @@ func TestExecuteWithOptions_AllowDefault(t *testing.T) {
 func TestExecuteWithOptions_NoDefaultShowsUsage(t *testing.T) {
 	t.Parallel()
 
-	cmd := &ExecuteDefaultCmd{}
+	called := false
+	target := targ.Targ(func() { called = true })
 
-	_, err := targ.ExecuteWithOptions([]string{"app"}, targ.RunOptions{AllowDefault: false}, cmd)
+	_, err := targ.ExecuteWithOptions([]string{"app"}, targ.RunOptions{AllowDefault: false}, target)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if cmd.Called {
+	if called {
 		t.Fatal("expected command NOT to be called without AllowDefault")
 	}
 }
@@ -143,9 +77,11 @@ func TestExecuteWithOptions_NoDefaultShowsUsage(t *testing.T) {
 func TestExecute_CommandError(t *testing.T) {
 	t.Parallel()
 
-	cmd := &ExecuteErrorCmd{}
+	target := targ.Targ(func() error {
+		return errors.New("command failed")
+	})
 
-	result, err := targ.Execute([]string{"app"}, cmd)
+	result, err := targ.Execute([]string{"app"}, target)
 	if err == nil {
 		t.Fatal("expected error from command")
 	}
@@ -169,31 +105,37 @@ func TestExecute_CommandError(t *testing.T) {
 func TestExecute_Success(t *testing.T) {
 	t.Parallel()
 
-	cmd := &ExecuteTestCmd{}
+	var gotName string
+	called := false
 
-	_, err := targ.Execute([]string{"app", "--name", testNameAlice}, cmd)
+	target := targ.Targ(func(args ExecuteTestArgs) {
+		called = true
+		gotName = args.Name
+	})
+
+	_, err := targ.Execute([]string{"app", "--name", testNameAlice}, target)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if !cmd.Called {
+	if !called {
 		t.Fatal("expected command to be called")
 	}
 
-	if cmd.Name != testNameAlice {
-		t.Fatalf("expected name=%s, got %q", testNameAlice, cmd.Name)
+	if gotName != testNameAlice {
+		t.Fatalf("expected name=%s, got %q", testNameAlice, gotName)
 	}
 }
 
 func TestExecute_UnknownCommand(t *testing.T) {
 	t.Parallel()
 
-	cmd := &ExecuteTestCmd{}
+	target := targ.Targ(func(args ExecuteTestArgs) {}).Name("test-cmd")
 
 	result, err := targ.ExecuteWithOptions(
 		[]string{"app", "unknown"},
 		targ.RunOptions{AllowDefault: false},
-		cmd,
+		target,
 	)
 	if err == nil {
 		t.Fatal("expected error for unknown command")
@@ -284,32 +226,42 @@ func TestGroup_RoutesToMembers(t *testing.T) {
 }
 
 func TestInterleavedFlags_IntType(t *testing.T) {
-	cmd := &InterleavedIntCmd{}
+	var gotValues []targ.Interleaved[int]
 
-	_, err := targ.Execute([]string{"app", "--values", "10", "--values", "20"}, cmd)
+	target := targ.Targ(func(args InterleavedIntArgs) {
+		gotValues = args.Values
+	})
+
+	_, err := targ.Execute([]string{"app", "--values", "10", "--values", "20"}, target)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if len(cmd.Values) != 2 {
-		t.Fatalf("expected 2 values, got %d", len(cmd.Values))
+	if len(gotValues) != 2 {
+		t.Fatalf("expected 2 values, got %d", len(gotValues))
 	}
 
-	if cmd.Values[0].Value != 10 || cmd.Values[0].Position != 0 {
-		t.Fatalf("expected values[0]={10,0}, got %+v", cmd.Values[0])
+	if gotValues[0].Value != 10 || gotValues[0].Position != 0 {
+		t.Fatalf("expected values[0]={10,0}, got %+v", gotValues[0])
 	}
 
-	if cmd.Values[1].Value != 20 || cmd.Values[1].Position != 1 {
-		t.Fatalf("expected values[1]={20,1}, got %+v", cmd.Values[1])
+	if gotValues[1].Value != 20 || gotValues[1].Position != 1 {
+		t.Fatalf("expected values[1]={20,1}, got %+v", gotValues[1])
 	}
 }
 
 func TestInterleavedFlags_ReconstructOrder(t *testing.T) {
-	cmd := &InterleavedFlagsCmd{}
+	var gotIncludes []targ.Interleaved[string]
+	var gotExcludes []targ.Interleaved[string]
+
+	target := targ.Targ(func(args InterleavedFlagsArgs) {
+		gotIncludes = args.Include
+		gotExcludes = args.Exclude
+	})
 
 	_, err := targ.Execute(
 		[]string{"app", "--exclude", "x", "--include", "a", "--include", "b", "--exclude", "y"},
-		cmd,
+		target,
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -320,12 +272,12 @@ func TestInterleavedFlags_ReconstructOrder(t *testing.T) {
 		position int
 	}
 
-	all := make([]item, 0, len(cmd.Include)+len(cmd.Exclude))
-	for _, inc := range cmd.Include {
+	all := make([]item, 0, len(gotIncludes)+len(gotExcludes))
+	for _, inc := range gotIncludes {
 		all = append(all, item{inc.Position})
 	}
 
-	for _, exc := range cmd.Exclude {
+	for _, exc := range gotExcludes {
 		all = append(all, item{exc.Position})
 	}
 
@@ -344,111 +296,133 @@ func TestInterleavedFlags_ReconstructOrder(t *testing.T) {
 }
 
 func TestInterleavedFlags_TracksPosition(t *testing.T) {
-	cmd := &InterleavedFlagsCmd{}
+	var gotIncludes []targ.Interleaved[string]
+	var gotExcludes []targ.Interleaved[string]
+
+	target := targ.Targ(func(args InterleavedFlagsArgs) {
+		gotIncludes = args.Include
+		gotExcludes = args.Exclude
+	})
 
 	_, err := targ.Execute(
 		[]string{"app", "--include", "a", "--exclude", "b", "--include", "c"},
-		cmd,
+		target,
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if len(cmd.Include) != 2 {
-		t.Fatalf("expected 2 includes, got %d: %v", len(cmd.Include), cmd.Include)
+	if len(gotIncludes) != 2 {
+		t.Fatalf("expected 2 includes, got %d: %v", len(gotIncludes), gotIncludes)
 	}
 
-	if cmd.Include[0].Value != "a" || cmd.Include[0].Position != 0 {
-		t.Fatalf("expected include[0]={a,0}, got %+v", cmd.Include[0])
+	if gotIncludes[0].Value != "a" || gotIncludes[0].Position != 0 {
+		t.Fatalf("expected include[0]={a,0}, got %+v", gotIncludes[0])
 	}
 
-	if cmd.Include[1].Value != "c" || cmd.Include[1].Position != 2 {
-		t.Fatalf("expected include[1]={c,2}, got %+v", cmd.Include[1])
+	if gotIncludes[1].Value != "c" || gotIncludes[1].Position != 2 {
+		t.Fatalf("expected include[1]={c,2}, got %+v", gotIncludes[1])
 	}
 
-	if len(cmd.Exclude) != 1 {
-		t.Fatalf("expected 1 exclude, got %d: %v", len(cmd.Exclude), cmd.Exclude)
+	if len(gotExcludes) != 1 {
+		t.Fatalf("expected 1 exclude, got %d: %v", len(gotExcludes), gotExcludes)
 	}
 
-	if cmd.Exclude[0].Value != "b" || cmd.Exclude[0].Position != 1 {
-		t.Fatalf("expected exclude[0]={b,1}, got %+v", cmd.Exclude[0])
+	if gotExcludes[0].Value != "b" || gotExcludes[0].Position != 1 {
+		t.Fatalf("expected exclude[0]={b,1}, got %+v", gotExcludes[0])
 	}
 }
 
 func TestMapFlags_InvalidFormat(t *testing.T) {
-	cmd := &MapStringStringCmd{}
+	target := targ.Targ(func(_ MapStringStringArgs) {})
 
-	_, err := targ.Execute([]string{"app", "--labels", "invalid"}, cmd)
+	_, err := targ.Execute([]string{"app", "--labels", "invalid"}, target)
 	if err == nil {
 		t.Fatal("expected error for invalid map format")
 	}
 }
 
 func TestMapFlags_OverwriteKey(t *testing.T) {
-	cmd := &MapStringStringCmd{}
+	var gotLabels map[string]string
 
-	_, err := targ.Execute([]string{"app", "--labels", "env=dev", "--labels", "env=prod"}, cmd)
+	target := targ.Targ(func(args MapStringStringArgs) {
+		gotLabels = args.Labels
+	})
+
+	_, err := targ.Execute([]string{"app", "--labels", "env=dev", "--labels", "env=prod"}, target)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if cmd.Labels["env"] != "prod" {
-		t.Fatalf("expected env=prod (overwritten), got %q", cmd.Labels["env"])
+	if gotLabels["env"] != "prod" {
+		t.Fatalf("expected env=prod (overwritten), got %q", gotLabels["env"])
 	}
 }
 
 func TestMapFlags_StringInt(t *testing.T) {
-	cmd := &MapStringIntCmd{}
+	var gotPorts map[string]int
 
-	_, err := targ.Execute([]string{"app", "--ports", "http=80", "--ports", "https=443"}, cmd)
+	target := targ.Targ(func(args MapStringIntArgs) {
+		gotPorts = args.Ports
+	})
+
+	_, err := targ.Execute([]string{"app", "--ports", "http=80", "--ports", "https=443"}, target)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if len(cmd.Ports) != 2 {
-		t.Fatalf("expected 2 ports, got %d: %v", len(cmd.Ports), cmd.Ports)
+	if len(gotPorts) != 2 {
+		t.Fatalf("expected 2 ports, got %d: %v", len(gotPorts), gotPorts)
 	}
 
-	if cmd.Ports["http"] != 80 {
-		t.Fatalf("expected http=80, got %d", cmd.Ports["http"])
+	if gotPorts["http"] != 80 {
+		t.Fatalf("expected http=80, got %d", gotPorts["http"])
 	}
 
-	if cmd.Ports["https"] != 443 {
-		t.Fatalf("expected https=443, got %d", cmd.Ports["https"])
+	if gotPorts["https"] != 443 {
+		t.Fatalf("expected https=443, got %d", gotPorts["https"])
 	}
 }
 
 func TestMapFlags_StringString(t *testing.T) {
-	cmd := &MapStringStringCmd{}
+	var gotLabels map[string]string
 
-	_, err := targ.Execute([]string{"app", "--labels", "env=prod", "--labels", "app=web"}, cmd)
+	target := targ.Targ(func(args MapStringStringArgs) {
+		gotLabels = args.Labels
+	})
+
+	_, err := targ.Execute([]string{"app", "--labels", "env=prod", "--labels", "app=web"}, target)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if len(cmd.Labels) != 2 {
-		t.Fatalf("expected 2 labels, got %d: %v", len(cmd.Labels), cmd.Labels)
+	if len(gotLabels) != 2 {
+		t.Fatalf("expected 2 labels, got %d: %v", len(gotLabels), gotLabels)
 	}
 
-	if cmd.Labels["env"] != "prod" {
-		t.Fatalf("expected env=prod, got %q", cmd.Labels["env"])
+	if gotLabels["env"] != "prod" {
+		t.Fatalf("expected env=prod, got %q", gotLabels["env"])
 	}
 
-	if cmd.Labels["app"] != "web" {
-		t.Fatalf("expected app=web, got %q", cmd.Labels["app"])
+	if gotLabels["app"] != "web" {
+		t.Fatalf("expected app=web, got %q", gotLabels["app"])
 	}
 }
 
 func TestMapFlags_ValueWithEquals(t *testing.T) {
-	cmd := &MapStringStringCmd{}
+	var gotLabels map[string]string
 
-	_, err := targ.Execute([]string{"app", "--labels", "equation=a=b"}, cmd)
+	target := targ.Targ(func(args MapStringStringArgs) {
+		gotLabels = args.Labels
+	})
+
+	_, err := targ.Execute([]string{"app", "--labels", "equation=a=b"}, target)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if cmd.Labels["equation"] != "a=b" {
-		t.Fatalf("expected equation=a=b, got %q", cmd.Labels["equation"])
+	if gotLabels["equation"] != "a=b" {
+		t.Fatalf("expected equation=a=b, got %q", gotLabels["equation"])
 	}
 }
 
@@ -469,36 +443,44 @@ func TestMultipleRoots_RoutesCorrectly(t *testing.T) {
 }
 
 func TestRepeatedFlags_Accumulates(t *testing.T) {
-	cmd := &RepeatedFlagsCmd{}
+	var gotTags []string
 
-	_, err := targ.Execute([]string{"app", "--tags", "a", "--tags", "b", "--tags", "c"}, cmd)
+	target := targ.Targ(func(args RepeatedFlagsArgs) {
+		gotTags = args.Tags
+	})
+
+	_, err := targ.Execute([]string{"app", "--tags", "a", "--tags", "b", "--tags", "c"}, target)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if len(cmd.Tags) != 3 {
-		t.Fatalf("expected 3 tags, got %d: %v", len(cmd.Tags), cmd.Tags)
+	if len(gotTags) != 3 {
+		t.Fatalf("expected 3 tags, got %d: %v", len(gotTags), gotTags)
 	}
 
-	if cmd.Tags[0] != "a" || cmd.Tags[1] != "b" || cmd.Tags[2] != "c" {
-		t.Fatalf("unexpected tags order: %v", cmd.Tags)
+	if gotTags[0] != "a" || gotTags[1] != "b" || gotTags[2] != "c" {
+		t.Fatalf("unexpected tags order: %v", gotTags)
 	}
 }
 
 func TestRepeatedFlags_IntSlice(t *testing.T) {
-	cmd := &RepeatedIntFlagsCmd{}
+	var gotCounts []int
 
-	_, err := targ.Execute([]string{"app", "--counts", "1", "--counts", "2", "--counts", "3"}, cmd)
+	target := targ.Targ(func(args RepeatedIntFlagsArgs) {
+		gotCounts = args.Counts
+	})
+
+	_, err := targ.Execute([]string{"app", "--counts", "1", "--counts", "2", "--counts", "3"}, target)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if len(cmd.Counts) != 3 {
-		t.Fatalf("expected 3 counts, got %d: %v", len(cmd.Counts), cmd.Counts)
+	if len(gotCounts) != 3 {
+		t.Fatalf("expected 3 counts, got %d: %v", len(gotCounts), gotCounts)
 	}
 
-	if cmd.Counts[0] != 1 || cmd.Counts[1] != 2 || cmd.Counts[2] != 3 {
-		t.Fatalf("unexpected counts: %v", cmd.Counts)
+	if gotCounts[0] != 1 || gotCounts[1] != 2 || gotCounts[2] != 3 {
+		t.Fatalf("unexpected counts: %v", gotCounts)
 	}
 }
 
@@ -666,56 +648,108 @@ func TestTarget_WithEmbeddedArgs(t *testing.T) {
 }
 
 func TestTimeout_EqualsStyle(t *testing.T) {
-	cmd := &TimeoutCmd{}
+	called := false
 
-	_, err := targ.Execute([]string{"app", "--timeout=1s"}, cmd)
+	target := targ.Targ(func(ctx context.Context) error {
+		called = true
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(10 * time.Millisecond):
+			return nil
+		}
+	}).Name("timeout-cmd")
+
+	_, err := targ.Execute([]string{"app", "--timeout=1s"}, target)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if !cmd.Called {
+	if !called {
 		t.Fatal("expected command to be called")
 	}
 }
 
 func TestTimeout_Exceeded(t *testing.T) {
-	cmd := &SlowCmd{}
+	target := targ.Targ(func(ctx context.Context) error {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(1 * time.Second):
+			return nil
+		}
+	}).Name("slow-cmd")
 
-	_, err := targ.Execute([]string{"app", "--timeout", "10ms"}, cmd)
+	_, err := targ.Execute([]string{"app", "--timeout", "10ms"}, target)
 	if err == nil {
 		t.Fatal("expected timeout error")
 	}
 }
 
 func TestTimeout_GlobalAndPerCommand(t *testing.T) {
-	cmd := &TimeoutCmd{}
+	called := false
+
+	target := targ.Targ(func(ctx context.Context) error {
+		called = true
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(10 * time.Millisecond):
+			return nil
+		}
+	}).Name("timeout-cmd")
 
 	_, err := targ.ExecuteWithOptions(
 		[]string{"app", "--timeout", "5s", "timeout-cmd", "--timeout", "1s"},
 		targ.RunOptions{AllowDefault: false},
-		cmd,
+		target,
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if !cmd.Called {
+	if !called {
 		t.Fatal("expected command to be called")
 	}
 }
 
 func TestTimeout_InvalidDuration(t *testing.T) {
-	cmd := &TimeoutCmd{}
+	target := targ.Targ(func(ctx context.Context) error {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(10 * time.Millisecond):
+			return nil
+		}
+	}).Name("timeout-cmd")
 
-	_, err := targ.Execute([]string{"app", "--timeout", "invalid"}, cmd)
+	_, err := targ.Execute([]string{"app", "--timeout", "invalid"}, target)
 	if err == nil {
 		t.Fatal("expected error for invalid duration")
 	}
 }
 
 func TestTimeout_MultiCommandDifferentTimeouts(t *testing.T) {
-	fast := &FastCmd{}
-	slow := &SlowCmd{}
+	fastCalled := false
+	slowCalled := false
+
+	fast := targ.Targ(func(ctx context.Context) error {
+		fastCalled = true
+		return nil
+	}).Name("fast-cmd")
+
+	slow := targ.Targ(func(ctx context.Context) error {
+		slowCalled = true
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(1 * time.Second):
+			return nil
+		}
+	}).Name("slow-cmd")
 
 	_, err := targ.ExecuteWithOptions(
 		[]string{"app", "fast-cmd", "--timeout", "10ms", "slow-cmd", "--timeout", "2s"},
@@ -726,52 +760,81 @@ func TestTimeout_MultiCommandDifferentTimeouts(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if !fast.Called {
+	if !fastCalled {
 		t.Fatal("expected fast command to be called")
 	}
 
-	if !slow.Called {
+	if !slowCalled {
 		t.Fatal("expected slow command to be called")
 	}
 }
 
 func TestTimeout_NotExceeded(t *testing.T) {
-	cmd := &TimeoutCmd{}
+	called := false
 
-	_, err := targ.Execute([]string{"app", "--timeout", "1s"}, cmd)
+	target := targ.Targ(func(ctx context.Context) error {
+		called = true
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(10 * time.Millisecond):
+			return nil
+		}
+	}).Name("timeout-cmd")
+
+	_, err := targ.Execute([]string{"app", "--timeout", "1s"}, target)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if !cmd.Called {
+	if !called {
 		t.Fatal("expected command to be called")
 	}
 }
 
 func TestTimeout_PerCommand(t *testing.T) {
-	cmd := &TimeoutCmd{}
+	called := false
+
+	target := targ.Targ(func(ctx context.Context) error {
+		called = true
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(10 * time.Millisecond):
+			return nil
+		}
+	}).Name("timeout-cmd")
 
 	_, err := targ.ExecuteWithOptions(
 		[]string{"app", "timeout-cmd", "--timeout", "1s"},
 		targ.RunOptions{AllowDefault: false},
-		cmd,
+		target,
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if !cmd.Called {
+	if !called {
 		t.Fatal("expected command to be called")
 	}
 }
 
 func TestTimeout_PerCommandExceeded(t *testing.T) {
-	cmd := &SlowCmd{}
+	target := targ.Targ(func(ctx context.Context) error {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(1 * time.Second):
+			return nil
+		}
+	}).Name("slow-cmd")
 
 	_, err := targ.ExecuteWithOptions(
 		[]string{"app", "slow-cmd", "--timeout", "10ms"},
 		targ.RunOptions{AllowDefault: false},
-		cmd,
+		target,
 	)
 	if err == nil {
 		t.Fatal("expected timeout error")

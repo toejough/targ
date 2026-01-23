@@ -10,70 +10,70 @@ import (
 	"github.com/toejough/targ"
 )
 
-type ContinueOnErrorCmd struct{}
-
-func (c *ContinueOnErrorCmd) Run() error {
-	return targ.Deps(incrementCount, incrementCount, targ.ContinueOnError())
+func continueOnErrorTarget() *targ.Target {
+	return targ.Targ(func() error {
+		return targ.Deps(incrementCount, incrementCount, targ.ContinueOnError())
+	}).Name("continue-on-error")
 }
 
-type DepsCmd struct{}
-
-func (d *DepsCmd) Run() error {
-	return targ.Deps(incrementCount, incrementCount)
+func depsTarget() *targ.Target {
+	return targ.Targ(func() error {
+		return targ.Deps(incrementCount, incrementCount)
+	}).Name("deps")
 }
 
-type ParallelDepsCmd struct{}
-
-func (p *ParallelDepsCmd) Run() error {
-	return targ.Deps(incrementCount, incrementCount, targ.Parallel())
+func parallelDepsTarget() *targ.Target {
+	return targ.Targ(func() error {
+		return targ.Deps(incrementCount, incrementCount, targ.Parallel())
+	}).Name("parallel-deps")
 }
 
-type ResetDepsCmd struct{}
+func resetDepsTarget() *targ.Target {
+	return targ.Targ(func() error {
+		// First call runs the target
+		err := targ.Deps(incrementCount)
+		if err != nil {
+			return err
+		}
 
-func (r *ResetDepsCmd) Run() error {
-	// First call runs the target
-	err := targ.Deps(incrementCount)
-	if err != nil {
-		return err
-	}
+		if atomic.LoadInt32(&testCallCount) != 1 {
+			resetTestError = "expected 1 call after first Deps"
+			return nil
+		}
 
-	if atomic.LoadInt32(&testCallCount) != 1 {
-		resetTestError = "expected 1 call after first Deps"
+		// Second call should skip (already ran)
+		err = targ.Deps(incrementCount)
+		if err != nil {
+			return err
+		}
+
+		if atomic.LoadInt32(&testCallCount) != 1 {
+			resetTestError = "expected still 1 call after second Deps"
+			return nil
+		}
+
+		// After reset, runs again
+		targ.ResetDeps()
+
+		err = targ.Deps(incrementCount)
+		if err != nil {
+			return err
+		}
+
+		if atomic.LoadInt32(&testCallCount) != 2 {
+			resetTestError = "expected 2 calls after ResetDeps"
+			return nil
+		}
+
 		return nil
-	}
-
-	// Second call should skip (already ran)
-	err = targ.Deps(incrementCount)
-	if err != nil {
-		return err
-	}
-
-	if atomic.LoadInt32(&testCallCount) != 1 {
-		resetTestError = "expected still 1 call after second Deps"
-		return nil
-	}
-
-	// After reset, runs again
-	targ.ResetDeps()
-
-	err = targ.Deps(incrementCount)
-	if err != nil {
-		return err
-	}
-
-	if atomic.LoadInt32(&testCallCount) != 2 {
-		resetTestError = "expected 2 calls after ResetDeps"
-		return nil
-	}
-
-	return nil
+	}).Name("reset-deps")
 }
 
-type WithContextCmd struct{}
-
-func (w *WithContextCmd) Run() error {
-	ctx := context.Background()
-	return targ.Deps(setCalled, targ.WithContext(ctx))
+func withContextTarget() *targ.Target {
+	return targ.Targ(func() error {
+		ctx := context.Background()
+		return targ.Deps(setCalled, targ.WithContext(ctx))
+	}).Name("with-context")
 }
 
 // TestAppendBuiltinExamples verifies custom examples come before built-ins.
@@ -102,7 +102,7 @@ func TestBuiltinExamples(t *testing.T) {
 func TestDeps(t *testing.T) {
 	atomic.StoreInt32(&testCallCount, 0)
 
-	_, err := targ.Execute([]string{"test"}, &DepsCmd{})
+	_, err := targ.Execute([]string{"test"}, depsTarget())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -116,7 +116,7 @@ func TestDeps(t *testing.T) {
 func TestDeps_WithContext(t *testing.T) {
 	testCalled = false
 
-	_, err := targ.Execute([]string{"test"}, &WithContextCmd{})
+	_, err := targ.Execute([]string{"test"}, withContextTarget())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -130,7 +130,7 @@ func TestDeps_WithContext(t *testing.T) {
 func TestDeps_WithContinueOnError(t *testing.T) {
 	atomic.StoreInt32(&testCallCount, 0)
 
-	_, err := targ.Execute([]string{"test"}, &ContinueOnErrorCmd{})
+	_, err := targ.Execute([]string{"test"}, continueOnErrorTarget())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -144,7 +144,7 @@ func TestDeps_WithContinueOnError(t *testing.T) {
 func TestDeps_WithParallel(t *testing.T) {
 	atomic.StoreInt32(&testCallCount, 0)
 
-	_, err := targ.Execute([]string{"test"}, &ParallelDepsCmd{})
+	_, err := targ.Execute([]string{"test"}, parallelDepsTarget())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -182,7 +182,7 @@ func TestResetDeps(t *testing.T) {
 
 	resetTestError = ""
 
-	_, err := targ.Execute([]string{"test"}, &ResetDepsCmd{})
+	_, err := targ.Execute([]string{"test"}, resetDepsTarget())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
