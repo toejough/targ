@@ -12,7 +12,7 @@ import (
 
 // ExeSuffix returns ".exe" on Windows, otherwise an empty string.
 func ExeSuffix() string {
-	if IsWindows() {
+	if isWindows() {
 		return ".exe"
 	}
 
@@ -21,7 +21,7 @@ func ExeSuffix() string {
 
 // IsWindows reports whether the current OS is Windows.
 func IsWindows() bool {
-	return runtime.GOOS == "windows"
+	return isWindows()
 }
 
 // Output executes a command and returns combined output.
@@ -97,10 +97,11 @@ func WithExeSuffix(name string) string {
 
 // unexported variables.
 var (
-	execCommand           = exec.Command //nolint:gochecknoglobals // injection point for testing
-	stderr      io.Writer = os.Stderr    //nolint:gochecknoglobals // injection point for testing
-	stdin       io.Reader = os.Stdin     //nolint:gochecknoglobals // injection point for testing
-	stdout      io.Writer = os.Stdout    //nolint:gochecknoglobals // injection point for testing
+	execCommand = exec.Command
+	isWindows   = func() bool { return runtime.GOOS == "windows" }
+	stderr      = io.Writer(os.Stderr)
+	stdin       = io.Reader(os.Stdin)
+	stdout      = io.Writer(os.Stdout)
 )
 
 func formatCommand(name string, args []string) string {

@@ -126,6 +126,62 @@ func TestDepsStructRunsOnce(t *testing.T) {
 	}
 }
 
+func TestDeps_ConcurrentSameDepWaitsForFirst(t *testing.T) {
+	// Test that when two goroutines request the same dep,
+	// the second one waits for the first to complete (inFlight path)
+	running := make(chan struct{})
+	finish := make(chan struct{})
+
+	var count int32
+
+	slowDep := func() {
+		atomic.AddInt32(&count, 1)
+
+		running <- struct{}{} // Signal we're running
+
+		<-finish // Wait for signal to finish
+	}
+
+	err := withDepTracker(context.Background(), func() error {
+		done := make(chan error, 2)
+
+		// Start first call - it will block in slowDep
+		go func() {
+			done <- Deps(slowDep)
+		}()
+
+		// Wait for slowDep to start
+		<-running
+
+		// Start second call - should wait on inFlight channel
+		go func() {
+			done <- Deps(slowDep)
+		}()
+
+		// Give second goroutine time to hit the inFlight path
+		time.Sleep(10 * time.Millisecond)
+
+		// Let the first call complete
+		close(finish)
+
+		// Both should complete
+		for range 2 {
+			if err := <-done; err != nil {
+				return err
+			}
+		}
+
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if count != 1 {
+		t.Fatalf("expected dep to run once, got %d", count)
+	}
+}
+
 func TestDeps_InvalidFunctionSignature(t *testing.T) {
 	// A function with multiple non-error returns fails parseTarget but passes depKeyFor
 	invalidFunc := func() (int, int) { return 1, 2 }
@@ -139,6 +195,16 @@ func TestDeps_InvalidFunctionSignature(t *testing.T) {
 
 	if !strings.Contains(err.Error(), "return") {
 		t.Fatalf("expected return type error, got %v", err)
+	}
+}
+
+func TestDeps_InvalidTypeViaDeps(t *testing.T) {
+	// Pass an invalid type through Deps to exercise the depKeyFor error path in run()
+	err := withDepTracker(context.Background(), func() error {
+		return Deps(42) // int is not a valid target type
+	})
+	if err == nil || !strings.Contains(err.Error(), "must be func or pointer") {
+		t.Fatalf("expected invalid type error, got %v", err)
 	}
 }
 

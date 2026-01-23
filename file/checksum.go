@@ -55,21 +55,23 @@ func Checksum(inputs []string, dest string) (bool, error) {
 	return true, nil
 }
 
+// unexported variables.
+var (
+	mkdirAll = os.MkdirAll
+	//nolint:gosec // G304: Opening user-specified files is the function's purpose.
+	openFile  = func(name string) (io.ReadCloser, error) { return os.Open(name) }
+	readFile  = os.ReadFile
+	writeFile = os.WriteFile
+)
+
 func computeChecksum(paths []string) (string, error) {
 	hasher := sha256.New()
 	for _, path := range paths {
-		_, err := io.WriteString(hasher, path)
-		if err != nil {
-			return "", fmt.Errorf("writing path to hasher: %w", err)
-		}
+		// hash.Hash.Write never returns an error per Go documentation
+		_, _ = io.WriteString(hasher, path)
+		_, _ = io.WriteString(hasher, "\x00")
 
-		_, err = io.WriteString(hasher, "\x00")
-		if err != nil {
-			return "", fmt.Errorf("writing separator to hasher: %w", err)
-		}
-
-		//nolint:gosec // computing checksum of user files by design
-		file, err := os.Open(path)
+		file, err := openFile(path)
 		if err != nil {
 			return "", fmt.Errorf("opening %s: %w", path, err)
 		}
@@ -91,8 +93,7 @@ func computeChecksum(paths []string) (string, error) {
 }
 
 func readChecksum(path string) (string, error) {
-	//nolint:gosec // reading cache file by design
-	data, err := os.ReadFile(path)
+	data, err := readFile(path)
 	if err != nil {
 		return "", fmt.Errorf("reading checksum file: %w", err)
 	}
@@ -103,15 +104,15 @@ func readChecksum(path string) (string, error) {
 func writeChecksum(path, sum string) error {
 	dir := filepath.Dir(path)
 	if dir != "." {
-		//nolint:gosec,mnd // standard cache directory permissions
-		err := os.MkdirAll(dir, 0o755)
+		//nolint:mnd // standard cache directory permissions
+		err := mkdirAll(dir, 0o755)
 		if err != nil {
 			return fmt.Errorf("creating checksum directory: %w", err)
 		}
 	}
 
-	//nolint:gosec,mnd // standard cache file permissions
-	err := os.WriteFile(path, []byte(sum), 0o644)
+	//nolint:mnd // standard cache file permissions
+	err := writeFile(path, []byte(sum), 0o644)
 	if err != nil {
 		return fmt.Errorf("writing checksum file: %w", err)
 	}

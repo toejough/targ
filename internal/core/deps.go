@@ -8,7 +8,6 @@ import (
 	"sync"
 )
 
-// DepsOption configures Deps behavior.
 type DepsOption interface {
 	applyDeps(cfg *depsConfig)
 }
@@ -160,7 +159,9 @@ type parallelOpt struct{}
 
 func (parallelOpt) applyDeps(c *depsConfig) { c.parallel = true }
 
-type withContextOpt struct{ ctx context.Context } //nolint:containedctx // functional option carrier
+type withContextOpt struct {
+	ctx context.Context //nolint:containedctx // passed via functional options
+}
 
 func (o withContextOpt) applyDeps(c *depsConfig) { c.ctx = o.ctx }
 

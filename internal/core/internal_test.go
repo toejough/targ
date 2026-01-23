@@ -18,6 +18,8 @@ import (
 
 	. "github.com/onsi/gomega"
 	"pgregory.net/rapid"
+
+	"github.com/toejough/targ/file"
 )
 
 type BadTagOptionsInputCmd struct {
@@ -42,8 +44,6 @@ func (b *BadTagOptionsReturnCmd) TagOptions(_ string, _ TagOptions) (string, err
 	return "", nil
 }
 
-// --- applyTagOptionsOverride tests ---
-
 type BadTagOptionsSignatureCmd struct {
 	Name string `targ:"flag"`
 }
@@ -61,14 +61,10 @@ type ConflictChild2 struct {
 
 func (c *ConflictChild2) Run() {}
 
-// --- Flag Conflict Detection ---
-
 type ConflictRoot struct {
 	Flag string          `targ:"flag"`
 	Sub  *ConflictChild2 `targ:"subcommand"`
 }
-
-// --- Flag parsing tests ---
 
 type FlagParseCmd struct {
 	Name    string `targ:"flag,short=n"`
@@ -77,8 +73,6 @@ type FlagParseCmd struct {
 }
 
 func (f *FlagParseCmd) Run() {}
-
-// --- Command Metadata ---
 
 type MetaOverrideCmd struct{}
 
@@ -116,8 +110,6 @@ func (p *PersistentAfterCmd) Run() {
 	p.Executed = true
 }
 
-// --- runPersistentHooks tests ---
-
 type PersistentBeforeCmd struct{}
 
 func (p *PersistentBeforeCmd) PersistentBefore() error {
@@ -146,7 +138,6 @@ func (t *TagOptionsErrorCmd) TagOptions(_ string, opts TagOptions) (TagOptions, 
 	return opts, errors.New("tag options error")
 }
 
-// TestCmdStruct is used by run_function_test.go
 type TestCmdStruct struct {
 	Name   string
 	Called bool
@@ -648,6 +639,30 @@ func TestCollectCommands_WithSubcommands(t *testing.T) {
 	g.Expect(names).To(HaveKey("app build"))
 }
 
+// --- collectInstanceEnums tests ---
+
+func TestCollectInstanceEnums_NilNode(t *testing.T) {
+	g := NewWithT(t)
+
+	enumByFlag := map[string][]string{}
+
+	// Test with nil node
+	err := collectInstanceEnums(commandInstance{node: nil}, enumByFlag)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(enumByFlag).To(BeEmpty())
+}
+
+func TestCollectInstanceEnums_NilType(t *testing.T) {
+	g := NewWithT(t)
+
+	enumByFlag := map[string][]string{}
+
+	// Test with node but nil Type
+	err := collectInstanceEnums(commandInstance{node: &commandNode{Type: nil}}, enumByFlag)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(enumByFlag).To(BeEmpty())
+}
+
 func TestCommandMetaOverrides(t *testing.T) {
 	node, err := parseStruct(&MetaOverrideCmd{})
 	if err != nil {
@@ -743,40 +758,6 @@ func TestCustomSetter_TextUnmarshaler(t *testing.T) {
 	err := setter("hello")
 	g.Expect(err).NotTo(HaveOccurred())
 	g.Expect(target.value).To(Equal("unmarshaled:hello"))
-}
-
-func TestCustomSetter_ValueTypeImplementsStringSetter(t *testing.T) {
-	g := NewWithT(t)
-
-	// Create a non-addressable value of a type that implements Set with value receiver
-	m := map[string]testValueStringSetter{"key": {}}
-	val := reflect.ValueOf(m).MapIndex(reflect.ValueOf("key"))
-
-	g.Expect(val.CanAddr()).To(BeFalse())
-
-	setter, ok := customSetter(val)
-	// Value type implements interface, so we should get a setter
-	g.Expect(ok).To(BeTrue())
-	g.Expect(setter).NotTo(BeNil())
-	// Note: Actually invoking setter would panic because map values aren't settable
-}
-
-func TestCustomSetter_ValueTypeImplementsTextUnmarshaler(t *testing.T) {
-	g := NewWithT(t)
-
-	// Create a non-addressable value of a type that implements TextUnmarshaler with value receiver
-	// Map values are non-addressable
-	m := map[string]testValueTextUnmarshaler{"key": {}}
-	val := reflect.ValueOf(m).MapIndex(reflect.ValueOf("key"))
-
-	g.Expect(val.CanAddr()).To(BeFalse())
-
-	setter, ok := customSetter(val)
-	// Value type implements interface, so we should get a setter
-	g.Expect(ok).To(BeTrue())
-	g.Expect(setter).NotTo(BeNil())
-	// Note: Actually invoking setter would panic because map values aren't settable
-	// The non-addressable paths in customSetter are dead code in practice
 }
 
 func TestDetectCompletionShell_ExplicitShell(t *testing.T) {
@@ -1157,6 +1138,40 @@ func TestExecuteWithParents_TimeoutError(t *testing.T) {
 
 	g.Expect(err).To(HaveOccurred())
 	g.Expect(err.Error()).To(ContainSubstring("invalid timeout"))
+}
+
+// --- executeWithWatch tests ---
+
+func TestExecuteWithWatch_CallbackInvoked(t *testing.T) {
+	// Not parallel - modifies global fileWatch
+	g := NewWithT(t)
+
+	origFileWatch := fileWatch
+
+	defer func() { fileWatch = origFileWatch }()
+
+	callbackCalled := false
+	callbackErr := errors.New("callback error")
+
+	// Mock Watch to immediately call the callback
+	fileWatch = func(_ context.Context, _ []string, _ file.WatchOptions, cb func(file.ChangeSet) error) error {
+		callbackCalled = true
+		return cb(file.ChangeSet{Modified: []string{"test.go"}})
+	}
+
+	fnCalls := 0
+	err := executeWithWatch(context.Background(), []string{"**/*.go"}, func() error {
+		fnCalls++
+		if fnCalls == 2 {
+			return callbackErr
+		}
+
+		return nil
+	})
+
+	g.Expect(callbackCalled).To(BeTrue())
+	g.Expect(fnCalls).To(Equal(2)) // Initial call + callback
+	g.Expect(err).To(MatchError(ContainSubstring("callback error")))
 }
 
 func TestExecute_MethodTooManyInputs(t *testing.T) {
@@ -1849,17 +1864,6 @@ func TestMissingPositionalError_WithoutName(t *testing.T) {
 	err = node.execute(context.TODO(), []string{}, RunOptions{})
 	g.Expect(err).To(HaveOccurred())
 	g.Expect(err.Error()).To(ContainSubstring("Arg"))
-}
-
-// --- NewOsRunEnv tests ---
-
-func TestNewOsRunEnv_ReturnsRunEnv(t *testing.T) {
-	g := NewWithT(t)
-
-	env := NewOsRunEnv()
-	g.Expect(env).NotTo(BeNil())
-	// Just verify it implements runEnv interface
-	_ = env
 }
 
 func TestNonZeroRootErrors(t *testing.T) {
@@ -3397,6 +3401,28 @@ func TestSortedKeys(t *testing.T) {
 	g.Expect(keys).To(Equal([]string{"alpha", "bravo", "charlie"}))
 }
 
+// --- suggestInstanceFlags tests ---
+
+func TestSuggestInstanceFlags_NilNode(t *testing.T) {
+	g := NewWithT(t)
+
+	seen := map[string]bool{}
+
+	err := suggestInstanceFlags(commandInstance{node: nil}, "--", seen)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(seen).To(BeEmpty())
+}
+
+func TestSuggestInstanceFlags_NilType(t *testing.T) {
+	g := NewWithT(t)
+
+	seen := map[string]bool{}
+
+	err := suggestInstanceFlags(commandInstance{node: &commandNode{Type: nil}}, "--", seen)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(seen).To(BeEmpty())
+}
+
 func TestTagOptionsInstance_Empty(t *testing.T) {
 	g := NewWithT(t)
 
@@ -3565,8 +3591,6 @@ const (
 	bashShell = "bash"
 )
 
-// --- callStringMethod ---
-
 type callStringMethodNoMethod struct{}
 
 func (c *callStringMethodNoMethod) Run() {}
@@ -3613,7 +3637,6 @@ type helpTestCmdWithUsage struct {
 
 func (h *helpTestCmdWithUsage) Run() {}
 
-// mockGroup implements GroupLike for testing
 type mockGroup struct {
 	name    string
 	members []any
@@ -3623,9 +3646,6 @@ func (m *mockGroup) GetMembers() []any { return m.members }
 
 func (m *mockGroup) GetName() string { return m.name }
 
-// --- TargetLike and GroupLike parsing tests ---
-
-// mockTarget implements TargetLike for testing
 type mockTarget struct {
 	fn          any
 	name        string
@@ -3637,8 +3657,6 @@ func (m *mockTarget) Fn() any { return m.fn }
 func (m *mockTarget) GetDescription() string { return m.description }
 
 func (m *mockTarget) GetName() string { return m.name }
-
-// --- positionalIndex tests ---
 
 type posIdxCmd struct {
 	Name    string `targ:"flag,short=n"`
@@ -3652,7 +3670,6 @@ type simpleRunCmd struct{}
 
 func (s *simpleRunCmd) Run() {}
 
-// Type with SourceFile() method for testing getStructSourceFile.
 type structWithSourceFile struct{}
 
 func (s *structWithSourceFile) Run() {}
@@ -3681,10 +3698,8 @@ type subStructSub struct{}
 
 func (s subStructSub) Run() {}
 
-// plainType has no custom setter
 type testPlainType struct{}
 
-// stringSetterType implements Set(string) error
 type testStringSetter struct {
 	value string
 }
@@ -3694,35 +3709,12 @@ func (t *testStringSetter) Set(s string) error {
 	return nil
 }
 
-// --- customSetter tests ---
-
-// textUnmarshalerType implements encoding.TextUnmarshaler
 type testTextUnmarshaler struct {
 	value string
 }
 
 func (t *testTextUnmarshaler) UnmarshalText(text []byte) error {
 	t.value = "unmarshaled:" + string(text)
-	return nil
-}
-
-// testValueStringSetter implements Set with VALUE receiver
-type testValueStringSetter struct {
-	Value string
-}
-
-func (t testValueStringSetter) Set(_ string) error {
-	return nil
-}
-
-// testValueTextUnmarshaler implements TextUnmarshaler with VALUE receiver
-// This is unusual but allows testing the non-addressable code path
-type testValueTextUnmarshaler struct {
-	Value string
-}
-
-func (t testValueTextUnmarshaler) UnmarshalText(_ []byte) error {
-	// With value receiver, the method can't modify t, but can still implement the interface
 	return nil
 }
 

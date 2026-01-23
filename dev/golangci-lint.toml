@@ -24,6 +24,22 @@ linters = ['dogsled', 'dupl', 'err113', 'gochecknoglobals', 'goconst', 'gosec', 
 path = 'examples/'
 linters = ['gochecknoinits']
 
+# Exclude gochecknoglobals from DI injection point files
+[[linters.exclusions.rules]]
+path = '(file/checksum\.go|file/newer\.go|sh/sh\.go|internal/core/override\.go)$'
+linters = ['gochecknoglobals']
+
+# Exclude gochecknoinits from signal handler setup
+[[linters.exclusions.rules]]
+path = 'sh/cleanup_unix\.go$'
+linters = ['gochecknoinits']
+
+# Exclude revive exported-type-comment from type alias files and exported interfaces
+[[linters.exclusions.rules]]
+path = '(targ\.go|group\.go|target\.go|file/watch\.go|buildtool/discover\.go|buildtool/internal/parse/parse\.go|internal/core/(command|run_env|types|deps|override)\.go)$'
+linters = ['revive']
+text = 'exported'
+
 # Allow dot imports in test files (gomega requires them)
 [[linters.exclusions.rules]]
 path = '_test\.go$'

@@ -426,6 +426,24 @@ func TestExecuteWithOverrides_WatchDisabledAllowsOverride(t *testing.T) {
 	g.Expect(count).To(Equal(1))
 }
 
+func TestExecuteWithOverrides_WatchInitialError(t *testing.T) {
+	g := NewWithT(t)
+	ctx := context.Background()
+
+	testErr := errors.New("initial execution failed")
+	config := core.TargetConfig{}
+	overrides := core.RuntimeOverrides{
+		Watch: []string{"**/*.go"},
+	}
+
+	// Function returns error on initial execution - should not start watch
+	err := core.ExecuteWithOverrides(ctx, overrides, config, func() error {
+		return testErr
+	})
+
+	g.Expect(err).To(MatchError(ContainSubstring("initial execution failed")))
+}
+
 func TestExecuteWithOverrides_WhileStopsOnFalse(t *testing.T) {
 	g := NewWithT(t)
 	ctx := context.Background()

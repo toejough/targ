@@ -94,7 +94,6 @@ var (
 	Watch                = targ.Targ(watch).Description("Watch and re-run checks")
 )
 
-// CoverageArgs are arguments for the coverage command.
 type CoverageArgs struct {
 	HTML bool `targ:"flag,desc=Open HTML report in browser"`
 }
@@ -163,211 +162,16 @@ func checkCoverage(ctx context.Context) error {
 			return err
 		}
 
-		if strings.Contains(line, "_string.go") {
+		// Skip generated code, examples, and entry points
+		if strings.Contains(line, "_string.go") ||
+			strings.Contains(line, "generated_") ||
+			strings.Contains(line, "/examples/") ||
+			isEntryPointFile(line) {
 			continue
 		}
 
-		if strings.Contains(line, "main.go") {
-			continue
-		}
-
-		if strings.Contains(line, "generated_") {
-			continue
-		}
-
-		if strings.Contains(line, "/examples/") {
-			continue
-		}
-
-		// Exclude osRunEnv methods (simple pass-throughs to os package, lines 265-279 in run_env.go)
-		if strings.Contains(line, "run_env.go:26") || strings.Contains(line, "run_env.go:27") {
-			continue
-		}
-
-		// Exclude entry points that call os.Exit
-		// Coverage format: "targ.go:100:					ExecuteRegistered		0.0%"
-		if strings.Contains(line, "\tRun\t") || strings.Contains(line, "\tRunWithOptions\t") ||
-			strings.Contains(line, "\tExecuteRegistered\t") || strings.Contains(line, "\tExecuteRegisteredWithOptions\t") {
-			continue
-		}
-
-		// Exclude process kill functions (system interaction)
-		if strings.Contains(line, "killAllProcesses") || strings.Contains(line, "killProcess") {
-			continue
-		}
-
-		// Exclude PrintCompletionScript (writes to stdout, tested via integration)
-		if strings.Contains(line, "PrintCompletionScript\t") {
-			continue
-		}
-
-		// Exclude Windows-specific functions (can't test Windows paths on macOS)
-		if strings.Contains(line, "WithExeSuffix\t") || strings.Contains(line, "\tExeSuffix\t") {
-			continue
-		}
-
-		// Exclude customSetter (non-addressable paths contain dead code that panics)
-		if strings.Contains(line, "customSetter\t") {
-			continue
-		}
-
-		// Exclude computeChecksum (error paths from stdlib can't be easily triggered)
-		if strings.Contains(line, "computeChecksum\t") {
-			continue
-		}
-
-		// Exclude executeFunctionWithParents (remaining error paths require complex parent chain setups)
-		if strings.Contains(line, "executeFunctionWithParents\t") {
-			continue
-		}
-
-		// Exclude RunWithEnv (high-level entry point with many integration-level paths)
-		if strings.Contains(line, "\tRunWithEnv\t") {
-			continue
-		}
-
-		// Exclude file package cache functions (file system mod time edge cases)
-		if strings.Contains(line, "file/newer.go") {
-			continue
-		}
-
-		// Exclude file/watch.go Watch function (requires real file system watching)
-		if strings.Contains(line, "file/watch.go:24:") {
-			continue
-		}
-
-		// Exclude file/match.go edge cases (brace expansion corner cases)
-		if strings.Contains(line, "splitBraceOptions\t") {
-			continue
-		}
-
-		// Exclude file/checksum.go (file system operations)
-		if strings.Contains(line, "file/checksum.go") {
-			continue
-		}
-
-		// Exclude executeWithWatch (requires real file system watching)
-		if strings.Contains(line, "executeWithWatch\t") {
-			continue
-		}
-
-		// Exclude registerProcess (process management, system interaction)
-		if strings.Contains(line, "registerProcess\t") {
-			continue
-		}
-
-		// Exclude positionalIndex (complex completion logic with many edge cases for variadic flags, short groups, etc.)
-		if strings.Contains(line, "positionalIndex\t") {
-			continue
-		}
-
-		// Exclude depTracker.run (concurrent inFlight branch requires precise timing to test)
-		if strings.Contains(line, "deps.go:") && strings.Contains(line, "\trun\t") {
-			continue
-		}
-
-		// Exclude parseCommandArgsWithPosition (complex parsing with many edge cases)
-		if strings.Contains(line, "parseCommandArgsWithPosition\t") {
-			continue
-		}
-
-		// Exclude doCompletion (complex completion logic with many edge cases)
-		if strings.Contains(line, "doCompletion\t") {
-			continue
-		}
-
-		// Exclude collectFlagHelp (help formatting with defensive checks)
-		if strings.Contains(line, "collectFlagHelp\t") {
-			continue
-		}
-
-		// Exclude parseFlagValueWithPosition (complex parsing with many edge cases)
-		if strings.Contains(line, "parseFlagValueWithPosition\t") {
-			continue
-		}
-
-		// Exclude valueTypeCustomSetter (handles non-addressable values implementing
-		// TextUnmarshaler/Set - dead code in practice since such values aren't settable)
-		if strings.Contains(line, "valueTypeCustomSetter\t") {
-			continue
-		}
-
-		// Exclude extractTagOptionsResult (has defensive branches for conditions that
-		// can't happen after validateTagOptionsSignature passes - dead code in practice)
-		if strings.Contains(line, "extractTagOptionsResult\t") {
-			continue
-		}
-
-		// Exclude methodValue (complex reflection code with fallback paths for different
-		// method receiver types - edge cases that are difficult to trigger in tests)
-		if strings.Contains(line, "methodValue\t") {
-			continue
-		}
-
-		// Exclude printCommandHelp (help output function with defensive error branches
-		// that are difficult to trigger - internal errors shouldn't occur)
-		if strings.Contains(line, "printCommandHelp\t") {
-			continue
-		}
-
-		// Exclude getNodeSourceFile (help formatting helper with subcommand fallback path
-		// that's defensive and hard to trigger in normal operation)
-		if strings.Contains(line, "getNodeSourceFile\t") {
-			continue
-		}
-
-		// Exclude containsTargRegisterCall (AST inspection with many defensive branches
-		// for different node types - tested via integration)
-		if strings.Contains(line, "containsTargRegisterCall\t") {
-			continue
-		}
-
-		// Exclude OSFileSystem methods (OS wrappers tested via integration)
-		// Coverage format: "buildtool/discover.go:43:			ReadDir				0.0%"
-		if strings.Contains(line, "buildtool/discover.go:") &&
-			(strings.Contains(line, "\tReadDir\t") ||
-				strings.Contains(line, "\tReadFile\t") ||
-				strings.Contains(line, "\tWriteFile\t")) {
-			continue
-		}
-
-		// Exclude flagHelpForField (help formatting with error branches that are
-		// defensive checks for malformed input - rarely triggered in practice)
-		if strings.Contains(line, "flagHelpForField\t") {
-			continue
-		}
-
-		// Exclude nodeInstance (defensive checks for nil and edge cases that are
-		// difficult to trigger in normal code paths)
-		if strings.Contains(line, "nodeInstance\t") {
-			continue
-		}
-
-		// Exclude osRunEnv methods (thin OS wrappers at 0% - tested via mocks instead)
-		if percent == 0.0 && strings.Contains(line, "run_env.go") &&
-			(strings.Contains(line, "\tArgs\t") ||
-				strings.Contains(line, "\tExit\t") ||
-				strings.Contains(line, "\tPrintf\t") ||
-				strings.Contains(line, "\tPrintln\t")) {
-			continue
-		}
-
+		// Skip summary line
 		if strings.Contains(line, "total:") {
-			continue
-		}
-
-		// Exclude completion helper functions (defensive nil checks and error propagation
-		// from nested completion logic - edge cases unlikely in normal operation)
-		if strings.Contains(line, "suggestFlags\t") ||
-			strings.Contains(line, "suggestCommandFlags\t") ||
-			strings.Contains(line, "suggestInstanceFlags\t") ||
-			strings.Contains(line, "collectInstanceEnums\t") {
-			continue
-		}
-
-		// Exclude init() functions - they run at package load time and often
-		// contain defensive code that can't be tested.
-		if strings.Contains(line, "\tinit\t") {
 			continue
 		}
 
@@ -420,19 +224,12 @@ func checkCoverageForFail(ctx context.Context) error {
 	var minLine string
 
 	for _, line := range lines {
-		// Skip empty lines and files we don't care about
+		// Skip empty lines, summary, generated code, and entry points
 		if line == "" ||
 			strings.Contains(line, "_string.go") ||
-			strings.Contains(line, "main.go") ||
 			strings.Contains(line, "generated_") ||
 			strings.Contains(line, "total:") ||
-			strings.Contains(line, "\tinit\t") || // init() has untestable defensive code
-			strings.Contains(line, "\tExecuteRegistered\t") || // calls os.Exit, untestable
-			// OSFileSystem methods are OS wrappers tested via integration
-			(strings.Contains(line, "buildtool/discover.go:") &&
-				(strings.Contains(line, "ReadDir") ||
-					strings.Contains(line, "ReadFile") ||
-					strings.Contains(line, "WriteFile"))) {
+			isEntryPointFile(line) {
 			continue
 		}
 
@@ -515,20 +312,6 @@ func deadcode(ctx context.Context) error {
 		return err
 	}
 
-	// Filter out functions that are used by targ files (separate build context)
-	excludePatterns := []string{
-		"impgen/reorder/reorder.go:.*: unreachable func: AnalyzeSectionOrder",
-		"impgen/reorder/reorder.go:.*: unreachable func: identifySection",
-		// Quicktemplate generates both Write* and string-returning functions
-		// We use the Write* versions, so the string-returning ones appear dead
-		"impgen/run/.*\\.qtpl:.*: unreachable func:",
-		// Entry points used by generated bootstrap code (not visible to deadcode)
-		": unreachable func: ExecuteRegisteredWithOptions$",
-		": unreachable func: ExecuteRegistered$",
-		": unreachable func: Run$",
-		": unreachable func: RunWithOptions$",
-	}
-
 	lines := strings.Split(out, "\n")
 	filteredLines := []string{}
 
@@ -537,20 +320,7 @@ func deadcode(ctx context.Context) error {
 			continue
 		}
 
-		excluded := false
-
-		for _, pattern := range excludePatterns {
-			matched, _ := regexp.MatchString(pattern, line)
-			if matched {
-				excluded = true
-
-				break
-			}
-		}
-
-		if !excluded {
-			filteredLines = append(filteredLines, line)
-		}
+		filteredLines = append(filteredLines, line)
 	}
 
 	if len(filteredLines) > 0 {
@@ -561,8 +331,6 @@ func deadcode(ctx context.Context) error {
 
 	return nil
 }
-
-// Helper Functions
 
 func deleteDeadFunctionsFromFile(filename string, funcs []deadFunc) (int, error) {
 	content, err := os.ReadFile(filename)
@@ -689,11 +457,6 @@ func deleteDeadcode(ctx context.Context) error {
 
 		// Skip generated files and test files
 		if strings.Contains(file, "generated_") || strings.HasSuffix(file, ".qtpl.go") || strings.HasSuffix(file, "_test.go") {
-			continue
-		}
-
-		// Skip ExecuteRegisteredWithOptions (used by generated bootstrap code, not visible to deadcode)
-		if funcName == "ExecuteRegisteredWithOptions" {
 			continue
 		}
 
@@ -865,6 +628,46 @@ func hasRelevantChanges(changes file.ChangeSet) bool {
 func installTools() error {
 	fmt.Println("Installing development tools...")
 	return sh.Run("./dev/dev-install.sh")
+}
+
+// Helper Functions
+
+// isEntryPointCoverageLine checks coverage.out format lines (e.g., "module/file.go:1.1,2.2 1 0")
+func isEntryPointCoverageLine(line string) bool {
+	// main.go files are CLI entry points
+	if strings.Contains(line, "/main.go:") {
+		return true
+	}
+
+	// Top-level module files: github.com/toejough/targ/<file>.go
+	const modulePrefix = "github.com/toejough/targ/"
+
+	idx := strings.Index(line, modulePrefix)
+	if idx == -1 {
+		return false
+	}
+
+	afterModule := line[idx+len(modulePrefix):]
+
+	// Find where the file path ends (at the colon)
+	colonIdx := strings.Index(afterModule, ":")
+	if colonIdx == -1 {
+		return false
+	}
+
+	pathPart := afterModule[:colonIdx]
+
+	return !strings.Contains(pathPart, "/")
+}
+
+// isEntryPointFile returns true for files excluded from coverage checks:
+// - main.go files (thin CLI entry points)
+// - Top-level module files (re-exports and dependency injection wrappers)
+// These files should only contain transparent re-exports or thin wrappers
+// that inject dependencies into internal APIs.
+// This works on "go tool cover -func" output format.
+func isEntryPointFile(coverageLine string) bool {
+	return isEntryPointCoverageLine(coverageLine)
 }
 
 func isGeneratedFile(path string) (bool, error) {
@@ -1266,7 +1069,9 @@ func test(ctx context.Context) error {
 		return err
 	}
 
-	// Strip main.go, .qtpl, and OS wrapper coverage lines from coverage.out
+	// Strip coverage lines for generated templates and entry point files
+	// Entry points (main.go, top-level module files) should only contain
+	// re-exports and dependency injection - no testable logic.
 	data, err := os.ReadFile("coverage.out")
 	if err != nil {
 		return fmt.Errorf("failed to read coverage.out: %w", err)
@@ -1276,9 +1081,8 @@ func test(ctx context.Context) error {
 	var filtered []string
 
 	for _, line := range lines {
-		if strings.Contains(line, "/main.go:") ||
-			strings.Contains(line, ".qtpl:") ||
-			strings.Contains(line, "OSFileSystem") {
+		if strings.Contains(line, ".qtpl:") ||
+			isEntryPointCoverageLine(line) {
 			continue
 		}
 

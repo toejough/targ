@@ -25,6 +25,13 @@ func Newer(inputs, outputs []string) (bool, error) {
 	return newerWithCache(inputs)
 }
 
+// unexported variables.
+var (
+	getwd        = os.Getwd
+	statFile     = os.Stat
+	userCacheDir = os.UserCacheDir
+)
+
 type newerCache struct {
 	Pattern string           `json:"pattern"`
 	CWD     string           `json:"cwd"`
@@ -34,7 +41,7 @@ type newerCache struct {
 
 func anyOutputOlderThan(outputs []string, threshold time.Time) bool {
 	for _, path := range outputs {
-		info, err := os.Stat(path)
+		info, err := statFile(path)
 		if err != nil {
 			return true
 		}
@@ -72,7 +79,7 @@ func cacheEqual(a, b *newerCache) bool {
 }
 
 func cacheFilePath(cwd, pattern string) (string, error) {
-	cacheDir, err := os.UserCacheDir()
+	cacheDir, err := userCacheDir()
 	if err != nil {
 		return "", fmt.Errorf("getting user cache dir: %w", err)
 	}
@@ -80,8 +87,8 @@ func cacheFilePath(cwd, pattern string) (string, error) {
 	encoded := hashString(cwd + "::" + pattern)
 
 	dir := filepath.Join(cacheDir, "targ", "newer")
-	//nolint:gosec,mnd // standard cache directory permissions
-	err = os.MkdirAll(dir, 0o755)
+	//nolint:mnd // standard cache directory permissions
+	err = mkdirAll(dir, 0o755)
 	if err != nil {
 		return "", fmt.Errorf("creating cache directory: %w", err)
 	}
@@ -98,7 +105,7 @@ func latestModTime(paths []string) (time.Time, bool) {
 	latest := time.Time{}
 
 	for _, path := range paths {
-		info, err := os.Stat(path)
+		info, err := statFile(path)
 		if err != nil {
 			return time.Time{}, true
 		}
@@ -112,7 +119,7 @@ func latestModTime(paths []string) (time.Time, bool) {
 }
 
 func newerWithCache(inputs []string) (bool, error) {
-	cwd, err := os.Getwd()
+	cwd, err := getwd()
 	if err != nil {
 		return false, fmt.Errorf("getting working directory: %w", err)
 	}
@@ -169,8 +176,7 @@ func newerWithOutputs(inputs, outputs []string) (bool, error) {
 }
 
 func readCache(path string) (*newerCache, error) {
-	//nolint:gosec // reading cache file by design
-	data, err := os.ReadFile(path)
+	data, err := readFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("reading cache file: %w", err)
 	}
@@ -193,7 +199,7 @@ func snapshotPattern(cwd, pattern string) (*newerCache, error) {
 
 	files := make(map[string]int64, len(matches))
 	for _, path := range matches {
-		info, err := os.Stat(path)
+		info, err := statFile(path)
 		if err != nil {
 			return nil, fmt.Errorf("getting file info for %s: %w", path, err)
 		}
@@ -217,8 +223,8 @@ func writeCache(path string, cache *newerCache) error {
 		return fmt.Errorf("marshaling cache: %w", err)
 	}
 
-	//nolint:gosec,mnd // standard cache file permissions
-	err = os.WriteFile(path, data, 0o644)
+	//nolint:mnd // standard cache file permissions
+	err = writeFile(path, data, 0o644)
 	if err != nil {
 		return fmt.Errorf("writing cache file: %w", err)
 	}

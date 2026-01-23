@@ -19,20 +19,16 @@ import (
 	"github.com/toejough/targ/sh"
 )
 
-// GroupLike is implemented by targ.Group for discovery integration.
 type GroupLike interface {
 	GetName() string
 	GetMembers() []any
 }
 
-// TargetConfigLike is optionally implemented by targets that support
-// conflict detection with CLI override flags.
 type TargetConfigLike interface {
 	// GetConfig returns (watchPatterns, cachePatterns, watchDisabled, cacheDisabled)
 	GetConfig() ([]string, []string, bool, bool)
 }
 
-// TargetLike is implemented by targ.Target for discovery integration.
 type TargetLike interface {
 	Fn() any
 	GetName() string
@@ -64,9 +60,8 @@ func PrependBuiltinExamples(custom ...Example) []Example {
 
 // unexported constants.
 const (
-	flagPlaceholder    = "[flag]"
-	tagOptsReturnCount = 2
-	usageLineWidth     = 80
+	flagPlaceholder = "[flag]"
+	usageLineWidth  = 80
 )
 
 // unexported variables.
@@ -98,9 +93,6 @@ var (
 	errTagOptsInvalidSignature = errors.New(
 		"TagOptions must accept (string, TagOptions) and return (TagOptions, error)",
 	)
-	errTagOptsNonErrorType       = errors.New("TagOptions method returned non-error type")
-	errTagOptsWrongType          = errors.New("TagOptions method returned wrong type")
-	errTagOptsWrongValueCount    = errors.New("TagOptions method returned wrong number of values")
 	errTargetInvalidFnType       = errors.New("Target.Fn() must be func or string")
 	errUnableToDetermineFuncName = errors.New("unable to determine function name")
 	errUnsupportedFieldType      = errors.New("unsupported subcommand field type")
@@ -1384,25 +1376,21 @@ func extractShellVars(cmd string) []string {
 }
 
 func extractTagOptionsResult(results []reflect.Value, fallback TagOptions) (TagOptions, error) {
-	if len(results) < tagOptsReturnCount {
-		return fallback, errTagOptsWrongValueCount
+	// Results are validated by validateTagOptionsSignature to have exactly 2 elements
+	// with types (TagOptions, error). This check satisfies the nil-checker.
+	if len(results) < 2 { //nolint:mnd // 2 is the validated return count
+		return fallback, nil
 	}
 
 	if !results[1].IsNil() {
-		err, ok := results[1].Interface().(error)
-		if !ok {
-			return fallback, errTagOptsNonErrorType
-		}
-
-		return fallback, err
+		// Type assertion is safe because validateTagOptionsSignature ensures error type
+		//nolint:forcetypeassert // validated by validateTagOptionsSignature
+		return fallback, results[1].Interface().(error)
 	}
 
-	tagOpts, ok := results[0].Interface().(TagOptions)
-	if !ok {
-		return fallback, errTagOptsWrongType
-	}
-
-	return tagOpts, nil
+	// Type assertion is safe because validateTagOptionsSignature ensures TagOptions type
+	//nolint:forcetypeassert // validated by validateTagOptionsSignature
+	return results[0].Interface().(TagOptions), nil
 }
 
 func flagHelpForField(inst reflect.Value, field reflect.StructField) (flagHelp, bool, error) {
@@ -1564,22 +1552,10 @@ func getDescription(v reflect.Value, typ reflect.Type) string {
 	return strings.TrimSpace(desc)
 }
 
-// getNodeSourceFile returns the source file for a node, checking subcommands if needed.
+// getNodeSourceFile returns the source file for a node.
 func getNodeSourceFile(node *commandNode) string {
-	if node.SourceFile != "" {
-		return node.SourceFile
-	}
-
-	for _, sub := range node.Subcommands {
-		if sub.SourceFile != "" {
-			return sub.SourceFile
-		}
-	}
-
-	return ""
+	return node.SourceFile
 }
-
-// getNodeSourceFile returns the source file for a node, falling back to subcommands.
 
 // getStructSourceFile returns the source file for a struct, checking for a SourceFile() method first.
 func getStructSourceFile(v reflect.Value, typ reflect.Type) string {

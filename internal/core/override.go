@@ -12,7 +12,6 @@ import (
 	"github.com/toejough/targ/file"
 )
 
-// RuntimeOverrides holds CLI flags that override Target's compile-time configuration.
 type RuntimeOverrides struct {
 	Times             int           // Number of times to run (--times N)
 	Retry             bool          // Continue on failure (--retry)
@@ -37,7 +36,6 @@ func (o RuntimeOverrides) hasAny() bool {
 		len(o.Deps) > 0
 }
 
-// TargetConfig holds compile-time configuration from a Target for conflict detection.
 type TargetConfig struct {
 	WatchPatterns []string
 	CachePatterns []string
@@ -215,6 +213,7 @@ var (
 	)
 	errWatchRequiresPattern = errors.New("--watch requires a pattern")
 	errWhileRequiresCommand = errors.New("--while requires a command")
+	fileWatch               = file.Watch
 )
 
 // checkConflicts verifies CLI overrides don't conflict with Target config.
@@ -341,15 +340,13 @@ func executeWithWatch(
 		return err
 	}
 
-	// Watch for changes and re-run
-	err = file.Watch(ctx, patterns, file.WatchOptions{}, func(_ file.ChangeSet) error {
-		return fn()
-	})
-	if err != nil {
-		return fmt.Errorf("watching files: %w", err)
-	}
-
-	return nil
+	// Watch for changes and re-run. Watch runs until error (including context cancel).
+	return fmt.Errorf(
+		"watching files: %w",
+		fileWatch(ctx, patterns, file.WatchOptions{}, func(_ file.ChangeSet) error {
+			return fn()
+		}),
+	)
 }
 
 // extractDepsVariadic extracts --deps and its variadic arguments.

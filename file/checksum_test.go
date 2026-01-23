@@ -98,3 +98,37 @@ func TestChecksumRequiresInputs(t *testing.T) {
 		t.Fatal("expected error for empty dest")
 	}
 }
+
+func TestChecksum_MatchError(t *testing.T) {
+	t.Parallel()
+
+	// Invalid pattern (unmatched brace) should error
+	_, err := file.Checksum([]string{"{unmatched"}, "/some/dest")
+	if err == nil {
+		t.Fatal("expected error for invalid pattern")
+	}
+}
+
+func TestChecksum_WriteError(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	input := filepath.Join(dir, "a.txt")
+
+	if err := os.WriteFile(input, []byte("content"), 0o644); err != nil {
+		t.Fatalf("failed to write input: %v", err)
+	}
+
+	// Create a read-only directory for dest
+	readOnlyDir := filepath.Join(dir, "readonly")
+	if err := os.Mkdir(readOnlyDir, 0o555); err != nil {
+		t.Fatalf("failed to create read-only dir: %v", err)
+	}
+
+	// Dest in read-only directory should fail to write
+	dest := filepath.Join(readOnlyDir, "subdir", "hash.txt")
+
+	_, err := file.Checksum([]string{input}, dest)
+	if err == nil {
+		t.Fatal("expected error writing to read-only directory")
+	}
+}
