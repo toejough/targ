@@ -1,6 +1,7 @@
 package discover_test
 
 import (
+	"errors"
 	"io/fs"
 	"testing"
 
@@ -168,13 +169,18 @@ var Build = targ.Targ(func() {})
 	}
 }
 
+// unexported variables.
+var (
+	errInfoNotImplemented = errors.New("Info() not implemented in mock")
+)
+
 // mockDirEntry implements fs.DirEntry for testing.
 type mockDirEntry struct {
 	name  string
 	isDir bool
 }
 
-func (m mockDirEntry) Info() (fs.FileInfo, error) { return nil, nil }
+func (m mockDirEntry) Info() (fs.FileInfo, error) { return nil, errInfoNotImplemented }
 
 func (m mockDirEntry) IsDir() bool { return m.isDir }
 
