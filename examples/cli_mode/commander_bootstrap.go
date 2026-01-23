@@ -8,6 +8,7 @@ func main() {
 	targ.ExecuteRegistered()
 }
 
+//nolint:gochecknoinits // init required for targ.Register pattern - targets must register before main runs
 func init() {
 	targ.Register(
 		targ.Targ(build).Name("build"),

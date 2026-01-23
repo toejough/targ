@@ -7,6 +7,7 @@ import (
 	"syscall"
 )
 
+//nolint:gochecknoinits // init required to inject platform-specific process kill implementation
 func init() {
 	// Inject OS-specific kill implementation.
 	// This thin wrapper is the entry point for OS process killing.
