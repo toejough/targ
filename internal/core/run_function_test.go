@@ -21,6 +21,10 @@ type MultiSubRoot struct {
 	Two *multiSubTwo `targ:"subcommand"`
 }
 
+type TestCmdStruct struct{}
+
+func (t *TestCmdStruct) Run() {}
+
 func ContextFunc(ctx context.Context) {
 	if ctx != nil {
 		helloWorldCalled = true
@@ -342,10 +346,6 @@ var (
 	multiSubOneCalls       int
 	multiSubTwoCalls       int
 )
-
-type TestCmdStruct struct{}
-
-func (t *TestCmdStruct) Run() {}
 
 type discoverRoot struct{}
 

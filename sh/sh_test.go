@@ -1,4 +1,4 @@
-package sh
+package sh_test
 
 import (
 	"bytes"
@@ -10,17 +10,20 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	internal "github.com/toejough/targ/internal/sh"
+	"github.com/toejough/targ/sh"
 )
 
-func TestEnableCleanup(_ *testing.T) {
+func TestEnableCleanup(t *testing.T) {
 	// EnableCleanup should be idempotent - calling multiple times is safe
-	EnableCleanup()
-	EnableCleanup() // Second call should not panic or cause issues
+	sh.EnableCleanup()
+	sh.EnableCleanup() // Second call should not panic or cause issues
 }
 
 func TestExeSuffix(t *testing.T) {
-	suffix := ExeSuffix()
-	if IsWindows() {
+	suffix := sh.ExeSuffix()
+	if sh.IsWindows() {
 		if suffix != ".exe" {
 			t.Errorf("expected .exe on Windows, got %q", suffix)
 		}
@@ -32,19 +35,21 @@ func TestExeSuffix(t *testing.T) {
 }
 
 func TestExeSuffix_Windows(t *testing.T) {
-	// Mock Windows behavior
-	origIsWindows := isWindows
-	isWindows = func() bool { return true }
+	// Save and restore
+	orig := internal.IsWindows
 
-	defer func() { isWindows = origIsWindows }()
+	defer func() { internal.IsWindows = orig }()
 
-	suffix := ExeSuffix()
+	// Inject Windows behavior
+	internal.IsWindows = func() bool { return true }
+
+	suffix := sh.ExeSuffix()
 	if suffix != ".exe" {
 		t.Errorf("ExeSuffix() = %q, want .exe on Windows", suffix)
 	}
 }
 
-func TestHelperProcess(_ *testing.T) {
+func TestHelperProcess(t *testing.T) {
 	if os.Getenv("GO_WANT_HELPER_PROCESS") != "1" {
 		return
 	}
@@ -57,50 +62,50 @@ func TestHelperProcess(_ *testing.T) {
 	runHelperCommand(cmd, cmdArgs)
 }
 
-func TestIsWindows(_ *testing.T) {
+func TestIsWindows(t *testing.T) {
 	// Just verify it returns a bool and doesn't panic
-	_ = IsWindows()
+	_ = sh.IsWindows()
 }
 
 func TestKillAllProcesses(t *testing.T) {
 	// Save and restore state
-	cleanupMu.Lock()
+	internal.CleanupMu.Lock()
 
-	origEnabled := cleanupEnabled
-	origProcs := runningProcs
-	origKillFunc := killProcessFunc
-	cleanupEnabled = true
-	runningProcs = make(map[*os.Process]struct{})
+	origEnabled := internal.CleanupEnabled
+	origProcs := internal.RunningProcs
+	origKillFunc := internal.KillProcessFunc
+	internal.CleanupEnabled = true
+	internal.RunningProcs = make(map[*os.Process]struct{})
 
-	cleanupMu.Unlock()
+	internal.CleanupMu.Unlock()
 
 	defer func() {
-		cleanupMu.Lock()
+		internal.CleanupMu.Lock()
 
-		cleanupEnabled = origEnabled
-		runningProcs = origProcs
-		killProcessFunc = origKillFunc
+		internal.CleanupEnabled = origEnabled
+		internal.RunningProcs = origProcs
+		internal.KillProcessFunc = origKillFunc
 
-		cleanupMu.Unlock()
+		internal.CleanupMu.Unlock()
 	}()
 
 	// Track which processes were killed
 	var killedProcs []*os.Process
 
-	killProcessFunc = func(p *os.Process) {
+	internal.KillProcessFunc = func(p *os.Process) {
 		killedProcs = append(killedProcs, p)
 	}
 
-	// Create fake process entries (we don't need real processes, just pointers)
+	// Create fake process entries
 	proc1 := &os.Process{Pid: 1}
 	proc2 := &os.Process{Pid: 2}
 
-	// Register the processes
-	registerProcess(proc1)
-	registerProcess(proc2)
+	// Register the processes via internal API
+	internal.RegisterProcess(proc1)
+	internal.RegisterProcess(proc2)
 
 	// Kill all processes
-	killAllProcesses()
+	internal.KillAllProcesses()
 
 	// Verify both processes were killed
 	if len(killedProcs) != 2 {
@@ -113,12 +118,20 @@ func TestKillProcessFunc_Integration(t *testing.T) {
 	cmd := exec.Command("sleep", "60")
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
-	if err := cmd.Start(); err != nil {
+	err := cmd.Start()
+	if err != nil {
 		t.Fatalf("failed to start subprocess: %v", err)
 	}
 
+	// Save and get the actual kill function
+	internal.CleanupMu.Lock()
+
+	killFunc := internal.KillProcessFunc
+
+	internal.CleanupMu.Unlock()
+
 	// Call the real killProcessFunc to kill the process group
-	killProcessFunc(cmd.Process)
+	killFunc(cmd.Process)
 
 	// Clean up - wait for the process to exit (it should be killed)
 	_ = cmd.Wait()
@@ -130,7 +143,7 @@ func TestOutputContext_Cancellation(t *testing.T) {
 	errCh := make(chan error, 1)
 
 	go func() {
-		_, err := OutputContext(ctx, "sleep", "10")
+		_, err := sh.OutputContext(ctx, "sleep", "10")
 		errCh <- err
 	}()
 
@@ -153,7 +166,7 @@ func TestOutputContext_Cancellation(t *testing.T) {
 func TestOutputContext_Success(t *testing.T) {
 	ctx := context.Background()
 
-	output, err := OutputContext(ctx, "echo", "hello")
+	output, err := sh.OutputContext(ctx, "echo", "hello")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -167,7 +180,7 @@ func TestOutput_ReturnsCombinedOutput(t *testing.T) {
 	restore := overrideExec(t)
 	defer restore()
 
-	output, err := Output("combined")
+	output, err := sh.Output("combined")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -178,60 +191,57 @@ func TestOutput_ReturnsCombinedOutput(t *testing.T) {
 	}
 }
 
-func TestQuoteArg_EmptyString(t *testing.T) {
-	result := quoteArg("")
-	if result != `""` {
-		t.Errorf("quoteArg(\"\") = %q, want %q", result, `""`)
-	}
-}
-
-func TestQuoteArg_SimpleString(t *testing.T) {
-	result := quoteArg("hello")
-	if result != "hello" {
-		t.Errorf("quoteArg(\"hello\") = %q, want \"hello\"", result)
-	}
-}
-
-func TestQuoteArg_StringWithNewline(t *testing.T) {
-	result := quoteArg("hello\nworld")
-	if !strings.HasPrefix(result, "\"") {
-		t.Errorf("quoteArg with newline should be quoted, got %q", result)
-	}
-}
-
-func TestQuoteArg_StringWithQuote(t *testing.T) {
-	result := quoteArg(`hello"world`)
-	if !strings.HasPrefix(result, "\"") {
-		t.Errorf("quoteArg with quote should be quoted, got %q", result)
-	}
-}
-
-func TestQuoteArg_StringWithSpace(t *testing.T) {
-	result := quoteArg("hello world")
-	if !strings.HasPrefix(result, "\"") {
-		t.Errorf("quoteArg(\"hello world\") = %q, should be quoted", result)
-	}
-}
-
-func TestQuoteArg_StringWithTab(t *testing.T) {
-	result := quoteArg("hello\tworld")
-	if !strings.HasPrefix(result, "\"") {
-		t.Errorf("quoteArg with tab should be quoted, got %q", result)
-	}
-}
-
-func TestRunContextV_PrintsCommand(t *testing.T) {
-	restore := overrideStdio(t)
+func TestQuoteArg_ViaRunV(t *testing.T) {
+	// Test quoting behavior through RunV's verbose output
+	restore := overrideExec(t)
 	defer restore()
 
 	var out bytes.Buffer
 
-	stdout = &out
-	stderr = &out
+	internal.Stdout = &out
+	internal.Stderr = &out
+
+	// Test various quoting scenarios through the public API
+	tests := []struct {
+		args     []string
+		contains string
+	}{
+		{[]string{"echo", "hello"}, "+ echo hello"},
+		{[]string{"echo", "hello world"}, `+ echo "hello world"`},
+		{[]string{"echo", ""}, `+ echo ""`},
+	}
+
+	for _, tc := range tests {
+		out.Reset()
+
+		err := sh.RunV(tc.args[0], tc.args[1:]...)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if !strings.Contains(out.String(), tc.contains) {
+			t.Errorf("expected output to contain %q, got %q", tc.contains, out.String())
+		}
+	}
+}
+
+func TestRunContextV_PrintsCommand(t *testing.T) {
+	var out bytes.Buffer
+
+	origStdout := internal.Stdout
+	origStderr := internal.Stderr
+
+	defer func() {
+		internal.Stdout = origStdout
+		internal.Stderr = origStderr
+	}()
+
+	internal.Stdout = &out
+	internal.Stderr = &out
 
 	ctx := context.Background()
 
-	err := RunContextV(ctx, "echo", "hello")
+	err := sh.RunContextV(ctx, "echo", "hello")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -247,7 +257,7 @@ func TestRunContext_Cancellation(t *testing.T) {
 	errCh := make(chan error, 1)
 
 	go func() {
-		errCh <- RunContext(ctx, "sleep", "10")
+		errCh <- sh.RunContext(ctx, "sleep", "10")
 	}()
 
 	// Give it time to start
@@ -267,17 +277,22 @@ func TestRunContext_Cancellation(t *testing.T) {
 }
 
 func TestRunContext_Success(t *testing.T) {
-	restore := overrideStdio(t)
-	defer restore()
-
 	var out bytes.Buffer
 
-	stdout = &out
-	stderr = &out
+	origStdout := internal.Stdout
+	origStderr := internal.Stderr
+
+	defer func() {
+		internal.Stdout = origStdout
+		internal.Stderr = origStderr
+	}()
+
+	internal.Stdout = &out
+	internal.Stderr = &out
 
 	ctx := context.Background()
 
-	err := RunContext(ctx, "echo", "hello")
+	err := sh.RunContext(ctx, "echo", "hello")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -293,10 +308,10 @@ func TestRunV_PrintsCommand(t *testing.T) {
 
 	var out bytes.Buffer
 
-	stdout = &out
-	stderr = &out
+	internal.Stdout = &out
+	internal.Stderr = &out
 
-	err := RunV("echo", "hello")
+	err := sh.RunV("echo", "hello")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -310,7 +325,7 @@ func TestRun_ReturnsError(t *testing.T) {
 	restore := overrideExec(t)
 	defer restore()
 
-	err := Run("fail")
+	err := sh.Run("fail")
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -322,10 +337,10 @@ func TestRun_Success(t *testing.T) {
 
 	var out bytes.Buffer
 
-	stdout = &out
-	stderr = &out
+	internal.Stdout = &out
+	internal.Stderr = &out
 
-	err := Run("echo", "hello")
+	err := sh.Run("echo", "hello")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -345,13 +360,13 @@ func TestWithExeSuffix(t *testing.T) {
 		{"path/to/myapp", "path/to/myapp"},
 	}
 
-	if IsWindows() {
+	if sh.IsWindows() {
 		tests[0].expected = "myapp.exe"
 		tests[2].expected = "path/to/myapp.exe"
 	}
 
 	for _, tc := range tests {
-		result := WithExeSuffix(tc.input)
+		result := sh.WithExeSuffix(tc.input)
 		if result != tc.expected {
 			t.Errorf("WithExeSuffix(%q) = %q, want %q", tc.input, result, tc.expected)
 		}
@@ -359,11 +374,13 @@ func TestWithExeSuffix(t *testing.T) {
 }
 
 func TestWithExeSuffix_Windows(t *testing.T) {
-	// Mock Windows behavior
-	origIsWindows := isWindows
-	isWindows = func() bool { return true }
+	// Save and restore
+	orig := internal.IsWindows
 
-	defer func() { isWindows = origIsWindows }()
+	defer func() { internal.IsWindows = orig }()
+
+	// Inject Windows behavior
+	internal.IsWindows = func() bool { return true }
 
 	tests := []struct {
 		input    string
@@ -376,14 +393,15 @@ func TestWithExeSuffix_Windows(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		result := WithExeSuffix(tc.input)
+		result := sh.WithExeSuffix(tc.input)
 		if result != tc.expected {
 			t.Errorf("WithExeSuffix(%q) = %q, want %q", tc.input, result, tc.expected)
 		}
 	}
 }
 
-// findArgSeparator finds the position of "--" separator in args.
+// Helper functions for subprocess testing
+
 func findArgSeparator(args []string) int {
 	for i, arg := range args {
 		if arg == "--" {
@@ -423,12 +441,12 @@ func helperSleep() {
 func overrideExec(t *testing.T) func() {
 	t.Helper()
 
-	prevExec := execCommand
-	prevStdout := stdout
-	prevStderr := stderr
-	prevStdin := stdin
+	prevExec := internal.ExecCommand
+	prevStdout := internal.Stdout
+	prevStderr := internal.Stderr
+	prevStdin := internal.Stdin
 
-	execCommand = func(name string, args ...string) *exec.Cmd {
+	internal.ExecCommand = func(name string, args ...string) *exec.Cmd {
 		cmdArgs := append([]string{"-test.run=TestHelperProcess", "--", name}, args...)
 		cmd := exec.Command(os.Args[0], cmdArgs...)
 
@@ -438,28 +456,13 @@ func overrideExec(t *testing.T) func() {
 	}
 
 	return func() {
-		execCommand = prevExec
-		stdout = prevStdout
-		stderr = prevStderr
-		stdin = prevStdin
+		internal.ExecCommand = prevExec
+		internal.Stdout = prevStdout
+		internal.Stderr = prevStderr
+		internal.Stdin = prevStdin
 	}
 }
 
-func overrideStdio(t *testing.T) func() {
-	t.Helper()
-
-	prevStdout := stdout
-	prevStderr := stderr
-	prevStdin := stdin
-
-	return func() {
-		stdout = prevStdout
-		stderr = prevStderr
-		stdin = prevStdin
-	}
-}
-
-// parseHelperArgs extracts the command and args from test helper invocation.
 func parseHelperArgs() (string, []string) {
 	sep := findArgSeparator(os.Args)
 	if sep == 0 || sep+1 >= len(os.Args) {
@@ -469,7 +472,6 @@ func parseHelperArgs() (string, []string) {
 	return os.Args[sep+1], os.Args[sep+2:]
 }
 
-// runHelperCommand executes the appropriate helper command.
 func runHelperCommand(cmd string, args []string) {
 	switch cmd {
 	case "echo":

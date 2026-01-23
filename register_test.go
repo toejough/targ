@@ -1,18 +1,21 @@
-package targ
+package targ_test
 
 import (
 	"os"
 	"os/exec"
 	"strings"
 	"testing"
+
+	"github.com/toejough/targ"
+	"github.com/toejough/targ/internal/core"
 )
 
 func TestExecuteRegisteredWithOptions_Subprocess(t *testing.T) {
 	// Subprocess test pattern for code that calls os.Exit
 	if os.Getenv("TEST_EXECUTE_WITH_OPTS") == "1" {
 		// In subprocess: register a target and execute
-		Register(Targ(func() {}).Name("opts-target"))
-		ExecuteRegisteredWithOptions(RunOptions{Description: "Test description"})
+		targ.Register(targ.Targ(func() {}).Name("opts-target"))
+		targ.ExecuteRegisteredWithOptions(targ.RunOptions{Description: "Test description"})
 
 		return
 	}
@@ -41,8 +44,8 @@ func TestExecuteRegisteredWithOptions_Subprocess(t *testing.T) {
 func TestExecuteRegistered_Subprocess(t *testing.T) {
 	// Subprocess test pattern for code that calls os.Exit
 	if os.Getenv("TEST_EXECUTE_BASIC") == "1" {
-		Register(Targ(func() {}).Name("basic-target"))
-		ExecuteRegistered()
+		targ.Register(targ.Targ(func() {}).Name("basic-target"))
+		targ.ExecuteRegistered()
 
 		return
 	}
@@ -68,36 +71,40 @@ func TestExecuteRegistered_Subprocess(t *testing.T) {
 
 func TestRegister(t *testing.T) {
 	// Save original registry
-	orig := registry
-	registry = nil
+	orig := core.GetRegistry()
 
-	defer func() { registry = orig }()
+	core.SetRegistry(nil)
+
+	defer func() { core.SetRegistry(orig) }()
 
 	// Register some targets
-	target1 := Targ(func() {})
-	target2 := Targ(func() {})
-	Register(target1, target2)
+	target1 := targ.Targ(func() {})
+	target2 := targ.Targ(func() {})
+	targ.Register(target1, target2)
 
-	if len(registry) != 2 {
-		t.Fatalf("expected 2 targets in registry, got %d", len(registry))
+	reg := core.GetRegistry()
+	if len(reg) != 2 {
+		t.Fatalf("expected 2 targets in registry, got %d", len(reg))
 	}
 }
 
 func TestRegister_Append(t *testing.T) {
 	// Save original registry
-	orig := registry
-	registry = nil
+	orig := core.GetRegistry()
 
-	defer func() { registry = orig }()
+	core.SetRegistry(nil)
+
+	defer func() { core.SetRegistry(orig) }()
 
 	// Register in two calls
-	target1 := Targ(func() {})
-	target2 := Targ(func() {})
+	target1 := targ.Targ(func() {})
+	target2 := targ.Targ(func() {})
 
-	Register(target1)
-	Register(target2)
+	targ.Register(target1)
+	targ.Register(target2)
 
-	if len(registry) != 2 {
-		t.Fatalf("expected 2 targets in registry, got %d", len(registry))
+	reg := core.GetRegistry()
+	if len(reg) != 2 {
+		t.Fatalf("expected 2 targets in registry, got %d", len(reg))
 	}
 }
