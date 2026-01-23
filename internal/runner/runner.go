@@ -1118,18 +1118,38 @@ func (r *targRunner) handleCreateFlag(args []string) (exitCode int, done bool) {
 }
 
 func (r *targRunner) handleEarlyFlags() (exitCode int, done bool) {
+	seenTarget := false
+
 	for i, arg := range r.args {
+		isFlag := strings.HasPrefix(arg, "-")
+
+		// Track when we see a target name (first non-flag)
+		if !isFlag && !seenTarget {
+			seenTarget = true
+		}
+
 		if isRemovedFlag(arg) {
 			fmt.Fprintf(os.Stderr, "%s: %v\n", arg, errFlagRemoved)
 			return 1, true
 		}
 
-		if isCreateFlag(arg) {
-			return r.handleCreateFlag(r.args[i+1:])
-		}
+		// Position-sensitive flags: only recognized before first target
+		if !seenTarget {
+			if isCreateFlag(arg) {
+				return r.handleCreateFlag(r.args[i+1:])
+			}
 
-		if isSyncFlag(arg) {
-			return r.handleSyncFlag(r.args[i+1:])
+			if isSyncFlag(arg) {
+				return r.handleSyncFlag(r.args[i+1:])
+			}
+
+			if isToFuncFlag(arg) {
+				return r.handleToFuncFlag(r.args[i+1:])
+			}
+
+			if isToStringFlag(arg) {
+				return r.handleToStringFlag(r.args[i+1:])
+			}
 		}
 	}
 
@@ -1329,6 +1349,114 @@ func (r *targRunner) handleSyncFlag(args []string) (exitCode int, done bool) {
 	}
 
 	fmt.Printf("Synced package %q to %s\n", opts.PackagePath, targFile)
+
+	return 0, true
+}
+
+func (r *targRunner) handleToFuncFlag(args []string) (exitCode int, done bool) {
+	if len(args) == 0 {
+		fmt.Fprintln(os.Stderr, "--to-func requires a target name")
+		return 1, true
+	}
+
+	targetName := args[0]
+
+	// Get working directory
+	startDir, err := os.Getwd()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error getting working directory: %v\n", err)
+		return 1, true
+	}
+
+	// Find targ files
+	targFiles, err := findTargFiles(startDir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error finding targ files: %v\n", err)
+		return 1, true
+	}
+
+	if len(targFiles) == 0 {
+		fmt.Fprintln(os.Stderr, "no targ files found")
+		return 1, true
+	}
+
+	// Convert target in each file until we find it
+	converted := false
+
+	for _, targFile := range targFiles {
+		ok, convErr := ConvertStringTargetToFunc(targFile, targetName)
+		if convErr != nil {
+			fmt.Fprintf(os.Stderr, "error converting target: %v\n", convErr)
+			return 1, true
+		}
+
+		if ok {
+			fmt.Printf("Converted target %q to function in %s\n", targetName, targFile)
+
+			converted = true
+
+			break
+		}
+	}
+
+	if !converted {
+		fmt.Fprintf(os.Stderr, "target %q not found or not a string target\n", targetName)
+		return 1, true
+	}
+
+	return 0, true
+}
+
+func (r *targRunner) handleToStringFlag(args []string) (exitCode int, done bool) {
+	if len(args) == 0 {
+		fmt.Fprintln(os.Stderr, "--to-string requires a target name")
+		return 1, true
+	}
+
+	targetName := args[0]
+
+	// Get working directory
+	startDir, err := os.Getwd()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error getting working directory: %v\n", err)
+		return 1, true
+	}
+
+	// Find targ files
+	targFiles, err := findTargFiles(startDir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error finding targ files: %v\n", err)
+		return 1, true
+	}
+
+	if len(targFiles) == 0 {
+		fmt.Fprintln(os.Stderr, "no targ files found")
+		return 1, true
+	}
+
+	// Convert target in each file until we find it
+	converted := false
+
+	for _, targFile := range targFiles {
+		ok, convErr := ConvertFuncTargetToString(targFile, targetName)
+		if convErr != nil {
+			fmt.Fprintf(os.Stderr, "error converting target: %v\n", convErr)
+			return 1, true
+		}
+
+		if ok {
+			fmt.Printf("Converted target %q to string in %s\n", targetName, targFile)
+
+			converted = true
+
+			break
+		}
+	}
+
+	if !converted {
+		fmt.Fprintf(os.Stderr, "target %q not found or not a function target\n", targetName)
+		return 1, true
+	}
 
 	return 0, true
 }
@@ -2269,6 +2397,446 @@ func isCleanVersion(version string) bool {
 // isCreateFlag checks if the argument is the --create flag.
 func isCreateFlag(arg string) bool {
 	return arg == "--create"
+}
+
+// isToFuncFlag checks if the argument is the --to-func flag.
+func isToFuncFlag(arg string) bool {
+	return arg == "--to-func"
+}
+
+// isToStringFlag checks if the argument is the --to-string flag.
+func isToStringFlag(arg string) bool {
+	return arg == "--to-string"
+}
+
+// findTargFiles finds all files with the targ build tag in the given directory.
+func findTargFiles(startDir string) ([]string, error) {
+	entries, err := os.ReadDir(startDir)
+	if err != nil {
+		return nil, err
+	}
+
+	var targFiles []string
+
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".go") {
+			continue
+		}
+
+		path := filepath.Join(startDir, entry.Name())
+		if HasTargBuildTag(path) {
+			targFiles = append(targFiles, path)
+		}
+	}
+
+	return targFiles, nil
+}
+
+// ConvertStringTargetToFunc converts a string target to a function target.
+// Returns true if conversion was performed, false if target not found or not a string target.
+//
+//nolint:funlen,gocognit // AST manipulation requires detailed handling
+func ConvertStringTargetToFunc(filePath, targetName string) (bool, error) {
+	fset := token.NewFileSet()
+
+	file, err := parser.ParseFile(fset, filePath, nil, parser.ParseComments)
+	if err != nil {
+		return false, fmt.Errorf("parsing file: %w", err)
+	}
+
+	// Find the target variable
+	var targetSpec *ast.ValueSpec
+
+	var targetCall *ast.CallExpr
+
+	var shellCmd string
+
+	for _, decl := range file.Decls {
+		genDecl, ok := decl.(*ast.GenDecl)
+		if !ok || genDecl.Tok != token.VAR {
+			continue
+		}
+
+		for _, spec := range genDecl.Specs {
+			valueSpec, ok := spec.(*ast.ValueSpec)
+			if !ok || len(valueSpec.Names) == 0 || len(valueSpec.Values) == 0 {
+				continue
+			}
+
+			// Check if this target matches by name
+			if !targetMatchesName(valueSpec, targetName) {
+				continue
+			}
+
+			// Find targ.Targ() call with string argument
+			cmd, call := extractStringTargCall(valueSpec.Values[0])
+			if cmd == "" {
+				continue
+			}
+
+			targetSpec = valueSpec
+			targetCall = call
+			shellCmd = cmd
+
+			break
+		}
+
+		if targetSpec != nil {
+			break
+		}
+	}
+
+	if targetSpec == nil {
+		return false, nil
+	}
+
+	// Generate function name from target name
+	funcName := targetNameToFuncName(targetName)
+
+	// Replace string argument with function reference
+	targetCall.Args[0] = ast.NewIdent(funcName)
+
+	// Generate function declaration
+	funcDecl := generateShellFunc(funcName, shellCmd)
+
+	// Add function to file
+	file.Decls = append(file.Decls, funcDecl)
+
+	// Write back
+	err = writeFormattedFile(filePath, fset, file)
+	if err != nil {
+		return false, fmt.Errorf("writing file: %w", err)
+	}
+
+	return true, nil
+}
+
+// ConvertFuncTargetToString converts a function target to a string target.
+// Returns true if conversion was performed, false if target not found or not convertible.
+//
+//nolint:funlen,gocognit // AST manipulation requires detailed handling
+func ConvertFuncTargetToString(filePath, targetName string) (bool, error) {
+	fset := token.NewFileSet()
+
+	file, err := parser.ParseFile(fset, filePath, nil, parser.ParseComments)
+	if err != nil {
+		return false, fmt.Errorf("parsing file: %w", err)
+	}
+
+	// Find the target variable
+	var targetSpec *ast.ValueSpec
+
+	var targetCall *ast.CallExpr
+
+	var funcIdent *ast.Ident
+
+	for _, decl := range file.Decls {
+		genDecl, ok := decl.(*ast.GenDecl)
+		if !ok || genDecl.Tok != token.VAR {
+			continue
+		}
+
+		for _, spec := range genDecl.Specs {
+			valueSpec, ok := spec.(*ast.ValueSpec)
+			if !ok || len(valueSpec.Names) == 0 || len(valueSpec.Values) == 0 {
+				continue
+			}
+
+			// Check if this target matches by name
+			if !targetMatchesName(valueSpec, targetName) {
+				continue
+			}
+
+			// Find targ.Targ() call with function argument
+			ident, call := extractFuncTargCall(valueSpec.Values[0])
+			if ident == nil {
+				continue
+			}
+
+			targetSpec = valueSpec
+			targetCall = call
+			funcIdent = ident
+
+			break
+		}
+
+		if targetSpec != nil {
+			break
+		}
+	}
+
+	if targetSpec == nil {
+		return false, nil
+	}
+
+	// Find the function declaration and extract shell command
+	shellCmd, funcDecl := extractShellCommand(file, funcIdent.Name)
+	if shellCmd == "" {
+		return false, fmt.Errorf("function %s is not a simple sh.Run call", funcIdent.Name)
+	}
+
+	// Replace function reference with string
+	targetCall.Args[0] = &ast.BasicLit{
+		Kind:  token.STRING,
+		Value: strconv.Quote(shellCmd),
+	}
+
+	// Remove the function declaration
+	newDecls := make([]ast.Decl, 0, len(file.Decls)-1)
+
+	for _, decl := range file.Decls {
+		if decl != funcDecl {
+			newDecls = append(newDecls, decl)
+		}
+	}
+
+	file.Decls = newDecls
+
+	// Write back
+	err = writeFormattedFile(filePath, fset, file)
+	if err != nil {
+		return false, fmt.Errorf("writing file: %w", err)
+	}
+
+	return true, nil
+}
+
+// targetMatchesName checks if a target variable matches the given CLI name.
+func targetMatchesName(spec *ast.ValueSpec, targetName string) bool {
+	// Check for .Name("targetName") in the chain
+	if hasNameMethod(spec.Values[0], targetName) {
+		return true
+	}
+
+	// Fall back to variable name conversion
+	varName := spec.Names[0].Name
+	expectedVar := KebabToPascal(targetName)
+
+	return varName == expectedVar
+}
+
+// hasNameMethod checks if the expression chain contains .Name("targetName").
+func hasNameMethod(expr ast.Expr, targetName string) bool {
+	for {
+		call, ok := expr.(*ast.CallExpr)
+		if !ok {
+			return false
+		}
+
+		sel, ok := call.Fun.(*ast.SelectorExpr)
+		if !ok {
+			return false
+		}
+
+		if sel.Sel.Name == "Name" && len(call.Args) == 1 {
+			if lit, ok := call.Args[0].(*ast.BasicLit); ok && lit.Kind == token.STRING {
+				name, _ := strconv.Unquote(lit.Value)
+				if name == targetName {
+					return true
+				}
+			}
+		}
+
+		expr = sel.X
+	}
+}
+
+// extractStringTargCall finds targ.Targ("string") call and returns the string and call.
+func extractStringTargCall(expr ast.Expr) (string, *ast.CallExpr) {
+	// Walk up the chain to find targ.Targ()
+	for {
+		call, ok := expr.(*ast.CallExpr)
+		if !ok {
+			return "", nil
+		}
+
+		// Check if this is targ.Targ()
+		if isTargTargCall(call) {
+			if len(call.Args) == 1 {
+				if lit, ok := call.Args[0].(*ast.BasicLit); ok && lit.Kind == token.STRING {
+					cmd, _ := strconv.Unquote(lit.Value)
+					return cmd, call
+				}
+			}
+
+			return "", nil
+		}
+
+		// Continue up the chain
+		sel, ok := call.Fun.(*ast.SelectorExpr)
+		if !ok {
+			return "", nil
+		}
+
+		expr = sel.X
+	}
+}
+
+// extractFuncTargCall finds targ.Targ(funcName) call and returns the ident and call.
+func extractFuncTargCall(expr ast.Expr) (*ast.Ident, *ast.CallExpr) {
+	// Walk up the chain to find targ.Targ()
+	for {
+		call, ok := expr.(*ast.CallExpr)
+		if !ok {
+			return nil, nil
+		}
+
+		// Check if this is targ.Targ()
+		if isTargTargCall(call) {
+			if len(call.Args) == 1 {
+				if ident, ok := call.Args[0].(*ast.Ident); ok {
+					return ident, call
+				}
+			}
+
+			return nil, nil
+		}
+
+		// Continue up the chain
+		sel, ok := call.Fun.(*ast.SelectorExpr)
+		if !ok {
+			return nil, nil
+		}
+
+		expr = sel.X
+	}
+}
+
+// isTargTargCall checks if call is targ.Targ().
+func isTargTargCall(call *ast.CallExpr) bool {
+	sel, ok := call.Fun.(*ast.SelectorExpr)
+	if !ok {
+		return false
+	}
+
+	ident, ok := sel.X.(*ast.Ident)
+	if !ok {
+		return false
+	}
+
+	return ident.Name == "targ" && sel.Sel.Name == "Targ"
+}
+
+// targetNameToFuncName converts a target name to a function name.
+func targetNameToFuncName(name string) string {
+	// Convert kebab-case to camelCase (first letter lowercase)
+	parts := strings.Split(name, "-")
+	for i := 1; i < len(parts); i++ {
+		if len(parts[i]) > 0 {
+			parts[i] = strings.ToUpper(parts[i][:1]) + parts[i][1:]
+		}
+	}
+
+	return strings.Join(parts, "")
+}
+
+// generateShellFunc generates a function that calls sh.Run with the command.
+func generateShellFunc(funcName, shellCmd string) *ast.FuncDecl {
+	// Parse command into parts
+	parts := strings.Fields(shellCmd)
+	if len(parts) == 0 {
+		parts = []string{shellCmd}
+	}
+
+	// Build arguments for sh.Run
+	args := make([]ast.Expr, len(parts))
+	for i, part := range parts {
+		args[i] = &ast.BasicLit{
+			Kind:  token.STRING,
+			Value: strconv.Quote(part),
+		}
+	}
+
+	return &ast.FuncDecl{
+		Name: ast.NewIdent(funcName),
+		Type: &ast.FuncType{
+			Params: &ast.FieldList{},
+			Results: &ast.FieldList{
+				List: []*ast.Field{
+					{Type: ast.NewIdent("error")},
+				},
+			},
+		},
+		Body: &ast.BlockStmt{
+			List: []ast.Stmt{
+				&ast.ReturnStmt{
+					Results: []ast.Expr{
+						&ast.CallExpr{
+							Fun: &ast.SelectorExpr{
+								X:   ast.NewIdent("sh"),
+								Sel: ast.NewIdent("Run"),
+							},
+							Args: args,
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
+// extractShellCommand finds a function and extracts its sh.Run command.
+// Returns empty string if function is not a simple sh.Run call.
+func extractShellCommand(file *ast.File, funcName string) (string, *ast.FuncDecl) {
+	for _, decl := range file.Decls {
+		funcDecl, ok := decl.(*ast.FuncDecl)
+		if !ok || funcDecl.Name.Name != funcName {
+			continue
+		}
+
+		// Check for single return statement with sh.Run()
+		if len(funcDecl.Body.List) != 1 {
+			return "", nil
+		}
+
+		retStmt, ok := funcDecl.Body.List[0].(*ast.ReturnStmt)
+		if !ok || len(retStmt.Results) != 1 {
+			return "", nil
+		}
+
+		call, ok := retStmt.Results[0].(*ast.CallExpr)
+		if !ok {
+			return "", nil
+		}
+
+		// Check if it's sh.Run()
+		sel, ok := call.Fun.(*ast.SelectorExpr)
+		if !ok {
+			return "", nil
+		}
+
+		ident, ok := sel.X.(*ast.Ident)
+		if !ok || ident.Name != "sh" || sel.Sel.Name != "Run" {
+			return "", nil
+		}
+
+		// Extract arguments and join into command
+		var parts []string
+
+		for _, arg := range call.Args {
+			lit, ok := arg.(*ast.BasicLit)
+			if !ok || lit.Kind != token.STRING {
+				return "", nil
+			}
+
+			part, _ := strconv.Unquote(lit.Value)
+			parts = append(parts, part)
+		}
+
+		return strings.Join(parts, " "), funcDecl
+	}
+
+	return "", nil
+}
+
+// writeFormattedFile writes an AST back to a file with proper formatting.
+func writeFormattedFile(filePath string, fset *token.FileSet, file *ast.File) error {
+	var buf bytes.Buffer
+	if err := format.Node(&buf, fset, file); err != nil {
+		return err
+	}
+
+	return os.WriteFile(filePath, buf.Bytes(), 0o644)
 }
 
 // isHelpRequest returns true if args represent a help request.

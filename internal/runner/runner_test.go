@@ -1081,3 +1081,155 @@ func TestExtractTargFlags_Empty(t *testing.T) {
 		t.Errorf("expected empty remaining, got %v", remaining)
 	}
 }
+
+func TestConvertStringTargetToFunc(t *testing.T) {
+	dir := t.TempDir()
+	targFile := filepath.Join(dir, "targs.go")
+
+	initial := `//go:build targ
+
+package build
+
+import "github.com/toejough/targ"
+
+var Lint = targ.Targ("golangci-lint run").Name("lint")
+`
+	if err := os.WriteFile(targFile, []byte(initial), 0o644); err != nil {
+		t.Fatalf("write error: %v", err)
+	}
+
+	ok, err := runner.ConvertStringTargetToFunc(targFile, "lint")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !ok {
+		t.Fatal("expected conversion to succeed")
+	}
+
+	content, err := os.ReadFile(targFile)
+	if err != nil {
+		t.Fatalf("read error: %v", err)
+	}
+
+	contentStr := string(content)
+
+	// Should have function reference instead of string
+	if strings.Contains(contentStr, `targ.Targ("golangci-lint run")`) {
+		t.Errorf("expected string to be replaced, got:\n%s", contentStr)
+	}
+
+	// Should have function declaration
+	if !strings.Contains(contentStr, "func lint()") {
+		t.Errorf("expected lint function, got:\n%s", contentStr)
+	}
+
+	// Should have sh.Run call
+	if !strings.Contains(contentStr, "sh.Run(") {
+		t.Errorf("expected sh.Run call, got:\n%s", contentStr)
+	}
+}
+
+func TestConvertStringTargetToFunc_NotFound(t *testing.T) {
+	dir := t.TempDir()
+	targFile := filepath.Join(dir, "targs.go")
+
+	initial := `//go:build targ
+
+package build
+
+import "github.com/toejough/targ"
+
+var Build = targ.Targ("go build").Name("build")
+`
+	if err := os.WriteFile(targFile, []byte(initial), 0o644); err != nil {
+		t.Fatalf("write error: %v", err)
+	}
+
+	ok, err := runner.ConvertStringTargetToFunc(targFile, "lint")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if ok {
+		t.Error("expected conversion to return false for non-existent target")
+	}
+}
+
+func TestConvertFuncTargetToString(t *testing.T) {
+	dir := t.TempDir()
+	targFile := filepath.Join(dir, "targs.go")
+
+	initial := `//go:build targ
+
+package build
+
+import "github.com/toejough/targ"
+import "github.com/toejough/targ/sh"
+
+var Lint = targ.Targ(lint).Name("lint")
+
+func lint() error {
+	return sh.Run("golangci-lint", "run")
+}
+`
+	if err := os.WriteFile(targFile, []byte(initial), 0o644); err != nil {
+		t.Fatalf("write error: %v", err)
+	}
+
+	ok, err := runner.ConvertFuncTargetToString(targFile, "lint")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !ok {
+		t.Fatal("expected conversion to succeed")
+	}
+
+	content, err := os.ReadFile(targFile)
+	if err != nil {
+		t.Fatalf("read error: %v", err)
+	}
+
+	contentStr := string(content)
+
+	// Should have string instead of function reference
+	if !strings.Contains(contentStr, `targ.Targ("golangci-lint run")`) {
+		t.Errorf("expected string target, got:\n%s", contentStr)
+	}
+
+	// Should NOT have function declaration
+	if strings.Contains(contentStr, "func lint()") {
+		t.Errorf("expected lint function to be removed, got:\n%s", contentStr)
+	}
+}
+
+func TestConvertFuncTargetToString_ComplexFunc(t *testing.T) {
+	dir := t.TempDir()
+	targFile := filepath.Join(dir, "targs.go")
+
+	// Function with multiple statements should not be converted
+	initial := `//go:build targ
+
+package build
+
+import "github.com/toejough/targ"
+import "github.com/toejough/targ/sh"
+import "fmt"
+
+var Lint = targ.Targ(lint).Name("lint")
+
+func lint() error {
+	fmt.Println("Running lint...")
+	return sh.Run("golangci-lint", "run")
+}
+`
+	if err := os.WriteFile(targFile, []byte(initial), 0o644); err != nil {
+		t.Fatalf("write error: %v", err)
+	}
+
+	_, err := runner.ConvertFuncTargetToString(targFile, "lint")
+	if err == nil {
+		t.Error("expected error for complex function")
+	}
+}
