@@ -61,17 +61,17 @@ package dev
 import "github.com/toejough/targ"
 
 func init() {
-    targ.Register(Test, Lint)
+    targ.Register(
+        targ.Targ("go test -race $package").Name("test"),
+        targ.Targ("golangci-lint run --fix $path").Name("lint"),
+    )
 }
-
-var Test = targ.Targ("go test -race $package")
-var Lint = targ.Targ("golangci-lint run --fix $path")
 ```
 
 Commands run via the system shell, so pipes and shell features work:
 
 ```go
-var Coverage = targ.Targ("go test -coverprofile=coverage.out $package && go tool cover -html=coverage.out")
+targ.Targ("go test -coverprofile=coverage.out $package && go tool cover -html=coverage.out")
 ```
 
 ### Stage 2: Add Flags
@@ -86,10 +86,11 @@ package dev
 import "github.com/toejough/targ"
 
 func init() {
-    targ.Register(Build, Test)
+    targ.Register(
+        targ.Targ(build).Description("Compile the project"),
+        targ.Targ(test).Description("Run tests"),
+    )
 }
-
-var Build = targ.Targ(build).Description("Compile the project")
 
 type BuildArgs struct {
     Output  string `targ:"flag,short=o,default=myapp,desc=Output binary name"`
@@ -103,8 +104,6 @@ func build(args BuildArgs) error {
     }
     return targ.Run("go", append(cmdArgs, "./...")...)
 }
-
-var Test = targ.Targ(test).Description("Run tests")
 
 type TestArgs struct {
     Cover bool `targ:"flag,desc=Enable coverage"`
@@ -134,15 +133,17 @@ package main
 import "github.com/toejough/targ"
 
 func init() {
-    targ.Register(Build, Test)
+    targ.Register(
+        targ.Targ(build).Description("Compile the project"),
+        targ.Targ(test).Description("Run tests"),
+    )
 }
 
 func main() {
     targ.ExecuteRegistered()
 }
 
-var Build = targ.Targ(build).Description("Compile the project")
-// ... same target definitions as Stage 2
+// ... same function definitions as Stage 2
 ```
 
 ```bash
@@ -156,8 +157,10 @@ go build -o mytool .
 For simple shell commands, pass a string instead of a function:
 
 ```go
-var Tidy = targ.Targ("go mod tidy").Description("Tidy go.mod")
-var Lint = targ.Targ("golangci-lint run ./...").Description("Run linter")
+targ.Register(
+    targ.Targ("go mod tidy").Name("tidy").Description("Tidy go.mod"),
+    targ.Targ("golangci-lint run ./...").Name("lint").Description("Run linter"),
+)
 ```
 
 ### Multi-Directory Layout
@@ -232,19 +235,21 @@ Combine with commas: `targ:"positional,required,enum=dev|prod"`
 Use `targ.NewGroup` to organize targets into named groups:
 
 ```go
-var Math = targ.NewGroup("math", Add, Multiply)
+func init() {
+    add := targ.Targ(func(args struct {
+        A, B int `targ:"positional"`
+    }) {
+        fmt.Printf("%d\n", args.A+args.B)
+    }).Name("add")
 
-var Add = targ.Targ(func(args struct {
-    A, B int `targ:"positional"`
-}) {
-    fmt.Printf("%d\n", args.A+args.B)
-}).Name("add")
+    multiply := targ.Targ(func(args struct {
+        A, B int `targ:"positional"`
+    }) {
+        fmt.Printf("%d\n", args.A*args.B)
+    }).Name("multiply")
 
-var Multiply = targ.Targ(func(args struct {
-    A, B int `targ:"positional"`
-}) {
-    fmt.Printf("%d\n", args.A*args.B)
-}).Name("multiply")
+    targ.Register(targ.NewGroup("math", add, multiply))
+}
 ```
 
 ```bash
@@ -277,7 +282,7 @@ Names are derived from function names, converted to kebab-case:
 Override with `.Name()`:
 
 ```go
-var Build = targ.Targ(build).Name("compile")
+targ.Targ(build).Name("compile")
 ```
 
 ## Dependencies
@@ -333,8 +338,8 @@ func watch(ctx context.Context) error {
 For static dependencies, use the builder method:
 
 ```go
-var Test = targ.Targ(test).Deps(Build)           // serial
-var CI = targ.Targ(ci).ParallelDeps(Test, Lint)  // parallel
+targ.Targ(test).Deps(build)           // serial
+targ.Targ(ci).ParallelDeps(test, lint)  // parallel
 ```
 
 ## Shell Helpers
@@ -395,7 +400,7 @@ func watch(ctx context.Context) error {
 Use `.Watch()` for declarative watch mode:
 
 ```go
-var Test = targ.Targ(test).Watch("**/*.go", "**/*_test.go")
+targ.Targ(test).Watch("**/*.go", "**/*_test.go")
 ```
 
 When run with watch patterns, the target re-runs automatically on file changes.
@@ -446,7 +451,7 @@ func (d DeployArgs) TagOptions(field string, opts targ.TagOptions) (targ.TagOpti
     return opts, nil
 }
 
-var Deploy = targ.Targ(func(args DeployArgs) error {
+deploy := targ.Targ(func(args DeployArgs) error {
     // deploy to args.Env
     return nil
 })
@@ -467,23 +472,19 @@ func build() error {
     }
     return targ.Run("go", "build", "-o", "bin/app", "./...")
 }
-
-var Build = targ.Targ(build)
 ```
 
 ### CI Pipeline
 
 ```go
-var CI = targ.Targ(ci)
-
 func ci() error {
-    if err := targ.Deps(Generate); err != nil {
+    if err := targ.Deps(generate); err != nil {
         return err
     }
-    if err := targ.Deps(Build, Lint, targ.Parallel()); err != nil {
+    if err := targ.Deps(build, lint, targ.Parallel()); err != nil {
         return err
     }
-    return targ.Deps(Test)
+    return targ.Deps(test)
 }
 ```
 
@@ -491,7 +492,8 @@ func ci() error {
 
 ```go
 func TestDeploy(t *testing.T) {
-    result, err := targ.Execute([]string{"app", "deploy", "prod", "--force"}, Deploy)
+    deploy := targ.Targ(func(args DeployArgs) error { /* ... */ return nil })
+    result, err := targ.Execute([]string{"app", "deploy", "prod", "--force"}, deploy)
     if err != nil {
         t.Fatal(err)
     }
@@ -508,12 +510,14 @@ type CatArgs struct {
     Files []string `targ:"positional,required"`
 }
 
-var Cat = targ.Targ(func(args CatArgs) error {
-    for _, f := range args.Files {
-        // process each file
-    }
-    return nil
-})
+func init() {
+    targ.Register(targ.Targ(func(args CatArgs) error {
+        for _, f := range args.Files {
+            // process each file
+        }
+        return nil
+    }).Name("cat"))
+}
 ```
 
 ```bash
@@ -530,25 +534,27 @@ type FilterArgs struct {
     Exclude []targ.Interleaved[string] `targ:"flag,short=e"`
 }
 
-var Filter = targ.Targ(func(args FilterArgs) error {
-    type rule struct {
-        include bool
-        pattern string
-        pos     int
-    }
-    var rules []rule
-    for _, inc := range args.Include {
-        rules = append(rules, rule{true, inc.Value, inc.Position})
-    }
-    for _, exc := range args.Exclude {
-        rules = append(rules, rule{false, exc.Value, exc.Position})
-    }
-    sort.Slice(rules, func(i, j int) bool {
-        return rules[i].pos < rules[j].pos
-    })
-    // rules now in original command-line order
-    return nil
-})
+func init() {
+    targ.Register(targ.Targ(func(args FilterArgs) error {
+        type rule struct {
+            include bool
+            pattern string
+            pos     int
+        }
+        var rules []rule
+        for _, inc := range args.Include {
+            rules = append(rules, rule{true, inc.Value, inc.Position})
+        }
+        for _, exc := range args.Exclude {
+            rules = append(rules, rule{false, exc.Value, exc.Position})
+        }
+        sort.Slice(rules, func(i, j int) bool {
+            return rules[i].pos < rules[j].pos
+        })
+        // rules now in original command-line order
+        return nil
+    }).Name("filter"))
+}
 ```
 
 ```bash
