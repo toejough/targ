@@ -13,6 +13,10 @@ type Example struct {
 	Code  string // e.g., "eval \"$(targ --completion)\""
 }
 
+type ExecuteResult struct {
+	Output string
+}
+
 type Interleaved[T any] struct {
 	Value    T
 	Position int
@@ -60,3 +64,8 @@ type TagOptions struct {
 	Placeholder string
 	Required    bool
 }
+
+// unexported constants.
+const (
+	disabledSentinel = "__targ_disabled__"
+)

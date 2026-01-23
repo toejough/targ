@@ -95,6 +95,25 @@ func DetectShell() string {
 	}
 }
 
+// Execute runs commands with the given args and returns results instead of exiting.
+// This is useful for testing. Args should include the program name as the first element.
+func Execute(args []string, targets ...any) (ExecuteResult, error) {
+	return ExecuteWithOptions(args, RunOptions{AllowDefault: true}, targets...)
+}
+
+// ExecuteWithOptions runs commands with given args and options, returning results.
+// This is useful for testing. Args should include the program name as the first element.
+func ExecuteWithOptions(
+	args []string,
+	opts RunOptions,
+	targets ...any,
+) (ExecuteResult, error) {
+	env := NewExecuteEnv(args)
+	err := RunWithEnv(env, opts, targets...)
+
+	return ExecuteResult{Output: env.Output()}, err
+}
+
 // RunWithEnv executes commands with a custom environment.
 //
 //nolint:cyclop // Entry point orchestrating setup, flag extraction, and execution paths
