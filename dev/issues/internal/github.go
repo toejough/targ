@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/toejough/targ/sh"
+	"github.com/toejough/targ"
 )
 
 type GitHubIssue struct {
@@ -26,7 +26,7 @@ type GitHubUpdates struct {
 
 // CloseGitHubIssue closes a GitHub issue.
 func CloseGitHubIssue(number int) error {
-	_, err := sh.Output("gh", "issue", "close", strconv.Itoa(number))
+	_, err := targ.Output("gh", "issue", "close", strconv.Itoa(number))
 	if err != nil {
 		return fmt.Errorf("gh issue close failed: %w", err)
 	}
@@ -39,7 +39,7 @@ func CreateGitHubIssue(title, body string) (int, error) {
 	if body != "" {
 		args = append(args, "--body", body)
 	}
-	out, err := sh.Output("gh", args...)
+	out, err := targ.Output("gh", args...)
 	if err != nil {
 		return 0, fmt.Errorf("gh issue create failed: %w", err)
 	}
@@ -83,7 +83,7 @@ func ListGitHubIssues(state string) ([]GitHubIssue, error) {
 	} else {
 		args = append(args, "--state", "all")
 	}
-	out, err := sh.Output("gh", args...)
+	out, err := targ.Output("gh", args...)
 	if err != nil {
 		return nil, fmt.Errorf("gh issue list failed: %w", err)
 	}
@@ -126,7 +126,7 @@ func ParseIssueID(id string) (source string, number int, err error) {
 
 // ReopenGitHubIssue reopens a closed GitHub issue.
 func ReopenGitHubIssue(number int) error {
-	_, err := sh.Output("gh", "issue", "reopen", strconv.Itoa(number))
+	_, err := targ.Output("gh", "issue", "reopen", strconv.Itoa(number))
 	if err != nil {
 		return fmt.Errorf("gh issue reopen failed: %w", err)
 	}
@@ -145,7 +145,7 @@ func UpdateGitHubIssue(number int, updates GitHubUpdates) error {
 	if len(args) == 3 {
 		return fmt.Errorf("no updates provided")
 	}
-	_, err := sh.Output("gh", args...)
+	_, err := targ.Output("gh", args...)
 	if err != nil {
 		return fmt.Errorf("gh issue edit failed: %w", err)
 	}

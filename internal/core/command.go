@@ -17,7 +17,7 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/toejough/targ/sh"
+	internalsh "github.com/toejough/targ/internal/sh"
 )
 
 // GroupLike is implemented by types that represent target groups.
@@ -2152,7 +2152,7 @@ func runShellWithVars(ctx context.Context, cmd string, vars map[string]string) e
 	})
 
 	// Execute via sh -c
-	err := sh.RunContext(ctx, "sh", "-c", substituted)
+	err := internalsh.RunContextWithIO(ctx, nil, "sh", []string{"-c", substituted})
 	if err != nil {
 		return fmt.Errorf("shell command failed: %w", err)
 	}

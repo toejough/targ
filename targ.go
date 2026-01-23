@@ -3,12 +3,19 @@ package targ
 
 import (
 	"context"
+	"os"
 
 	"github.com/toejough/targ/internal/core"
+	internalfile "github.com/toejough/targ/internal/file"
+	internalsh "github.com/toejough/targ/internal/sh"
 )
 
 // Exported constants.
 const (
+	// DepModeParallel executes all dependencies concurrently.
+	DepModeParallel = core.DepModeParallel
+	// DepModeSerial executes dependencies one at a time in order.
+	DepModeSerial = core.DepModeSerial
 	// Disabled is a sentinel value for Target builder methods that indicates
 	// the setting should be controlled by CLI flags rather than compile-time config.
 	// Example: targ.Targ(Build).Watch(targ.Disabled) allows --watch flag to control watching.
@@ -17,6 +24,20 @@ const (
 	TagKindPositional = core.TagKindPositional
 	TagKindUnknown    = core.TagKindUnknown
 )
+
+// Exported variables.
+var (
+	ErrEmptyDest       = internalfile.ErrEmptyDest
+	ErrNoInputPatterns = internalfile.ErrNoInputPatterns
+	ErrNoPatterns      = internalfile.ErrNoPatterns
+	ErrUnmatchedBrace  = internalfile.ErrUnmatchedBrace
+)
+
+// ChangeSet holds the files that changed between watch polls.
+type ChangeSet = internalfile.ChangeSet
+
+// DepMode controls how dependencies are executed (parallel or serial).
+type DepMode = core.DepMode
 
 // DepsOption configures dependency execution behavior.
 type DepsOption = core.DepsOption
@@ -30,6 +51,18 @@ type ExecuteResult = core.ExecuteResult
 // ExitError represents a non-zero exit code from command execution.
 type ExitError = core.ExitError
 
+// Group represents a named collection of targets that can be run together.
+type Group = core.Group
+
+// NewGroup creates a named group containing the given members.
+// Members can be *Target or *Group (for nested hierarchies).
+//
+//	var lint = targ.NewGroup("lint", lintFast, lintFull)
+//	var dev = targ.NewGroup("dev", build, lint, test)
+func NewGroup(name string, members ...any) *Group {
+	return core.NewGroup(name, members...)
+}
+
 // Interleaved wraps a value to be parsed from interleaved positional arguments.
 type Interleaved[T any] = core.Interleaved[T]
 
@@ -42,19 +75,35 @@ type TagKind = core.TagKind
 // TagOptions holds parsed struct tag options for CLI argument handling.
 type TagOptions = core.TagOptions
 
+// Target represents a build target that can be invoked from the CLI.
+type Target = core.Target
+
+// WatchOptions configures file watching behavior.
+type WatchOptions = internalfile.WatchOptions
+
+// --- Examples ---
+
 // AppendBuiltinExamples adds built-in examples after custom examples.
-func AppendBuiltinExamples(
-	custom ...Example,
-) []Example {
+func AppendBuiltinExamples(custom ...Example) []Example {
 	return core.AppendBuiltinExamples(custom...)
 }
 
 // BuiltinExamples returns the default targ examples (completion setup, chaining).
 func BuiltinExamples() []Example { return core.BuiltinExamples() }
 
+// Checksum reports whether the content hash of inputs differs from the stored hash at dest.
+// When the hash changes, the new hash is written to dest.
+func Checksum(inputs []string, dest string) (bool, error) {
+	return internalfile.Checksum(inputs, dest, func(patterns []string) ([]string, error) {
+		return Match(patterns...)
+	}, nil)
+}
+
 // ContinueOnError runs all dependencies even if one fails.
 // Without this option, Deps fails fast (cancels remaining on first error).
 func ContinueOnError() DepsOption { return core.ContinueOnError() }
+
+// --- Dependency Execution ---
 
 // Deps executes dependencies, each exactly once per CLI run.
 // Options can be mixed with targets in any order:
@@ -69,6 +118,19 @@ func Deps(args ...any) error {
 
 // EmptyExamples returns an empty slice to disable examples in help.
 func EmptyExamples() []Example { return core.EmptyExamples() }
+
+// EnableCleanup enables automatic cleanup of child processes on SIGINT/SIGTERM.
+// Call this once at program startup to ensure Ctrl-C kills all spawned processes.
+func EnableCleanup() {
+	internalsh.EnableCleanup()
+}
+
+// ExeSuffix returns ".exe" on Windows, otherwise an empty string.
+func ExeSuffix() string {
+	return internalsh.ExeSuffix(nil)
+}
+
+// --- Execution ---
 
 // Execute runs commands with the given args and returns results instead of exiting.
 // This is useful for testing. Args should include the program name as the first element.
@@ -98,6 +160,37 @@ func ExecuteWithOptions(
 	return core.ExecuteWithOptions(args, opts, targets...)
 }
 
+// IsWindows reports whether the current OS is Windows.
+func IsWindows() bool {
+	return internalsh.IsWindowsOS()
+}
+
+// --- File Utilities ---
+
+// Match expands one or more patterns using fish-style globs (including ** and {a,b}).
+func Match(patterns ...string) ([]string, error) {
+	return internalfile.Match(patterns...)
+}
+
+// Newer reports whether inputs are newer than outputs, or when outputs are empty,
+// whether the input match set or file modtimes changed since the last run.
+func Newer(inputs, outputs []string) (bool, error) {
+	return internalfile.Newer(inputs, outputs, func(patterns []string) ([]string, error) {
+		return Match(patterns...)
+	}, nil, nil)
+}
+
+// Output executes a command and returns combined output.
+func Output(name string, args ...string) (string, error) {
+	return internalsh.Output(nil, name, args...)
+}
+
+// OutputContext executes a command and returns combined output, with context support.
+// When ctx is cancelled, the process and all its children are killed.
+func OutputContext(ctx context.Context, name string, args ...string) (string, error) {
+	return internalsh.OutputContext(ctx, name, args, os.Stdin)
+}
+
 // Parallel runs dependencies concurrently instead of sequentially.
 func Parallel() DepsOption { return core.Parallel() }
 
@@ -113,8 +206,6 @@ func Register(targets ...any) {
 	core.RegisterTarget(targets...)
 }
 
-// PrintCompletionScript outputs shell completion scripts for the given shell.
-
 // ResetDeps clears the dependency execution cache, allowing all targets
 // to run again on subsequent Deps() calls. This is useful for watch mode
 // where the same targets need to re-run on each file change.
@@ -122,12 +213,80 @@ func ResetDeps() {
 	core.ResetDeps()
 }
 
-// --- Public API ---
+// Run executes a command streaming stdout/stderr.
+func Run(name string, args ...string) error {
+	return internalsh.Run(nil, name, args...)
+}
 
-// Run executes the CLI using os.Args and exits on error.
+// RunContext executes a command with context support.
+// When ctx is cancelled, the process and all its children are killed.
+func RunContext(ctx context.Context, name string, args ...string) error {
+	return internalsh.RunContextWithIO(ctx, nil, name, args)
+}
 
-// RunWithOptions executes the CLI using os.Args and exits on error.
+// RunContextV executes a command, prints it first, with context support.
+// When ctx is cancelled, the process and all its children are killed.
+func RunContextV(ctx context.Context, name string, args ...string) error {
+	return internalsh.RunContextV(ctx, nil, name, args)
+}
+
+// RunV executes a command and prints it first.
+func RunV(name string, args ...string) error {
+	return internalsh.RunV(nil, name, args...)
+}
+
+// --- Shell Execution ---
+
+// Shell executes a shell command with variable substitution from struct fields.
+// Variables are specified as $name in the command string and are replaced with
+// the corresponding field value from the args struct.
+//
+// Example:
+//
+//	type DeployArgs struct {
+//	    Namespace string
+//	    File      string
+//	}
+//	err := targ.Shell(ctx, "kubectl apply -n $namespace -f $file", args)
+//
+// Field names are matched case-insensitively (e.g., $namespace matches Namespace).
+// Unknown variables return an error.
+func Shell(ctx context.Context, cmd string, args any) error {
+	return core.Shell(ctx, cmd, args)
+}
+
+// --- Target and Group Creation ---
+
+// Targ creates a Target from a function or shell command string.
+//
+// Function targets:
+//
+//	var build = targ.Targ(Build)
+//
+// Shell command targets (run in user's shell):
+//
+//	var lint = targ.Targ("golangci-lint run ./...")
+func Targ(fn any) *Target {
+	return core.Targ(fn)
+}
+
+// Watch polls patterns for changes and invokes callback with any detected changes.
+func Watch(
+	ctx context.Context,
+	patterns []string,
+	opts WatchOptions,
+	callback func(ChangeSet) error,
+) error {
+	return internalfile.Watch(ctx, patterns, opts, callback, func(p []string) ([]string, error) {
+		return Match(p...)
+	}, nil)
+}
 
 // WithContext passes a custom context to dependencies.
 // Useful for cancellation in watch mode.
 func WithContext(ctx context.Context) DepsOption { return core.WithContext(ctx) }
+
+// WithExeSuffix appends the OS-specific executable suffix if missing.
+func WithExeSuffix(name string) string {
+	return internalsh.WithExeSuffix(nil, name)
+}

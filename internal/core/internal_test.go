@@ -21,7 +21,7 @@ import (
 	. "github.com/onsi/gomega"
 	"pgregory.net/rapid"
 
-	"github.com/toejough/targ/file"
+	internalfile "github.com/toejough/targ/internal/file"
 )
 
 type FlagParseCmdArgs struct {
@@ -1273,9 +1273,11 @@ func TestExecuteWithWatch_CallbackInvoked(t *testing.T) {
 	callbackErr := errors.New("callback error")
 
 	// Mock Watch to immediately call the callback
-	fileWatch = func(_ context.Context, _ []string, _ file.WatchOptions, cb func(file.ChangeSet) error) error {
+	fileWatch = func(
+		_ context.Context, _ []string, _ internalfile.WatchOptions, cb func(internalfile.ChangeSet) error,
+	) error {
 		callbackCalled = true
-		return cb(file.ChangeSet{Modified: []string{"test.go"}})
+		return cb(internalfile.ChangeSet{Modified: []string{"test.go"}})
 	}
 
 	fnCalls := 0
@@ -3238,8 +3240,8 @@ func TestRelativeSourcePathWithGetwd_GetwdError(t *testing.T) {
 		return "", errors.New("getwd failed")
 	}
 
-	result := relativeSourcePathWithGetwd("/some/path/file.go", failingGetwd)
-	g.Expect(result).To(Equal("/some/path/file.go"))
+	result := relativeSourcePathWithGetwd("/some/path/internalfile.go", failingGetwd)
+	g.Expect(result).To(Equal("/some/path/internalfile.go"))
 }
 
 func TestRelativeSourcePath_Empty(t *testing.T) {
@@ -3251,17 +3253,17 @@ func TestRelativeSourcePath_Empty(t *testing.T) {
 func TestRelativeSourcePath_SubPath(t *testing.T) {
 	g := NewWithT(t)
 	cwd, _ := os.Getwd()
-	testPath := filepath.Join(cwd, "sub", "testfile.go")
+	testPath := filepath.Join(cwd, "sub", "testinternalfile.go")
 	result := relativeSourcePath(testPath)
-	g.Expect(result).To(Equal(filepath.Join("sub", "testfile.go")))
+	g.Expect(result).To(Equal(filepath.Join("sub", "testinternalfile.go")))
 }
 
 func TestRelativeSourcePath_ValidPath(t *testing.T) {
 	g := NewWithT(t)
 	cwd, _ := os.Getwd()
-	testPath := filepath.Join(cwd, "testfile.go")
+	testPath := filepath.Join(cwd, "testinternalfile.go")
 	result := relativeSourcePath(testPath)
-	g.Expect(result).To(Equal("testfile.go"))
+	g.Expect(result).To(Equal("testinternalfile.go"))
 }
 
 func TestRunShellWithVars_Substitution(t *testing.T) {

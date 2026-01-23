@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/toejough/targ/file"
+	internalfile "github.com/toejough/targ/internal/file"
 )
 
 // RuntimeOverrides holds CLI flags that override Target compile-time settings.
@@ -169,7 +169,21 @@ var (
 	errWatchRequiresPattern = errors.New("--watch requires a pattern")
 	errWhileRequiresCommand = errors.New("--while requires a command")
 	//nolint:gochecknoglobals // DI injection point for testing
-	fileWatch = file.Watch
+	fileWatch = func(
+		ctx context.Context,
+		patterns []string,
+		opts internalfile.WatchOptions,
+		callback func(internalfile.ChangeSet) error,
+	) error {
+		return internalfile.Watch(
+			ctx,
+			patterns,
+			opts,
+			callback,
+			func(p []string) ([]string, error) { return internalfile.Match(p...) },
+			nil,
+		)
+	}
 )
 
 // overrideFlagHandler is a function that handles an override flag.
@@ -210,7 +224,12 @@ func checkCacheHit(patterns []string, cacheDir string) (bool, error) {
 		cacheDir = ".targ-cache"
 	}
 
-	changed, err := file.Checksum(patterns, cacheDir+"/override.sum")
+	changed, err := internalfile.Checksum(
+		patterns,
+		cacheDir+"/override.sum",
+		func(p []string) ([]string, error) { return internalfile.Match(p...) },
+		nil,
+	)
 	if err != nil {
 		return false, fmt.Errorf("cache check failed: %w", err)
 	}
@@ -345,7 +364,7 @@ func executeWithWatch(
 	// Watch for changes and re-run. Watch runs until error (including context cancel).
 	return fmt.Errorf(
 		"watching files: %w",
-		fileWatch(ctx, patterns, file.WatchOptions{}, func(_ file.ChangeSet) error {
+		fileWatch(ctx, patterns, internalfile.WatchOptions{}, func(_ internalfile.ChangeSet) error {
 			return fn()
 		}),
 	)

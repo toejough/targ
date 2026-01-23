@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/toejough/targ/sh"
+	internalsh "github.com/toejough/targ/internal/sh"
 )
 
 // Shell executes a shell command with variable substitution from struct fields.
@@ -32,7 +32,7 @@ func Shell(ctx context.Context, cmd string, args any) error {
 		return err
 	}
 
-	err = sh.RunContext(ctx, "sh", "-c", substituted)
+	err = internalsh.RunContextWithIO(ctx, nil, "sh", []string{"-c", substituted})
 	if err != nil {
 		return fmt.Errorf("shell command failed: %w", err)
 	}

@@ -24,8 +24,6 @@ import (
 	"github.com/akedrou/textdiff"
 	"github.com/toejough/go-reorder"
 	"github.com/toejough/targ"
-	"github.com/toejough/targ/file"
-	"github.com/toejough/targ/sh"
 	"github.com/toejough/testredundancy"
 )
 
@@ -269,7 +267,7 @@ func checkCoverageForFail(ctx context.Context) error {
 		return fmt.Errorf("failed to merge coverage blocks: %w", err)
 	}
 
-	out, err := sh.OutputContext(ctx, "go", "tool", "cover", "-func=coverage.out")
+	out, err := targ.OutputContext(ctx, "go", "tool", "cover", "-func=coverage.out")
 	if err != nil {
 		return err
 	}
@@ -382,12 +380,12 @@ func checkNils(ctx context.Context) error {
 
 func checkNilsFix(ctx context.Context) error {
 	fmt.Println("Fixing nil issues...")
-	return sh.RunContext(ctx, "nilaway", "-fix", "./...")
+	return targ.RunContext(ctx, "nilaway", "-fix", "./...")
 }
 
 func checkNilsForFail(ctx context.Context) error {
 	fmt.Println("Checking for nil issues...")
-	return sh.RunContext(ctx, "nilaway", "./...")
+	return targ.RunContext(ctx, "nilaway", "./...")
 }
 
 // checkReturnThinness checks if a return statement is a thin wrapper.
@@ -632,15 +630,15 @@ func clean() {
 
 func coverage(args CoverageArgs) error {
 	if args.HTML {
-		return sh.RunV("go", "tool", "cover", "-html=coverage.out")
+		return targ.RunV("go", "tool", "cover", "-html=coverage.out")
 	}
-	return sh.RunV("go", "tool", "cover", "-func=coverage.out")
+	return targ.RunV("go", "tool", "cover", "-func=coverage.out")
 }
 
 func deadcode(ctx context.Context) error {
 	fmt.Println("Checking for dead code...")
 
-	out, err := sh.OutputContext(ctx, "deadcode", "-test", "./...")
+	out, err := targ.OutputContext(ctx, "deadcode", "-test", "./...")
 	if err != nil {
 		return err
 	}
@@ -653,12 +651,16 @@ func deadcode(ctx context.Context) error {
 			continue
 		}
 
-		// Extract file path from "file.go:line:col: unreachable func: Name"
+		// Extract file path from "targ.go:line:col: unreachable func: Name"
 		colonIdx := strings.Index(line, ":")
 		if colonIdx > 0 {
 			filePath := line[:colonIdx]
 			// Skip public API entry point files (thin wrappers)
 			if isPublicAPIEntryPoint(filePath) {
+				continue
+			}
+			// Skip internal/sh and internal/file - they support the public API
+			if strings.HasPrefix(filePath, "internal/sh/") || strings.HasPrefix(filePath, "internal/file/") {
 				continue
 			}
 		}
@@ -774,7 +776,7 @@ func deleteDeadcode(ctx context.Context) error {
 		return err
 	}
 
-	// Parse deadcode output: "file.go:123: unreachable func: FuncName"
+	// Parse deadcode output: "targ.go:123: unreachable func: FuncName"
 	// Group by file
 	fileToFuncs := make(map[string][]deadFunc)
 
@@ -805,6 +807,11 @@ func deleteDeadcode(ctx context.Context) error {
 
 		// Skip public API entry point files (thin wrappers)
 		if isPublicAPIEntryPoint(file) {
+			continue
+		}
+
+		// Skip internal/sh and internal/file - they support the public API
+		if strings.HasPrefix(file, "internal/sh/") || strings.HasPrefix(file, "internal/file/") {
 			continue
 		}
 
@@ -853,7 +860,7 @@ func findRedundantTests() error {
 
 func fmtCode(ctx context.Context) error {
 	fmt.Println("Formatting...")
-	return sh.RunContext(ctx, "golangci-lint", "run", "-c", "dev/golangci-fmt.toml")
+	return targ.RunContext(ctx, "golangci-lint", "run", "-c", "dev/golangci-fmt.toml")
 }
 
 func funcDeclName(fn *ast.FuncDecl) string {
@@ -927,7 +934,7 @@ func fuzz() error {
 	for _, test := range fuzzTests {
 		fmt.Printf("  Fuzzing %s in %s...\n", test.name, test.dir)
 
-		err := sh.Run("go", "test", test.dir, "-fuzz=^"+test.name+"$", "-fuzztime=1000x")
+		err := targ.Run("go", "test", test.dir, "-fuzz=^"+test.name+"$", "-fuzztime=1000x")
 		if err != nil {
 			return fmt.Errorf("fuzz test %s failed: %w", test.name, err)
 		}
@@ -1004,7 +1011,7 @@ func hasBuildTagOrGenerated(path string) (bool, error) {
 
 // hasRelevantChanges returns true if the changeset contains files we care about.
 // Filters out generated files and build artifacts that Check() itself creates.
-func hasRelevantChanges(changes file.ChangeSet) bool {
+func hasRelevantChanges(changes targ.ChangeSet) bool {
 	allFiles := append(append(changes.Added, changes.Removed...), changes.Modified...)
 
 	for _, f := range allFiles {
@@ -1025,7 +1032,7 @@ func hasRelevantChanges(changes file.ChangeSet) bool {
 
 func installTools() error {
 	fmt.Println("Installing development tools...")
-	return sh.Run("./dev/dev-install.sh")
+	return targ.Run("./dev/dev-install.sh")
 }
 
 func isBasicLit(expr ast.Expr) bool {
@@ -1034,7 +1041,7 @@ func isBasicLit(expr ast.Expr) bool {
 	return ok
 }
 
-// isEntryPointCoverageLine checks coverage.out format lines (e.g., "module/file.go:1.1,2.2 1 0")
+// isEntryPointCoverageLine checks coverage.out format lines (e.g., "module/targ.go:1.1,2.2 1 0")
 func isEntryPointCoverageLine(line string) bool {
 	// main.go files are CLI entry points
 	if strings.Contains(line, "/main.go:") {
@@ -1048,6 +1055,12 @@ func isEntryPointCoverageLine(line string) bool {
 
 	// internal/core/execute.go contains os.Exit entry points
 	if strings.Contains(line, "/internal/core/execute.go:") {
+		return true
+	}
+
+	// internal/sh and internal/file support the public API
+	// They are tested through the public API wrappers in targ.go
+	if strings.Contains(line, "/internal/sh/") || strings.Contains(line, "/internal/file/") {
 		return true
 	}
 
@@ -1229,13 +1242,13 @@ func isSimpleErrorWrapper(stmts []ast.Stmt) bool {
 
 func lint(ctx context.Context) error {
 	fmt.Println("Linting...")
-	return sh.RunContext(ctx, "golangci-lint", "run", "-c", "dev/golangci-lint.toml")
+	return targ.RunContext(ctx, "golangci-lint", "run", "-c", "dev/golangci-lint.toml")
 }
 
 func lintFast(ctx context.Context) error {
 	fmt.Println("Running fast linters...")
 
-	return sh.RunContext(ctx,
+	return targ.RunContext(ctx,
 		"golangci-lint", "run",
 		"-c", "dev/golangci-fast.toml",
 		"--allow-parallel-runners",
@@ -1245,7 +1258,7 @@ func lintFast(ctx context.Context) error {
 func lintForFail(ctx context.Context) error {
 	fmt.Println("Linting to check for overall pass/fail...")
 
-	return sh.RunContext(ctx,
+	return targ.RunContext(ctx,
 		"golangci-lint", "run",
 		"-c", "dev/golangci-lint.toml",
 		"--fix=false",
@@ -1255,7 +1268,7 @@ func lintForFail(ctx context.Context) error {
 	)
 }
 
-// mergeCoverageBlocks merges duplicate coverage blocks in a coverage file.
+// mergeCoverageBlocks merges duplicate coverage blocks in a coverage targ.
 // This handles the case where multiple test packages cover the same code.
 func mergeCoverageBlocks(coverageFile string) error {
 	data, err := os.ReadFile(coverageFile)
@@ -1314,7 +1327,7 @@ func mergeCoverageBlocks(coverageFile string) error {
 func modernize(ctx context.Context) error {
 	fmt.Println("Modernizing codebase...")
 
-	return sh.RunContext(ctx, "go", "run", "golang.org/x/tools/go/analysis/passes/modernize/cmd/modernize@latest",
+	return targ.RunContext(ctx, "go", "run", "golang.org/x/tools/go/analysis/passes/modernize/cmd/modernize@latest",
 		"-fix", "./...")
 }
 
@@ -1325,7 +1338,7 @@ func mutate() error {
 		return err
 	}
 
-	return sh.Run(
+	return targ.Run(
 		"go",
 		"test",
 		"-timeout=0",
@@ -1601,7 +1614,7 @@ func test(ctx context.Context) error {
 	}
 
 	// Use -count=1 to disable caching so coverage is regenerated
-	err := sh.RunContext(ctx,
+	err := targ.RunContext(ctx,
 		"go",
 		"test",
 		"-timeout=2m",
@@ -1651,7 +1664,7 @@ func testForFail(ctx context.Context) error {
 		return err
 	}
 
-	return sh.RunContext(ctx,
+	return targ.RunContext(ctx,
 		"go",
 		"test",
 		"-buildvcs=false",
@@ -1665,12 +1678,12 @@ func testForFail(ctx context.Context) error {
 
 func tidy(ctx context.Context) error {
 	fmt.Println("Tidying go.mod...")
-	return sh.RunContext(ctx, "go", "mod", "tidy")
+	return targ.RunContext(ctx, "go", "mod", "tidy")
 }
 
 func todoCheck() error {
 	fmt.Println("Checking for TODOs...")
-	return sh.Run("golangci-lint", "run", "-c", "dev/golangci-todos.toml")
+	return targ.Run("golangci-lint", "run", "-c", "dev/golangci-todos.toml")
 }
 
 func watch(ctx context.Context) error {
@@ -1681,7 +1694,7 @@ func watch(ctx context.Context) error {
 		checkMu     sync.Mutex
 	)
 
-	return file.Watch(ctx, []string{"**/*.go", "**/*.fish", "**/*.toml"}, file.WatchOptions{}, func(changes file.ChangeSet) error {
+	return targ.Watch(ctx, []string{"**/*.go", "**/*.fish", "**/*.toml"}, targ.WatchOptions{}, func(changes targ.ChangeSet) error {
 		// Filter out generated files and coverage output to avoid infinite loops
 		if !hasRelevantChanges(changes) {
 			return nil

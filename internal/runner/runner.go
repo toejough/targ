@@ -257,7 +257,7 @@ func ConvertFuncTargetToString(filePath, targetName string) (bool, error) {
 	shellCmd, funcDecl := extractShellCommand(file, info.funcIdent.Name)
 	if shellCmd == "" {
 		//nolint:err113 // specific error message for user feedback
-		return false, fmt.Errorf("function %s is not a simple sh.Run call", info.funcIdent.Name)
+		return false, fmt.Errorf("function %s is not a simple targ.Run call", info.funcIdent.Name)
 	}
 
 	// Replace function reference with string
@@ -806,20 +806,20 @@ package main
 
 import (
 	"github.com/toejough/targ"
-	"github.com/toejough/targ/sh"
 {{- range .BlankImports }}
 	_ "{{ . }}"
 {{- end }}
 )
 
 func main() {
-	sh.EnableCleanup()
+	targ.EnableCleanup()
 	targ.ExecuteRegisteredWithOptions(targ.RunOptions{
 		Description: {{ printf "%q" .Description }},
 	})
 }
 `
-	commandNamePadding     = 2 // Padding after command name column
+	buildTag               = "targ" // build tag for targ files
+	commandNamePadding     = 2      // Padding after command name column
 	completeCommand        = "__complete"
 	defaultPackageName     = "main" // default package name for created targ files
 	defaultTargModulePath  = "github.com/toejough/targ"
@@ -1102,7 +1102,7 @@ func (r *targRunner) buildAndRunWithOptions(
 func (r *targRunner) discoverPackages() ([]buildtool.PackageInfo, error) {
 	infos, err := buildtool.Discover(osFileSystem{}, buildtool.Options{
 		StartDir: r.startDir,
-		BuildTag: "targ",
+		BuildTag: buildTag,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("error discovering commands: %w", err)
@@ -1123,7 +1123,7 @@ func (r *targRunner) discoverPackages() ([]buildtool.PackageInfo, error) {
 }
 
 func (r *targRunner) executeBuild(buildDir, binaryPath, tempFile string, isolated bool) error {
-	buildArgs := []string{"build", "-tags", "targ", "-o", binaryPath}
+	buildArgs := []string{"build", "-tags", buildTag, "-o", binaryPath}
 	if isolated {
 		buildArgs = append(buildArgs, "-mod=mod")
 	}
@@ -1506,7 +1506,7 @@ func (r *targRunner) prepareBootstrap(
 
 	taggedFiles, err := buildtool.TaggedFiles(osFileSystem{}, buildtool.Options{
 		StartDir: r.startDir,
-		BuildTag: "targ",
+		BuildTag: buildTag,
 	})
 	if err != nil {
 		return moduleBootstrap{}, fmt.Errorf("error gathering tagged files: %w", err)
@@ -2203,7 +2203,7 @@ func escapeGoString(s string) string {
 
 func extractBinName(binArg string) string {
 	if binArg == "" {
-		return "targ"
+		return buildTag
 	}
 
 	if idx := strings.LastIndex(binArg, "/"); idx != -1 {
@@ -2280,7 +2280,12 @@ func extractShellCommand(file *ast.File, funcName string) (string, *ast.FuncDecl
 		}
 
 		ident, ok := sel.X.(*ast.Ident)
-		if !ok || ident.Name != "sh" || sel.Sel.Name != "Run" {
+		if !ok || sel.Sel.Name != "Run" {
+			return "", nil
+		}
+
+		// Support both sh.Run and targ.Run
+		if ident.Name != "sh" && ident.Name != "targ" {
 			return "", nil
 		}
 
@@ -2544,7 +2549,7 @@ func generateModuleBootstrap(
 	}, nil
 }
 
-// generateShellFunc generates a function that calls sh.Run with the command.
+// generateShellFunc generates a function that calls targ.Run with the command.
 func generateShellFunc(funcName, shellCmd string) *ast.FuncDecl {
 	// Parse command into parts
 	parts := strings.Fields(shellCmd)
@@ -2552,7 +2557,7 @@ func generateShellFunc(funcName, shellCmd string) *ast.FuncDecl {
 		parts = []string{shellCmd}
 	}
 
-	// Build arguments for sh.Run
+	// Build arguments for targ.Run
 	args := make([]ast.Expr, len(parts))
 	for i, part := range parts {
 		args[i] = &ast.BasicLit{
@@ -2577,7 +2582,7 @@ func generateShellFunc(funcName, shellCmd string) *ast.FuncDecl {
 					Results: []ast.Expr{
 						&ast.CallExpr{
 							Fun: &ast.SelectorExpr{
-								X:   ast.NewIdent("sh"),
+								X:   ast.NewIdent("targ"),
 								Sel: ast.NewIdent("Run"),
 							},
 							Args: args,
@@ -3061,7 +3066,7 @@ func resolveTargDependency() TargDependency {
 
 // runGoBuild executes the go build command.
 func runGoBuild(ctx buildContext, binaryPath, tempFile string, errOut io.Writer) error {
-	buildArgs := []string{"build", "-tags", "targ", "-o", binaryPath}
+	buildArgs := []string{"build", "-tags", buildTag, "-o", binaryPath}
 	if ctx.usingFallback {
 		buildArgs = append(buildArgs, "-mod=mod")
 	}

@@ -515,9 +515,9 @@ var Lint = targ.Targ("golangci-lint run").Name("lint")
 		t.Errorf("expected lint function, got:\n%s", contentStr)
 	}
 
-	// Should have sh.Run call
-	if !strings.Contains(contentStr, "sh.Run(") {
-		t.Errorf("expected sh.Run call, got:\n%s", contentStr)
+	// Should have targ.Run call
+	if !strings.Contains(contentStr, "targ.Run(") {
+		t.Errorf("expected targ.Run call, got:\n%s", contentStr)
 	}
 }
 

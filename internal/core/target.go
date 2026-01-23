@@ -9,8 +9,8 @@ import (
 	"sort"
 	"time"
 
-	"github.com/toejough/targ/file"
-	"github.com/toejough/targ/sh"
+	internalfile "github.com/toejough/targ/internal/file"
+	internalsh "github.com/toejough/targ/internal/sh"
 )
 
 // DepMode controls how dependencies are executed (parallel or serial).
@@ -194,9 +194,16 @@ func (t *Target) Run(ctx context.Context, args ...any) error {
 
 	// If watch patterns set, watch for changes and re-run
 	if len(t.watch) > 0 {
-		err := file.Watch(ctx, t.watch, file.WatchOptions{}, func(_ file.ChangeSet) error {
-			return t.runOnce(ctx, args)
-		})
+		err := internalfile.Watch(
+			ctx,
+			t.watch,
+			internalfile.WatchOptions{},
+			func(_ internalfile.ChangeSet) error {
+				return t.runOnce(ctx, args)
+			},
+			func(p []string) ([]string, error) { return internalfile.Match(p...) },
+			nil,
+		)
 		if err != nil {
 			return fmt.Errorf("watching files: %w", err)
 		}
@@ -265,7 +272,7 @@ func (t *Target) applyBackoff(
 	return nil
 }
 
-// cacheFilePath returns the path to the cache checksum file.
+// cacheFilePath returns the path to the cache checksum internalfile.
 func (t *Target) cacheFilePath() string {
 	dir := t.cacheDir
 	if dir == "" {
@@ -295,7 +302,12 @@ func (t *Target) cacheFilePath() string {
 func (t *Target) checkCache() (bool, error) {
 	cacheFile := t.cacheFilePath()
 
-	changed, err := file.Checksum(t.cache, cacheFile)
+	changed, err := internalfile.Checksum(
+		t.cache,
+		cacheFile,
+		func(p []string) ([]string, error) { return internalfile.Match(p...) },
+		nil,
+	)
 	if err != nil {
 		return false, fmt.Errorf("computing checksum: %w", err)
 	}
@@ -538,7 +550,7 @@ func callFunc(ctx context.Context, fn any, args []any) error {
 // runShellCommand executes a shell command string.
 // The command is run via the user's shell (sh -c on Unix).
 func runShellCommand(ctx context.Context, cmd string) error {
-	err := sh.RunContext(ctx, "sh", "-c", cmd)
+	err := internalsh.RunContextWithIO(ctx, nil, "sh", []string{"-c", cmd})
 	if err != nil {
 		return fmt.Errorf("shell command failed: %w", err)
 	}
