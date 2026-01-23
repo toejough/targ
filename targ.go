@@ -3,9 +3,6 @@ package targ
 
 import (
 	"context"
-	"errors"
-	"fmt"
-	"os"
 
 	"github.com/toejough/targ/internal/core"
 )
@@ -26,9 +23,7 @@ type DepsOption = core.DepsOption
 
 type Example = core.Example
 
-type ExecuteResult struct {
-	Output string
-}
+type ExecuteResult = core.ExecuteResult
 
 type ExitError = core.ExitError
 
@@ -83,20 +78,19 @@ func EmptyExamples() []Example { return core.EmptyExamples() }
 // Execute runs commands with the given args and returns results instead of exiting.
 // This is useful for testing. Args should include the program name as the first element.
 func Execute(args []string, targets ...any) (ExecuteResult, error) {
-	return ExecuteWithOptions(args, RunOptions{AllowDefault: true}, targets...)
+	return core.Execute(args, targets...)
 }
 
 // ExecuteRegistered runs the registered targets using os.Args and exits on error.
 // This is used by the targ buildtool for packages that use explicit registration.
 func ExecuteRegistered() {
-	RunWithOptions(RunOptions{AllowDefault: true}, registry...)
+	core.ExecuteRegistered()
 }
 
 // ExecuteRegisteredWithOptions runs the registered targets with custom options.
 // Used by generated bootstrap code.
 func ExecuteRegisteredWithOptions(opts RunOptions) {
-	opts.AllowDefault = true
-	RunWithOptions(opts, registry...)
+	core.ExecuteRegisteredWithOptions(opts)
 }
 
 // ExecuteWithOptions runs commands with given args and options, returning results.
@@ -106,10 +100,7 @@ func ExecuteWithOptions(
 	opts RunOptions,
 	targets ...any,
 ) (ExecuteResult, error) {
-	env := core.NewExecuteEnv(args)
-	err := core.RunWithEnv(env, opts, targets...)
-
-	return ExecuteResult{Output: env.Output()}, err
+	return core.ExecuteWithOptions(args, opts, targets...)
 }
 
 // Parallel runs dependencies concurrently instead of sequentially.
@@ -124,7 +115,7 @@ func PrependBuiltinExamples(custom ...Example) []Example {
 // Typically called from init() in packages with //go:build targ.
 // Use ExecuteRegistered() in main() to run the registered targets.
 func Register(targets ...any) {
-	registry = append(registry, targets...)
+	core.RegisterTarget(targets...)
 }
 
 // PrintCompletionScript outputs shell completion scripts for the given shell.
@@ -141,35 +132,7 @@ func ResetDeps() {
 // Run executes the CLI using os.Args and exits on error.
 
 // RunWithOptions executes the CLI using os.Args and exits on error.
-func RunWithOptions(opts RunOptions, targets ...any) {
-	err := core.RunWithEnv(osRunEnv{}, opts, targets...)
-	if err != nil {
-		var exitErr ExitError
-		if errors.As(err, &exitErr) {
-			os.Exit(exitErr.Code)
-		}
-
-		os.Exit(1)
-	}
-}
 
 // WithContext passes a custom context to dependencies.
 // Useful for cancellation in watch mode.
 func WithContext(ctx context.Context) DepsOption { return core.WithContext(ctx) }
-
-// unexported variables.
-var (
-	registry []any //nolint:gochecknoglobals // Global registry is intentional for Register() API
-)
-
-type osRunEnv struct{}
-
-func (osRunEnv) Args() []string { return os.Args }
-
-func (osRunEnv) Exit(code int) { os.Exit(code) }
-
-func (osRunEnv) Printf(f string, a ...any) { fmt.Printf(f, a...) }
-
-func (osRunEnv) Println(a ...any) { fmt.Println(a...) }
-
-func (osRunEnv) SupportsSignals() bool { return true }
