@@ -4,6 +4,7 @@ import (
 	"github.com/toejough/targ/internal/core"
 )
 
+// Group represents a named collection of targets that can be run together.
 type Group = core.Group
 
 // NewGroup creates a named group containing the given members.

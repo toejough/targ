@@ -8,20 +8,24 @@ const (
 	TagKindUnknown    TagKind = "unknown"
 )
 
+// Example represents a usage example shown in help text.
 type Example struct {
 	Title string // e.g., "Enable shell completion"
 	Code  string // e.g., "eval \"$(targ --completion)\""
 }
 
+// ExecuteResult contains the result of executing a command.
 type ExecuteResult struct {
 	Output string
 }
 
+// Interleaved wraps a value to be parsed from interleaved positional arguments.
 type Interleaved[T any] struct {
 	Value    T
 	Position int
 }
 
+// RunOptions configures command execution behavior.
 type RunOptions struct {
 	AllowDefault      bool
 	DisableHelp       bool
@@ -51,8 +55,10 @@ type RunOptions struct {
 	Overrides RuntimeOverrides
 }
 
+// TagKind represents the type of a struct tag (flag, positional, subcommand).
 type TagKind string
 
+// TagOptions holds parsed struct tag options for CLI argument handling.
 type TagOptions struct {
 	Kind        TagKind
 	Name        string

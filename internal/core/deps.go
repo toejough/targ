@@ -8,6 +8,7 @@ import (
 	"sync"
 )
 
+// DepsOption configures dependency execution behavior.
 type DepsOption interface {
 	applyDeps(cfg *depsConfig)
 }

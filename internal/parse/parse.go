@@ -10,6 +10,8 @@ import (
 	"unicode"
 )
 
+// ReflectTag provides struct tag parsing functionality.
+// ReflectTag wraps a struct field tag string for key-value extraction.
 type ReflectTag string
 
 // NewReflectTag creates a ReflectTag from a raw tag string.

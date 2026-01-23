@@ -22,22 +22,26 @@ var (
 	ErrNoTaggedFiles          = errors.New("no tagged files found")
 )
 
+// FileInfo holds path information for a discovered file.
 type FileInfo struct {
 	Path string
 	Base string
 }
 
+// FileSystem abstracts file operations for testing.
 type FileSystem interface {
 	ReadDir(name string) ([]fs.DirEntry, error)
 	ReadFile(name string) ([]byte, error)
 	WriteFile(name string, data []byte, perm fs.FileMode) error
 }
 
+// Options configures the discovery process.
 type Options struct {
 	StartDir string
 	BuildTag string
 }
 
+// PackageInfo holds metadata about a discovered targ package.
 type PackageInfo struct {
 	Dir                      string
 	Package                  string
@@ -46,11 +50,13 @@ type PackageInfo struct {
 	UsesExplicitRegistration bool
 }
 
+// TaggedDir represents a directory containing targ-tagged files.
 type TaggedDir struct {
 	Path  string
 	Depth int
 }
 
+// TaggedFile holds a file path and its contents.
 type TaggedFile struct {
 	Path    string
 	Content []byte

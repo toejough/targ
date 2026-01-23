@@ -12,16 +12,22 @@ var (
 	ErrNoTaggedFiles          = discover.ErrNoTaggedFiles
 )
 
+// FileInfo holds path information for a discovered file.
 type FileInfo = discover.FileInfo
 
+// FileSystem abstracts file operations for testing.
 type FileSystem = discover.FileSystem
 
+// Options configures the discovery process.
 type Options = discover.Options
 
+// PackageInfo holds metadata about a discovered targ package.
 type PackageInfo = discover.PackageInfo
 
+// TaggedDir represents a directory containing targ-tagged files.
 type TaggedDir = discover.TaggedDir
 
+// TaggedFile holds a file path and its contents.
 type TaggedFile = discover.TaggedFile
 
 // Thin wrapper functions.

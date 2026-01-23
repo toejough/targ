@@ -19,20 +19,28 @@ const (
 	TagKindUnknown    = core.TagKindUnknown
 )
 
+// DepsOption configures dependency execution behavior.
 type DepsOption = core.DepsOption
 
+// Example represents a usage example shown in help text.
 type Example = core.Example
 
+// ExecuteResult contains the result of executing a command.
 type ExecuteResult = core.ExecuteResult
 
+// ExitError represents a non-zero exit code from command execution.
 type ExitError = core.ExitError
 
+// Interleaved wraps a value to be parsed from interleaved positional arguments.
 type Interleaved[T any] = core.Interleaved[T]
 
+// RunOptions configures command execution behavior.
 type RunOptions = core.RunOptions
 
+// TagKind represents the type of a struct tag (flag, positional, subcommand).
 type TagKind = core.TagKind
 
+// TagOptions holds parsed struct tag options for CLI argument handling.
 type TagOptions = core.TagOptions
 
 // AppendBuiltinExamples adds built-in examples after custom examples.

@@ -13,6 +13,7 @@ import (
 	"time"
 )
 
+// ExecuteEnv is a RunEnv implementation that captures output for testing.
 type ExecuteEnv struct {
 	args   []string
 	output strings.Builder
@@ -53,6 +54,7 @@ func (e *ExecuteEnv) SupportsSignals() bool {
 	return false
 }
 
+// ExitError represents a non-zero exit code from command execution.
 type ExitError struct {
 	Code int
 }
@@ -61,6 +63,7 @@ func (e ExitError) Error() string {
 	return fmt.Sprintf("exit code %d", e.Code)
 }
 
+// RunEnv abstracts the runtime environment for testing.
 type RunEnv interface {
 	Args() []string
 	Printf(format string, args ...any)

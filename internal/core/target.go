@@ -13,6 +13,7 @@ import (
 	"github.com/toejough/targ/sh"
 )
 
+// DepMode controls how dependencies are executed (parallel or serial).
 type DepMode int
 
 // DepMode values.
@@ -23,6 +24,7 @@ const (
 	DepModeParallel
 )
 
+// Target represents a build target that can be invoked from the CLI.
 type Target struct {
 	fn              any           // func(...) or string (shell command)
 	name            string        // CLI name override

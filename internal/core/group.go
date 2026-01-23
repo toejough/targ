@@ -5,6 +5,7 @@ import (
 	"regexp"
 )
 
+// Group represents a named collection of targets that can be run together.
 type Group struct {
 	name    string
 	members []any // *Target or *Group

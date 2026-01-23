@@ -14,6 +14,7 @@ var (
 	}
 )
 
+// ChangeSet holds the files that changed between watch polls.
 type ChangeSet struct {
 	Added    []string
 	Removed  []string
@@ -26,6 +27,7 @@ type Ticker interface {
 	Stop()
 }
 
+// WatchOptions configures file watching behavior.
 type WatchOptions struct {
 	Interval time.Duration
 }

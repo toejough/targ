@@ -19,16 +19,19 @@ import (
 	"github.com/toejough/targ/sh"
 )
 
+// GroupLike is implemented by types that represent target groups.
 type GroupLike interface {
 	GetName() string
 	GetMembers() []any
 }
 
+// TargetConfigLike is implemented by types that provide target configuration.
 type TargetConfigLike interface {
 	// GetConfig returns (watchPatterns, cachePatterns, watchDisabled, cacheDisabled)
 	GetConfig() ([]string, []string, bool, bool)
 }
 
+// TargetLike is implemented by types that represent build targets.
 type TargetLike interface {
 	Fn() any
 	GetName() string

@@ -21,6 +21,8 @@ var (
 	Stdout      = io.Writer(os.Stdout)
 )
 
+// SafeBuffer is a thread-safe buffer for concurrent writes.
+// SafeBuffer is a thread-safe buffer for concurrent writes.
 type SafeBuffer struct {
 	mu  sync.Mutex
 	buf bytes.Buffer

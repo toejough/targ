@@ -12,8 +12,10 @@ const (
 	DepModeSerial = core.DepModeSerial
 )
 
+// DepMode controls how dependencies are executed (parallel or serial).
 type DepMode = core.DepMode
 
+// Target represents a build target that can be invoked from the CLI.
 type Target = core.Target
 
 // Targ creates a Target from a function or shell command string.

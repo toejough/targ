@@ -12,6 +12,7 @@ import (
 	"github.com/toejough/targ/file"
 )
 
+// RuntimeOverrides holds CLI flags that override Target compile-time settings.
 type RuntimeOverrides struct {
 	Times             int           // Number of times to run (--times N)
 	Retry             bool          // Continue on failure (--retry)
@@ -36,6 +37,7 @@ func (o RuntimeOverrides) hasAny() bool {
 		len(o.Deps) > 0
 }
 
+// TargetConfig holds compile-time configuration from a Target definition.
 type TargetConfig struct {
 	WatchPatterns []string
 	CachePatterns []string
