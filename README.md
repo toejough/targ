@@ -13,12 +13,14 @@ Build CLIs and run build targets with minimal configuration. Inspired by Mage, g
 | Want to...          | Do this                                               |
 | ------------------- | ----------------------------------------------------- |
 | Run build targets   | `//go:build targ` files + `targ <command>`            |
-| Parse CLI flags     | Struct with `targ:"..."` tags + `targ.Run(&cmd{})`    |
+| Define a target     | `var Build = targ.Targ(build)`                        |
+| Add flags/args      | Function with struct parameter + `targ:"..."` tags    |
+| Shell command target| `var Tidy = targ.Targ("go mod tidy")`                 |
 | Run shell commands  | `sh.Run("go", "build")` or `sh.RunContext(ctx, ...)`  |
 | Skip unchanged work | `file.Newer(inputs, outputs)` or `file.Checksum(...)` |
 | Watch for changes   | `file.Watch(ctx, patterns, opts, callback)`           |
-| Run deps once       | `targ.Deps(A, B, C)` or `targ.Deps(..., targ.Parallel())` |
-| Scaffold a target   | `targ --alias tidy "go mod tidy"`                     |
+| Run deps once       | `targ.Deps(A, B, C)` or `.Deps(A, B)`                 |
+| Scaffold a target   | `targ --create build` or `targ --create tidy "go mod tidy"` |
 
 ## Installation
 
@@ -36,7 +38,7 @@ Targ makes it easy to start with simple build targets and evolve to a full CLI. 
 
 ### Stage 1: Simple Functions
 
-Start with plain functions for quick automation. Use `//go:build targ` and don't write a main function:
+Start with plain functions for quick automation. Use `//go:build targ`:
 
 ```go
 //go:build targ
@@ -59,29 +61,55 @@ targ test
 
 ### Stage 2: Add Flags
 
-Need options? Convert to a struct:
+Need options? Use the Target builder with a struct parameter:
 
 ```go
 //go:build targ
 
 package main
 
-type Build struct {
+import (
+    "github.com/toejough/targ"
+    "github.com/toejough/targ/sh"
+)
+
+func init() {
+    targ.Register(Build, Test)
+}
+
+var Build = targ.Targ(build).Description("Compile the project")
+
+type BuildArgs struct {
     Output  string `targ:"flag,short=o,default=myapp,desc=Output binary name"`
     Verbose bool   `targ:"flag,short=v,desc=Verbose output"`
 }
 
-func (b *Build) Run() error {
-    args := []string{"build", "-o", b.Output}
-    if b.Verbose {
-        args = append(args, "-v")
+func build(args BuildArgs) error {
+    cmdArgs := []string{"build", "-o", args.Output}
+    if args.Verbose {
+        cmdArgs = append(cmdArgs, "-v")
     }
-    return sh.Run("go", append(args, "./...")...)
+    return sh.Run("go", append(cmdArgs, "./...")...)
+}
+
+var Test = targ.Targ(test).Description("Run tests")
+
+type TestArgs struct {
+    Cover bool `targ:"flag,desc=Enable coverage"`
+}
+
+func test(args TestArgs) error {
+    cmdArgs := []string{"test"}
+    if args.Cover {
+        cmdArgs = append(cmdArgs, "-cover")
+    }
+    return sh.Run("go", append(cmdArgs, "./...")...)
 }
 ```
 
 ```bash
 targ build --output=myapp --verbose
+targ test --cover
 ```
 
 ### Stage 3: Dedicated Binary
@@ -93,22 +121,16 @@ package main
 
 import "github.com/toejough/targ"
 
-type Build struct {
-    Output  string `targ:"flag,short=o,default=myapp,desc=Output binary name"`
-    Verbose bool   `targ:"flag,short=v,desc=Verbose output"`
+func init() {
+    targ.Register(Build, Test)
 }
-
-func (b *Build) Run() error { /* same as before */ }
-
-type Test struct {
-    Cover bool `targ:"flag,desc=Enable coverage"`
-}
-
-func (t *Test) Run() error { /* ... */ }
 
 func main() {
-    targ.Run(&Build{}, &Test{})
+    targ.ExecuteRegistered()
 }
+
+var Build = targ.Targ(build).Description("Compile the project")
+// ... same target definitions as Stage 2
 ```
 
 ```bash
@@ -117,17 +139,13 @@ go build -o mytool .
 ./mytool test --cover
 ```
 
-With multiple commands, users select one first. With a single command, flags apply directly:
+### Shell Command Targets
+
+For simple shell commands, pass a string instead of a function:
 
 ```go
-func main() { targ.Run(&Deploy{}) }  // ./deploy prod --force
-```
-
-Niladic functions also work:
-
-```go
-func Clean() { fmt.Println("cleaning") }
-func main() { targ.Run(Clean) }
+var Tidy = targ.Targ("go mod tidy").Description("Tidy go.mod")
+var Lint = targ.Targ("golangci-lint run ./...").Description("Run linter")
 ```
 
 ### Multi-Directory Layout
@@ -146,9 +164,42 @@ repo/
 
 If only one tagged file exists, commands appear at the root (no namespace prefix).
 
+## Target Builder
+
+Configure targets with builder methods:
+
+```go
+var Build = targ.Targ(build).
+    Name("build").              // CLI name (default: function name in kebab-case)
+    Description("Build the app"). // Help text
+    Deps(Generate, Compile).    // Run dependencies first (serial)
+    ParallelDeps(Lint, Test).   // Run dependencies first (parallel)
+    Cache("**/*.go", "go.mod"). // Skip if files unchanged
+    Watch("**/*.go").           // Re-run on file changes
+    Timeout(5 * time.Minute).   // Execution timeout
+    Times(3).                   // Run multiple times
+    Retry().                    // Continue on failure
+    Backoff(time.Second, 2.0)   // Exponential backoff between retries
+```
+
+| Method | Description |
+|--------|-------------|
+| `.Name(s)` | Override CLI command name |
+| `.Description(s)` | Help text |
+| `.Deps(targets...)` | Serial dependencies |
+| `.ParallelDeps(targets...)` | Parallel dependencies |
+| `.Cache(patterns...)` | Skip if files unchanged |
+| `.CacheDir(dir)` | Cache checksum directory |
+| `.Watch(patterns...)` | Re-run on file changes |
+| `.Timeout(d)` | Execution timeout |
+| `.Times(n)` | Number of iterations |
+| `.Retry()` | Continue despite failures |
+| `.Backoff(initial, factor)` | Exponential backoff |
+| `.While(fn)` | Run while predicate is true |
+
 ## Tags
 
-Configure fields with `targ:"..."` struct tags:
+Configure struct fields with `targ:"..."` tags:
 
 | Tag            | Description                                 |
 | -------------- | ------------------------------------------- |
@@ -185,62 +236,50 @@ var Multiply = targ.Targ(func(args struct {
 ```
 
 ```bash
-./math add 2 3      # 5
-./math multiply 2 3 # 6
+targ math add 2 3      # 5
+targ math multiply 2 3 # 6
 ```
 
-## Command Signatures
+## Function Signatures
 
-`Run` methods and function commands support these signatures:
+Target functions support these signatures:
 
 - `func()`
 - `func() error`
-- `func(context.Context)`
-- `func(context.Context) error`
-
-## Command Descriptions
-
-Document commands with comments (parsed from source):
-
-```go
-// Deploy pushes code to the specified environment.
-// Requires valid AWS credentials.
-func (d *Deploy) Run() error { ... }
-```
-
-Or implement `Description()` for dynamic descriptions:
-
-```go
-func (d *Deploy) Description() string {
-    return "Deploy to " + d.defaultEnv()
-}
-```
+- `func(ctx context.Context)`
+- `func(ctx context.Context) error`
+- `func(args T)` where T is a struct
+- `func(args T) error`
+- `func(ctx context.Context, args T)`
+- `func(ctx context.Context, args T) error`
 
 ## Command Names
 
-Names are derived from struct/function names, converted to kebab-case:
+Names are derived from function names, converted to kebab-case:
 
-| Definition               | Command     |
-| ------------------------ | ----------- |
-| `type BuildAll struct{}` | `build-all` |
-| `func RunTests()`        | `run-tests` |
+| Definition        | Command     |
+| ----------------- | ----------- |
+| `func BuildAll()` | `build-all` |
+| `func RunTests()` | `run-tests` |
 
-Override with `Name()`:
+Override with `.Name()`:
 
 ```go
-func (c *MyCmd) Name() string { return "custom-name" }
+var Build = targ.Targ(build).Name("compile")
 ```
 
 ## Dependencies
 
+### Using targ.Deps()
+
 Run dependencies exactly once per invocation. By default, Deps **fails fast** - stops on first error:
 
 ```go
-func Build() error {
+func build() error {
     return targ.Deps(Generate, Compile)  // stops if Generate fails
 }
 
-func Test() error {
+func test() error {
     return targ.Deps(Build)  // Build only runs once even if called multiple times
 }
 ```
@@ -253,17 +292,17 @@ Options can be mixed with targets:
 
 ```go
 // Parallel execution (fail-fast, cancels siblings on error)
-func CI() error {
+func ci() error {
     return targ.Deps(Test, Lint, targ.Parallel())
 }
 
 // Run all even if some fail
-func CheckAll() error {
+func checkAll() error {
     return targ.Deps(Lint, Test, Vet, targ.Parallel(), targ.ContinueOnError())
 }
 
 // Pass context for cancellation
-func Watch(ctx context.Context) error {
+func watch(ctx context.Context) error {
     return file.Watch(ctx, []string{"**/*.go"}, file.WatchOptions{}, func(_ file.ChangeSet) error {
         targ.ResetDeps()
         return targ.Deps(Tidy, Lint, Test, targ.WithContext(ctx))
@@ -276,6 +315,15 @@ func Watch(ctx context.Context) error {
 | `targ.Parallel()` | Run concurrently instead of sequentially |
 | `targ.ContinueOnError()` | Run all targets, return first error |
 | `targ.WithContext(ctx)` | Pass context to targets (for cancellation) |
+
+### Using .Deps() Builder
+
+For static dependencies, use the builder method:
+
+```go
+var Test = targ.Targ(test).Deps(Build)           // serial
+var CI = targ.Targ(ci).ParallelDeps(Test, Lint)  // parallel
+```
 
 ## Shell Helpers
 
@@ -321,10 +369,12 @@ if !changed {
 
 ## Watch Mode
 
+### Manual Watch
+
 React to file changes:
 
 ```go
-func Watch(ctx context.Context) error {
+func watch(ctx context.Context) error {
     return file.Watch(ctx, []string{"**/*.go"}, file.WatchOptions{}, func(_ file.ChangeSet) error {
         targ.ResetDeps()  // clear dep cache so targets run again
         return sh.RunContext(ctx, "go", "test", "./...")
@@ -332,22 +382,15 @@ func Watch(ctx context.Context) error {
 }
 ```
 
-For interruptible watch (cancel running command when new changes arrive):
+### Builder Watch
+
+Use `.Watch()` for declarative watch mode:
 
 ```go
-func Watch(ctx context.Context) error {
-    var cancel context.CancelFunc
-    return file.Watch(ctx, []string{"**/*.go"}, file.WatchOptions{}, func(_ file.ChangeSet) error {
-        if cancel != nil {
-            cancel()  // stop previous run
-        }
-        var runCtx context.Context
-        runCtx, cancel = context.WithCancel(ctx)
-        targ.ResetDeps()
-        return sh.RunContext(runCtx, "go", "test", "./...")
-    })
-}
+var Test = targ.Targ(test).Watch("**/*.go", "**/*_test.go")
 ```
+
+When run with watch patterns, the target re-runs automatically on file changes.
 
 ## Shell Completion
 
@@ -362,34 +405,43 @@ Supports commands, subcommands, flags, and enum values.
 ## Example Help Output
 
 ```
-$ ./deploy --help
-Deploy pushes code to the specified environment.
+$ targ build --help
+Compile the project
 
-Usage: deploy <env> [flags]
+Source: dev/targets.go:42
 
-Arguments:
-  env    Environment to deploy to (required, one of: dev, staging, prod)
+Usage: build [flags]
 
 Flags:
-  -f, --force    Skip confirmation
-  -h, --help     Show this help
+  -o, --output    Output binary name (default: myapp)
+  -v, --verbose   Verbose output
+  -h, --help      Show this help
+
+Execution:
+  Deps: generate, compile (serial)
+  Cache: **/*.go, go.mod
 ```
 
 ## Dynamic Tag Options
 
-Override tag options at runtime:
+Override tag options at runtime by implementing `TagOptions` on your args struct:
 
 ```go
-type Deploy struct {
+type DeployArgs struct {
     Env string `targ:"positional,enum=dev|prod"`
 }
 
-func (d *Deploy) TagOptions(field string, opts targ.TagOptions) (targ.TagOptions, error) {
+func (d DeployArgs) TagOptions(field string, opts targ.TagOptions) (targ.TagOptions, error) {
     if field == "Env" {
         opts.Enum = strings.Join(loadEnvsFromConfig(), "|")
     }
     return opts, nil
 }
+
+var Deploy = targ.Targ(func(args DeployArgs) error {
+    // deploy to args.Env
+    return nil
+})
 ```
 
 Useful for loading enum values from config, conditional required fields, or environment-specific defaults.
@@ -399,7 +451,7 @@ Useful for loading enum values from config, conditional required fields, or envi
 ### Conditional Build
 
 ```go
-func Build() error {
+func build() error {
     needs, _ := file.Newer([]string{"**/*.go"}, []string{"bin/app"})
     if !needs {
         fmt.Println("up to date")
@@ -407,12 +459,16 @@ func Build() error {
     }
     return sh.Run("go", "build", "-o", "bin/app", "./...")
 }
+
+var Build = targ.Targ(build)
 ```
 
 ### CI Pipeline
 
 ```go
-func CI() error {
+var CI = targ.Targ(ci)
+
+func ci() error {
     if err := targ.Deps(Generate); err != nil {
         return err
     }
@@ -427,7 +483,7 @@ func CI() error {
 
 ```go
 func TestDeploy(t *testing.T) {
-    result, err := targ.Execute([]string{"app", "deploy", "prod", "--force"}, &Deploy{})
+    result, err := targ.Execute([]string{"app", "deploy", "prod", "--force"}, Deploy)
     if err != nil {
         t.Fatal(err)
     }
@@ -440,20 +496,20 @@ func TestDeploy(t *testing.T) {
 ### Variadic Positional Args
 
 ```go
-type Cat struct {
+type CatArgs struct {
     Files []string `targ:"positional,required"`
 }
 
-func (c *Cat) Run() error {
-    for _, f := range c.Files {
+var Cat = targ.Targ(func(args CatArgs) error {
+    for _, f := range args.Files {
         // process each file
     }
     return nil
-}
+})
 ```
 
 ```bash
-./cat file1.txt file2.txt file3.txt
+targ cat file1.txt file2.txt file3.txt
 ```
 
 ### Ordered Repeated Flags
@@ -461,22 +517,22 @@ func (c *Cat) Run() error {
 When flag order matters (e.g., include/exclude filters), use `[]targ.Interleaved[T]`:
 
 ```go
-type Filter struct {
+type FilterArgs struct {
     Include []targ.Interleaved[string] `targ:"flag,short=i"`
     Exclude []targ.Interleaved[string] `targ:"flag,short=e"`
 }
 
-func (f *Filter) Run() error {
+var Filter = targ.Targ(func(args FilterArgs) error {
     type rule struct {
         include bool
         pattern string
         pos     int
     }
     var rules []rule
-    for _, inc := range f.Include {
+    for _, inc := range args.Include {
         rules = append(rules, rule{true, inc.Value, inc.Position})
     }
-    for _, exc := range f.Exclude {
+    for _, exc := range args.Exclude {
         rules = append(rules, rule{false, exc.Value, exc.Position})
     }
     sort.Slice(rules, func(i, j int) bool {
@@ -484,11 +540,11 @@ func (f *Filter) Run() error {
     })
     // rules now in original command-line order
     return nil
-}
+})
 ```
 
 ```bash
-./filter -i "*.go" -e "vendor/*" -i "*.md"
+targ filter -i "*.go" -e "vendor/*" -i "*.md"
 # Processes in order: include *.go, exclude vendor/*, include *.md
 ```
 
@@ -509,23 +565,18 @@ func (f *Filter) Run() error {
 | --------------------------- | -------------------------------------------- |
 | `--no-cache`                | Force rebuild of the build tool binary       |
 | `--keep`                    | Keep generated bootstrap file for inspection |
-| `--init [FILE]`             | Create a starter targets file (default: targs.go) |
-| `--alias NAME "CMD" [FILE]` | Add a shell command target (auto-creates file)    |
+| `--create NAME [CMD]`       | Create a new target (function or shell)      |
 | `--completion [bash\|zsh\|fish]` | Print shell completion script           |
 
 ### Quick Target Scaffolding
 
-Use `--alias` to add targets - it auto-creates `targs.go` if no target files exist:
+Use `--create` to add targets:
 
 ```bash
-targ --alias tidy "go mod tidy"      # creates targs.go, adds Tidy
-targ --alias lint "golangci-lint run" # appends to targs.go
-```
-
-If multiple target files exist, specify which one:
-
-```bash
-targ --alias test "go test ./..." build.go
+targ --create build                    # creates function target
+targ --create tidy "go mod tidy"       # creates shell command target
+targ --create lint --deps=fmt,tidy     # with dependencies
+targ --create test --cache="**/*.go"   # with caching
 ```
 
 Kebab-case names are converted to PascalCase (`run-tests` → `RunTests`).
