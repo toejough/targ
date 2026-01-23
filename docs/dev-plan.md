@@ -16,10 +16,10 @@ Rebuild targ from struct-based model to function-based Target Builder pattern fo
 | 6 | ✅ Complete | Runtime Overrides |
 | 7 | ✅ Complete | Shell Support |
 | 8 | ✅ Complete | --sync Remote Import |
-| 9 | ❌ Not Started | Additional Global Flags |
-| 10 | ❌ Not Started | Remove Struct Model |
+| 9 | ✅ Complete | Additional Global Flags |
+| 10 | ✅ Complete | Remove Struct Model |
 
-**Current**: Phase 9 (Additional Global Flags)
+**Status**: All phases complete
 
 ## Approach
 
@@ -559,47 +559,65 @@ Commands:
 
 ---
 
-## Phase 9: Additional Global Flags
+## Phase 9: Additional Global Flags ✅ COMPLETE
 
-### 9.1 --parallel/-p
+### 9.1 --parallel/-p ✅
 
 ```
 targ -p build test lint
 ```
 
-**Properties**: Parallel targets share dep state
+**Implemented in**: `internal/core/override.go`
 
-### 9.2 --source/-s
+- Position-sensitive flag (must appear before first target)
+- `Parallel bool` field in `Overrides` struct
+- Help text in `internal/core/command.go`
+
+### 9.2 --source/-s ✅
 
 ```
 targ -s ./dev/targs.go build
 ```
 
-### 9.3 --to-func, --to-string
+**Implemented in**: `internal/runner/runner.go`
 
-**Properties**:
+- Position-sensitive flag (must appear before first target)
+- `SourceDir` field in `TargFlags` struct
+- Validates path exists and is a directory
 
-- `--to-func` expands string target
-- `--to-string` errors if not simple Shell
+### 9.3 --to-func, --to-string ✅
 
-### 9.4 Migrate dev/targets.go
+**Implemented in**: `internal/runner/runner.go`
 
-Test `targ -p fmt lint test` for parallel execution.
+- `isToFuncFlag()` and `handleToFuncFlag()` - converts string target to function
+- `isToStringFlag()` and `handleToStringFlag()` - converts function target to string
+- Early flag handlers (like --create)
+
+### 9.4 Migrate dev/targets.go ✅
+
+- All 35 targets in dev/ use `targ.Targ()` builder pattern
+- Both `dev/targets.go` and `dev/issues/issues.go` use `targ.Register()`
 
 ---
 
-## Phase 10: Remove Struct Model (LOC: -2,000)
+## Phase 10: Remove Struct Model ✅ COMPLETE
 
-Final cleanup. At this point, dev/targets.go should already be fully migrated to Target builder pattern.
+Struct-based command model has been removed. Only `targ.Targ(fn)` pattern is supported.
 
-**Prerequisite**: All tests pass with Target-only model, dev/targets.go uses no struct targets
+**What was removed**:
 
-**Files**:
+- Struct command execution path (`executeStructCommand`, `runCommand`, etc.)
+- Struct parsing (`parseStruct`, `parseSubcommandFields`, etc.)
+- Struct-specific helpers (`applyNameAndDescription`, `applyRunMethodDoc`, etc.)
+- Tests for struct commands converted to Target pattern
 
-- `internal/core/command.go` - Remove struct parsing (~1,500 LOC)
-- `cmd/targ/main.go` - Remove struct wrapper generation (~500 LOC)
+**Current behavior**:
 
-**Verification**: `targ check` works, no struct-based targets remain
+- Bare structs passed to `Execute()` return `errStructNotSupported`
+- Error message: "struct commands are not supported; use targ.Targ(fn) instead"
+- Target pattern with struct args still works: `targ.Targ(func(args MyArgs) error { ... })`
+
+**Verification**: `targ check` passes
 
 ---
 

@@ -345,9 +345,11 @@ type BuildArgs struct {
 
 func Build(ctx context.Context, args BuildArgs) error {
     if len(args.Watch) > 0 {
-        return targ.WatchAndRun(args.Watch, func() error {
-            // build logic
-        })
+        watcher := file.Watch(args.Watch)
+        defer watcher.Stop()
+        for range watcher.C() {
+            // build logic on each change
+        }
     }
     // ...
 }
@@ -692,4 +694,81 @@ func init() {
 **Imports**: Any exported targets (`*Target`), groups (`*Group`), or functions.
 
 **Naming conflicts**: Error clearly if any imported names would conflict with existing hierarchy.
+
+---
+
+# Implementation Status
+
+Verified 2026-01-23.
+
+## Global Flags
+
+| Flag | Status | Location |
+| ---- | ------ | -------- |
+| --parallel/-p | ✅ | `internal/core/override.go` |
+| --completion | ✅ | `internal/core/completion.go` |
+| --source/-s | ✅ | `internal/runner/runner.go` |
+| --create/-c | ✅ | `internal/runner/runner.go` |
+| --to-func | ✅ | `internal/runner/runner.go` |
+| --to-string | ✅ | `internal/runner/runner.go` |
+| --sync | ✅ | `internal/runner/runner.go` |
+| --no-binary-cache | ✅ | `internal/runner/runner.go` |
+
+## Arguments
+
+| Feature | Status | Location |
+| ------- | ------ | -------- |
+| Struct with tags | ✅ | `internal/core/parse.go` |
+| `[]T` repeated | ✅ | `internal/core/parse.go` |
+| `map[K]V` | ✅ | `internal/core/parse.go` |
+| Trailing variadic | ✅ | `internal/core/parse.go` |
+| Embedded structs | ✅ | `internal/core/parse.go` |
+| `Interleaved[T]` | ✅ | `internal/core/types.go` |
+
+## Execution (Target Builder)
+
+| Method | Status | Location |
+| ------ | ------ | -------- |
+| `.Deps()` | ✅ | `internal/core/target.go` |
+| `.ParallelDeps()` | ✅ | `internal/core/target.go` |
+| `.Cache()` | ✅ | `internal/core/target.go` |
+| `.Watch()` | ✅ | `internal/core/target.go` |
+| `.Times()` | ✅ | `internal/core/target.go` |
+| `.While()` | ✅ | `internal/core/target.go` |
+| `.Retry()` | ✅ | `internal/core/target.go` |
+| `.Backoff()` | ✅ | `internal/core/target.go` |
+| `.Timeout()` | ✅ | `internal/core/target.go` |
+| `.Name()` | ✅ | `internal/core/target.go` |
+| `.Description()` | ✅ | `internal/core/target.go` |
+| `targ.Disabled` | ✅ | `internal/core/target.go` |
+| `targ.ResetDeps()` | ✅ | `internal/core/deps.go` |
+| `targ.Shell()` | ✅ | `internal/core/shell.go` |
+| `targ.WatchAndRun()` | N/A | Use `file.Watch()` directly |
+
+## Hierarchy
+
+| Feature | Status | Notes |
+| ------- | ------ | ----- |
+| `targ.Group()` | ✅ | Namespace nodes |
+| `targ.Register()` | ✅ | Registration API |
+| `targ.Run()` | ✅ | CLI binary entry point |
+| Path traversal | ✅ | Stack-based |
+| Glob patterns | ⚠️ Gap | `*` and `**` not supported |
+
+## Inspect (--help output)
+
+| Feature | Status | Notes |
+| ------- | ------ | ----- |
+| Description | ✅ | Shown first |
+| Usage line | ✅ | With targ flags |
+| Flags | ✅ | Shows all flags |
+| Subcommands | ✅ | Listed for groups |
+| Source location | ⚠️ Gap | Not shown per target |
+| Execution info | ⚠️ Gap | Deps/Cache/Retry not shown |
+
+## Gaps Summary
+
+1. **Glob patterns in paths** - `targ dev *` and `targ **` not implemented
+2. **Source location in --help** - Per-target source file:line not shown
+3. **Execution info in --help** - Deps, Cache, Retry settings not shown
 
