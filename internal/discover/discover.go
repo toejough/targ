@@ -96,29 +96,6 @@ func Discover(filesystem FileSystem, opts Options) ([]PackageInfo, error) {
 }
 
 // SelectTaggedDirs returns directories containing targ-tagged files.
-func SelectTaggedDirs(filesystem FileSystem, opts Options) ([]TaggedDir, error) {
-	startDir := opts.StartDir
-	if startDir == "" {
-		startDir = "."
-	}
-
-	tag := opts.BuildTag
-	if tag == "" {
-		tag = defaultBuildTag
-	}
-
-	dirs, err := findTaggedDirs(filesystem, startDir, tag)
-	if err != nil {
-		return nil, err
-	}
-
-	paths := make([]TaggedDir, 0, len(dirs))
-	for _, dir := range dirs {
-		paths = append(paths, TaggedDir{Path: dir.Path, Depth: dir.Depth})
-	}
-
-	return paths, nil
-}
 
 // TaggedFiles returns all files with the specified build tag.
 func TaggedFiles(filesystem FileSystem, opts Options) ([]TaggedFile, error) {

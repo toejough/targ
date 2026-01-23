@@ -28,7 +28,7 @@ import (
 	"text/template"
 	"unicode/utf8"
 
-	"github.com/toejough/targ/buildtool"
+	"github.com/toejough/targ/internal/discover"
 )
 
 // ContentPatch represents a string replacement to apply to file content.
@@ -880,7 +880,7 @@ func (b *bootstrapBuilder) computeImportPath(dir string) string {
 	return b.modulePath + "/" + filepath.ToSlash(rel)
 }
 
-func (b *bootstrapBuilder) processPackage(info buildtool.PackageInfo) error {
+func (b *bootstrapBuilder) processPackage(info discover.PackageInfo) error {
 	if !info.UsesExplicitRegistration {
 		return fmt.Errorf("%w: %s", errNoExplicitRegistration, info.Package)
 	}
@@ -937,7 +937,7 @@ type moduleRegistry struct {
 type moduleTargets struct {
 	ModuleRoot string
 	ModulePath string
-	Packages   []buildtool.PackageInfo
+	Packages   []discover.PackageInfo
 }
 
 type namespaceNode struct {
@@ -1099,8 +1099,8 @@ func (r *targRunner) buildAndRunWithOptions(
 	return r.executeBuiltBinary(binaryPath, targBinName)
 }
 
-func (r *targRunner) discoverPackages() ([]buildtool.PackageInfo, error) {
-	infos, err := buildtool.Discover(osFileSystem{}, buildtool.Options{
+func (r *targRunner) discoverPackages() ([]discover.PackageInfo, error) {
+	infos, err := discover.Discover(osFileSystem{}, discover.Options{
 		StartDir: r.startDir,
 		BuildTag: buildTag,
 	})
@@ -1248,7 +1248,7 @@ func (r *targRunner) handleEarlyFlags() (exitCode int, done bool) {
 	return 0, false
 }
 
-func (r *targRunner) handleIsolatedModule(infos []buildtool.PackageInfo) int {
+func (r *targRunner) handleIsolatedModule(infos []discover.PackageInfo) int {
 	// Create isolated build directory with copied files
 	dep := resolveTargDependency()
 
@@ -1343,7 +1343,7 @@ func (r *targRunner) handleNoTargets() int {
 	return r.exitWithCleanup(1)
 }
 
-func (r *targRunner) handleSingleModule(infos []buildtool.PackageInfo) int {
+func (r *targRunner) handleSingleModule(infos []discover.PackageInfo) int {
 	filePaths := collectFilePaths(infos)
 
 	if len(filePaths) == 0 {
@@ -1487,7 +1487,7 @@ func (r *targRunner) logError(prefix string, err error) {
 }
 
 func (r *targRunner) prepareBootstrap(
-	infos []buildtool.PackageInfo,
+	infos []discover.PackageInfo,
 	importRoot, modulePath string,
 ) (moduleBootstrap, error) {
 	data, err := buildBootstrapData(infos, importRoot, modulePath)
@@ -1504,7 +1504,7 @@ func (r *targRunner) prepareBootstrap(
 		return moduleBootstrap{}, fmt.Errorf("error generating code: %w", err)
 	}
 
-	taggedFiles, err := buildtool.TaggedFiles(osFileSystem{}, buildtool.Options{
+	taggedFiles, err := discover.TaggedFiles(osFileSystem{}, discover.Options{
 		StartDir: r.startDir,
 		BuildTag: buildTag,
 	})
@@ -1703,7 +1703,7 @@ func buildAndQueryBinary(
 }
 
 func buildBootstrapData(
-	infos []buildtool.PackageInfo,
+	infos []discover.PackageInfo,
 	moduleRoot string,
 	modulePath string,
 ) (bootstrapData, error) {
@@ -1835,7 +1835,7 @@ func cleanupStaleModSymlinks(root string) {
 	}
 }
 
-func collectFilePaths(infos []buildtool.PackageInfo) []string {
+func collectFilePaths(infos []discover.PackageInfo) []string {
 	// Count total files for preallocation
 	totalFiles := 0
 	for _, info := range infos {
@@ -1853,8 +1853,8 @@ func collectFilePaths(infos []buildtool.PackageInfo) []string {
 	return filePaths
 }
 
-func collectModuleFiles(moduleRoot string) ([]buildtool.TaggedFile, error) {
-	var files []buildtool.TaggedFile
+func collectModuleFiles(moduleRoot string) ([]discover.TaggedFile, error) {
+	var files []discover.TaggedFile
 
 	err := filepath.WalkDir(moduleRoot, func(path string, entry os.DirEntry, err error) error {
 		if err != nil {
@@ -1875,7 +1875,7 @@ func collectModuleFiles(moduleRoot string) ([]buildtool.TaggedFile, error) {
 			return fmt.Errorf("reading file %s: %w", path, err)
 		}
 
-		files = append(files, buildtool.TaggedFile{
+		files = append(files, discover.TaggedFile{
 			Path:    path,
 			Content: data,
 		})
@@ -1890,8 +1890,8 @@ func collectModuleFiles(moduleRoot string) ([]buildtool.TaggedFile, error) {
 }
 
 // collectModuleTaggedFiles collects tagged files from a module's packages.
-func collectModuleTaggedFiles(mt moduleTargets) ([]buildtool.TaggedFile, error) {
-	var files []buildtool.TaggedFile
+func collectModuleTaggedFiles(mt moduleTargets) ([]discover.TaggedFile, error) {
+	var files []discover.TaggedFile
 
 	for _, pkg := range mt.Packages {
 		for _, f := range pkg.Files {
@@ -1900,7 +1900,7 @@ func collectModuleTaggedFiles(mt moduleTargets) ([]buildtool.TaggedFile, error) 
 				return nil, fmt.Errorf("reading tagged file %s: %w", f.Path, err)
 			}
 
-			files = append(files, buildtool.TaggedFile{
+			files = append(files, discover.TaggedFile{
 				Path:    f.Path,
 				Content: data,
 			})
@@ -1943,7 +1943,7 @@ func compressNamespacePaths(paths map[string][]string) map[string][]string {
 func computeCacheKey(
 	modulePath, moduleRoot, buildTag string,
 	bootstrap []byte,
-	tagged []buildtool.TaggedFile,
+	tagged []discover.TaggedFile,
 ) (string, error) {
 	hasher := sha256.New()
 	write := func(value string) {
@@ -2061,7 +2061,7 @@ func copyFileStrippingTag(srcPath, destPath string) error {
 // Files are copied (with build tags stripped) preserving collapsed namespace paths.
 // Returns the tmp directory path, the module path to use for imports, and a cleanup function.
 func createIsolatedBuildDir(
-	infos []buildtool.PackageInfo,
+	infos []discover.PackageInfo,
 	startDir string,
 	dep TargDependency,
 ) (tmpDir string, cleanup func(), err error) {
@@ -2607,7 +2607,7 @@ func goEnv(key string) (string, error) {
 
 // groupByModule groups packages by their module root.
 // Packages without a module are grouped under startDir with "targ.local" module path.
-func groupByModule(infos []buildtool.PackageInfo, startDir string) ([]moduleTargets, error) {
+func groupByModule(infos []discover.PackageInfo, startDir string) ([]moduleTargets, error) {
 	byModule := make(map[string]*moduleTargets)
 
 	for _, info := range infos {
@@ -2634,7 +2634,7 @@ func groupByModule(infos []buildtool.PackageInfo, startDir string) ([]moduleTarg
 			byModule[modRoot] = &moduleTargets{
 				ModuleRoot: modRoot,
 				ModulePath: modPath,
-				Packages:   []buildtool.PackageInfo{info},
+				Packages:   []discover.PackageInfo{info},
 			}
 		}
 	}
@@ -2974,9 +2974,9 @@ func queryModuleCommands(binaryPath string) ([]commandInfo, error) {
 // remapPackageInfosToIsolated creates new package infos with paths pointing to isolated dir.
 // Returns the remapped infos and a mapping from new paths to original paths.
 func remapPackageInfosToIsolated(
-	infos []buildtool.PackageInfo,
+	infos []discover.PackageInfo,
 	startDir, isolatedDir string,
-) ([]buildtool.PackageInfo, map[string]string, error) {
+) ([]discover.PackageInfo, map[string]string, error) {
 	filePaths := collectFilePaths(infos)
 
 	paths, err := NamespacePaths(filePaths, startDir)
@@ -2984,11 +2984,11 @@ func remapPackageInfosToIsolated(
 		return nil, nil, fmt.Errorf("computing namespace paths: %w", err)
 	}
 
-	result := make([]buildtool.PackageInfo, 0, len(infos))
+	result := make([]discover.PackageInfo, 0, len(infos))
 	pathMapping := make(map[string]string) // newPath -> originalPath
 
 	for _, info := range infos {
-		newInfo := buildtool.PackageInfo{
+		newInfo := discover.PackageInfo{
 			Package: info.Package,
 			Doc:     info.Doc,
 		}
@@ -3010,11 +3010,11 @@ func remapPackageInfosToIsolated(
 		newInfo.Dir = newDir
 
 		// Remap file paths
-		newFiles := make([]buildtool.FileInfo, 0, len(info.Files))
+		newFiles := make([]discover.FileInfo, 0, len(info.Files))
 		for _, f := range info.Files {
 			newPath := filepath.Join(newDir, filepath.Base(f.Path))
 			pathMapping[newPath] = f.Path // Track original path
-			newFiles = append(newFiles, buildtool.FileInfo{
+			newFiles = append(newFiles, discover.FileInfo{
 				Path: newPath,
 				Base: f.Base,
 			})

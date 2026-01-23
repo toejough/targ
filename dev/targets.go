@@ -659,8 +659,11 @@ func deadcode(ctx context.Context) error {
 			if isPublicAPIEntryPoint(filePath) {
 				continue
 			}
-			// Skip internal/sh and internal/file - they support the public API
-			if strings.HasPrefix(filePath, "internal/sh/") || strings.HasPrefix(filePath, "internal/file/") {
+			// Skip internal packages that support the CLI or public API
+			if strings.HasPrefix(filePath, "internal/sh/") ||
+				strings.HasPrefix(filePath, "internal/file/") ||
+				strings.HasPrefix(filePath, "internal/discover/") ||
+				strings.HasPrefix(filePath, "internal/parse/") {
 				continue
 			}
 		}
@@ -810,8 +813,11 @@ func deleteDeadcode(ctx context.Context) error {
 			continue
 		}
 
-		// Skip internal/sh and internal/file - they support the public API
-		if strings.HasPrefix(file, "internal/sh/") || strings.HasPrefix(file, "internal/file/") {
+		// Skip internal packages that support the CLI or public API
+		if strings.HasPrefix(file, "internal/sh/") ||
+			strings.HasPrefix(file, "internal/file/") ||
+			strings.HasPrefix(file, "internal/discover/") ||
+			strings.HasPrefix(file, "internal/parse/") {
 			continue
 		}
 
@@ -1048,8 +1054,10 @@ func isEntryPointCoverageLine(line string) bool {
 		return true
 	}
 
-	// internal/runner contains CLI tooling that's hard to unit test
-	if strings.Contains(line, "/internal/runner/") {
+	// internal/runner, internal/discover, and internal/parse contain CLI tooling
+	if strings.Contains(line, "/internal/runner/") ||
+		strings.Contains(line, "/internal/discover/") ||
+		strings.Contains(line, "/internal/parse/") {
 		return true
 	}
 
