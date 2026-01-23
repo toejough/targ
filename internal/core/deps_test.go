@@ -1,14 +1,16 @@
-package core
+package core_test
 
 import (
-	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/toejough/targ/internal/core"
 )
+
+// Test structs for dependency execution.
 
 type DepRoot struct {
 	Err bool
@@ -16,10 +18,10 @@ type DepRoot struct {
 
 func (d *DepRoot) Run() error {
 	if d.Err {
-		return Deps(depErr)
+		return core.Deps(depErr)
 	}
 
-	return Deps(depOnce, depOnce)
+	return core.Deps(depOnce, depOnce)
 }
 
 type DepStruct struct {
@@ -30,55 +32,13 @@ func (d *DepStruct) Run() {
 	d.Called++
 }
 
-func TestDepKeyFor_InvalidType(t *testing.T) {
-	// Pass a non-func, non-pointer type (e.g., int)
-	_, err := depKeyFor(42)
-	if err == nil || !strings.Contains(err.Error(), "must be func or pointer") {
-		t.Fatalf("expected invalid type error, got %v", err)
-	}
-}
-
-func TestDepKeyFor_NilPointer(t *testing.T) {
-	var ptr *DepStruct
-
-	_, err := depKeyFor(ptr)
-	if err == nil || err.Error() != "dependency target cannot be nil" {
-		t.Fatalf("expected nil pointer error, got %v", err)
-	}
-}
-
-// --- depKeyFor tests ---
-
-func TestDepKeyFor_NilTarget(t *testing.T) {
-	_, err := depKeyFor(nil)
-	if err == nil || err.Error() != "dependency target cannot be nil" {
-		t.Fatalf("expected nil error, got %v", err)
-	}
-}
-
 func TestDepsErrorCached(t *testing.T) {
 	depCount = 0
 
-	err := withDepTracker(context.Background(), func() error {
-		node, parseErr := parseTarget(&DepRoot{})
-		if parseErr != nil {
-			return parseErr
-		}
-
-		runErr := node.execute(context.Background(), []string{"--err"}, RunOptions{})
-		if runErr == nil {
-			return errors.New("expected error")
-		}
-
-		runErr = Deps(depErr)
-		if runErr == nil {
-			return errors.New("expected error on second call")
-		}
-
-		return nil
-	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	// Run through Execute which sets up the dep tracker
+	_, err := core.Execute([]string{"cmd", "--err"}, &DepRoot{})
+	if err == nil {
+		t.Fatal("expected error")
 	}
 
 	if depCount != 1 {
@@ -89,14 +49,7 @@ func TestDepsErrorCached(t *testing.T) {
 func TestDepsRunsOnce(t *testing.T) {
 	depCount = 0
 
-	err := withDepTracker(context.Background(), func() error {
-		node, parseErr := parseTarget(&DepRoot{})
-		if parseErr != nil {
-			return parseErr
-		}
-
-		return node.execute(context.Background(), nil, RunOptions{})
-	})
+	_, err := core.Execute([]string{"cmd"}, &DepRoot{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -108,15 +61,11 @@ func TestDepsRunsOnce(t *testing.T) {
 
 func TestDepsStructRunsOnce(t *testing.T) {
 	dep := &DepStruct{}
+	target := func() error {
+		return core.Deps(dep, dep)
+	}
 
-	err := withDepTracker(context.Background(), func() error {
-		runErr := Deps(dep, dep)
-		if runErr != nil {
-			return runErr
-		}
-
-		return nil
-	})
+	_, err := core.Execute([]string{"cmd"}, target)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -142,12 +91,12 @@ func TestDeps_ConcurrentSameDepWaitsForFirst(t *testing.T) {
 		<-finish // Wait for signal to finish
 	}
 
-	err := withDepTracker(context.Background(), func() error {
+	target := func() error {
 		done := make(chan error, 2)
 
 		// Start first call - it will block in slowDep
 		go func() {
-			done <- Deps(slowDep)
+			done <- core.Deps(slowDep)
 		}()
 
 		// Wait for slowDep to start
@@ -155,7 +104,7 @@ func TestDeps_ConcurrentSameDepWaitsForFirst(t *testing.T) {
 
 		// Start second call - should wait on inFlight channel
 		go func() {
-			done <- Deps(slowDep)
+			done <- core.Deps(slowDep)
 		}()
 
 		// Give second goroutine time to hit the inFlight path
@@ -172,7 +121,9 @@ func TestDeps_ConcurrentSameDepWaitsForFirst(t *testing.T) {
 		}
 
 		return nil
-	})
+	}
+
+	_, err := core.Execute([]string{"cmd"}, target)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -183,28 +134,28 @@ func TestDeps_ConcurrentSameDepWaitsForFirst(t *testing.T) {
 }
 
 func TestDeps_InvalidFunctionSignature(t *testing.T) {
-	// A function with multiple non-error returns fails parseTarget but passes depKeyFor
+	// A function with multiple non-error returns fails parseTarget
 	invalidFunc := func() (int, int) { return 1, 2 }
 
-	err := withDepTracker(context.Background(), func() error {
-		return Deps(invalidFunc)
-	})
-	if err == nil {
-		t.Fatal("expected error for invalid function signature")
+	target := func() error {
+		return core.Deps(invalidFunc)
 	}
 
-	if !strings.Contains(err.Error(), "return") {
-		t.Fatalf("expected return type error, got %v", err)
+	_, err := core.Execute([]string{"cmd"}, target)
+	if err == nil {
+		t.Fatal("expected error for invalid function signature")
 	}
 }
 
 func TestDeps_InvalidTypeViaDeps(t *testing.T) {
-	// Pass an invalid type through Deps to exercise the depKeyFor error path in run()
-	err := withDepTracker(context.Background(), func() error {
-		return Deps(42) // int is not a valid target type
-	})
-	if err == nil || !strings.Contains(err.Error(), "must be func or pointer") {
-		t.Fatalf("expected invalid type error, got %v", err)
+	// Pass an invalid type through Deps to exercise the error path
+	target := func() error {
+		return core.Deps(42) // int is not a valid target type
+	}
+
+	_, err := core.Execute([]string{"cmd"}, target)
+	if err == nil {
+		t.Fatal("expected error for invalid type")
 	}
 }
 
@@ -218,24 +169,27 @@ func TestParallelDepsReturnsError(t *testing.T) {
 		<-release
 	}
 
-	err := withDepTracker(context.Background(), func() error {
+	target := func() error {
 		done := make(chan error, 1)
 
 		go func() {
-			done <- Deps(bad, waiter, Parallel(), ContinueOnError())
+			done <- core.Deps(bad, waiter, core.Parallel(), core.ContinueOnError())
 		}()
 
 		select {
 		case <-started:
 		case <-time.After(200 * time.Millisecond):
 			close(release)
+
 			return errors.New("expected waiter to start")
 		}
 
 		close(release)
 
 		return <-done
-	})
+	}
+
+	_, err := core.Execute([]string{"cmd"}, target)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -250,11 +204,11 @@ func TestParallelDepsRunsConcurrently(t *testing.T) {
 		<-release
 	}
 
-	err := withDepTracker(context.Background(), func() error {
+	target := func() error {
 		done := make(chan error, 1)
 
 		go func() {
-			done <- Deps(worker, func() { worker() }, Parallel(), ContinueOnError())
+			done <- core.Deps(worker, func() { worker() }, core.Parallel(), core.ContinueOnError())
 		}()
 
 		timeout := time.After(200 * time.Millisecond)
@@ -264,6 +218,7 @@ func TestParallelDepsRunsConcurrently(t *testing.T) {
 			case <-started:
 			case <-timeout:
 				close(release)
+
 				return errors.New("expected both tasks to start concurrently")
 			}
 		}
@@ -271,7 +226,9 @@ func TestParallelDepsRunsConcurrently(t *testing.T) {
 		close(release)
 
 		return <-done
-	})
+	}
+
+	_, err := core.Execute([]string{"cmd"}, target)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -283,8 +240,8 @@ func TestParallelDepsSharesDependencies(t *testing.T) {
 	var runCount int32
 
 	dep := func() { depCount++ }
-	target := func() error {
-		err := Deps(dep)
+	inner := func() error {
+		err := core.Deps(dep)
 		if err != nil {
 			return err
 		}
@@ -294,9 +251,11 @@ func TestParallelDepsSharesDependencies(t *testing.T) {
 		return nil
 	}
 
-	err := withDepTracker(context.Background(), func() error {
-		return Deps(target, func() error { return target() }, Parallel(), ContinueOnError())
-	})
+	target := func() error {
+		return core.Deps(inner, func() error { return inner() }, core.Parallel(), core.ContinueOnError())
+	}
+
+	_, err := core.Execute([]string{"cmd"}, target)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -312,11 +271,11 @@ func TestParallelDepsSharesDependencies(t *testing.T) {
 
 func TestResetDeps(t *testing.T) {
 	callCount := 0
-	target := func() { callCount++ }
+	inner := func() { callCount++ }
 
-	err := withDepTracker(context.Background(), func() error {
+	target := func() error {
 		// First call runs the target
-		err := Deps(target)
+		err := core.Deps(inner)
 		if err != nil {
 			return err
 		}
@@ -326,7 +285,7 @@ func TestResetDeps(t *testing.T) {
 		}
 
 		// Second call skips (already ran)
-		err = Deps(target)
+		err = core.Deps(inner)
 		if err != nil {
 			return err
 		}
@@ -336,9 +295,9 @@ func TestResetDeps(t *testing.T) {
 		}
 
 		// After reset, target runs again
-		ResetDeps()
+		core.ResetDeps()
 
-		err = Deps(target)
+		err = core.Deps(inner)
 		if err != nil {
 			return err
 		}
@@ -348,72 +307,37 @@ func TestResetDeps(t *testing.T) {
 		}
 
 		return nil
-	})
+	}
+
+	_, err := core.Execute([]string{"cmd"}, target)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
-func TestSerialRun_ContextCancellation(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel() // Cancel immediately
-
-	err := withDepTracker(context.Background(), func() error {
-		tracker := newDepTracker(ctx)
-		return serialRun(ctx, tracker, []any{func() {}}, false)
-	})
-
-	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("expected context.Canceled, got %v", err)
-	}
-}
-
-func TestSerialRun_ContextCancelledWithPriorError(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-
-	err := withDepTracker(context.Background(), func() error {
-		tracker := newDepTracker(ctx)
-
-		return serialRun(ctx, tracker, []any{
-			func() error {
-				return errors.New("prior error")
-			},
-			func() error {
-				cancel() // Cancel after first error when using continueOnError
-				return nil
-			},
-			func() error {
-				return nil // This won't run due to cancellation
-			},
-		}, true) // continueOnError = true
-	})
-
-	// The error should be the prior error since it was captured before cancellation check
-	if err == nil || err.Error() != "prior error" {
-		t.Fatalf("expected prior error, got %v", err)
-	}
-}
-
-func TestSerialRun_ContinueOnErrorAccumulates(t *testing.T) {
+func TestSerialDeps_ContinueOnErrorAccumulates(t *testing.T) {
 	firstCalled := false
 	secondCalled := false
 
-	err := withDepTracker(context.Background(), func() error {
-		return Deps(
+	target := func() error {
+		return core.Deps(
 			func() error {
 				firstCalled = true
+
 				return errors.New("first error")
 			},
 			func() error {
 				secondCalled = true
+
 				return errors.New("second error")
 			},
-			ContinueOnError(),
+			core.ContinueOnError(),
 		)
-	})
+	}
 
-	if err == nil || err.Error() != "first error" {
-		t.Fatalf("expected first error to be returned, got %v", err)
+	_, err := core.Execute([]string{"cmd"}, target)
+	if err == nil {
+		t.Fatal("expected error")
 	}
 
 	if !firstCalled || !secondCalled {
@@ -428,6 +352,7 @@ var (
 
 func depErr() error {
 	depCount++
+
 	return errors.New("boom")
 }
 

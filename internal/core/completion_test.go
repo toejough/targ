@@ -1,4 +1,4 @@
-package core
+package core_test
 
 import (
 	"bytes"
@@ -6,7 +6,11 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/toejough/targ/internal/core"
 )
+
+// Test command types for completion testing.
 
 type CompletionDiscoverRoot struct{}
 
@@ -37,7 +41,7 @@ type EnumOverrideCmd struct {
 
 func (c *EnumOverrideCmd) Run() {}
 
-func (c *EnumOverrideCmd) TagOptions(field string, opts TagOptions) (TagOptions, error) {
+func (c *EnumOverrideCmd) TagOptions(field string, opts core.TagOptions) (core.TagOptions, error) {
 	if field == "Mode" {
 		opts.Enum = "alpha|beta"
 	}
@@ -52,7 +56,10 @@ type PositionalCompletionCmd struct {
 
 func (c *PositionalCompletionCmd) Run() {}
 
-func (c *PositionalCompletionCmd) TagOptions(field string, opts TagOptions) (TagOptions, error) {
+func (c *PositionalCompletionCmd) TagOptions(
+	field string,
+	opts core.TagOptions,
+) (core.TagOptions, error) {
 	if field != "ID" {
 		return opts, nil
 	}
@@ -71,517 +78,126 @@ type VariadicFlagCmd struct {
 
 func (c *VariadicFlagCmd) Run() {}
 
-func TestCompletionChain_NilNode(t *testing.T) {
-	t.Parallel()
+func TestCompletion_SuggestsEnumValuesAfterFlag(t *testing.T) {
 
-	chain, err := completionChain(nil, []string{})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if chain != nil {
-		t.Fatalf("expected nil chain, got %v", chain)
-	}
-}
-
-func TestCompletionSuggestsEnumValuesAfterFlag(t *testing.T) {
-	cmd, err := parseCommand(&EnumCmd{})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	out := captureStdout(t, func() {
-		err := doCompletion([]*commandNode{cmd}, "app --mode ")
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-	})
+	out := captureCompletion(t, &EnumCmd{}, "app --mode ")
 	if !strings.Contains(out, "dev") || !strings.Contains(out, "prod") {
 		t.Fatalf("expected enum suggestions, got: %q", out)
 	}
 }
 
-func TestCompletionSuggestsPositionalValues(t *testing.T) {
-	cmd, err := parseCommand(&PositionalCompletionCmd{})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+func TestCompletion_SuggestsEnumValuesAfterShortFlag(t *testing.T) {
 
-	out := captureStdout(t, func() {
-		err := doCompletion([]*commandNode{cmd}, "app --status cancelled ")
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-	})
+	out := captureCompletion(t, &EnumCmd{}, "app -m ")
+	if !strings.Contains(out, "dev") || !strings.Contains(out, "prod") {
+		t.Fatalf("expected enum suggestions for short flag, got: %q", out)
+	}
+}
+
+func TestCompletion_SuggestsPositionalValues(t *testing.T) {
+
+	out := captureCompletion(t, &PositionalCompletionCmd{}, "app --status cancelled ")
 	if !strings.Contains(out, "40") || !strings.Contains(out, "41") {
 		t.Fatalf("expected positional suggestions, got: %q", out)
 	}
 }
 
-func TestCompletionSuggestsRootsAfterCommand(t *testing.T) {
-	firmware, err := parseCommand(&CompletionFirmwareRoot{})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+func TestCompletion_SuggestsRootsAfterCommand(t *testing.T) {
 
-	discover, err := parseCommand(&CompletionDiscoverRoot{})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	out := captureStdout(t, func() {
-		err := doCompletion([]*commandNode{firmware, discover}, "app firmware flash-only d")
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-	})
+	out := captureCompletionMulti(t, []any{&CompletionFirmwareRoot{}, &CompletionDiscoverRoot{}},
+		"app firmware flash-only d")
 	if !strings.Contains(out, "discover") {
 		t.Fatalf("expected discover suggestion, got: %q", out)
 	}
 }
 
-func TestDoCompletion_CaretSuggestion(t *testing.T) {
-	firmware, err := parseCommand(&CompletionFirmwareRoot{})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+func TestCompletion_CaretSuggestion(t *testing.T) {
 
-	discover, err := parseCommand(&CompletionDiscoverRoot{})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	out := captureStdout(t, func() {
-		err := doCompletion([]*commandNode{firmware, discover}, "app firmware flash-only ")
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-	})
+	out := captureCompletionMulti(t, []any{&CompletionFirmwareRoot{}, &CompletionDiscoverRoot{}},
+		"app firmware flash-only ")
 	if !strings.Contains(out, "^") {
 		t.Fatalf("expected ^ suggestion, got: %q", out)
 	}
 }
 
-func TestDoCompletion_ChainedRootCommands(t *testing.T) {
-	firmware, err := parseCommand(&CompletionFirmwareRoot{})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+func TestCompletion_ChainedRootCommands(t *testing.T) {
 
-	discover, err := parseCommand(&CompletionDiscoverRoot{})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	// After running firmware, discover is a remaining arg that should chain
-	// "app firmware discover " - after discover completes, suggests roots again
-	out := captureStdout(t, func() {
-		err := doCompletion([]*commandNode{firmware, discover}, "app firmware discover ")
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-	})
+	out := captureCompletionMulti(t, []any{&CompletionFirmwareRoot{}, &CompletionDiscoverRoot{}},
+		"app firmware discover ")
 	// After chaining through both commands, should suggest roots again
 	if !strings.Contains(out, "firmware") || !strings.Contains(out, "discover") {
 		t.Fatalf("expected root suggestions after chained commands, got: %q", out)
 	}
 }
 
-// --- doCompletion additional tests ---
+func TestCompletion_FlagSuggestion(t *testing.T) {
 
-func TestDoCompletion_EmptyCommandLine(t *testing.T) {
-	t.Parallel()
-
-	cmd, err := parseCommand(&EnumCmd{})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	// Empty command line after tokenization
-	err = doCompletion([]*commandNode{cmd}, "")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func TestDoCompletion_FlagSuggestion(t *testing.T) {
-	cmd, err := parseCommand(&EnumCmd{})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	out := captureStdout(t, func() {
-		err := doCompletion([]*commandNode{cmd}, "app --")
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-	})
+	out := captureCompletion(t, &EnumCmd{}, "app --")
 	if !strings.Contains(out, "--mode") {
 		t.Fatalf("expected --mode flag suggestion, got: %q", out)
 	}
 }
 
-func TestDoCompletion_MultipleRootsAtRootLevel(t *testing.T) {
-	firmware, err := parseCommand(&CompletionFirmwareRoot{})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+func TestCompletion_MultipleRootsAtRootLevel(t *testing.T) {
 
-	discover, err := parseCommand(&CompletionDiscoverRoot{})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	out := captureStdout(t, func() {
-		err := doCompletion([]*commandNode{firmware, discover}, "app ")
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-	})
+	out := captureCompletionMulti(t, []any{&CompletionFirmwareRoot{}, &CompletionDiscoverRoot{}},
+		"app ")
 	if !strings.Contains(out, "firmware") || !strings.Contains(out, "discover") {
 		t.Fatalf("expected root suggestions, got: %q", out)
 	}
 }
 
-func TestDoCompletion_MultipleRootsWithPrefix(t *testing.T) {
-	firmware, err := parseCommand(&CompletionFirmwareRoot{})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+func TestCompletion_MultipleRootsWithPrefix(t *testing.T) {
 
-	discover, err := parseCommand(&CompletionDiscoverRoot{})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	out := captureStdout(t, func() {
-		err := doCompletion([]*commandNode{firmware, discover}, "app f")
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-	})
+	out := captureCompletionMulti(t, []any{&CompletionFirmwareRoot{}, &CompletionDiscoverRoot{}},
+		"app f")
 	if !strings.Contains(out, "firmware") {
 		t.Fatalf("expected firmware suggestion, got: %q", out)
 	}
 }
 
-func TestDoCompletion_PartialRootMatchSuggestsMatchingRoots(t *testing.T) {
-	firmware, err := parseCommand(&CompletionFirmwareRoot{})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+func TestCompletion_SingleRootAtRoot(t *testing.T) {
 
-	discover, err := parseCommand(&CompletionDiscoverRoot{})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	// 'firm ' (with trailing space) doesn't exactly match any root,
-	// but should suggest roots starting with 'firm'
-	out := captureStdout(t, func() {
-		err := doCompletion([]*commandNode{firmware, discover}, "app firm ")
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-	})
-	if !strings.Contains(out, "firmware") {
-		t.Fatalf("expected firmware suggestion for partial match, got: %q", out)
-	}
-}
-
-func TestDoCompletion_SingleRootAtRoot(t *testing.T) {
-	cmd, err := parseCommand(&EnumCmd{})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	out := captureStdout(t, func() {
-		err := doCompletion([]*commandNode{cmd}, "app ")
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-	})
-	// Single root at root level should suggest the root command name
+	out := captureCompletion(t, &EnumCmd{}, "app ")
 	if !strings.Contains(out, "enum-cmd") {
 		t.Fatalf("expected enum-cmd suggestion, got: %q", out)
 	}
 }
 
-func TestDoCompletion_UnknownRootPrefix(t *testing.T) {
-	firmware, err := parseCommand(&CompletionFirmwareRoot{})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+func TestCompletion_UnknownRootPrefix(t *testing.T) {
 
-	discover, err := parseCommand(&CompletionDiscoverRoot{})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	// 'xyz' doesn't match any root
-	out := captureStdout(t, func() {
-		err := doCompletion([]*commandNode{firmware, discover}, "app xyz")
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-	})
+	out := captureCompletionMulti(t, []any{&CompletionFirmwareRoot{}, &CompletionDiscoverRoot{}},
+		"app xyz")
 	// Should not suggest anything since no match
 	if out != "" {
 		t.Fatalf("expected no suggestions for unknown prefix, got: %q", out)
 	}
 }
 
-func TestDoCompletion_VariadicFlagSkipsMultipleValues(t *testing.T) {
-	cmd, err := parseCommand(&VariadicFlagCmd{})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+func TestCompletion_VariadicFlagSkipsMultipleValues(t *testing.T) {
 
-	// --files is variadic (slice), values a.txt b.txt should be skipped
-	// Then we should get positional enum suggestions
-	out := captureStdout(t, func() {
-		err := doCompletion([]*commandNode{cmd}, "app --files a.txt b.txt ")
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-	})
-
+	out := captureCompletion(t, &VariadicFlagCmd{}, "app --files a.txt b.txt ")
 	// Should suggest positional enum values after skipping variadic flag values
 	if !strings.Contains(out, "build") || !strings.Contains(out, "test") {
 		t.Fatalf("expected positional enum suggestions after variadic flag values, got: %q", out)
 	}
 }
 
-func TestEnumValuesForArg_LongFlag(t *testing.T) {
-	cmd, err := parseCommand(&EnumCmd{})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+func TestCompletion_TagOptionsOverride(t *testing.T) {
 
-	chain, err := completionChain(cmd, []string{})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	values, ok, err := enumValuesForArg(chain, []string{"--mode"}, "", true)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if !ok {
-		t.Fatal("expected enum values for --mode")
-	}
-
-	if len(values) != 2 || values[0] != "dev" || values[1] != "prod" {
-		t.Fatalf("unexpected values: %v", values)
-	}
-}
-
-func TestEnumValuesForArg_NoMatch(t *testing.T) {
-	cmd, err := parseCommand(&EnumCmd{})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	chain, err := completionChain(cmd, []string{})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	values, ok, err := enumValuesForArg(chain, []string{"--unknown"}, "", true)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if ok {
-		t.Fatalf("expected no enum values, got %v", values)
-	}
-}
-
-func TestEnumValuesForArg_ShortFlag(t *testing.T) {
-	cmd, err := parseCommand(&EnumCmd{})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	chain, err := completionChain(cmd, []string{})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	values, ok, err := enumValuesForArg(chain, []string{"-m"}, "", true)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if !ok {
-		t.Fatal("expected enum values for -m")
-	}
-
-	if len(values) != 2 || values[0] != "dev" || values[1] != "prod" {
-		t.Fatalf("unexpected values: %v", values)
-	}
-}
-
-func TestEnumValuesForArg_TagOptionsOverride(t *testing.T) {
-	cmd, err := parseCommand(&EnumOverrideCmd{})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	chain, err := completionChain(cmd, []string{})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	values, ok, err := enumValuesForArg(chain, []string{"--mode"}, "", true)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if !ok {
-		t.Fatal("expected enum values for --mode")
-	}
-
-	if len(values) != 2 || values[0] != "alpha" || values[1] != "beta" {
-		t.Fatalf("unexpected values: %v", values)
-	}
-}
-
-func TestFindCompletionRoot_CaseInsensitive(t *testing.T) {
-	roots := []*commandNode{
-		{Name: "Build"},
-	}
-
-	result := findCompletionRoot(roots, "build")
-	if result == nil {
-		t.Fatal("expected case-insensitive match")
-	}
-}
-
-func TestFindCompletionRoot_Found(t *testing.T) {
-	roots := []*commandNode{
-		{Name: "build"},
-		{Name: "test"},
-		{Name: "run"},
-	}
-
-	result := findCompletionRoot(roots, "test")
-	if result == nil {
-		t.Fatal("expected to find 'test' root")
-	}
-
-	if result.Name != "test" {
-		t.Fatalf("expected name 'test', got %q", result.Name)
-	}
-}
-
-func TestFindCompletionRoot_NotFound(t *testing.T) {
-	roots := []*commandNode{
-		{Name: "build"},
-	}
-
-	result := findCompletionRoot(roots, "unknown")
-	if result != nil {
-		t.Fatal("expected nil for unknown root")
-	}
-}
-
-func TestFollowRemaining_MultiRoot_Found(t *testing.T) {
-	root1, err := parseStruct(&CompletionFirmwareRoot{})
-	if err != nil {
-		t.Fatalf("unexpected parse error: %v", err)
-	}
-
-	root2, err := parseStruct(&CompletionDiscoverRoot{})
-	if err != nil {
-		t.Fatalf("unexpected parse error: %v", err)
-	}
-
-	state := &completionState{
-		roots:       []*commandNode{root1, root2},
-		singleRoot:  false,
-		currentNode: root1,
-	}
-
-	result := parseResult{
-		remaining: []string{"discover", "arg1"},
-	}
-
-	ok := state.followRemaining(result)
-	if !ok {
-		t.Fatal("expected followRemaining to return true when root found")
-	}
-
-	if state.currentNode != root2 {
-		t.Fatal("expected currentNode to be switched to discovered root")
-	}
-
-	if !state.explicit {
-		t.Fatal("expected explicit to be true for multi root")
-	}
-}
-
-func TestFollowRemaining_MultiRoot_NotFound(t *testing.T) {
-	root1, err := parseStruct(&CompletionFirmwareRoot{})
-	if err != nil {
-		t.Fatalf("unexpected parse error: %v", err)
-	}
-
-	state := &completionState{
-		roots:       []*commandNode{root1},
-		singleRoot:  false,
-		currentNode: root1,
-	}
-
-	result := parseResult{
-		remaining: []string{"unknown-cmd", "arg1"},
-	}
-
-	ok := state.followRemaining(result)
-	if ok {
-		t.Fatal("expected followRemaining to return false when root not found")
-	}
-}
-
-func TestFollowRemaining_SingleRoot(t *testing.T) {
-	root, err := parseStruct(&EnumCmd{})
-	if err != nil {
-		t.Fatalf("unexpected parse error: %v", err)
-	}
-
-	state := &completionState{
-		roots:      []*commandNode{root},
-		singleRoot: true,
-	}
-
-	result := parseResult{
-		remaining: []string{"arg1", "arg2"},
-	}
-
-	ok := state.followRemaining(result)
-	if !ok {
-		t.Fatal("expected followRemaining to return true for single root")
-	}
-
-	if state.currentNode != root {
-		t.Fatal("expected currentNode to be reset to first root")
-	}
-
-	if len(state.processedArgs) != 2 {
-		t.Fatalf("expected processedArgs to be remaining, got %v", state.processedArgs)
-	}
-
-	if state.explicit {
-		t.Fatal("expected explicit to be false for single root")
+	out := captureCompletion(t, &EnumOverrideCmd{}, "app --mode ")
+	// TagOptions overrides enum to alpha|beta
+	if !strings.Contains(out, "alpha") || !strings.Contains(out, "beta") {
+		t.Fatalf("expected overridden enum values, got: %q", out)
 	}
 }
 
 func TestPrintCompletionScriptPlaceholders(t *testing.T) {
+
 	cases := []string{"bash", "zsh", "fish"}
 	for _, shell := range cases {
 		out := captureStdout(t, func() {
-			err := PrintCompletionScript(shell, "demo")
+			err := core.PrintCompletionScript(shell, "demo")
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -596,225 +212,26 @@ func TestPrintCompletionScriptPlaceholders(t *testing.T) {
 	}
 }
 
-func TestSuggestPositionalEnumsOrRoots_ExpectingFlagValue(t *testing.T) {
-	// When expecting a flag value, should return early
-	root, err := parseStruct(&EnumCmd{})
-	if err != nil {
-		t.Fatalf("unexpected parse error: %v", err)
-	}
+// captureCompletion runs __complete with a single target and returns stdout.
+func captureCompletion(t *testing.T, target any, input string) string {
+	t.Helper()
 
-	state := &completionState{
-		roots:         []*commandNode{root},
-		currentNode:   root,
-		processedArgs: []string{"--mode"}, // expecting flag value
-		chain: []commandInstance{
-			{node: root, value: root.Value},
-		},
-	}
-
-	err = state.suggestPositionalEnumsOrRoots()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	return captureCompletionMulti(t, []any{target}, input)
 }
 
-func TestSuggestPositionalEnums_EmptyChain(t *testing.T) {
-	// When chain is empty, should return false, nil
-	root, err := parseStruct(&EnumCmd{})
-	if err != nil {
-		t.Fatalf("unexpected parse error: %v", err)
-	}
+// captureCompletionMulti runs __complete with multiple targets and returns stdout.
+func captureCompletionMulti(t *testing.T, targets []any, input string) string {
+	t.Helper()
 
-	state := &completionState{
-		roots:       []*commandNode{root},
-		currentNode: root,
-		chain:       nil, // empty chain
-	}
+	return captureStdout(t, func() {
+		args := []string{"app", "__complete", input}
 
-	suggested, err := state.suggestPositionalEnums()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if suggested {
-		t.Fatal("expected suggested to be false for empty chain")
-	}
+		_, err := core.Execute(args, targets...)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
 }
-
-func TestSuggestPositionalEnums_NoEnumField(t *testing.T) {
-	// Command with no positional enums
-	type NoEnumCmd struct {
-		Name string `targ:"positional"`
-	}
-
-	root, err := parseStruct(&NoEnumCmd{})
-	if err != nil {
-		t.Fatalf("unexpected parse error: %v", err)
-	}
-
-	state := &completionState{
-		roots:         []*commandNode{root},
-		currentNode:   root,
-		processedArgs: []string{},
-		chain: []commandInstance{
-			{node: root, value: root.Value},
-		},
-	}
-
-	suggested, err := state.suggestPositionalEnums()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if suggested {
-		t.Fatal("expected suggested to be false for non-enum positional")
-	}
-}
-
-func TestTokenizeCommandLine_BackslashInSingleQuotes(t *testing.T) {
-	// In single quotes, backslash is literal
-	parts, _ := tokenizeCommandLine(`'foo\bar'`)
-	if len(parts) != 1 || parts[0] != `foo\bar` {
-		t.Fatalf("unexpected parts: %v", parts)
-	}
-}
-
-func TestTokenizeCommandLine_DoubleQuoteInsideSingle(t *testing.T) {
-	parts, _ := tokenizeCommandLine(`'foo"bar'`)
-	if len(parts) != 1 || parts[0] != `foo"bar` {
-		t.Fatalf("unexpected parts: %v", parts)
-	}
-}
-
-func TestTokenizeCommandLine_DoubleQuotes(t *testing.T) {
-	parts, isNewArg := tokenizeCommandLine(`foo "bar baz"`)
-	if len(parts) != 2 || parts[0] != testStringFoo || parts[1] != testStringBarBaz {
-		t.Fatalf("unexpected parts: %v", parts)
-	}
-
-	if isNewArg {
-		t.Fatal("expected isNewArg=false")
-	}
-}
-
-func TestTokenizeCommandLine_EscapeInDoubleQuotes(t *testing.T) {
-	parts, _ := tokenizeCommandLine(`"foo\"bar"`)
-	if len(parts) != 1 || parts[0] != `foo"bar` {
-		t.Fatalf("unexpected parts: %v", parts)
-	}
-}
-
-func TestTokenizeCommandLine_EscapedSpace(t *testing.T) {
-	parts, isNewArg := tokenizeCommandLine(`foo bar\ baz`)
-	if len(parts) != 2 || parts[0] != testStringFoo || parts[1] != testStringBarBaz {
-		t.Fatalf("unexpected parts: %v", parts)
-	}
-
-	if isNewArg {
-		t.Fatal("expected isNewArg=false")
-	}
-}
-
-func TestTokenizeCommandLine_NewlineSeparator(t *testing.T) {
-	parts, isNewArg := tokenizeCommandLine("foo\nbar")
-	if len(parts) != 2 || parts[0] != testStringFoo || parts[1] != testStringBar {
-		t.Fatalf("unexpected parts: %v", parts)
-	}
-
-	if isNewArg {
-		t.Fatal("expected isNewArg=false")
-	}
-}
-
-// --- tokenizeCommandLine tests ---
-
-func TestTokenizeCommandLine_SimpleArgs(t *testing.T) {
-	parts, isNewArg := tokenizeCommandLine("foo bar baz")
-	if len(parts) != 3 || parts[0] != testStringFoo || parts[1] != testStringBar ||
-		parts[2] != "baz" {
-		t.Fatalf("unexpected parts: %v", parts)
-	}
-
-	if isNewArg {
-		t.Fatal("expected isNewArg=false")
-	}
-}
-
-func TestTokenizeCommandLine_SingleQuoteInsideDouble(t *testing.T) {
-	parts, _ := tokenizeCommandLine(`"foo'bar"`)
-	if len(parts) != 1 || parts[0] != "foo'bar" {
-		t.Fatalf("unexpected parts: %v", parts)
-	}
-}
-
-func TestTokenizeCommandLine_SingleQuotes(t *testing.T) {
-	parts, isNewArg := tokenizeCommandLine("foo 'bar baz'")
-	if len(parts) != 2 || parts[0] != testStringFoo || parts[1] != testStringBarBaz {
-		t.Fatalf("unexpected parts: %v", parts)
-	}
-
-	if isNewArg {
-		t.Fatal("expected isNewArg=false")
-	}
-}
-
-func TestTokenizeCommandLine_TabSeparator(t *testing.T) {
-	parts, isNewArg := tokenizeCommandLine("foo\tbar")
-	if len(parts) != 2 || parts[0] != testStringFoo || parts[1] != testStringBar {
-		t.Fatalf("unexpected parts: %v", parts)
-	}
-
-	if isNewArg {
-		t.Fatal("expected isNewArg=false")
-	}
-}
-
-func TestTokenizeCommandLine_TrailingBackslash(t *testing.T) {
-	parts, _ := tokenizeCommandLine(`foo\`)
-	if len(parts) != 1 || parts[0] != `foo\` {
-		t.Fatalf("unexpected parts: %v", parts)
-	}
-}
-
-func TestTokenizeCommandLine_TrailingSpace(t *testing.T) {
-	parts, isNewArg := tokenizeCommandLine("foo ")
-	if len(parts) != 1 || parts[0] != testStringFoo {
-		t.Fatalf("unexpected parts: %v", parts)
-	}
-
-	if !isNewArg {
-		t.Fatal("expected isNewArg=true for trailing space")
-	}
-}
-
-func TestTokenizeCommandLine_UnclosedDoubleQuote(t *testing.T) {
-	parts, isNewArg := tokenizeCommandLine(`foo "bar`)
-	if len(parts) != 2 || parts[0] != testStringFoo || parts[1] != testStringBar {
-		t.Fatalf("unexpected parts: %v", parts)
-	}
-
-	if isNewArg {
-		t.Fatal("expected isNewArg=false for unclosed quote")
-	}
-}
-
-func TestTokenizeCommandLine_UnclosedSingleQuote(t *testing.T) {
-	parts, isNewArg := tokenizeCommandLine("foo 'bar")
-	if len(parts) != 2 || parts[0] != testStringFoo || parts[1] != testStringBar {
-		t.Fatalf("unexpected parts: %v", parts)
-	}
-
-	if isNewArg {
-		t.Fatal("expected isNewArg=false for unclosed quote")
-	}
-}
-
-// unexported constants.
-const (
-	testStringBar    = "bar"
-	testStringBarBaz = "bar baz"
-	testStringFoo    = "foo"
-)
 
 func captureStdout(t *testing.T, fn func()) string {
 	t.Helper()

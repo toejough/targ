@@ -1,10 +1,15 @@
-package core
+package core_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"io"
+	"os"
 	"strings"
 	"testing"
+
+	"github.com/toejough/targ/internal/core"
 )
 
 type FuncSubcommandRoot struct {
@@ -44,9 +49,11 @@ func TestRunWithEnv_CaretResetsToRoot(t *testing.T) {
 	multiSubOneCalls = 0
 	multiRootDiscoverCalls = 0
 
-	env := &ExecuteEnv{args: []string{"cmd", "multi-sub-root", "one", "^", "discover"}}
-
-	err := RunWithEnv(env, RunOptions{AllowDefault: false}, &MultiSubRoot{}, &discoverRoot{})
+	_, err := core.Execute(
+		[]string{"cmd", "multi-sub-root", "one", "^", "discover"},
+		&MultiSubRoot{},
+		&discoverRoot{},
+	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -63,18 +70,10 @@ func TestRunWithEnv_CaretResetsToRoot(t *testing.T) {
 func TestRunWithEnv_ContextFunction(t *testing.T) {
 	helloWorldCalled = false
 
-	mock, imp := MockRunEnv(t)
-	done := make(chan struct{})
-
-	go func() {
-		_ = RunWithEnv(mock, RunOptions{AllowDefault: true}, ContextFunc)
-
-		close(done)
-	}()
-
-	imp.Args.ArgsEqual().Return([]string{"cmd"})
-	imp.SupportsSignals.ArgsEqual().Return(true)
-	<-done
+	_, err := core.Execute([]string{"cmd"}, ContextFunc)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
 	if !helloWorldCalled {
 		t.Fatal("expected context function command to be called")
@@ -83,9 +82,11 @@ func TestRunWithEnv_ContextFunction(t *testing.T) {
 
 func TestRunWithEnv_DisableCompletion(t *testing.T) {
 	// With DisableCompletion, --completion should be passed through as unknown flag
-	env := &ExecuteEnv{args: []string{"cmd", "--completion", "bash"}}
-
-	err := RunWithEnv(env, RunOptions{DisableCompletion: true}, DefaultFunc)
+	_, err := core.ExecuteWithOptions(
+		[]string{"cmd", "--completion", "bash"},
+		core.RunOptions{DisableCompletion: true, AllowDefault: true},
+		DefaultFunc,
+	)
 	if err == nil {
 		t.Fatal("expected error when completion is disabled and --completion is passed")
 	}
@@ -93,14 +94,17 @@ func TestRunWithEnv_DisableCompletion(t *testing.T) {
 
 func TestRunWithEnv_DisableHelp(t *testing.T) {
 	// With DisableHelp, --help should be passed through as unknown flag
-	env := &ExecuteEnv{args: []string{"cmd", "--help"}}
-
-	err := RunWithEnv(env, RunOptions{DisableHelp: true}, DefaultFunc)
+	_, err := core.ExecuteWithOptions(
+		[]string{"cmd", "--help"},
+		core.RunOptions{DisableHelp: true, AllowDefault: true},
+		DefaultFunc,
+	)
 	if err == nil {
 		t.Fatal("expected error when help is disabled and --help is passed")
 	}
+
 	// Should error as unknown flag
-	var exitErr ExitError
+	var exitErr core.ExitError
 	if !errors.As(err, &exitErr) {
 		t.Fatalf("expected ExitError, got %v", err)
 	}
@@ -112,23 +116,24 @@ func TestRunWithEnv_DisableHelp(t *testing.T) {
 
 func TestRunWithEnv_DisableTimeout(t *testing.T) {
 	// With DisableTimeout, --timeout should be passed through as unknown flag
-	env := &ExecuteEnv{args: []string{"cmd", "--timeout", "5m"}}
-
-	err := RunWithEnv(env, RunOptions{DisableTimeout: true}, DefaultFunc)
+	_, err := core.ExecuteWithOptions(
+		[]string{"cmd", "--timeout", "5m"},
+		core.RunOptions{DisableTimeout: true, AllowDefault: true},
+		DefaultFunc,
+	)
 	if err == nil {
 		t.Fatal("expected error when timeout is disabled and --timeout is passed")
 	}
 }
 
 func TestRunWithEnv_FunctionReturnsError(t *testing.T) {
-	env := &ExecuteEnv{args: []string{"cmd"}}
-
-	err := RunWithEnv(env, RunOptions{AllowDefault: true}, ErrorFunc)
+	_, err := core.Execute([]string{"cmd"}, ErrorFunc)
 	if err == nil {
 		t.Fatal("expected error from function")
 	}
+
 	// Error is wrapped in ExitError
-	var exitErr ExitError
+	var exitErr core.ExitError
 
 	ok := errors.As(err, &exitErr)
 	if !ok {
@@ -146,18 +151,10 @@ func TestRunWithEnv_FunctionSubcommand(t *testing.T) {
 		Hello: func() { called = true },
 	}
 
-	mock, imp := MockRunEnv(t)
-	done := make(chan struct{})
-
-	go func() {
-		_ = RunWithEnv(mock, RunOptions{AllowDefault: true}, root)
-
-		close(done)
-	}()
-
-	imp.Args.ArgsEqual().Return([]string{"cmd", "hello"})
-	imp.SupportsSignals.ArgsEqual().Return(true)
-	<-done
+	_, err := core.Execute([]string{"cmd", "hello"}, root)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
 	if !called {
 		t.Fatal("expected function subcommand to be called")
@@ -167,17 +164,11 @@ func TestRunWithEnv_FunctionSubcommand(t *testing.T) {
 func TestRunWithEnv_FunctionWithHelpFlag(t *testing.T) {
 	defaultFuncCalled = false
 
-	mock, imp := MockRunEnv(t)
-	done := make(chan error, 1)
-
-	go func() {
-		done <- RunWithEnv(mock, RunOptions{AllowDefault: true, HelpOnly: true}, DefaultFunc)
-	}()
-
-	imp.Args.ArgsEqual().Return([]string{"cmd"})
-	imp.SupportsSignals.ArgsEqual().Return(true)
-
-	err := <-done
+	_, err := core.ExecuteWithOptions(
+		[]string{"cmd"},
+		core.RunOptions{AllowDefault: true, HelpOnly: true},
+		DefaultFunc,
+	)
 	// HelpOnly should skip execution
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -190,10 +181,13 @@ func TestRunWithEnv_FunctionWithHelpFlag(t *testing.T) {
 
 func TestRunWithEnv_GlobalHelpMultipleRoots(t *testing.T) {
 	// Test --help with multiple roots (no default) - shows usage
-	env := &ExecuteEnv{args: []string{"cmd", "--help"}}
-
-	output := captureStdout(t, func() {
-		err := RunWithEnv(env, RunOptions{AllowDefault: false}, DefaultFunc, OtherFunc)
+	output := captureStdoutRun(t, func() {
+		_, err := core.ExecuteWithOptions(
+			[]string{"cmd", "--help"},
+			core.RunOptions{AllowDefault: false},
+			DefaultFunc,
+			OtherFunc,
+		)
 		if err != nil {
 			t.Fatalf("expected no error for --help flag, got: %v", err)
 		}
@@ -207,10 +201,8 @@ func TestRunWithEnv_GlobalHelpMultipleRoots(t *testing.T) {
 
 func TestRunWithEnv_GlobalHelpShort(t *testing.T) {
 	// Test -h (short form) at global level with default command
-	env := &ExecuteEnv{args: []string{"cmd", "-h"}}
-
-	output := captureStdout(t, func() {
-		err := RunWithEnv(env, RunOptions{AllowDefault: true}, DefaultFunc)
+	output := captureStdoutRun(t, func() {
+		_, err := core.Execute([]string{"cmd", "-h"}, DefaultFunc)
 		if err != nil {
 			t.Fatalf("expected no error for -h flag, got: %v", err)
 		}
@@ -223,10 +215,8 @@ func TestRunWithEnv_GlobalHelpShort(t *testing.T) {
 
 func TestRunWithEnv_GlobalHelpWithArgs(t *testing.T) {
 	// Test --help with args after the flag - goes through handleGlobalHelp
-	env := &ExecuteEnv{args: []string{"cmd", "--help", "default-func"}}
-
-	output := captureStdout(t, func() {
-		err := RunWithEnv(env, RunOptions{AllowDefault: true}, DefaultFunc)
+	output := captureStdoutRun(t, func() {
+		_, err := core.Execute([]string{"cmd", "--help", "default-func"}, DefaultFunc)
 		if err != nil {
 			t.Fatalf("expected no error for --help with args, got: %v", err)
 		}
@@ -240,10 +230,13 @@ func TestRunWithEnv_GlobalHelpWithArgs(t *testing.T) {
 
 func TestRunWithEnv_GlobalHelpWithArgsMultiRoot(t *testing.T) {
 	// Test --help with args for multiple roots - goes through handleGlobalHelp else branch
-	env := &ExecuteEnv{args: []string{"cmd", "--help", "something"}}
-
-	output := captureStdout(t, func() {
-		err := RunWithEnv(env, RunOptions{AllowDefault: false}, DefaultFunc, OtherFunc)
+	output := captureStdoutRun(t, func() {
+		_, err := core.ExecuteWithOptions(
+			[]string{"cmd", "--help", "something"},
+			core.RunOptions{AllowDefault: false},
+			DefaultFunc,
+			OtherFunc,
+		)
 		if err != nil {
 			t.Fatalf("expected no error for --help with args, got: %v", err)
 		}
@@ -259,18 +252,15 @@ func TestRunWithEnv_MultipleRoots_SubcommandThenRoot(t *testing.T) {
 	multiRootFlashCalls = 0
 	multiRootDiscoverCalls = 0
 
-	mock, imp := MockRunEnv(t)
-	done := make(chan struct{})
-
-	go func() {
-		_ = RunWithEnv(mock, RunOptions{AllowDefault: false}, &firmwareRoot{}, &discoverRoot{})
-
-		close(done)
-	}()
-
-	imp.Args.ArgsEqual().Return([]string{"cmd", "firmware", "flash-only", "discover"})
-	imp.SupportsSignals.ArgsEqual().Return(true)
-	<-done
+	_, err := core.ExecuteWithOptions(
+		[]string{"cmd", "firmware", "flash-only", "discover"},
+		core.RunOptions{AllowDefault: false},
+		&firmwareRoot{},
+		&discoverRoot{},
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
 	if multiRootFlashCalls != 1 {
 		t.Fatalf("expected flash-only to run once, got %d", multiRootFlashCalls)
@@ -285,18 +275,10 @@ func TestRunWithEnv_MultipleSubcommands(t *testing.T) {
 	multiSubOneCalls = 0
 	multiSubTwoCalls = 0
 
-	mock, imp := MockRunEnv(t)
-	done := make(chan struct{})
-
-	go func() {
-		_ = RunWithEnv(mock, RunOptions{AllowDefault: true}, &MultiSubRoot{})
-
-		close(done)
-	}()
-
-	imp.Args.ArgsEqual().Return([]string{"cmd", "one", "two"})
-	imp.SupportsSignals.ArgsEqual().Return(true)
-	<-done
+	_, err := core.Execute([]string{"cmd", "one", "two"}, &MultiSubRoot{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
 	if multiSubOneCalls != 1 {
 		t.Fatalf("expected One to run once, got %d", multiSubOneCalls)
@@ -310,18 +292,10 @@ func TestRunWithEnv_MultipleSubcommands(t *testing.T) {
 func TestRunWithEnv_MultipleTargets_FunctionByName(t *testing.T) {
 	helloWorldCalled = false
 
-	mock, imp := MockRunEnv(t)
-	done := make(chan struct{})
-
-	go func() {
-		_ = RunWithEnv(mock, RunOptions{AllowDefault: true}, HelloWorld, &TestCmdStruct{})
-
-		close(done)
-	}()
-
-	imp.Args.ArgsEqual().Return([]string{"cmd", "hello-world"})
-	imp.SupportsSignals.ArgsEqual().Return(true)
-	<-done
+	_, err := core.Execute([]string{"cmd", "hello-world"}, HelloWorld, &TestCmdStruct{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
 	if !helloWorldCalled {
 		t.Fatal("expected function command to be called")
@@ -331,18 +305,10 @@ func TestRunWithEnv_MultipleTargets_FunctionByName(t *testing.T) {
 func TestRunWithEnv_SingleFunction_DefaultCommand(t *testing.T) {
 	defaultFuncCalled = false
 
-	mock, imp := MockRunEnv(t)
-	done := make(chan struct{})
-
-	go func() {
-		_ = RunWithEnv(mock, RunOptions{AllowDefault: true}, DefaultFunc)
-
-		close(done)
-	}()
-
-	imp.Args.ArgsEqual().Return([]string{"cmd"})
-	imp.SupportsSignals.ArgsEqual().Return(true)
-	<-done
+	_, err := core.Execute([]string{"cmd"}, DefaultFunc)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
 	if !defaultFuncCalled {
 		t.Fatal("expected function command to be called")
@@ -352,18 +318,14 @@ func TestRunWithEnv_SingleFunction_DefaultCommand(t *testing.T) {
 func TestRunWithEnv_SingleFunction_NoDefault(t *testing.T) {
 	defaultFuncCalled = false
 
-	mock, imp := MockRunEnv(t)
-	done := make(chan struct{})
-
-	go func() {
-		_ = RunWithEnv(mock, RunOptions{AllowDefault: false}, DefaultFunc)
-
-		close(done)
-	}()
-
-	imp.Args.ArgsEqual().Return([]string{"cmd"})
-	imp.SupportsSignals.ArgsEqual().Return(true)
-	<-done
+	_, err := core.ExecuteWithOptions(
+		[]string{"cmd"},
+		core.RunOptions{AllowDefault: false},
+		DefaultFunc,
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
 	if defaultFuncCalled {
 		t.Fatal("expected function command not to be called without default")
@@ -380,6 +342,10 @@ var (
 	multiSubOneCalls       int
 	multiSubTwoCalls       int
 )
+
+type TestCmdStruct struct{}
+
+func (t *TestCmdStruct) Run() {}
 
 type discoverRoot struct{}
 
@@ -403,4 +369,33 @@ func (o *multiSubOne) Run() { multiSubOneCalls++ }
 
 type multiSubTwo struct{}
 
-func (t *multiSubTwo) Run() { multiSubTwoCalls++ }
+func (m *multiSubTwo) Run() { multiSubTwoCalls++ }
+
+func captureStdoutRun(t *testing.T, fn func()) string {
+	t.Helper()
+
+	orig := os.Stdout
+
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("unexpected pipe error: %v", err)
+	}
+
+	os.Stdout = w
+
+	fn()
+
+	_ = w.Close()
+	os.Stdout = orig
+
+	var buf bytes.Buffer
+
+	_, err = io.Copy(&buf, r)
+	if err != nil {
+		t.Fatalf("unexpected stdout copy error: %v", err)
+	}
+
+	_ = r.Close()
+
+	return buf.String()
+}

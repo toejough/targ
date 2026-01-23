@@ -7,9 +7,11 @@ package core
 // Most tests should be blackbox tests in the test/ directory.
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"go/ast"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -3748,4 +3750,33 @@ func extractShellName(shell string) string {
 // parseCommand is a helper used by completion_test.go
 func parseCommand(f any) (*commandNode, error) {
 	return parseStruct(f)
+}
+
+func captureStdout(t *testing.T, fn func()) string {
+	t.Helper()
+
+	orig := os.Stdout
+
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("unexpected pipe error: %v", err)
+	}
+
+	os.Stdout = w
+
+	fn()
+
+	_ = w.Close()
+	os.Stdout = orig
+
+	var buf bytes.Buffer
+
+	_, err = io.Copy(&buf, r)
+	if err != nil {
+		t.Fatalf("unexpected stdout copy error: %v", err)
+	}
+
+	_ = r.Close()
+
+	return buf.String()
 }
