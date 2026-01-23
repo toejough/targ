@@ -1,5 +1,7 @@
 package core
 
+import "time"
+
 // Exported constants.
 const (
 	TagKindFlag       TagKind = "flag"
@@ -68,6 +70,16 @@ type TagOptions struct {
 	Enum        string
 	Placeholder string
 	Required    bool
+}
+
+// TargetExecutionLike is implemented by types that provide execution configuration.
+type TargetExecutionLike interface {
+	GetDeps() []*Target
+	GetDepMode() DepMode
+	GetTimeout() time.Duration
+	GetTimes() int
+	GetRetry() bool
+	GetBackoff() (time.Duration, float64)
 }
 
 // unexported constants.

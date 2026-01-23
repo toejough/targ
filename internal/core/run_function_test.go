@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/toejough/targ/internal/core"
 )
@@ -169,6 +170,203 @@ func TestRunWithEnv_FunctionWithHelpFlag(t *testing.T) {
 	}
 }
 
+func TestRunWithEnv_GlobDoubleStarRecursive(t *testing.T) {
+	multiSubOneCalls = 0
+	multiSubTwoCalls = 0
+
+	_, err := core.ExecuteWithOptions(
+		[]string{"cmd", "**"},
+		core.RunOptions{AllowDefault: false},
+		multiSubRootGroup(),
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// ** should match the group and its subcommands
+	if multiSubOneCalls != 1 {
+		t.Fatalf("expected One to run once, got %d", multiSubOneCalls)
+	}
+
+	if multiSubTwoCalls != 1 {
+		t.Fatalf("expected Two to run once, got %d", multiSubTwoCalls)
+	}
+}
+
+func TestRunWithEnv_GlobNoMatches(t *testing.T) {
+	testACalls = 0
+
+	_, err := core.ExecuteWithOptions(
+		[]string{"cmd", "nonexistent-*"},
+		core.RunOptions{AllowDefault: false},
+		testATarget(),
+	)
+	if err == nil {
+		t.Fatal("expected error when no targets match glob pattern")
+	}
+
+	var exitErr core.ExitError
+	if !errors.As(err, &exitErr) {
+		t.Fatalf("expected ExitError, got %T: %v", err, err)
+	}
+
+	if exitErr.Code != 1 {
+		t.Fatalf("expected exit code 1, got %d", exitErr.Code)
+	}
+}
+
+// --- Parallel execution with globs ---
+
+func TestRunWithEnv_GlobParallelExecution(t *testing.T) {
+	testACalls = 0
+	testBCalls = 0
+	buildCalls = 0
+
+	_, err := core.ExecuteWithOptions(
+		[]string{"cmd", "--parallel", "test-*"},
+		core.RunOptions{AllowDefault: false},
+		testATarget(),
+		testBTarget(),
+		buildTarget(),
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if testACalls != 1 {
+		t.Fatalf("expected test-a to run once, got %d", testACalls)
+	}
+
+	if testBCalls != 1 {
+		t.Fatalf("expected test-b to run once, got %d", testBCalls)
+	}
+
+	if buildCalls != 0 {
+		t.Fatalf("expected build not to run, got %d", buildCalls)
+	}
+}
+
+func TestRunWithEnv_GlobParallelNoMatches(t *testing.T) {
+	_, err := core.ExecuteWithOptions(
+		[]string{"cmd", "--parallel", "nonexistent-*"},
+		core.RunOptions{AllowDefault: false},
+		testATarget(),
+	)
+	if err == nil {
+		t.Fatal("expected error when no targets match glob pattern in parallel mode")
+	}
+
+	var exitErr core.ExitError
+	if !errors.As(err, &exitErr) {
+		t.Fatalf("expected ExitError, got %T: %v", err, err)
+	}
+}
+
+func TestRunWithEnv_GlobPrefixMatches(t *testing.T) {
+	testACalls = 0
+	testBCalls = 0
+	buildCalls = 0
+
+	_, err := core.ExecuteWithOptions(
+		[]string{"cmd", "test-*"},
+		core.RunOptions{AllowDefault: false},
+		testATarget(),
+		testBTarget(),
+		buildTarget(),
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if testACalls != 1 {
+		t.Fatalf("expected test-a to run once, got %d", testACalls)
+	}
+
+	if testBCalls != 1 {
+		t.Fatalf("expected test-b to run once, got %d", testBCalls)
+	}
+
+	if buildCalls != 0 {
+		t.Fatalf("expected build not to run, got %d", buildCalls)
+	}
+}
+
+func TestRunWithEnv_GlobStarMatchesAll(t *testing.T) {
+	testACalls = 0
+	testBCalls = 0
+	buildCalls = 0
+
+	_, err := core.ExecuteWithOptions(
+		[]string{"cmd", "*"},
+		core.RunOptions{AllowDefault: false},
+		testATarget(),
+		testBTarget(),
+		buildTarget(),
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if testACalls != 1 {
+		t.Fatalf("expected test-a to run once, got %d", testACalls)
+	}
+
+	if testBCalls != 1 {
+		t.Fatalf("expected test-b to run once, got %d", testBCalls)
+	}
+
+	if buildCalls != 1 {
+		t.Fatalf("expected build to run once, got %d", buildCalls)
+	}
+}
+
+func TestRunWithEnv_GlobSubcommands(t *testing.T) {
+	multiSubOneCalls = 0
+	multiSubTwoCalls = 0
+
+	_, err := core.Execute([]string{"cmd", "*"}, multiSubRootGroup())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if multiSubOneCalls != 1 {
+		t.Fatalf("expected One to run once, got %d", multiSubOneCalls)
+	}
+
+	if multiSubTwoCalls != 1 {
+		t.Fatalf("expected Two to run once, got %d", multiSubTwoCalls)
+	}
+}
+
+func TestRunWithEnv_GlobSuffixMatches(t *testing.T) {
+	testACalls = 0
+	buildCalls = 0
+	deployACalls = 0
+
+	_, err := core.ExecuteWithOptions(
+		[]string{"cmd", "*-a"},
+		core.RunOptions{AllowDefault: false},
+		testATarget(),
+		buildTarget(),
+		deployATarget(),
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if testACalls != 1 {
+		t.Fatalf("expected test-a to run once, got %d", testACalls)
+	}
+
+	if deployACalls != 1 {
+		t.Fatalf("expected deploy-a to run once, got %d", deployACalls)
+	}
+
+	if buildCalls != 0 {
+		t.Fatalf("expected build not to run, got %d", buildCalls)
+	}
+}
+
 func TestRunWithEnv_GlobalHelpMultipleRoots(t *testing.T) {
 	// Test --help with multiple roots (no default) - shows usage
 	output := captureStdoutRun(t, func() {
@@ -260,6 +458,106 @@ func TestRunWithEnv_GroupWithNoSubcommand(t *testing.T) {
 	}
 }
 
+// --- Execution info in help tests ---
+
+func TestRunWithEnv_HelpShowsExecutionInfo(t *testing.T) {
+	depTarget := core.Targ(func() {}).Name("dep")
+	mainTarget := core.Targ(func() {}).
+		Name("main").
+		Deps(depTarget).
+		Cache("*.go").
+		Watch("*.go").
+		Timeout(5*time.Minute).
+		Times(3).
+		Retry().
+		Backoff(time.Second, 2.0)
+
+	// Use single target with AllowDefault to get command-specific help
+	output := captureStdoutRun(t, func() {
+		_, _ = core.ExecuteWithOptions(
+			[]string{"cmd", "--help"},
+			core.RunOptions{AllowDefault: true},
+			mainTarget,
+		)
+	})
+
+	// Check for execution info sections
+	if !strings.Contains(output, "Execution:") {
+		t.Fatalf("expected Execution section in help, got: %s", output)
+	}
+
+	if !strings.Contains(output, "Deps:") {
+		t.Fatalf("expected Deps line in help, got: %s", output)
+	}
+
+	if !strings.Contains(output, "Cache:") {
+		t.Fatalf("expected Cache line in help, got: %s", output)
+	}
+
+	if !strings.Contains(output, "Watch:") {
+		t.Fatalf("expected Watch line in help, got: %s", output)
+	}
+
+	if !strings.Contains(output, "Timeout:") {
+		t.Fatalf("expected Timeout line in help, got: %s", output)
+	}
+
+	if !strings.Contains(output, "Times:") {
+		t.Fatalf("expected Times line in help, got: %s", output)
+	}
+
+	if !strings.Contains(output, "Retry:") {
+		t.Fatalf("expected Retry line in help, got: %s", output)
+	}
+
+	if !strings.Contains(output, "backoff:") {
+		t.Fatalf("expected backoff info in help, got: %s", output)
+	}
+}
+
+func TestRunWithEnv_HelpShowsParallelDeps(t *testing.T) {
+	depA := core.Targ(func() {}).Name("dep-a")
+	depB := core.Targ(func() {}).Name("dep-b")
+	target := core.Targ(func() {}).
+		Name("parallel").
+		ParallelDeps(depA, depB)
+
+	output := captureStdoutRun(t, func() {
+		_, _ = core.ExecuteWithOptions(
+			[]string{"cmd", "--help"},
+			core.RunOptions{AllowDefault: true},
+			target,
+		)
+	})
+
+	if !strings.Contains(output, "parallel") {
+		t.Fatalf("expected 'parallel' mode in Deps line, got: %s", output)
+	}
+}
+
+func TestRunWithEnv_HelpShowsRetryWithoutBackoff(t *testing.T) {
+	// Test retry without backoff
+	target := core.Targ(func() {}).
+		Name("retry-only").
+		Retry()
+
+	output := captureStdoutRun(t, func() {
+		_, _ = core.ExecuteWithOptions(
+			[]string{"cmd", "--help"},
+			core.RunOptions{AllowDefault: true},
+			target,
+		)
+	})
+
+	if !strings.Contains(output, "Retry: yes") {
+		t.Fatalf("expected 'Retry: yes' in help, got: %s", output)
+	}
+	// Should NOT contain backoff when not configured
+	if strings.Contains(output, "backoff:") {
+		t.Fatalf("expected no backoff in help when not configured, got: %s", output)
+	}
+}
+
 func TestRunWithEnv_MultipleRoots_SubcommandThenRoot(t *testing.T) {
 	multiRootFlashCalls = 0
 	multiRootDiscoverCalls = 0
@@ -347,14 +645,22 @@ func TestRunWithEnv_SingleFunction_NoDefault(t *testing.T) {
 
 // unexported variables.
 var (
+	buildCalls             int
 	defaultFuncCalled      bool
+	deployACalls           int
 	errFuncError           = errors.New("function error")
 	helloWorldCalled       bool
 	multiRootDiscoverCalls int
 	multiRootFlashCalls    int
 	multiSubOneCalls       int
 	multiSubTwoCalls       int
+	testACalls             int
+	testBCalls             int
 )
+
+func buildTarget() *core.Target {
+	return core.Targ(func() { buildCalls++ }).Name("build")
+}
 
 func captureStdoutRun(t *testing.T, fn func()) string {
 	t.Helper()
@@ -385,6 +691,10 @@ func captureStdoutRun(t *testing.T, fn func()) string {
 	return buf.String()
 }
 
+func deployATarget() *core.Target {
+	return core.Targ(func() { deployACalls++ }).Name("deploy-a")
+}
+
 func discoverTarget() *core.Target {
 	return core.Targ(func() { multiRootDiscoverCalls++ }).Name("discover")
 }
@@ -405,6 +715,14 @@ func multiSubRootGroup() *core.Group {
 
 func oneTarget() *core.Target {
 	return core.Targ(func() { multiSubOneCalls++ }).Name("one")
+}
+
+func testATarget() *core.Target {
+	return core.Targ(func() { testACalls++ }).Name("test-a")
+}
+
+func testBTarget() *core.Target {
+	return core.Targ(func() { testBCalls++ }).Name("test-b")
 }
 
 func twoTarget() *core.Target {

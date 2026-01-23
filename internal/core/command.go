@@ -14,6 +14,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"time"
 	"unicode"
 
 	"github.com/toejough/targ/sh"
@@ -118,6 +119,15 @@ type commandNode struct {
 	CachePatterns []string
 	WatchDisabled bool
 	CacheDisabled bool
+
+	// Execution configuration for help display
+	Deps            []string      // Names of dependencies
+	DepMode         string        // "serial" or "parallel"
+	Timeout         time.Duration // execution timeout
+	Times           int           // number of times to run
+	Retry           bool          // continue on failure
+	BackoffInitial  time.Duration // initial backoff delay
+	BackoffMultiply float64       // backoff multiplier
 }
 
 // --- Execution ---
@@ -195,6 +205,62 @@ type positionalHelp struct {
 	Name        string
 	Placeholder string
 	Required    bool
+}
+
+func appendDepsLine(lines []string, node *commandNode) []string {
+	if len(node.Deps) == 0 {
+		return lines
+	}
+
+	mode := node.DepMode
+	if mode == "" {
+		mode = DepModeSerial.String()
+	}
+
+	return append(lines, fmt.Sprintf("Deps: %s (%s)", strings.Join(node.Deps, ", "), mode))
+}
+
+func appendPatternsLine(lines []string, label string, patterns []string) []string {
+	if len(patterns) == 0 {
+		return lines
+	}
+
+	return append(lines, label+": "+strings.Join(patterns, ", "))
+}
+
+func appendRetryLine(lines []string, node *commandNode) []string {
+	if !node.Retry {
+		return lines
+	}
+
+	if node.BackoffInitial > 0 {
+		return append(
+			lines,
+			fmt.Sprintf(
+				"Retry: yes (backoff: %s × %.1f)",
+				node.BackoffInitial,
+				node.BackoffMultiply,
+			),
+		)
+	}
+
+	return append(lines, "Retry: yes")
+}
+
+func appendTimeoutLine(lines []string, node *commandNode) []string {
+	if node.Timeout <= 0 {
+		return lines
+	}
+
+	return append(lines, fmt.Sprintf("Timeout: %s", node.Timeout))
+}
+
+func appendTimesLine(lines []string, node *commandNode) []string {
+	if node.Times <= 0 {
+		return lines
+	}
+
+	return append(lines, fmt.Sprintf("Times: %d", node.Times))
 }
 
 func applyDefaultsAndEnv(specs []*flagSpec, visited map[string]bool) error {
@@ -850,8 +916,30 @@ func executeGroupWithParents(
 		return args, nil
 	}
 
-	// Look for matching subcommand
 	subName := args[0]
+
+	// Check for glob patterns in subcommand name
+	if isGlobPatternCmd(subName) {
+		matches := findMatchingSubcommands(node, subName)
+		if len(matches) == 0 {
+			// No matches - return all args
+			return args, nil
+		}
+
+		// Execute each matching subcommand
+		chain := slices.Concat(parents, []commandInstance{{node: node}})
+
+		for _, sub := range matches {
+			_, err := sub.executeWithParents(ctx, nil, chain, visited, true, opts)
+			if err != nil {
+				return nil, err
+			}
+		}
+
+		return args[1:], nil
+	}
+
+	// Look for matching subcommand
 	for name, sub := range node.Subcommands {
 		if strings.EqualFold(name, subName) {
 			// Found matching subcommand - execute it
@@ -965,6 +1053,20 @@ func executeShellCommand(
 	return remaining, nil
 }
 
+// executionInfoLines builds the lines for execution info display.
+func executionInfoLines(node *commandNode) []string {
+	lines := make([]string, 0)
+
+	lines = appendDepsLine(lines, node)
+	lines = appendPatternsLine(lines, "Cache", node.CachePatterns)
+	lines = appendPatternsLine(lines, "Watch", node.WatchPatterns)
+	lines = appendTimeoutLine(lines, node)
+	lines = appendTimesLine(lines, node)
+	lines = appendRetryLine(lines, node)
+
+	return lines
+}
+
 func expandFlagGroup(arg, group string, shortInfo map[string]bool) ([]string, error) {
 	allBool := true
 	unknown := false
@@ -1071,6 +1173,19 @@ func extractTagOptionsResult(results []reflect.Value, fallback TagOptions) (TagO
 	// Type assertion is safe because validateTagOptionsSignature ensures TagOptions type
 	//nolint:forcetypeassert // validated by validateTagOptionsSignature
 	return results[0].Interface().(TagOptions), nil
+}
+
+// findMatchingSubcommands finds all subcommands matching a glob pattern.
+func findMatchingSubcommands(node *commandNode, pattern string) []*commandNode {
+	matches := make([]*commandNode, 0)
+
+	for name, sub := range node.Subcommands {
+		if matchesGlobCmd(name, pattern) {
+			matches = append(matches, sub)
+		}
+	}
+
+	return matches
 }
 
 func flagHelpForField(inst reflect.Value, field reflect.StructField) (flagHelp, bool, error) {
@@ -1277,6 +1392,11 @@ func isErrorType(t reflect.Type) bool {
 	return t.Implements(reflect.TypeFor[error]())
 }
 
+// isGlobPatternCmd checks if a string contains glob metacharacters.
+func isGlobPatternCmd(s string) bool {
+	return strings.Contains(s, "*")
+}
+
 // isShellVar checks if a flag name matches one of the shell variables.
 func isShellVar(name string, vars []string) bool {
 	for _, v := range vars {
@@ -1286,6 +1406,33 @@ func isShellVar(name string, vars []string) bool {
 	}
 
 	return false
+}
+
+// matchesGlobCmd checks if a name matches a glob pattern.
+// Supports * (any characters) at start, end, or both.
+func matchesGlobCmd(name, pattern string) bool {
+	if pattern == "*" || pattern == "**" {
+		return true
+	}
+
+	// Handle patterns like "test-*" or "*-unit"
+	if strings.HasPrefix(pattern, "*") && strings.HasSuffix(pattern, "*") {
+		middle := pattern[1 : len(pattern)-1]
+		return strings.Contains(strings.ToLower(name), strings.ToLower(middle))
+	}
+
+	if strings.HasPrefix(pattern, "*") {
+		suffix := pattern[1:]
+		return strings.HasSuffix(strings.ToLower(name), strings.ToLower(suffix))
+	}
+
+	if strings.HasSuffix(pattern, "*") {
+		prefix := pattern[:len(pattern)-1]
+		return strings.HasPrefix(strings.ToLower(name), strings.ToLower(prefix))
+	}
+
+	// No wildcards - exact match
+	return strings.EqualFold(name, pattern)
 }
 
 // maxNameWidth returns the maximum name length among nodes.
@@ -1443,6 +1590,20 @@ func parseTargetLike(target TargetLike) (*commandNode, error) {
 		node.CacheDisabled = cacheDis
 	}
 
+	// Extract execution config if available (for help display)
+	if execTarget, ok := target.(TargetExecutionLike); ok {
+		deps := execTarget.GetDeps()
+		for _, d := range deps {
+			node.Deps = append(node.Deps, d.GetName())
+		}
+
+		node.DepMode = execTarget.GetDepMode().String()
+		node.Timeout = execTarget.GetTimeout()
+		node.Times = execTarget.GetTimes()
+		node.Retry = execTarget.GetRetry()
+		node.BackoffInitial, node.BackoffMultiply = execTarget.GetBackoff()
+	}
+
 	return node, nil
 }
 
@@ -1543,6 +1704,16 @@ func printCommandHelp(node *commandNode, opts RunOptions) {
 	// Description first (consistent with top-level)
 	printDescription(node.Description)
 
+	// Source location (for build tool targets)
+	if node.SourceFile != "" {
+		fmt.Printf("Source: %s\n\n", relativeSourcePath(node.SourceFile))
+	}
+
+	// Shell command (for shell targets)
+	if node.ShellCommand != "" {
+		fmt.Printf("Command: %s\n\n", node.ShellCommand)
+	}
+
 	// Usage with targ flags and ... notation
 	usageParts, err := buildUsageParts(node)
 	if err != nil {
@@ -1575,6 +1746,9 @@ func printCommandHelp(node *commandNode, opts RunOptions) {
 		fmt.Println("\nSubcommands:")
 		printSubcommandList(node.Subcommands, "  ")
 	}
+
+	// Execution configuration
+	printExecutionInfo(node)
 
 	// Examples and More Info (at the very end)
 	printExamples(opts, false)
@@ -1642,6 +1816,20 @@ func printExamplesForNodes(opts RunOptions, nodes []*commandNode) {
 	}
 
 	printExampleList(examples)
+}
+
+// printExecutionInfo displays execution configuration for a command.
+func printExecutionInfo(node *commandNode) {
+	lines := executionInfoLines(node)
+	if len(lines) == 0 {
+		return
+	}
+
+	fmt.Println("\nExecution:")
+
+	for _, line := range lines {
+		fmt.Printf("  %s\n", line)
+	}
 }
 
 // printFlagWithWrappedEnum prints a flag, wrapping long enum values.

@@ -181,7 +181,8 @@ func RunWithEnv(env RunEnv, opts RunOptions, targets ...any) error {
 
 // unexported constants.
 const (
-	minArgsWithCommand = 2
+	globExpansionMultiplier = 10 // Extra capacity for glob expansions in parallel mode
+	minArgsWithCommand      = 2
 )
 
 // unexported variables.
@@ -317,9 +318,34 @@ func (e *runExecutor) executeDefaultParallel() error {
 	return nil
 }
 
+// executeGlobPattern handles execution of glob-matched targets.
+func (e *runExecutor) executeGlobPattern(name string) error {
+	matches := e.findMatchingRootsGlob(name)
+	if len(matches) == 0 {
+		e.env.Printf("No targets match pattern: %s\n", name)
+		return ExitError{Code: 1}
+	}
+
+	for _, matched := range matches {
+		_, err := matched.executeWithParents(
+			e.ctx,
+			nil, // No args passed to glob-expanded targets
+			nil,
+			map[string]bool{},
+			true,
+			e.opts,
+		)
+		if err != nil {
+			e.env.Printf("Error: %v\n", err)
+			return ExitError{Code: 1}
+		}
+	}
+
+	return nil
+}
+
 // executeMultiRoot executes commands against multiple roots.
 func (e *runExecutor) executeMultiRoot() error {
-	// If parallel mode, run targets concurrently
 	if e.opts.Overrides.Parallel {
 		return e.executeMultiRootParallel()
 	}
@@ -327,16 +353,27 @@ func (e *runExecutor) executeMultiRoot() error {
 	remaining := e.rest
 
 	for len(remaining) > 0 {
-		// Handle caret (^) to reset to root level
 		if remaining[0] == "^" {
 			remaining = remaining[1:]
 			continue
 		}
 
-		matched := e.findMatchingRoot(remaining[0])
+		name := remaining[0]
 
+		if isGlobPattern(name) {
+			err := e.executeGlobPattern(name)
+			if err != nil {
+				return err
+			}
+
+			remaining = remaining[1:]
+
+			continue
+		}
+
+		matched := e.findMatchingRoot(name)
 		if matched == nil {
-			e.env.Printf("Unknown command: %s\n", remaining[0])
+			e.env.Printf("Unknown command: %s\n", name)
 			printUsage(e.roots, e.opts)
 
 			return ExitError{Code: 1}
@@ -363,17 +400,24 @@ func (e *runExecutor) executeMultiRoot() error {
 
 // executeMultiRootParallel runs targets in parallel for multi-root mode.
 func (e *runExecutor) executeMultiRootParallel() error {
-	// Create cancellable context for fail-fast behavior
 	ctx, cancel := context.WithCancel(e.ctx)
 	defer cancel()
 
 	var wg sync.WaitGroup
 
-	errCh := make(chan error, len(e.rest))
+	errCh := make(chan error, len(e.rest)*globExpansionMultiplier)
 
 	for _, arg := range e.rest {
-		// Skip flags
 		if strings.HasPrefix(arg, "-") {
+			continue
+		}
+
+		if isGlobPattern(arg) {
+			err := e.launchGlobTargets(ctx, arg, &wg, errCh, cancel)
+			if err != nil {
+				return err
+			}
+
 			continue
 		}
 
@@ -385,31 +429,12 @@ func (e *runExecutor) executeMultiRootParallel() error {
 			return ExitError{Code: 1}
 		}
 
-		wg.Add(1)
-
-		go func(node *commandNode, cmdName string) {
-			defer wg.Done()
-
-			_, err := node.executeWithParents(
-				ctx,
-				nil, // No additional args in parallel mode
-				nil,
-				map[string]bool{},
-				true,
-				e.opts,
-			)
-			if err != nil {
-				errCh <- fmt.Errorf("%s: %w", cmdName, err)
-
-				cancel() // Cancel siblings on first error
-			}
-		}(matched, arg)
+		e.launchTarget(ctx, matched, arg, &wg, errCh, cancel)
 	}
 
 	wg.Wait()
 	close(errCh)
 
-	// Return first error
 	for err := range errCh {
 		e.env.Printf("Error: %v\n", err)
 		return ExitError{Code: 1}
@@ -452,6 +477,25 @@ func (e *runExecutor) findMatchingRoot(name string) *commandNode {
 	}
 
 	return nil
+}
+
+// findMatchingRootsGlob finds all root commands matching a glob pattern.
+func (e *runExecutor) findMatchingRootsGlob(pattern string) []*commandNode {
+	matches := make([]*commandNode, 0)
+
+	for _, root := range e.roots {
+		if matchesGlob(root.Name, pattern) {
+			matches = append(matches, root)
+		}
+
+		// For ** patterns, also include subcommands
+		if after, ok := strings.CutPrefix(pattern, "**"); ok {
+			subMatches := expandRecursive(root, after)
+			matches = append(matches, subMatches...)
+		}
+	}
+
+	return matches
 }
 
 // handleComplete handles the __complete hidden command.
@@ -552,6 +596,46 @@ func (e *runExecutor) handleSpecialCommands() (bool, error) {
 	}
 
 	return e.handleCompletionFlag()
+}
+
+// launchGlobTargets launches parallel execution for all targets matching a glob pattern.
+func (e *runExecutor) launchGlobTargets(
+	ctx context.Context,
+	pattern string,
+	wg *sync.WaitGroup,
+	errCh chan<- error,
+	cancel context.CancelFunc,
+) error {
+	matches := e.findMatchingRootsGlob(pattern)
+	if len(matches) == 0 {
+		e.env.Printf("No targets match pattern: %s\n", pattern)
+		return ExitError{Code: 1}
+	}
+
+	for _, matched := range matches {
+		e.launchTarget(ctx, matched, matched.Name, wg, errCh, cancel)
+	}
+
+	return nil
+}
+
+// launchTarget launches a single target in a goroutine for parallel execution.
+func (e *runExecutor) launchTarget(
+	ctx context.Context,
+	node *commandNode,
+	name string,
+	wg *sync.WaitGroup,
+	errCh chan<- error,
+	cancel context.CancelFunc,
+) {
+	wg.Go(func() {
+		_, err := node.executeWithParents(ctx, nil, nil, map[string]bool{}, true, e.opts)
+		if err != nil {
+			errCh <- fmt.Errorf("%s: %w", name, err)
+
+			cancel()
+		}
+	})
 }
 
 // parseTargets parses all targets into command nodes.
@@ -672,6 +756,26 @@ func doListTo(w io.Writer, roots []*commandNode) error {
 	return nil
 }
 
+// expandRecursive returns all subcommands under a node matching a suffix pattern.
+func expandRecursive(node *commandNode, suffix string) []*commandNode {
+	matches := make([]*commandNode, 0)
+
+	for _, sub := range node.Subcommands {
+		// If suffix is empty or "/*", match all
+		if suffix == "" || suffix == "/" || suffix == "/*" {
+			matches = append(matches, sub)
+		} else if strings.HasPrefix(suffix, "/") && matchesGlob(sub.Name, strings.TrimPrefix(suffix, "/")) {
+			matches = append(matches, sub)
+		}
+
+		// Always recurse for **
+		subMatches := expandRecursive(sub, suffix)
+		matches = append(matches, subMatches...)
+	}
+
+	return matches
+}
+
 // extractHelpFlag checks if -h or --help is in args and returns remaining args.
 func extractHelpFlag(args []string) (bool, []string) {
 	result := make([]string, 0, len(args))
@@ -736,4 +840,39 @@ func extractTimeout(args []string) (time.Duration, []string, error) {
 	}
 
 	return timeout, result, nil
+}
+
+// isGlobPattern checks if a string contains glob metacharacters.
+func isGlobPattern(s string) bool {
+	return strings.Contains(s, "*")
+}
+
+// matchesGlob checks if a name matches a glob pattern.
+// Supports * (any characters) at start, end, or both.
+func matchesGlob(name, pattern string) bool {
+	// Handle ** and * (match everything)
+	if pattern == "**" || pattern == "*" {
+		return true
+	}
+
+	// Handle patterns like "*test*" (contains)
+	if strings.HasPrefix(pattern, "*") && strings.HasSuffix(pattern, "*") {
+		middle := pattern[1 : len(pattern)-1]
+		return strings.Contains(strings.ToLower(name), strings.ToLower(middle))
+	}
+
+	// Handle patterns like "*-unit" (suffix match)
+	if strings.HasPrefix(pattern, "*") {
+		suffix := pattern[1:]
+		return strings.HasSuffix(strings.ToLower(name), strings.ToLower(suffix))
+	}
+
+	// Handle patterns like "test-*" (prefix match)
+	if strings.HasSuffix(pattern, "*") {
+		prefix := pattern[:len(pattern)-1]
+		return strings.HasPrefix(strings.ToLower(name), strings.ToLower(prefix))
+	}
+
+	// No wildcards - exact match
+	return strings.EqualFold(name, pattern)
 }

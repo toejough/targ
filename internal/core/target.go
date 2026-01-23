@@ -24,6 +24,18 @@ const (
 	DepModeParallel
 )
 
+// String returns the string representation of the dependency mode.
+func (m DepMode) String() string {
+	switch m {
+	case DepModeSerial:
+		return depModeSerialStr
+	case DepModeParallel:
+		return depModeParallelStr
+	default:
+		return depModeSerialStr
+	}
+}
+
 // Target represents a build target that can be invoked from the CLI.
 type Target struct {
 	fn              any           // func(...) or string (shell command)
@@ -101,10 +113,25 @@ func (t *Target) Fn() any {
 	return t.fn
 }
 
+// GetBackoff returns the backoff configuration (initial delay, multiplier).
+func (t *Target) GetBackoff() (time.Duration, float64) {
+	return t.backoffInitial, t.backoffMultiply
+}
+
 // GetConfig returns the target's configuration for conflict detection.
 // Returns (watchPatterns, cachePatterns, watchDisabled, cacheDisabled).
 func (t *Target) GetConfig() ([]string, []string, bool, bool) {
 	return t.watch, t.cache, t.watchDisabled, t.cacheDisabled
+}
+
+// GetDepMode returns the dependency execution mode.
+func (t *Target) GetDepMode() DepMode {
+	return t.depMode
+}
+
+// GetDeps returns the target's dependencies.
+func (t *Target) GetDeps() []*Target {
+	return t.deps
 }
 
 // GetDescription returns the configured description, or empty if not set.
@@ -115,6 +142,21 @@ func (t *Target) GetDescription() string {
 // GetName returns the configured name, or empty if not set.
 func (t *Target) GetName() string {
 	return t.name
+}
+
+// GetRetry returns whether retry is enabled.
+func (t *Target) GetRetry() bool {
+	return t.retry
+}
+
+// GetTimeout returns the target's timeout duration.
+func (t *Target) GetTimeout() time.Duration {
+	return t.timeout
+}
+
+// GetTimes returns the number of times to run.
+func (t *Target) GetTimes() int {
+	return t.times
 }
 
 // Name sets the CLI name for this target.
@@ -433,6 +475,12 @@ func Targ(fn any) *Target {
 
 	return &Target{fn: fn}
 }
+
+// unexported constants.
+const (
+	depModeParallelStr = "parallel"
+	depModeSerialStr   = "serial"
+)
 
 type repetitionState struct {
 	lastErr      error

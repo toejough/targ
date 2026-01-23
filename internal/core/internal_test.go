@@ -644,6 +644,17 @@ func TestCustomSetter_TextUnmarshaler(t *testing.T) {
 	g.Expect(target.value).To(Equal("unmarshaled:hello"))
 }
 
+func TestDepModeString(t *testing.T) {
+	g := NewWithT(t)
+
+	g.Expect(DepModeSerial.String()).To(Equal("serial"))
+	g.Expect(DepModeParallel.String()).To(Equal("parallel"))
+
+	// Unknown DepMode values default to "serial"
+	unknownMode := DepMode(99)
+	g.Expect(unknownMode.String()).To(Equal("serial"))
+}
+
 func TestDetectCompletionShell_ExplicitShell(t *testing.T) {
 	g := NewWithT(t)
 
@@ -1298,6 +1309,64 @@ func TestExitError_Error_Zero(t *testing.T) {
 	g.Expect(err.Error()).To(ContainSubstring("0"))
 }
 
+func TestExpandRecursive(t *testing.T) {
+	g := NewWithT(t)
+
+	// Build a tree: root -> child1, child2; child1 -> grandchild
+	root := &commandNode{
+		Name:        "root",
+		Subcommands: make(map[string]*commandNode),
+	}
+	child1 := &commandNode{
+		Name:        "child1",
+		Subcommands: make(map[string]*commandNode),
+	}
+	child2 := &commandNode{
+		Name:        "child2",
+		Subcommands: make(map[string]*commandNode),
+	}
+	grandchild := &commandNode{
+		Name:        "grandchild",
+		Subcommands: make(map[string]*commandNode),
+	}
+	root.Subcommands["child1"] = child1
+	root.Subcommands["child2"] = child2
+	child1.Subcommands["grandchild"] = grandchild
+
+	// Empty suffix matches all direct children and recurses
+	matches := expandRecursive(root, "")
+	// Should include: child1, child2, grandchild (from recursion)
+	g.Expect(len(matches)).To(BeNumerically(">=", 2))
+
+	// Check that direct children are included
+	names := make([]string, 0, len(matches))
+	for _, m := range matches {
+		names = append(names, m.Name)
+	}
+
+	g.Expect(names).To(ContainElement("child1"))
+	g.Expect(names).To(ContainElement("child2"))
+
+	// "/" matches all direct children and recurses
+	matches = expandRecursive(root, "/")
+	g.Expect(len(matches)).To(BeNumerically(">=", 2))
+
+	// "/*" matches all direct children
+	matches = expandRecursive(root, "/*")
+	g.Expect(len(matches)).To(BeNumerically(">=", 2))
+
+	// "/child*" matches children starting with "child"
+	matches = expandRecursive(root, "/child*")
+	g.Expect(len(matches)).To(BeNumerically(">=", 2))
+
+	for _, m := range matches {
+		// Either matches child* or is a grandchild from recursion
+		hasChildPrefix := strings.HasPrefix(m.Name, "child")
+		isGrandchild := m.Name == "grandchild"
+		g.Expect(hasChildPrefix || isGrandchild).To(BeTrue())
+	}
+}
+
 func TestExpectingFlagValue_DoubleDash(t *testing.T) {
 	g := NewWithT(t)
 
@@ -1493,6 +1562,40 @@ func TestExtractTimeout_WithSeparateValue(t *testing.T) {
 	g.Expect(err).NotTo(HaveOccurred())
 	g.Expect(timeout.Seconds()).To(Equal(10.0))
 	g.Expect(remaining).To(Equal([]string{"cmd", "arg1"}))
+}
+
+func TestFindMatchingSubcommands(t *testing.T) {
+	g := NewWithT(t)
+
+	// Build a parent node with subcommands
+	parent := &commandNode{
+		Name:        "parent",
+		Subcommands: make(map[string]*commandNode),
+	}
+	parent.Subcommands["test-unit"] = &commandNode{Name: "test-unit"}
+	parent.Subcommands["test-integration"] = &commandNode{Name: "test-integration"}
+	parent.Subcommands["build"] = &commandNode{Name: "build"}
+
+	// Match all
+	matches := findMatchingSubcommands(parent, "*")
+	g.Expect(matches).To(HaveLen(3))
+
+	// Match prefix
+	matches = findMatchingSubcommands(parent, "test-*")
+	g.Expect(matches).To(HaveLen(2))
+
+	for _, m := range matches {
+		g.Expect(m.Name).To(HavePrefix("test-"))
+	}
+
+	// Match suffix
+	matches = findMatchingSubcommands(parent, "*-integration")
+	g.Expect(matches).To(HaveLen(1))
+	g.Expect(matches[0].Name).To(Equal("test-integration"))
+
+	// No matches
+	matches = findMatchingSubcommands(parent, "deploy-*")
+	g.Expect(matches).To(BeEmpty())
 }
 
 func TestFlagDefaultPlaceholder(t *testing.T) {
@@ -1772,6 +1875,28 @@ func TestHandleList_ReturnsErrorFromListFn(t *testing.T) {
 	g.Expect(env.Output()).To(ContainSubstring("list failed"))
 }
 
+func TestIsGlobPattern(t *testing.T) {
+	g := NewWithT(t)
+
+	g.Expect(isGlobPattern("*")).To(BeTrue())
+	g.Expect(isGlobPattern("**")).To(BeTrue())
+	g.Expect(isGlobPattern("test-*")).To(BeTrue())
+	g.Expect(isGlobPattern("test")).To(BeFalse())
+}
+
+// --- Glob pattern tests (whitebox) ---
+
+func TestIsGlobPatternCmd(t *testing.T) {
+	g := NewWithT(t)
+
+	g.Expect(isGlobPatternCmd("*")).To(BeTrue())
+	g.Expect(isGlobPatternCmd("**")).To(BeTrue())
+	g.Expect(isGlobPatternCmd("test-*")).To(BeTrue())
+	g.Expect(isGlobPatternCmd("*-unit")).To(BeTrue())
+	g.Expect(isGlobPatternCmd("test")).To(BeFalse())
+	g.Expect(isGlobPatternCmd("build")).To(BeFalse())
+}
+
 func TestIsShellVar(t *testing.T) {
 	g := NewWithT(t)
 
@@ -1792,6 +1917,74 @@ func TestIsShellVar(t *testing.T) {
 	// Empty vars
 	g.Expect(isShellVar("anything", nil)).To(BeFalse())
 	g.Expect(isShellVar("anything", []string{})).To(BeFalse())
+}
+
+func TestMatchesGlob(t *testing.T) {
+	g := NewWithT(t)
+
+	// Single star matches all
+	g.Expect(matchesGlob("test", "*")).To(BeTrue())
+	g.Expect(matchesGlob("anything", "*")).To(BeTrue())
+
+	// Double star matches all
+	g.Expect(matchesGlob("test", "**")).To(BeTrue())
+	g.Expect(matchesGlob("anything", "**")).To(BeTrue())
+
+	// Prefix pattern (test-*)
+	g.Expect(matchesGlob("test-unit", "test-*")).To(BeTrue())
+	g.Expect(matchesGlob("test-integration", "test-*")).To(BeTrue())
+	g.Expect(matchesGlob("build", "test-*")).To(BeFalse())
+
+	// Suffix pattern (*-unit)
+	g.Expect(matchesGlob("test-unit", "*-unit")).To(BeTrue())
+	g.Expect(matchesGlob("build-unit", "*-unit")).To(BeTrue())
+	g.Expect(matchesGlob("build", "*-unit")).To(BeFalse())
+
+	// Contains pattern (*test*)
+	g.Expect(matchesGlob("my-test-here", "*test*")).To(BeTrue())
+	g.Expect(matchesGlob("testing", "*test*")).To(BeTrue())
+	g.Expect(matchesGlob("build", "*test*")).To(BeFalse())
+
+	// No wildcards - exact match (case insensitive)
+	g.Expect(matchesGlob("test", "test")).To(BeTrue())
+	g.Expect(matchesGlob("Test", "test")).To(BeTrue())
+	g.Expect(matchesGlob("build", "test")).To(BeFalse())
+}
+
+func TestMatchesGlobCmd(t *testing.T) {
+	g := NewWithT(t)
+
+	// Single star matches all
+	g.Expect(matchesGlobCmd("test", "*")).To(BeTrue())
+	g.Expect(matchesGlobCmd("build", "*")).To(BeTrue())
+
+	// Double star matches all
+	g.Expect(matchesGlobCmd("test", "**")).To(BeTrue())
+	g.Expect(matchesGlobCmd("build", "**")).To(BeTrue())
+
+	// Prefix pattern
+	g.Expect(matchesGlobCmd("test-unit", "test-*")).To(BeTrue())
+	g.Expect(matchesGlobCmd("test-integration", "test-*")).To(BeTrue())
+	g.Expect(matchesGlobCmd("build", "test-*")).To(BeFalse())
+
+	// Suffix pattern
+	g.Expect(matchesGlobCmd("test-unit", "*-unit")).To(BeTrue())
+	g.Expect(matchesGlobCmd("build-unit", "*-unit")).To(BeTrue())
+	g.Expect(matchesGlobCmd("build", "*-unit")).To(BeFalse())
+
+	// Contains pattern (both prefix and suffix star)
+	g.Expect(matchesGlobCmd("my-test-here", "*test*")).To(BeTrue())
+	g.Expect(matchesGlobCmd("testing", "*test*")).To(BeTrue())
+	g.Expect(matchesGlobCmd("build", "*test*")).To(BeFalse())
+
+	// Case insensitive
+	g.Expect(matchesGlobCmd("Test-Unit", "test-*")).To(BeTrue())
+	g.Expect(matchesGlobCmd("TEST-UNIT", "*-unit")).To(BeTrue())
+
+	// No wildcards - exact match
+	g.Expect(matchesGlobCmd("test", "test")).To(BeTrue())
+	g.Expect(matchesGlobCmd("Test", "test")).To(BeTrue())
+	g.Expect(matchesGlobCmd("build", "test")).To(BeFalse())
 }
 
 func TestMissingPositionalError_Unit_WithName(t *testing.T) {
