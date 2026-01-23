@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -235,6 +236,11 @@ func (e *runExecutor) executeDefault() error {
 		return nil
 	}
 
+	// If parallel mode, run targets concurrently
+	if e.opts.Overrides.Parallel {
+		return e.executeDefaultParallel()
+	}
+
 	remaining := e.rest
 
 	for len(remaining) > 0 {
@@ -262,8 +268,61 @@ func (e *runExecutor) executeDefault() error {
 	return nil
 }
 
+// executeDefaultParallel runs targets in parallel for default (single root) mode.
+func (e *runExecutor) executeDefaultParallel() error {
+	// Create cancellable context for fail-fast behavior
+	ctx, cancel := context.WithCancel(e.ctx)
+	defer cancel()
+
+	var wg sync.WaitGroup
+
+	errCh := make(chan error, len(e.rest))
+
+	for _, arg := range e.rest {
+		// Skip flags
+		if strings.HasPrefix(arg, "-") {
+			continue
+		}
+
+		wg.Add(1)
+
+		go func(cmdName string) {
+			defer wg.Done()
+
+			_, err := e.roots[0].executeWithParents(
+				ctx,
+				[]string{cmdName},
+				nil,
+				map[string]bool{},
+				false,
+				e.opts,
+			)
+			if err != nil {
+				errCh <- fmt.Errorf("%s: %w", cmdName, err)
+				cancel() // Cancel siblings on first error
+			}
+		}(arg)
+	}
+
+	wg.Wait()
+	close(errCh)
+
+	// Return first error
+	for err := range errCh {
+		e.env.Printf("Error: %v\n", err)
+		return ExitError{Code: 1}
+	}
+
+	return nil
+}
+
 // executeMultiRoot executes commands against multiple roots.
 func (e *runExecutor) executeMultiRoot() error {
+	// If parallel mode, run targets concurrently
+	if e.opts.Overrides.Parallel {
+		return e.executeMultiRootParallel()
+	}
+
 	remaining := e.rest
 
 	for len(remaining) > 0 {
@@ -290,6 +349,62 @@ func (e *runExecutor) executeMultiRoot() error {
 		}
 
 		remaining = next
+	}
+
+	return nil
+}
+
+// executeMultiRootParallel runs targets in parallel for multi-root mode.
+func (e *runExecutor) executeMultiRootParallel() error {
+	// Create cancellable context for fail-fast behavior
+	ctx, cancel := context.WithCancel(e.ctx)
+	defer cancel()
+
+	var wg sync.WaitGroup
+
+	errCh := make(chan error, len(e.rest))
+
+	for _, arg := range e.rest {
+		// Skip flags
+		if strings.HasPrefix(arg, "-") {
+			continue
+		}
+
+		matched := e.findMatchingRoot(arg)
+		if matched == nil {
+			e.env.Printf("Unknown command: %s\n", arg)
+			printUsage(e.roots, e.opts)
+
+			return ExitError{Code: 1}
+		}
+
+		wg.Add(1)
+
+		go func(node *commandNode, cmdName string) {
+			defer wg.Done()
+
+			_, err := node.executeWithParents(
+				ctx,
+				nil, // No additional args in parallel mode
+				nil,
+				map[string]bool{},
+				true,
+				e.opts,
+			)
+			if err != nil {
+				errCh <- fmt.Errorf("%s: %w", cmdName, err)
+				cancel() // Cancel siblings on first error
+			}
+		}(matched, arg)
+	}
+
+	wg.Wait()
+	close(errCh)
+
+	// Return first error
+	for err := range errCh {
+		e.env.Printf("Error: %v\n", err)
+		return ExitError{Code: 1}
 	}
 
 	return nil

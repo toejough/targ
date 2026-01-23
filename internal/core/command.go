@@ -2237,11 +2237,16 @@ func printTargFlags(opts RunOptions, isRoot bool) {
 		fmt.Println("  --help")
 	}
 
+	if isRoot {
+		fmt.Println("  --source, -s <path>   Use targ files from specified directory")
+	}
+
 	if !opts.DisableTimeout {
 		fmt.Println("  --timeout <duration>")
 	}
 
 	// Runtime override flags
+	fmt.Println("  --parallel, -p        Run multiple targets concurrently")
 	fmt.Println("  --times <n>           Run the command n times")
 	fmt.Println("  --retry               Continue on failure")
 	fmt.Println("  --backoff <d,m>       Exponential backoff (duration,multiplier)")

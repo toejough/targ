@@ -24,6 +24,7 @@ type RuntimeOverrides struct {
 	DepMode           string        // Dependency mode: serial or parallel (--dep-mode)
 	While             string        // Shell command to check (--while "cmd")
 	Deps              []string      // Dependency target paths (--deps target1 target2)
+	Parallel          bool          // Run multiple targets concurrently (--parallel or -p)
 }
 
 // hasAny returns true if any override is set.
@@ -95,12 +96,17 @@ func ExecuteWithOverrides(
 // ExtractOverrides parses runtime override flags from args.
 // Returns the overrides, remaining args, and any error.
 //
+// Position-sensitive flags (like --parallel, -p) are only recognized when they
+// appear BEFORE the first target name. After a target name is seen,
+// these flags are passed through to targets.
+//
 //nolint:gocognit,cyclop,funlen // Parsing multiple flag types requires branching for each
 func ExtractOverrides(args []string) (RuntimeOverrides, []string, error) {
 	var overrides RuntimeOverrides
 
 	remaining := make([]string, 0, len(args))
 	skip := false
+	seenTarget := false // Track if we've seen a target name (non-flag after program name)
 
 	for i, arg := range args {
 		if skip {
@@ -108,6 +114,10 @@ func ExtractOverrides(args []string) (RuntimeOverrides, []string, error) {
 
 			continue
 		}
+
+		// Check if this is a non-flag argument
+		// Skip i==0 as that's the program name, not a target
+		isFlag := strings.HasPrefix(arg, "-")
 
 		// --times N or --times=N
 		if handled, err := handleTimesFlag(arg, args, i, &overrides, &skip); handled {
@@ -122,6 +132,17 @@ func ExtractOverrides(args []string) (RuntimeOverrides, []string, error) {
 		if arg == "--retry" {
 			overrides.Retry = true
 			continue
+		}
+
+		// --parallel or -p (position-sensitive: only before first target)
+		if !seenTarget && (arg == "--parallel" || arg == "-p") {
+			overrides.Parallel = true
+			continue
+		}
+
+		// Track when we see a target name (non-flag after program name)
+		if !isFlag && i > 0 {
+			seenTarget = true
 		}
 
 		// --watch PATTERN
