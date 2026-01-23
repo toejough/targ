@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 
 	. "github.com/onsi/gomega"
@@ -998,6 +999,114 @@ func TestEmptyExamples(t *testing.T) {
 	g.Expect(examples).NotTo(BeNil())
 }
 
+func TestExecuteDefaultParallel_Error(t *testing.T) {
+	g := NewWithT(t)
+
+	env := &ExecuteEnv{args: []string{"cmd", "fail"}}
+	root := &commandNode{
+		Name: "root",
+		Subcommands: map[string]*commandNode{
+			"fail": {
+				Name: "fail",
+				Func: reflect.ValueOf(func() error { return errors.New("task failed") }),
+			},
+		},
+	}
+
+	exec := &runExecutor{
+		env:        env,
+		ctx:        context.Background(),
+		roots:      []*commandNode{root},
+		rest:       []string{"fail"},
+		hasDefault: true,
+		opts:       RunOptions{Overrides: RuntimeOverrides{Parallel: true}},
+	}
+
+	err := exec.executeDefaultParallel()
+	g.Expect(err).To(BeAssignableToTypeOf(ExitError{}))
+	g.Expect(env.Output()).To(ContainSubstring("task failed"))
+}
+
+func TestExecuteDefaultParallel_SkipsFlags(t *testing.T) {
+	g := NewWithT(t)
+
+	called := false
+	env := &ExecuteEnv{args: []string{"cmd", "--flag", "task"}}
+	root := &commandNode{
+		Name: "root",
+		Subcommands: map[string]*commandNode{
+			"task": {
+				Name: "task",
+				Func: reflect.ValueOf(func() { called = true }),
+			},
+		},
+	}
+
+	exec := &runExecutor{
+		env:        env,
+		ctx:        context.Background(),
+		roots:      []*commandNode{root},
+		rest:       []string{"--flag", "task"},
+		hasDefault: true,
+		opts:       RunOptions{Overrides: RuntimeOverrides{Parallel: true}},
+	}
+
+	err := exec.executeDefaultParallel()
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(called).To(BeTrue())
+}
+
+// --- executeDefaultParallel tests ---
+
+func TestExecuteDefaultParallel_Success(t *testing.T) {
+	g := NewWithT(t)
+
+	// Track execution order - should be concurrent
+	var mutex sync.Mutex
+
+	executed := []string{}
+
+	env := &ExecuteEnv{args: []string{"cmd", "a", "b"}}
+	root := &commandNode{
+		Name: "root",
+		Subcommands: map[string]*commandNode{
+			"a": {
+				Name: "a",
+				Func: reflect.ValueOf(func() {
+					mutex.Lock()
+
+					executed = append(executed, "a")
+
+					mutex.Unlock()
+				}),
+			},
+			"b": {
+				Name: "b",
+				Func: reflect.ValueOf(func() {
+					mutex.Lock()
+
+					executed = append(executed, "b")
+
+					mutex.Unlock()
+				}),
+			},
+		},
+	}
+
+	exec := &runExecutor{
+		env:        env,
+		ctx:        context.Background(),
+		roots:      []*commandNode{root},
+		rest:       []string{"a", "b"},
+		hasDefault: true,
+		opts:       RunOptions{Overrides: RuntimeOverrides{Parallel: true}},
+	}
+
+	err := exec.executeDefaultParallel()
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(executed).To(ConsistOf("a", "b"))
+}
+
 func TestExecuteDefault_EmptyRestError(t *testing.T) {
 	g := NewWithT(t)
 
@@ -1106,6 +1215,121 @@ func TestExecuteEnv_ExitIsNoOp(_ *testing.T) {
 	// Exit should be a no-op and not panic
 	env.Exit(1)
 	env.Exit(0)
+}
+
+func TestExecuteMultiRootParallel_Error(t *testing.T) {
+	g := NewWithT(t)
+
+	env := &ExecuteEnv{args: []string{"cmd", "fail"}}
+	root := &commandNode{
+		Name: "fail",
+		Func: reflect.ValueOf(func() error { return errors.New("root failed") }),
+	}
+
+	exec := &runExecutor{
+		env:        env,
+		ctx:        context.Background(),
+		roots:      []*commandNode{root},
+		rest:       []string{"fail"},
+		hasDefault: false,
+		opts:       RunOptions{Overrides: RuntimeOverrides{Parallel: true}},
+	}
+
+	err := exec.executeMultiRootParallel()
+	g.Expect(err).To(BeAssignableToTypeOf(ExitError{}))
+	g.Expect(env.Output()).To(ContainSubstring("root failed"))
+}
+
+func TestExecuteMultiRootParallel_SkipsFlags(t *testing.T) {
+	g := NewWithT(t)
+
+	called := false
+	env := &ExecuteEnv{args: []string{"cmd", "--flag", "task"}}
+	root := &commandNode{
+		Name: "task",
+		Func: reflect.ValueOf(func() { called = true }),
+	}
+
+	exec := &runExecutor{
+		env:        env,
+		ctx:        context.Background(),
+		roots:      []*commandNode{root},
+		rest:       []string{"--flag", "task"},
+		hasDefault: false,
+		opts:       RunOptions{Overrides: RuntimeOverrides{Parallel: true}},
+	}
+
+	err := exec.executeMultiRootParallel()
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(called).To(BeTrue())
+}
+
+// --- executeMultiRootParallel tests ---
+
+func TestExecuteMultiRootParallel_Success(t *testing.T) {
+	g := NewWithT(t)
+
+	var mutex sync.Mutex
+
+	executed := []string{}
+
+	env := &ExecuteEnv{args: []string{"cmd", "a", "b"}}
+	rootA := &commandNode{
+		Name: "a",
+		Func: reflect.ValueOf(func() {
+			mutex.Lock()
+
+			executed = append(executed, "a")
+
+			mutex.Unlock()
+		}),
+	}
+	rootB := &commandNode{
+		Name: "b",
+		Func: reflect.ValueOf(func() {
+			mutex.Lock()
+
+			executed = append(executed, "b")
+
+			mutex.Unlock()
+		}),
+	}
+
+	exec := &runExecutor{
+		env:        env,
+		ctx:        context.Background(),
+		roots:      []*commandNode{rootA, rootB},
+		rest:       []string{"a", "b"},
+		hasDefault: false,
+		opts:       RunOptions{Overrides: RuntimeOverrides{Parallel: true}},
+	}
+
+	err := exec.executeMultiRootParallel()
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(executed).To(ConsistOf("a", "b"))
+}
+
+func TestExecuteMultiRootParallel_UnknownCommand(t *testing.T) {
+	g := NewWithT(t)
+
+	env := &ExecuteEnv{args: []string{"cmd", "nosuch"}}
+	root := &commandNode{
+		Name: "a",
+		Func: reflect.ValueOf(func() {}),
+	}
+
+	exec := &runExecutor{
+		env:        env,
+		ctx:        context.Background(),
+		roots:      []*commandNode{root},
+		rest:       []string{"nosuch"},
+		hasDefault: false,
+		opts:       RunOptions{Overrides: RuntimeOverrides{Parallel: true}},
+	}
+
+	err := exec.executeMultiRootParallel()
+	g.Expect(err).To(BeAssignableToTypeOf(ExitError{}))
+	g.Expect(env.Output()).To(ContainSubstring("Unknown command"))
 }
 
 func TestExecuteWithParents_HelpOnly(t *testing.T) {

@@ -51,17 +51,17 @@ type SyncOptions struct {
 	PackagePath string // Module path to sync (e.g., "github.com/foo/bar")
 }
 
-// TargFlags holds extracted targ-specific flags.
-type TargFlags struct {
-	NoBinaryCache bool   // Disable binary caching
-	SourceDir     string // Source directory for targ files
-}
-
 // TargDependency represents a targ module dependency for isolated builds.
 type TargDependency struct {
 	ModulePath string
 	Version    string
 	ReplaceDir string
+}
+
+// TargFlags holds extracted targ-specific flags.
+type TargFlags struct {
+	NoBinaryCache bool   // Disable binary caching
+	SourceDir     string // Source directory for targ files
 }
 
 // AddImportToTargFile adds a blank import for the given package to the targ file.
@@ -238,6 +238,176 @@ func CheckImportExists(path, packagePath string) (bool, error) {
 	return false, nil
 }
 
+// ConvertFuncTargetToString converts a function target to a string target.
+// Returns true if conversion was performed, false if target not found or not convertible.
+//
+//nolint:funlen,cyclop // AST manipulation requires detailed handling
+func ConvertFuncTargetToString(filePath, targetName string) (bool, error) {
+	fset := token.NewFileSet()
+
+	file, err := parser.ParseFile(fset, filePath, nil, parser.ParseComments)
+	if err != nil {
+		return false, fmt.Errorf("parsing file: %w", err)
+	}
+
+	// Find the target variable
+	var targetSpec *ast.ValueSpec
+
+	var targetCall *ast.CallExpr
+
+	var funcIdent *ast.Ident
+
+	for _, decl := range file.Decls {
+		genDecl, ok := decl.(*ast.GenDecl)
+		if !ok || genDecl.Tok != token.VAR {
+			continue
+		}
+
+		for _, spec := range genDecl.Specs {
+			valueSpec, ok := spec.(*ast.ValueSpec)
+			if !ok || len(valueSpec.Names) == 0 || len(valueSpec.Values) == 0 {
+				continue
+			}
+
+			// Check if this target matches by name
+			if !targetMatchesName(valueSpec, targetName) {
+				continue
+			}
+
+			// Find targ.Targ() call with function argument
+			ident, call := extractFuncTargCall(valueSpec.Values[0])
+			if ident == nil {
+				continue
+			}
+
+			targetSpec = valueSpec
+			targetCall = call
+			funcIdent = ident
+
+			break
+		}
+
+		if targetSpec != nil {
+			break
+		}
+	}
+
+	if targetSpec == nil || targetCall == nil || funcIdent == nil {
+		return false, nil
+	}
+
+	// Find the function declaration and extract shell command
+	shellCmd, funcDecl := extractShellCommand(file, funcIdent.Name)
+	if shellCmd == "" {
+		//nolint:err113 // specific error message for user feedback
+		return false, fmt.Errorf("function %s is not a simple sh.Run call", funcIdent.Name)
+	}
+
+	// Replace function reference with string
+	targetCall.Args[0] = &ast.BasicLit{
+		Kind:  token.STRING,
+		Value: strconv.Quote(shellCmd),
+	}
+
+	// Remove the function declaration
+	newDecls := make([]ast.Decl, 0, len(file.Decls)-1)
+
+	for _, decl := range file.Decls {
+		if decl != funcDecl {
+			newDecls = append(newDecls, decl)
+		}
+	}
+
+	file.Decls = newDecls
+
+	// Write back
+	err = writeFormattedFile(filePath, fset, file)
+	if err != nil {
+		return false, fmt.Errorf("writing file: %w", err)
+	}
+
+	return true, nil
+}
+
+// ConvertStringTargetToFunc converts a string target to a function target.
+// Returns true if conversion was performed, false if target not found or not a string target.
+//
+//nolint:funlen,cyclop // AST manipulation requires detailed handling
+func ConvertStringTargetToFunc(filePath, targetName string) (bool, error) {
+	fset := token.NewFileSet()
+
+	file, err := parser.ParseFile(fset, filePath, nil, parser.ParseComments)
+	if err != nil {
+		return false, fmt.Errorf("parsing file: %w", err)
+	}
+
+	// Find the target variable
+	var targetSpec *ast.ValueSpec
+
+	var targetCall *ast.CallExpr
+
+	var shellCmd string
+
+	for _, decl := range file.Decls {
+		genDecl, ok := decl.(*ast.GenDecl)
+		if !ok || genDecl.Tok != token.VAR {
+			continue
+		}
+
+		for _, spec := range genDecl.Specs {
+			valueSpec, ok := spec.(*ast.ValueSpec)
+			if !ok || len(valueSpec.Names) == 0 || len(valueSpec.Values) == 0 {
+				continue
+			}
+
+			// Check if this target matches by name
+			if !targetMatchesName(valueSpec, targetName) {
+				continue
+			}
+
+			// Find targ.Targ() call with string argument
+			cmd, call := extractStringTargCall(valueSpec.Values[0])
+			if cmd == "" {
+				continue
+			}
+
+			targetSpec = valueSpec
+			targetCall = call
+			shellCmd = cmd
+
+			break
+		}
+
+		if targetSpec != nil {
+			break
+		}
+	}
+
+	if targetSpec == nil || targetCall == nil {
+		return false, nil
+	}
+
+	// Generate function name from target name
+	funcName := targetNameToFuncName(targetName)
+
+	// Replace string argument with function reference
+	targetCall.Args[0] = ast.NewIdent(funcName)
+
+	// Generate function declaration
+	funcDecl := generateShellFunc(funcName, shellCmd)
+
+	// Add function to file
+	file.Decls = append(file.Decls, funcDecl)
+
+	// Write back
+	err = writeFormattedFile(filePath, fset, file)
+	if err != nil {
+		return false, fmt.Errorf("writing file: %w", err)
+	}
+
+	return true, nil
+}
+
 // CreateGroupMemberPatch creates a patch to add a new member to an existing group.
 // Returns nil if the member already exists in the group.
 func CreateGroupMemberPatch(content, groupVarName, newMember string) *ContentPatch {
@@ -319,6 +489,52 @@ func EnsureFallbackModuleRoot(startDir, modulePath string, dep TargDependency) (
 	}
 
 	return root, nil
+}
+
+// ExtractTargFlags extracts targ-specific flags from args.
+// Returns the flags and remaining args to pass to the binary.
+//
+// Position-sensitive flags (like --source, -s) are only recognized when they
+// appear BEFORE the first target name. After a target is seen, these flags
+// are passed through to the binary.
+func ExtractTargFlags(args []string) (flags TargFlags, remaining []string) {
+	remaining = make([]string, 0, len(args))
+	seenTarget := false
+
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		isFlag := strings.HasPrefix(arg, "-")
+
+		// Track when we see a target name (first non-flag)
+		if !isFlag && !seenTarget {
+			seenTarget = true
+		}
+
+		switch arg {
+		case "--no-binary-cache":
+			flags.NoBinaryCache = true
+		case "--no-cache":
+			// Deprecated: use --no-binary-cache instead
+			fmt.Fprintln(
+				os.Stderr,
+				"warning: --no-cache is deprecated, use --no-binary-cache instead",
+			)
+
+			flags.NoBinaryCache = true
+		case "--source", "-s":
+			// Position-sensitive: only before first target
+			if !seenTarget && i+1 < len(args) {
+				i++
+				flags.SourceDir = args[i]
+			} else {
+				remaining = append(remaining, arg)
+			}
+		default:
+			remaining = append(remaining, arg)
+		}
+	}
+
+	return flags, remaining
 }
 
 // FindModuleForPath walks up from the given path to find the nearest go.mod.
@@ -1353,6 +1569,7 @@ func (r *targRunner) handleSyncFlag(args []string) (exitCode int, done bool) {
 	return 0, true
 }
 
+//nolint:dupl // intentionally similar to handleToStringFlag but with different conversion
 func (r *targRunner) handleToFuncFlag(args []string) (exitCode int, done bool) {
 	if len(args) == 0 {
 		fmt.Fprintln(os.Stderr, "--to-func requires a target name")
@@ -1407,6 +1624,7 @@ func (r *targRunner) handleToFuncFlag(args []string) (exitCode int, done bool) {
 	return 0, true
 }
 
+//nolint:dupl // intentionally similar to handleToFuncFlag but with different conversion
 func (r *targRunner) handleToStringFlag(args []string) (exitCode int, done bool) {
 	if len(args) == 0 {
 		fmt.Fprintln(os.Stderr, "--to-string requires a target name")
@@ -1537,6 +1755,7 @@ func (r *targRunner) run() int {
 	helpRequested, helpTargets := ParseHelpRequest(r.args)
 
 	var flags TargFlags
+
 	flags, r.args = ExtractTargFlags(r.args)
 	r.noBinaryCache = flags.NoBinaryCache
 
@@ -1633,6 +1852,7 @@ func (r *targRunner) validateSourceDir(path string) (string, error) {
 	info, err := os.Stat(absPath)
 	if err != nil {
 		if os.IsNotExist(err) {
+			//nolint:err113 // specific user-facing error with path context
 			return "", fmt.Errorf("directory does not exist: %s", absPath)
 		}
 
@@ -1640,6 +1860,7 @@ func (r *targRunner) validateSourceDir(path string) (string, error) {
 	}
 
 	if !info.IsDir() {
+		//nolint:err113 // specific user-facing error with path context
 		return "", fmt.Errorf("path is not a directory: %s", absPath)
 	}
 
@@ -2154,50 +2375,121 @@ func extractBinName(binArg string) string {
 	return binArg
 }
 
-// ExtractTargFlags extracts targ-specific flags from args.
-// Returns the flags and remaining args to pass to the binary.
-//
-// Position-sensitive flags (like --source, -s) are only recognized when they
-// appear BEFORE the first target name. After a target is seen, these flags
-// are passed through to the binary.
-func ExtractTargFlags(args []string) (flags TargFlags, remaining []string) {
-	remaining = make([]string, 0, len(args))
-	seenTarget := false
-
-	for i := 0; i < len(args); i++ {
-		arg := args[i]
-		isFlag := strings.HasPrefix(arg, "-")
-
-		// Track when we see a target name (first non-flag)
-		if !isFlag && !seenTarget {
-			seenTarget = true
+// extractFuncTargCall finds targ.Targ(funcName) call and returns the ident and call.
+func extractFuncTargCall(expr ast.Expr) (*ast.Ident, *ast.CallExpr) {
+	// Walk up the chain to find targ.Targ()
+	for {
+		call, ok := expr.(*ast.CallExpr)
+		if !ok {
+			return nil, nil
 		}
 
-		switch arg {
-		case "--no-binary-cache":
-			flags.NoBinaryCache = true
-		case "--no-cache":
-			// Deprecated: use --no-binary-cache instead
-			fmt.Fprintln(
-				os.Stderr,
-				"warning: --no-cache is deprecated, use --no-binary-cache instead",
-			)
-
-			flags.NoBinaryCache = true
-		case "--source", "-s":
-			// Position-sensitive: only before first target
-			if !seenTarget && i+1 < len(args) {
-				i++
-				flags.SourceDir = args[i]
-			} else {
-				remaining = append(remaining, arg)
+		// Check if this is targ.Targ()
+		if isTargTargCall(call) {
+			if len(call.Args) == 1 {
+				if ident, ok := call.Args[0].(*ast.Ident); ok {
+					return ident, call
+				}
 			}
-		default:
-			remaining = append(remaining, arg)
+
+			return nil, nil
 		}
+
+		// Continue up the chain
+		sel, ok := call.Fun.(*ast.SelectorExpr)
+		if !ok {
+			return nil, nil
+		}
+
+		expr = sel.X
+	}
+}
+
+// extractShellCommand finds a function and extracts its sh.Run command.
+// Returns empty string if function is not a simple sh.Run call.
+//
+//nolint:cyclop // AST traversal requires multiple branch checks
+func extractShellCommand(file *ast.File, funcName string) (string, *ast.FuncDecl) {
+	for _, decl := range file.Decls {
+		funcDecl, ok := decl.(*ast.FuncDecl)
+		if !ok || funcDecl.Name.Name != funcName {
+			continue
+		}
+
+		// Check for single return statement with sh.Run()
+		if len(funcDecl.Body.List) != 1 {
+			return "", nil
+		}
+
+		retStmt, ok := funcDecl.Body.List[0].(*ast.ReturnStmt)
+		if !ok || len(retStmt.Results) != 1 {
+			return "", nil
+		}
+
+		call, ok := retStmt.Results[0].(*ast.CallExpr)
+		if !ok {
+			return "", nil
+		}
+
+		// Check if it's sh.Run()
+		sel, ok := call.Fun.(*ast.SelectorExpr)
+		if !ok {
+			return "", nil
+		}
+
+		ident, ok := sel.X.(*ast.Ident)
+		if !ok || ident.Name != "sh" || sel.Sel.Name != "Run" {
+			return "", nil
+		}
+
+		// Extract arguments and join into command
+		var parts []string
+
+		for _, arg := range call.Args {
+			lit, ok := arg.(*ast.BasicLit)
+			if !ok || lit.Kind != token.STRING {
+				return "", nil
+			}
+
+			part, _ := strconv.Unquote(lit.Value)
+			parts = append(parts, part)
+		}
+
+		return strings.Join(parts, " "), funcDecl
 	}
 
-	return flags, remaining
+	return "", nil
+}
+
+// extractStringTargCall finds targ.Targ("string") call and returns the string and call.
+func extractStringTargCall(expr ast.Expr) (string, *ast.CallExpr) {
+	// Walk up the chain to find targ.Targ()
+	for {
+		call, ok := expr.(*ast.CallExpr)
+		if !ok {
+			return "", nil
+		}
+
+		// Check if this is targ.Targ()
+		if isTargTargCall(call) {
+			if len(call.Args) == 1 {
+				if lit, ok := call.Args[0].(*ast.BasicLit); ok && lit.Kind == token.STRING {
+					cmd, _ := strconv.Unquote(lit.Value)
+					return cmd, call
+				}
+			}
+
+			return "", nil
+		}
+
+		// Continue up the chain
+		sel, ok := call.Fun.(*ast.SelectorExpr)
+		if !ok {
+			return "", nil
+		}
+
+		expr = sel.X
+	}
 }
 
 // fetchPackage runs go get to fetch a package.
@@ -2246,6 +2538,29 @@ func findModCacheDir(modulePath, version string) (string, bool) {
 	}
 
 	return "", false
+}
+
+// findTargFiles finds all files with the targ build tag in the given directory.
+func findTargFiles(startDir string) ([]string, error) {
+	entries, err := os.ReadDir(startDir)
+	if err != nil {
+		return nil, fmt.Errorf("reading directory: %w", err)
+	}
+
+	var targFiles []string
+
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".go") {
+			continue
+		}
+
+		path := filepath.Join(startDir, entry.Name())
+		if HasTargBuildTag(path) {
+			targFiles = append(targFiles, path)
+		}
+	}
+
+	return targFiles, nil
 }
 
 // generateGroupModifications creates group declarations and modifications for the path.
@@ -2331,6 +2646,51 @@ func generateModuleBootstrap(
 	}, nil
 }
 
+// generateShellFunc generates a function that calls sh.Run with the command.
+func generateShellFunc(funcName, shellCmd string) *ast.FuncDecl {
+	// Parse command into parts
+	parts := strings.Fields(shellCmd)
+	if len(parts) == 0 {
+		parts = []string{shellCmd}
+	}
+
+	// Build arguments for sh.Run
+	args := make([]ast.Expr, len(parts))
+	for i, part := range parts {
+		args[i] = &ast.BasicLit{
+			Kind:  token.STRING,
+			Value: strconv.Quote(part),
+		}
+	}
+
+	return &ast.FuncDecl{
+		Name: ast.NewIdent(funcName),
+		Type: &ast.FuncType{
+			Params: &ast.FieldList{},
+			Results: &ast.FieldList{
+				List: []*ast.Field{
+					{Type: ast.NewIdent("error")},
+				},
+			},
+		},
+		Body: &ast.BlockStmt{
+			List: []ast.Stmt{
+				&ast.ReturnStmt{
+					Results: []ast.Expr{
+						&ast.CallExpr{
+							Fun: &ast.SelectorExpr{
+								X:   ast.NewIdent("sh"),
+								Sel: ast.NewIdent("Run"),
+							},
+							Args: args,
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
 func goEnv(key string) (string, error) {
 	cmd := exec.CommandContext(context.Background(), "go", "env", key)
 
@@ -2389,232 +2749,6 @@ func groupByModule(infos []buildtool.PackageInfo, startDir string) ([]moduleTarg
 	return result, nil
 }
 
-// isCleanVersion returns true if the version is suitable for cache lookup.
-func isCleanVersion(version string) bool {
-	return version != "" && version != "(devel)" && !strings.Contains(version, "+dirty")
-}
-
-// isCreateFlag checks if the argument is the --create flag.
-func isCreateFlag(arg string) bool {
-	return arg == "--create"
-}
-
-// isToFuncFlag checks if the argument is the --to-func flag.
-func isToFuncFlag(arg string) bool {
-	return arg == "--to-func"
-}
-
-// isToStringFlag checks if the argument is the --to-string flag.
-func isToStringFlag(arg string) bool {
-	return arg == "--to-string"
-}
-
-// findTargFiles finds all files with the targ build tag in the given directory.
-func findTargFiles(startDir string) ([]string, error) {
-	entries, err := os.ReadDir(startDir)
-	if err != nil {
-		return nil, err
-	}
-
-	var targFiles []string
-
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".go") {
-			continue
-		}
-
-		path := filepath.Join(startDir, entry.Name())
-		if HasTargBuildTag(path) {
-			targFiles = append(targFiles, path)
-		}
-	}
-
-	return targFiles, nil
-}
-
-// ConvertStringTargetToFunc converts a string target to a function target.
-// Returns true if conversion was performed, false if target not found or not a string target.
-//
-//nolint:funlen,gocognit // AST manipulation requires detailed handling
-func ConvertStringTargetToFunc(filePath, targetName string) (bool, error) {
-	fset := token.NewFileSet()
-
-	file, err := parser.ParseFile(fset, filePath, nil, parser.ParseComments)
-	if err != nil {
-		return false, fmt.Errorf("parsing file: %w", err)
-	}
-
-	// Find the target variable
-	var targetSpec *ast.ValueSpec
-
-	var targetCall *ast.CallExpr
-
-	var shellCmd string
-
-	for _, decl := range file.Decls {
-		genDecl, ok := decl.(*ast.GenDecl)
-		if !ok || genDecl.Tok != token.VAR {
-			continue
-		}
-
-		for _, spec := range genDecl.Specs {
-			valueSpec, ok := spec.(*ast.ValueSpec)
-			if !ok || len(valueSpec.Names) == 0 || len(valueSpec.Values) == 0 {
-				continue
-			}
-
-			// Check if this target matches by name
-			if !targetMatchesName(valueSpec, targetName) {
-				continue
-			}
-
-			// Find targ.Targ() call with string argument
-			cmd, call := extractStringTargCall(valueSpec.Values[0])
-			if cmd == "" {
-				continue
-			}
-
-			targetSpec = valueSpec
-			targetCall = call
-			shellCmd = cmd
-
-			break
-		}
-
-		if targetSpec != nil {
-			break
-		}
-	}
-
-	if targetSpec == nil {
-		return false, nil
-	}
-
-	// Generate function name from target name
-	funcName := targetNameToFuncName(targetName)
-
-	// Replace string argument with function reference
-	targetCall.Args[0] = ast.NewIdent(funcName)
-
-	// Generate function declaration
-	funcDecl := generateShellFunc(funcName, shellCmd)
-
-	// Add function to file
-	file.Decls = append(file.Decls, funcDecl)
-
-	// Write back
-	err = writeFormattedFile(filePath, fset, file)
-	if err != nil {
-		return false, fmt.Errorf("writing file: %w", err)
-	}
-
-	return true, nil
-}
-
-// ConvertFuncTargetToString converts a function target to a string target.
-// Returns true if conversion was performed, false if target not found or not convertible.
-//
-//nolint:funlen,gocognit // AST manipulation requires detailed handling
-func ConvertFuncTargetToString(filePath, targetName string) (bool, error) {
-	fset := token.NewFileSet()
-
-	file, err := parser.ParseFile(fset, filePath, nil, parser.ParseComments)
-	if err != nil {
-		return false, fmt.Errorf("parsing file: %w", err)
-	}
-
-	// Find the target variable
-	var targetSpec *ast.ValueSpec
-
-	var targetCall *ast.CallExpr
-
-	var funcIdent *ast.Ident
-
-	for _, decl := range file.Decls {
-		genDecl, ok := decl.(*ast.GenDecl)
-		if !ok || genDecl.Tok != token.VAR {
-			continue
-		}
-
-		for _, spec := range genDecl.Specs {
-			valueSpec, ok := spec.(*ast.ValueSpec)
-			if !ok || len(valueSpec.Names) == 0 || len(valueSpec.Values) == 0 {
-				continue
-			}
-
-			// Check if this target matches by name
-			if !targetMatchesName(valueSpec, targetName) {
-				continue
-			}
-
-			// Find targ.Targ() call with function argument
-			ident, call := extractFuncTargCall(valueSpec.Values[0])
-			if ident == nil {
-				continue
-			}
-
-			targetSpec = valueSpec
-			targetCall = call
-			funcIdent = ident
-
-			break
-		}
-
-		if targetSpec != nil {
-			break
-		}
-	}
-
-	if targetSpec == nil {
-		return false, nil
-	}
-
-	// Find the function declaration and extract shell command
-	shellCmd, funcDecl := extractShellCommand(file, funcIdent.Name)
-	if shellCmd == "" {
-		return false, fmt.Errorf("function %s is not a simple sh.Run call", funcIdent.Name)
-	}
-
-	// Replace function reference with string
-	targetCall.Args[0] = &ast.BasicLit{
-		Kind:  token.STRING,
-		Value: strconv.Quote(shellCmd),
-	}
-
-	// Remove the function declaration
-	newDecls := make([]ast.Decl, 0, len(file.Decls)-1)
-
-	for _, decl := range file.Decls {
-		if decl != funcDecl {
-			newDecls = append(newDecls, decl)
-		}
-	}
-
-	file.Decls = newDecls
-
-	// Write back
-	err = writeFormattedFile(filePath, fset, file)
-	if err != nil {
-		return false, fmt.Errorf("writing file: %w", err)
-	}
-
-	return true, nil
-}
-
-// targetMatchesName checks if a target variable matches the given CLI name.
-func targetMatchesName(spec *ast.ValueSpec, targetName string) bool {
-	// Check for .Name("targetName") in the chain
-	if hasNameMethod(spec.Values[0], targetName) {
-		return true
-	}
-
-	// Fall back to variable name conversion
-	varName := spec.Names[0].Name
-	expectedVar := KebabToPascal(targetName)
-
-	return varName == expectedVar
-}
-
 // hasNameMethod checks if the expression chain contains .Name("targetName").
 func hasNameMethod(expr ast.Expr, targetName string) bool {
 	for {
@@ -2641,202 +2775,14 @@ func hasNameMethod(expr ast.Expr, targetName string) bool {
 	}
 }
 
-// extractStringTargCall finds targ.Targ("string") call and returns the string and call.
-func extractStringTargCall(expr ast.Expr) (string, *ast.CallExpr) {
-	// Walk up the chain to find targ.Targ()
-	for {
-		call, ok := expr.(*ast.CallExpr)
-		if !ok {
-			return "", nil
-		}
-
-		// Check if this is targ.Targ()
-		if isTargTargCall(call) {
-			if len(call.Args) == 1 {
-				if lit, ok := call.Args[0].(*ast.BasicLit); ok && lit.Kind == token.STRING {
-					cmd, _ := strconv.Unquote(lit.Value)
-					return cmd, call
-				}
-			}
-
-			return "", nil
-		}
-
-		// Continue up the chain
-		sel, ok := call.Fun.(*ast.SelectorExpr)
-		if !ok {
-			return "", nil
-		}
-
-		expr = sel.X
-	}
+// isCleanVersion returns true if the version is suitable for cache lookup.
+func isCleanVersion(version string) bool {
+	return version != "" && version != "(devel)" && !strings.Contains(version, "+dirty")
 }
 
-// extractFuncTargCall finds targ.Targ(funcName) call and returns the ident and call.
-func extractFuncTargCall(expr ast.Expr) (*ast.Ident, *ast.CallExpr) {
-	// Walk up the chain to find targ.Targ()
-	for {
-		call, ok := expr.(*ast.CallExpr)
-		if !ok {
-			return nil, nil
-		}
-
-		// Check if this is targ.Targ()
-		if isTargTargCall(call) {
-			if len(call.Args) == 1 {
-				if ident, ok := call.Args[0].(*ast.Ident); ok {
-					return ident, call
-				}
-			}
-
-			return nil, nil
-		}
-
-		// Continue up the chain
-		sel, ok := call.Fun.(*ast.SelectorExpr)
-		if !ok {
-			return nil, nil
-		}
-
-		expr = sel.X
-	}
-}
-
-// isTargTargCall checks if call is targ.Targ().
-func isTargTargCall(call *ast.CallExpr) bool {
-	sel, ok := call.Fun.(*ast.SelectorExpr)
-	if !ok {
-		return false
-	}
-
-	ident, ok := sel.X.(*ast.Ident)
-	if !ok {
-		return false
-	}
-
-	return ident.Name == "targ" && sel.Sel.Name == "Targ"
-}
-
-// targetNameToFuncName converts a target name to a function name.
-func targetNameToFuncName(name string) string {
-	// Convert kebab-case to camelCase (first letter lowercase)
-	parts := strings.Split(name, "-")
-	for i := 1; i < len(parts); i++ {
-		if len(parts[i]) > 0 {
-			parts[i] = strings.ToUpper(parts[i][:1]) + parts[i][1:]
-		}
-	}
-
-	return strings.Join(parts, "")
-}
-
-// generateShellFunc generates a function that calls sh.Run with the command.
-func generateShellFunc(funcName, shellCmd string) *ast.FuncDecl {
-	// Parse command into parts
-	parts := strings.Fields(shellCmd)
-	if len(parts) == 0 {
-		parts = []string{shellCmd}
-	}
-
-	// Build arguments for sh.Run
-	args := make([]ast.Expr, len(parts))
-	for i, part := range parts {
-		args[i] = &ast.BasicLit{
-			Kind:  token.STRING,
-			Value: strconv.Quote(part),
-		}
-	}
-
-	return &ast.FuncDecl{
-		Name: ast.NewIdent(funcName),
-		Type: &ast.FuncType{
-			Params: &ast.FieldList{},
-			Results: &ast.FieldList{
-				List: []*ast.Field{
-					{Type: ast.NewIdent("error")},
-				},
-			},
-		},
-		Body: &ast.BlockStmt{
-			List: []ast.Stmt{
-				&ast.ReturnStmt{
-					Results: []ast.Expr{
-						&ast.CallExpr{
-							Fun: &ast.SelectorExpr{
-								X:   ast.NewIdent("sh"),
-								Sel: ast.NewIdent("Run"),
-							},
-							Args: args,
-						},
-					},
-				},
-			},
-		},
-	}
-}
-
-// extractShellCommand finds a function and extracts its sh.Run command.
-// Returns empty string if function is not a simple sh.Run call.
-func extractShellCommand(file *ast.File, funcName string) (string, *ast.FuncDecl) {
-	for _, decl := range file.Decls {
-		funcDecl, ok := decl.(*ast.FuncDecl)
-		if !ok || funcDecl.Name.Name != funcName {
-			continue
-		}
-
-		// Check for single return statement with sh.Run()
-		if len(funcDecl.Body.List) != 1 {
-			return "", nil
-		}
-
-		retStmt, ok := funcDecl.Body.List[0].(*ast.ReturnStmt)
-		if !ok || len(retStmt.Results) != 1 {
-			return "", nil
-		}
-
-		call, ok := retStmt.Results[0].(*ast.CallExpr)
-		if !ok {
-			return "", nil
-		}
-
-		// Check if it's sh.Run()
-		sel, ok := call.Fun.(*ast.SelectorExpr)
-		if !ok {
-			return "", nil
-		}
-
-		ident, ok := sel.X.(*ast.Ident)
-		if !ok || ident.Name != "sh" || sel.Sel.Name != "Run" {
-			return "", nil
-		}
-
-		// Extract arguments and join into command
-		var parts []string
-
-		for _, arg := range call.Args {
-			lit, ok := arg.(*ast.BasicLit)
-			if !ok || lit.Kind != token.STRING {
-				return "", nil
-			}
-
-			part, _ := strconv.Unquote(lit.Value)
-			parts = append(parts, part)
-		}
-
-		return strings.Join(parts, " "), funcDecl
-	}
-
-	return "", nil
-}
-
-// writeFormattedFile writes an AST back to a file with proper formatting.
-func writeFormattedFile(filePath string, fset *token.FileSet, file *ast.File) error {
-	var buf bytes.Buffer
-	if err := format.Node(&buf, fset, file); err != nil {
-		return err
-	}
-
-	return os.WriteFile(filePath, buf.Bytes(), 0o644)
+// isCreateFlag checks if the argument is the --create flag.
+func isCreateFlag(arg string) bool {
+	return arg == "--create"
 }
 
 // isHelpRequest returns true if args represent a help request.
@@ -2872,6 +2818,31 @@ func isRemovedFlag(arg string) bool {
 // isSyncFlag checks if the argument is the --sync flag.
 func isSyncFlag(arg string) bool {
 	return arg == "--sync"
+}
+
+// isTargTargCall checks if call is targ.Targ().
+func isTargTargCall(call *ast.CallExpr) bool {
+	sel, ok := call.Fun.(*ast.SelectorExpr)
+	if !ok {
+		return false
+	}
+
+	ident, ok := sel.X.(*ast.Ident)
+	if !ok {
+		return false
+	}
+
+	return ident.Name == "targ" && sel.Sel.Name == "Targ"
+}
+
+// isToFuncFlag checks if the argument is the --to-func flag.
+func isToFuncFlag(arg string) bool {
+	return arg == "--to-func"
+}
+
+// isToStringFlag checks if the argument is the --to-string flag.
+func isToStringFlag(arg string) bool {
+	return arg == "--to-string"
 }
 
 // linkModuleEntry creates a symlink for a single directory entry if needed.
@@ -3299,6 +3270,33 @@ func targCacheDir() string {
 	return filepath.Join(home, ".cache", "targ")
 }
 
+// targetMatchesName checks if a target variable matches the given CLI name.
+func targetMatchesName(spec *ast.ValueSpec, targetName string) bool {
+	// Check for .Name("targetName") in the chain
+	if hasNameMethod(spec.Values[0], targetName) {
+		return true
+	}
+
+	// Fall back to variable name conversion
+	varName := spec.Names[0].Name
+	expectedVar := KebabToPascal(targetName)
+
+	return varName == expectedVar
+}
+
+// targetNameToFuncName converts a target name to a function name.
+func targetNameToFuncName(name string) string {
+	// Convert kebab-case to camelCase (first letter lowercase)
+	parts := strings.Split(name, "-")
+	for i := 1; i < len(parts); i++ {
+		if len(parts[i]) > 0 {
+			parts[i] = strings.ToUpper(parts[i][:1]) + parts[i][1:]
+		}
+	}
+
+	return strings.Join(parts, "")
+}
+
 func touchFile(path string) error {
 	err := os.WriteFile(path, []byte{}, filePermissionsForCode)
 	if err != nil {
@@ -3363,6 +3361,24 @@ func writeFallbackGoMod(root, modulePath string, dep TargDependency) error {
 	err := os.WriteFile(modPath, []byte(content), filePermissionsForCode)
 	if err != nil {
 		return fmt.Errorf("writing go.mod: %w", err)
+	}
+
+	return nil
+}
+
+// writeFormattedFile writes an AST back to a file with proper formatting.
+func writeFormattedFile(filePath string, fset *token.FileSet, file *ast.File) error {
+	var buf bytes.Buffer
+
+	err := format.Node(&buf, fset, file)
+	if err != nil {
+		return fmt.Errorf("formatting code: %w", err)
+	}
+
+	//nolint:gosec,mnd // G306: 0o644 is standard permission for source files
+	err = os.WriteFile(filePath, buf.Bytes(), 0o644)
+	if err != nil {
+		return fmt.Errorf("writing file: %w", err)
 	}
 
 	return nil
