@@ -24,6 +24,12 @@ func GetRegistry() []any {
 	return registry
 }
 
+// Main runs the given targets as a CLI application.
+func Main(targets ...any) {
+	RegisterTarget(targets...)
+	ExecuteRegistered()
+}
+
 // RegisterTarget adds targets to the global registry for later execution.
 // Typically called from init() in packages with //go:build targ.
 // Use ExecuteRegistered() in main() to run the registered targets.

@@ -165,6 +165,19 @@ func IsWindows() bool {
 	return internalsh.IsWindowsOS()
 }
 
+// Main runs the given targets as a CLI application.
+// Call this from main() for standalone binaries:
+//
+//	func main() {
+//	    targ.Main(
+//	        targ.Targ(build),
+//	        targ.Targ(test),
+//	    )
+//	}
+func Main(targets ...any) {
+	core.Main(targets...)
+}
+
 // --- File Utilities ---
 
 // Match expands one or more patterns using fish-style globs (including ** and {a,b}).

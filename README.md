@@ -133,11 +133,10 @@ package main
 import "github.com/toejough/targ"
 
 func main() {
-    targ.Register(
+    targ.Main(
         targ.Targ(build).Description("Compile the project"),
         targ.Targ(test).Description("Run tests"),
     )
-    targ.ExecuteRegistered()
 }
 
 // ... same function definitions as Stage 2

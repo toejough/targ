@@ -660,7 +660,8 @@ func deadcode(ctx context.Context) error {
 				continue
 			}
 			// Skip internal packages that support the CLI or public API
-			if strings.HasPrefix(filePath, "internal/sh/") ||
+			if strings.HasPrefix(filePath, "internal/core/") ||
+				strings.HasPrefix(filePath, "internal/sh/") ||
 				strings.HasPrefix(filePath, "internal/file/") ||
 				strings.HasPrefix(filePath, "internal/discover/") ||
 				strings.HasPrefix(filePath, "internal/parse/") {
@@ -814,7 +815,8 @@ func deleteDeadcode(ctx context.Context) error {
 		}
 
 		// Skip internal packages that support the CLI or public API
-		if strings.HasPrefix(file, "internal/sh/") ||
+		if strings.HasPrefix(file, "internal/core/") ||
+			strings.HasPrefix(file, "internal/sh/") ||
 			strings.HasPrefix(file, "internal/file/") ||
 			strings.HasPrefix(file, "internal/discover/") ||
 			strings.HasPrefix(file, "internal/parse/") {
