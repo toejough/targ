@@ -13,8 +13,7 @@ import (
 )
 
 func TestWatchDetectsAddedFile(t *testing.T) {
-	ticker, state, restore := setupWatchMocks(t)
-	defer restore()
+	ticker, state, ops := setupWatchMocks(t)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -23,7 +22,7 @@ func TestWatchDetectsAddedFile(t *testing.T) {
 	done := make(chan error, 1)
 
 	go func() {
-		done <- runWatch(ctx, state, changesCh)
+		done <- runWatch(ctx, state, changesCh, ops)
 	}()
 
 	time.Sleep(10 * time.Millisecond)
@@ -47,8 +46,7 @@ func TestWatchDetectsAddedFile(t *testing.T) {
 }
 
 func TestWatchDetectsModifiedFile(t *testing.T) {
-	ticker, state, restore := setupWatchMocks(t)
-	defer restore()
+	ticker, state, ops := setupWatchMocks(t)
 
 	// Start with a file already present
 	state.setFile("/test/a.txt", time.Now())
@@ -61,7 +59,7 @@ func TestWatchDetectsModifiedFile(t *testing.T) {
 	done := make(chan error, 1)
 
 	go func() {
-		done <- runWatch(ctx, state, changesCh)
+		done <- runWatch(ctx, state, changesCh, ops)
 	}()
 
 	time.Sleep(10 * time.Millisecond)
@@ -84,8 +82,7 @@ func TestWatchDetectsModifiedFile(t *testing.T) {
 }
 
 func TestWatchDetectsRemovedFile(t *testing.T) {
-	ticker, state, restore := setupWatchMocks(t)
-	defer restore()
+	ticker, state, ops := setupWatchMocks(t)
 
 	// Start with a file already present
 	state.setFile("/test/a.txt", time.Now())
@@ -98,7 +95,7 @@ func TestWatchDetectsRemovedFile(t *testing.T) {
 	done := make(chan error, 1)
 
 	go func() {
-		done <- runWatch(ctx, state, changesCh)
+		done <- runWatch(ctx, state, changesCh, ops)
 	}()
 
 	time.Sleep(10 * time.Millisecond)
@@ -122,8 +119,7 @@ func TestWatchDetectsRemovedFile(t *testing.T) {
 }
 
 func TestWatchReturnsErrorFromCallback(t *testing.T) {
-	ticker, state, restore := setupWatchMocks(t)
-	defer restore()
+	ticker, state, ops := setupWatchMocks(t)
 
 	state.setFile("/test/test.txt", time.Now())
 	state.setMatches([]string{"/test/test.txt"})
@@ -135,10 +131,10 @@ func TestWatchReturnsErrorFromCallback(t *testing.T) {
 	done := make(chan error, 1)
 
 	go func() {
-		opts := internal.WatchOptions{Interval: time.Millisecond}
-		done <- internal.Watch(ctx, []string{"*.txt"}, opts, func(internal.ChangeSet) error {
+		watchOpts := internal.WatchOptions{Interval: time.Millisecond}
+		done <- internal.Watch(ctx, []string{"*.txt"}, watchOpts, func(internal.ChangeSet) error {
 			return callbackErr
-		}, state.match)
+		}, state.match, ops)
 	}()
 
 	time.Sleep(10 * time.Millisecond)
@@ -249,33 +245,32 @@ func (t *mockTicker) Stop() {}
 func (t *mockTicker) tick() { t.ch <- time.Now() }
 
 // runWatch runs the watch with standard options.
-func runWatch(ctx context.Context, state *fileState, changesCh chan<- internal.ChangeSet) error {
-	opts := internal.WatchOptions{Interval: time.Millisecond}
+func runWatch(
+	ctx context.Context,
+	state *fileState,
+	changesCh chan<- internal.ChangeSet,
+	ops *internal.WatchOps,
+) error {
+	watchOpts := internal.WatchOptions{Interval: time.Millisecond}
 
-	return internal.Watch(ctx, []string{"*.txt"}, opts, func(set internal.ChangeSet) error {
+	return internal.Watch(ctx, []string{"*.txt"}, watchOpts, func(set internal.ChangeSet) error {
 		changesCh <- set
 		return nil
-	}, state.match)
+	}, state.match, ops)
 }
 
 // setupWatchMocks configures DI points for watch testing.
-// Returns the mock ticker, file state, and a cleanup function.
-func setupWatchMocks(t *testing.T) (*mockTicker, *fileState, func()) {
+// Returns the mock ticker, file state, and WatchOps.
+func setupWatchMocks(t *testing.T) (*mockTicker, *fileState, *internal.WatchOps) {
 	t.Helper()
 
-	origNewTicker := internal.NewTicker
-	origStatFile := internal.StatFile
-
 	ticker := &mockTicker{ch: make(chan time.Time)}
-	internal.NewTicker = func(time.Duration) internal.Ticker { return ticker }
-
 	state := &fileState{files: make(map[string]time.Time)}
-	internal.StatFile = state.stat
 
-	restore := func() {
-		internal.NewTicker = origNewTicker
-		internal.StatFile = origStatFile
+	ops := &internal.WatchOps{
+		NewTicker: func(time.Duration) internal.Ticker { return ticker },
+		Stat:      state.stat,
 	}
 
-	return ticker, state, restore
+	return ticker, state, ops
 }

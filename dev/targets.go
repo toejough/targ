@@ -653,6 +653,16 @@ func deadcode(ctx context.Context) error {
 			continue
 		}
 
+		// Extract file path from "file.go:line:col: unreachable func: Name"
+		colonIdx := strings.Index(line, ":")
+		if colonIdx > 0 {
+			filePath := line[:colonIdx]
+			// Skip public API entry point files (thin wrappers)
+			if isPublicAPIEntryPoint(filePath) {
+				continue
+			}
+		}
+
 		filteredLines = append(filteredLines, line)
 	}
 
@@ -790,6 +800,11 @@ func deleteDeadcode(ctx context.Context) error {
 
 		// Skip generated files and test files
 		if strings.Contains(file, "generated_") || strings.HasSuffix(file, ".qtpl.go") || strings.HasSuffix(file, "_test.go") {
+			continue
+		}
+
+		// Skip public API entry point files (thin wrappers)
+		if isPublicAPIEntryPoint(file) {
 			continue
 		}
 
@@ -1036,7 +1051,7 @@ func isEntryPointCoverageLine(line string) bool {
 		return true
 	}
 
-	// Top-level module files: github.com/toejough/targ/<file>.go
+	// Extract file path from coverage line
 	const modulePrefix = "github.com/toejough/targ/"
 
 	idx := strings.Index(line, modulePrefix)
@@ -1054,7 +1069,17 @@ func isEntryPointCoverageLine(line string) bool {
 
 	pathPart := afterModule[:colonIdx]
 
-	return !strings.Contains(pathPart, "/")
+	// Top-level module files (no subdirectory)
+	if !strings.Contains(pathPart, "/") {
+		return true
+	}
+
+	// Public API entry point files (thin wrappers)
+	if isPublicAPIEntryPoint(pathPart) {
+		return true
+	}
+
+	return false
 }
 
 // isEntryPointFile returns true for files excluded from coverage checks:
@@ -1114,6 +1139,44 @@ func isGeneratedFile(path string) (bool, error) {
 	content := string(buf[:n])
 
 	return strings.Contains(content, "Code generated") || strings.Contains(content, "DO NOT EDIT"), nil
+}
+
+// isPublicAPIEntryPoint checks if a file is a public API entry point (thin wrapper file).
+// Uses the same logic as checkThinAPI to identify public API files.
+func isPublicAPIEntryPoint(path string) bool {
+	// Must be a .go file
+	if !strings.HasSuffix(path, ".go") {
+		return false
+	}
+
+	// Skip test files
+	if strings.HasSuffix(path, "_test.go") {
+		return false
+	}
+
+	// Skip files in internal directories
+	if strings.Contains(path, "/internal/") || strings.HasPrefix(path, "internal/") {
+		return false
+	}
+
+	// Skip examples
+	if strings.HasPrefix(path, "examples/") || strings.Contains(path, "/examples/") {
+		return false
+	}
+
+	// Skip generated files
+	if strings.Contains(path, "generated_") {
+		return false
+	}
+
+	// Skip files with build tags or generated markers
+	skip, err := hasBuildTagOrGenerated(path)
+	if err != nil || skip {
+		return false
+	}
+
+	// This is a public API entry point file
+	return true
 }
 
 // isSimpleErrorWrapper checks for pattern:

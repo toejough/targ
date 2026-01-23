@@ -99,28 +99,21 @@ func ExecuteWithOverrides(
 // Position-sensitive flags (like --parallel, -p) are only recognized when they
 // appear BEFORE the first target name. After a target name is seen,
 // these flags are passed through to targets.
-//
-//nolint:gocognit,cyclop,funlen // Parsing multiple flag types requires branching for each
 func ExtractOverrides(args []string) (RuntimeOverrides, []string, error) {
 	var overrides RuntimeOverrides
 
 	remaining := make([]string, 0, len(args))
 	skip := false
-	seenTarget := false // Track if we've seen a target name (non-flag after program name)
+	seenTarget := false
 
 	for i, arg := range args {
 		if skip {
 			skip = false
-
 			continue
 		}
 
-		// Check if this is a non-flag argument
-		// Skip i==0 as that's the program name, not a target
-		isFlag := strings.HasPrefix(arg, "-")
-
-		// --times N or --times=N
-		if handled, err := handleTimesFlag(arg, args, i, &overrides, &skip); handled {
+		// Try flag handlers
+		if handled, err := processOverrideFlag(arg, args, i, &overrides, &skip); handled {
 			if err != nil {
 				return RuntimeOverrides{}, nil, err
 			}
@@ -128,81 +121,20 @@ func ExtractOverrides(args []string) (RuntimeOverrides, []string, error) {
 			continue
 		}
 
-		// --retry
-		if arg == "--retry" {
-			overrides.Retry = true
-			continue
-		}
-
-		// --parallel or -p (position-sensitive: only before first target)
-		if !seenTarget && (arg == "--parallel" || arg == "-p") {
+		// Position-sensitive flags (only before first target)
+		if !seenTarget && isParallelFlag(arg) {
 			overrides.Parallel = true
 			continue
 		}
 
-		// Track when we see a target name (non-flag after program name)
-		if !isFlag && i > 0 {
+		// Track when we see a target name (non-flag after first arg)
+		if !strings.HasPrefix(arg, "-") && i > 0 {
 			seenTarget = true
-		}
-
-		// --watch PATTERN
-		if handled, err := handleWatchFlag(arg, args, i, &overrides, &skip); handled {
-			if err != nil {
-				return RuntimeOverrides{}, nil, err
-			}
-
-			continue
-		}
-
-		// --cache PATTERN
-		if handled, err := handleCacheFlag(arg, args, i, &overrides, &skip); handled {
-			if err != nil {
-				return RuntimeOverrides{}, nil, err
-			}
-
-			continue
-		}
-
-		// --cache-dir PATH
-		if handled, err := handleCacheDirFlag(arg, args, i, &overrides, &skip); handled {
-			if err != nil {
-				return RuntimeOverrides{}, nil, err
-			}
-
-			continue
-		}
-
-		// --backoff D,M
-		if handled, err := handleBackoffFlag(arg, args, i, &overrides, &skip); handled {
-			if err != nil {
-				return RuntimeOverrides{}, nil, err
-			}
-
-			continue
-		}
-
-		// --dep-mode MODE
-		if handled, err := handleDepModeFlag(arg, args, i, &overrides, &skip); handled {
-			if err != nil {
-				return RuntimeOverrides{}, nil, err
-			}
-
-			continue
-		}
-
-		// --while CMD
-		if handled, err := handleWhileFlag(arg, args, i, &overrides, &skip); handled {
-			if err != nil {
-				return RuntimeOverrides{}, nil, err
-			}
-
-			continue
 		}
 
 		remaining = append(remaining, arg)
 	}
 
-	// Extract variadic --deps (must be done as a second pass because it consumes multiple args)
 	var err error
 
 	remaining, overrides.Deps, err = extractDepsVariadic(remaining)
@@ -240,6 +172,52 @@ var (
 	fileWatch = file.Watch
 )
 
+// overrideFlagHandler is a function that handles an override flag.
+// Returns (handled, error). Sets skip to true if next arg was consumed.
+type overrideFlagHandler func(arg string, args []string, i int, o *RuntimeOverrides, skip *bool) (bool, error)
+
+// executeIteration runs a single iteration of the function with retry/backoff handling.
+// Returns the updated backoff delay, whether to continue, and the error (if any).
+// If prevErr is non-nil and context is cancelled, prevErr is returned to preserve the original error.
+// applyBackoffSleep sleeps for the backoff delay if applicable, returning the new delay.
+// Returns an error if context is cancelled during sleep.
+func applyBackoffSleep(
+	ctx context.Context,
+	delay time.Duration,
+	multiplier float64,
+	iteration, total int,
+) (time.Duration, error) {
+	if delay <= 0 || iteration >= total-1 {
+		return delay, nil
+	}
+
+	select {
+	case <-ctx.Done():
+		return delay, fmt.Errorf("execution cancelled during backoff: %w", ctx.Err())
+	case <-time.After(delay):
+	}
+
+	return time.Duration(float64(delay) * multiplier), nil
+}
+
+// checkCacheHit returns true if cache is valid (skip execution).
+func checkCacheHit(patterns []string, cacheDir string) (bool, error) {
+	if len(patterns) == 0 {
+		return false, nil
+	}
+
+	if cacheDir == "" {
+		cacheDir = ".targ-cache"
+	}
+
+	changed, err := file.Checksum(patterns, cacheDir+"/override.sum")
+	if err != nil {
+		return false, fmt.Errorf("cache check failed: %w", err)
+	}
+
+	return !changed, nil
+}
+
 // checkConflicts verifies CLI overrides don't conflict with Target config.
 func checkConflicts(overrides RuntimeOverrides, config TargetConfig) error {
 	// Check watch conflict: CLI --watch vs Target.Watch()
@@ -268,36 +246,66 @@ func checkWhileCondition(ctx context.Context, cmd string) bool {
 	return c.Run() == nil
 }
 
+func executeIteration(
+	ctx context.Context,
+	fn func() error,
+	overrides RuntimeOverrides,
+	iteration, totalIterations int,
+	backoffDelay time.Duration,
+	prevErr error,
+) (newBackoff time.Duration, shouldContinue bool, lastErr error) {
+	// Check while condition
+	if overrides.While != "" && !checkWhileCondition(ctx, overrides.While) {
+		return backoffDelay, false, nil
+	}
+
+	// Check context cancellation - return previous error if any
+	select {
+	case <-ctx.Done():
+		if prevErr != nil {
+			return backoffDelay, false, prevErr
+		}
+
+		return backoffDelay, false, fmt.Errorf("execution cancelled: %w", ctx.Err())
+	default:
+	}
+
+	err := fn()
+	if err == nil {
+		return backoffDelay, true, nil
+	}
+
+	if !overrides.Retry {
+		return backoffDelay, false, err
+	}
+
+	// Apply backoff if configured
+	newDelay, backoffErr := applyBackoffSleep(
+		ctx, backoffDelay, overrides.BackoffMultiplier, iteration, totalIterations,
+	)
+	if backoffErr != nil {
+		return backoffDelay, false, backoffErr
+	}
+
+	return newDelay, true, err
+}
+
 // executeOnce handles a single execution with cache, times, retry, while, and backoff.
-//
-//nolint:cyclop,funlen,gocognit // Handles multiple execution modifiers (cache, times, retry, while, backoff)
 func executeOnce(
 	ctx context.Context,
 	overrides RuntimeOverrides,
 	cachePatterns []string,
 	fn func() error,
 ) error {
-	// Check cache first
-	if len(cachePatterns) > 0 {
-		cacheDir := overrides.CacheDir
-		if cacheDir == "" {
-			cacheDir = ".targ-cache"
-		}
-
-		cacheFile := cacheDir + "/override.sum"
-
-		changed, err := file.Checksum(cachePatterns, cacheFile)
-		if err != nil {
-			return fmt.Errorf("cache check failed: %w", err)
-		}
-
-		if !changed {
-			// Cache hit - skip execution
-			return nil
-		}
+	cacheHit, err := checkCacheHit(cachePatterns, overrides.CacheDir)
+	if err != nil {
+		return err
 	}
 
-	// Determine iteration count
+	if cacheHit {
+		return nil
+	}
+
 	iterations := 1
 	if overrides.Times > 0 {
 		iterations = overrides.Times
@@ -308,44 +316,14 @@ func executeOnce(
 	backoffDelay := overrides.BackoffInitial
 
 	for i := range iterations {
-		// Check while condition
-		if overrides.While != "" && !checkWhileCondition(ctx, overrides.While) {
+		var shouldContinue bool
+
+		backoffDelay, shouldContinue, lastErr = executeIteration(
+			ctx, fn, overrides, i, iterations, backoffDelay, lastErr,
+		)
+
+		if !shouldContinue {
 			break
-		}
-
-		// Check context cancellation
-		select {
-		case <-ctx.Done():
-			if lastErr == nil {
-				return fmt.Errorf("execution cancelled: %w", ctx.Err())
-			}
-
-			return lastErr
-		default:
-		}
-
-		// Execute the function
-		err := fn()
-		if err != nil {
-			lastErr = err
-
-			if !overrides.Retry {
-				return err
-			}
-
-			// Apply backoff if configured
-			if backoffDelay > 0 && i < iterations-1 {
-				select {
-				case <-ctx.Done():
-					return fmt.Errorf("execution cancelled during backoff: %w", ctx.Err())
-				case <-time.After(backoffDelay):
-				}
-
-				backoffDelay = time.Duration(float64(backoffDelay) * overrides.BackoffMultiplier)
-			}
-		} else {
-			// Success - clear any previous error
-			lastErr = nil
 		}
 	}
 
@@ -550,6 +528,21 @@ func handleDepModeFlag(
 	return false, nil
 }
 
+func handleRetryFlag(
+	arg string,
+	_ []string,
+	_ int,
+	overrides *RuntimeOverrides,
+	_ *bool,
+) (bool, error) {
+	if arg == "--retry" {
+		overrides.Retry = true
+		return true, nil
+	}
+
+	return false, nil
+}
+
 func handleTimesFlag(
 	arg string,
 	args []string,
@@ -639,6 +632,24 @@ func handleWhileFlag(
 	return false, nil
 }
 
+func isParallelFlag(arg string) bool {
+	return arg == "--parallel" || arg == "-p"
+}
+
+// overrideFlagHandlers returns the list of flag handlers for ExtractOverrides.
+func overrideFlagHandlers() []overrideFlagHandler {
+	return []overrideFlagHandler{
+		handleTimesFlag,
+		handleWatchFlag,
+		handleCacheFlag,
+		handleCacheDirFlag,
+		handleRetryFlag,
+		handleBackoffFlag,
+		handleDepModeFlag,
+		handleWhileFlag,
+	}
+}
+
 func parseBackoffValue(val string) (time.Duration, float64, error) {
 	parts := strings.SplitN(val, ",", 2) //nolint:mnd // backoff has exactly 2 parts
 	if len(parts) != 2 {                 //nolint:mnd // backoff has exactly 2 parts
@@ -656,4 +667,22 @@ func parseBackoffValue(val string) (time.Duration, float64, error) {
 	}
 
 	return duration, multiplier, nil
+}
+
+// processOverrideFlag tries each handler until one succeeds.
+func processOverrideFlag(
+	arg string,
+	args []string,
+	i int,
+	o *RuntimeOverrides,
+	skip *bool,
+) (handled bool, err error) {
+	for _, handler := range overrideFlagHandlers() {
+		handled, err = handler(arg, args, i, o, skip)
+		if handled {
+			return handled, err
+		}
+	}
+
+	return false, nil
 }

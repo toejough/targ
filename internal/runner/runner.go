@@ -240,8 +240,6 @@ func CheckImportExists(path, packagePath string) (bool, error) {
 
 // ConvertFuncTargetToString converts a function target to a string target.
 // Returns true if conversion was performed, false if target not found or not convertible.
-//
-//nolint:funlen,cyclop // AST manipulation requires detailed handling
 func ConvertFuncTargetToString(filePath, targetName string) (bool, error) {
 	fset := token.NewFileSet()
 
@@ -250,77 +248,26 @@ func ConvertFuncTargetToString(filePath, targetName string) (bool, error) {
 		return false, fmt.Errorf("parsing file: %w", err)
 	}
 
-	// Find the target variable
-	var targetSpec *ast.ValueSpec
-
-	var targetCall *ast.CallExpr
-
-	var funcIdent *ast.Ident
-
-	for _, decl := range file.Decls {
-		genDecl, ok := decl.(*ast.GenDecl)
-		if !ok || genDecl.Tok != token.VAR {
-			continue
-		}
-
-		for _, spec := range genDecl.Specs {
-			valueSpec, ok := spec.(*ast.ValueSpec)
-			if !ok || len(valueSpec.Names) == 0 || len(valueSpec.Values) == 0 {
-				continue
-			}
-
-			// Check if this target matches by name
-			if !targetMatchesName(valueSpec, targetName) {
-				continue
-			}
-
-			// Find targ.Targ() call with function argument
-			ident, call := extractFuncTargCall(valueSpec.Values[0])
-			if ident == nil {
-				continue
-			}
-
-			targetSpec = valueSpec
-			targetCall = call
-			funcIdent = ident
-
-			break
-		}
-
-		if targetSpec != nil {
-			break
-		}
-	}
-
-	if targetSpec == nil || targetCall == nil || funcIdent == nil {
+	info := findFuncTarget(file, targetName)
+	if info == nil {
 		return false, nil
 	}
 
 	// Find the function declaration and extract shell command
-	shellCmd, funcDecl := extractShellCommand(file, funcIdent.Name)
+	shellCmd, funcDecl := extractShellCommand(file, info.funcIdent.Name)
 	if shellCmd == "" {
 		//nolint:err113 // specific error message for user feedback
-		return false, fmt.Errorf("function %s is not a simple sh.Run call", funcIdent.Name)
+		return false, fmt.Errorf("function %s is not a simple sh.Run call", info.funcIdent.Name)
 	}
 
 	// Replace function reference with string
-	targetCall.Args[0] = &ast.BasicLit{
+	info.call.Args[0] = &ast.BasicLit{
 		Kind:  token.STRING,
 		Value: strconv.Quote(shellCmd),
 	}
 
-	// Remove the function declaration
-	newDecls := make([]ast.Decl, 0, len(file.Decls)-1)
+	removeFuncDecl(file, funcDecl)
 
-	for _, decl := range file.Decls {
-		if decl != funcDecl {
-			newDecls = append(newDecls, decl)
-		}
-	}
-
-	file.Decls = newDecls
-
-	// Write back
 	err = writeFormattedFile(filePath, fset, file)
 	if err != nil {
 		return false, fmt.Errorf("writing file: %w", err)
@@ -331,8 +278,6 @@ func ConvertFuncTargetToString(filePath, targetName string) (bool, error) {
 
 // ConvertStringTargetToFunc converts a string target to a function target.
 // Returns true if conversion was performed, false if target not found or not a string target.
-//
-//nolint:funlen,cyclop // AST manipulation requires detailed handling
 func ConvertStringTargetToFunc(filePath, targetName string) (bool, error) {
 	fset := token.NewFileSet()
 
@@ -341,65 +286,19 @@ func ConvertStringTargetToFunc(filePath, targetName string) (bool, error) {
 		return false, fmt.Errorf("parsing file: %w", err)
 	}
 
-	// Find the target variable
-	var targetSpec *ast.ValueSpec
-
-	var targetCall *ast.CallExpr
-
-	var shellCmd string
-
-	for _, decl := range file.Decls {
-		genDecl, ok := decl.(*ast.GenDecl)
-		if !ok || genDecl.Tok != token.VAR {
-			continue
-		}
-
-		for _, spec := range genDecl.Specs {
-			valueSpec, ok := spec.(*ast.ValueSpec)
-			if !ok || len(valueSpec.Names) == 0 || len(valueSpec.Values) == 0 {
-				continue
-			}
-
-			// Check if this target matches by name
-			if !targetMatchesName(valueSpec, targetName) {
-				continue
-			}
-
-			// Find targ.Targ() call with string argument
-			cmd, call := extractStringTargCall(valueSpec.Values[0])
-			if cmd == "" {
-				continue
-			}
-
-			targetSpec = valueSpec
-			targetCall = call
-			shellCmd = cmd
-
-			break
-		}
-
-		if targetSpec != nil {
-			break
-		}
-	}
-
-	if targetSpec == nil || targetCall == nil {
+	info := findStringTarget(file, targetName)
+	if info == nil {
 		return false, nil
 	}
 
-	// Generate function name from target name
 	funcName := targetNameToFuncName(targetName)
 
 	// Replace string argument with function reference
-	targetCall.Args[0] = ast.NewIdent(funcName)
+	info.call.Args[0] = ast.NewIdent(funcName)
 
-	// Generate function declaration
-	funcDecl := generateShellFunc(funcName, shellCmd)
+	// Generate and add function declaration
+	file.Decls = append(file.Decls, generateShellFunc(funcName, info.shellCmd))
 
-	// Add function to file
-	file.Decls = append(file.Decls, funcDecl)
-
-	// Write back
 	err = writeFormattedFile(filePath, fset, file)
 	if err != nil {
 		return false, fmt.Errorf("writing file: %w", err)
@@ -940,9 +839,12 @@ var (
 	)
 	errDuplicateTarget    = errors.New("target already exists")
 	errFlagRemoved        = errors.New("flag has been removed; use --create instead")
+	errInvalidDependency  = errors.New("invalid dependency name")
+	errInvalidGroup       = errors.New("invalid group name")
 	errInvalidPackagePath = errors.New(
 		"invalid package path: must be a module path (e.g., github.com/user/repo)",
 	)
+	errInvalidTarget          = errors.New("invalid target name")
 	errInvalidUTF8Path        = errors.New("invalid utf-8 path in tagged file")
 	errModulePathNotFound     = errors.New("module path not found")
 	errNoExplicitRegistration = errors.New(
@@ -1003,6 +905,12 @@ type buildContext struct {
 type commandInfo struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
+}
+
+// funcTargetInfo holds info about a function-based target found during search.
+type funcTargetInfo struct {
+	call      *ast.CallExpr
+	funcIdent *ast.Ident
 }
 
 type groupModifications struct {
@@ -1139,6 +1047,12 @@ func (osFileSystem) WriteFile(name string, data []byte, perm fs.FileMode) error 
 	return nil
 }
 
+// stringTargetInfo holds info about a string-based target found during search.
+type stringTargetInfo struct {
+	call     *ast.CallExpr
+	shellCmd string
+}
+
 type targRunner struct {
 	binArg        string
 	args          []string
@@ -1258,77 +1172,39 @@ func (r *targRunner) exitWithCleanup(code int) int {
 	return code
 }
 
-//nolint:funlen // Validation logic is straightforward but verbose
 func (r *targRunner) handleCreateFlag(args []string) (exitCode int, done bool) {
-	// Parse the create arguments
 	opts, err := ParseCreateArgs(args)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1, true
 	}
 
-	// Validate target name (kebab-case)
-	if !IsValidTargetName(opts.Name) {
-		fmt.Fprintf(
-			os.Stderr,
-			"invalid target name %q: must be lowercase letters, numbers, and hyphens\n",
-			opts.Name,
-		)
-
+	err = validateCreateOptions(opts)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
 		return 1, true
 	}
 
-	// Validate path components (all must be valid kebab-case names)
-	for _, p := range opts.Path {
-		if !IsValidTargetName(p) {
-			fmt.Fprintf(
-				os.Stderr,
-				"invalid group name %q: must be lowercase letters, numbers, and hyphens\n",
-				p,
-			)
-
-			return 1, true
-		}
-	}
-
-	// Validate dependency names
-	for _, dep := range opts.Deps {
-		if !IsValidTargetName(dep) {
-			fmt.Fprintf(
-				os.Stderr,
-				"invalid dependency name %q: must be lowercase letters, numbers, and hyphens\n",
-				dep,
-			)
-
-			return 1, true
-		}
-	}
-
-	// Get working directory (startDir may not be set yet)
 	startDir, err := os.Getwd()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error getting working directory: %v\n", err)
 		return 1, true
 	}
 
-	// Find or create targ file
 	targFile, err := FindOrCreateTargFile(startDir)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error finding/creating targ file: %v\n", err)
 		return 1, true
 	}
 
-	// Add the target to the file
 	err = AddTargetToFileWithOptions(targFile, opts)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error adding target: %v\n", err)
 		return 1, true
 	}
 
-	// Build display name
 	fullPath := append(opts.Path, opts.Name) //nolint:gocritic // intentional copy
-	displayName := strings.Join(fullPath, "/")
-	fmt.Printf("Created target %q in %s\n", displayName, targFile)
+	fmt.Printf("Created target %q in %s\n", strings.Join(fullPath, "/"), targFile)
 
 	return 0, true
 }
@@ -1569,114 +1445,34 @@ func (r *targRunner) handleSyncFlag(args []string) (exitCode int, done bool) {
 	return 0, true
 }
 
-//nolint:dupl // intentionally similar to handleToStringFlag but with different conversion
 func (r *targRunner) handleToFuncFlag(args []string) (exitCode int, done bool) {
 	if len(args) == 0 {
 		fmt.Fprintln(os.Stderr, "--to-func requires a target name")
 		return 1, true
 	}
 
-	targetName := args[0]
-
-	// Get working directory
-	startDir, err := os.Getwd()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "error getting working directory: %v\n", err)
-		return 1, true
-	}
-
-	// Find targ files
-	targFiles, err := findTargFiles(startDir)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "error finding targ files: %v\n", err)
-		return 1, true
-	}
-
-	if len(targFiles) == 0 {
-		fmt.Fprintln(os.Stderr, "no targ files found")
-		return 1, true
-	}
-
-	// Convert target in each file until we find it
-	converted := false
-
-	for _, targFile := range targFiles {
-		ok, convErr := ConvertStringTargetToFunc(targFile, targetName)
-		if convErr != nil {
-			fmt.Fprintf(os.Stderr, "error converting target: %v\n", convErr)
-			return 1, true
-		}
-
-		if ok {
-			fmt.Printf("Converted target %q to function in %s\n", targetName, targFile)
-
-			converted = true
-
-			break
-		}
-	}
-
-	if !converted {
-		fmt.Fprintf(os.Stderr, "target %q not found or not a string target\n", targetName)
-		return 1, true
-	}
-
-	return 0, true
+	return convertTargetInFiles(
+		"--to-func",
+		args[0],
+		"function",
+		"a string target",
+		ConvertStringTargetToFunc,
+	)
 }
 
-//nolint:dupl // intentionally similar to handleToFuncFlag but with different conversion
 func (r *targRunner) handleToStringFlag(args []string) (exitCode int, done bool) {
 	if len(args) == 0 {
 		fmt.Fprintln(os.Stderr, "--to-string requires a target name")
 		return 1, true
 	}
 
-	targetName := args[0]
-
-	// Get working directory
-	startDir, err := os.Getwd()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "error getting working directory: %v\n", err)
-		return 1, true
-	}
-
-	// Find targ files
-	targFiles, err := findTargFiles(startDir)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "error finding targ files: %v\n", err)
-		return 1, true
-	}
-
-	if len(targFiles) == 0 {
-		fmt.Fprintln(os.Stderr, "no targ files found")
-		return 1, true
-	}
-
-	// Convert target in each file until we find it
-	converted := false
-
-	for _, targFile := range targFiles {
-		ok, convErr := ConvertFuncTargetToString(targFile, targetName)
-		if convErr != nil {
-			fmt.Fprintf(os.Stderr, "error converting target: %v\n", convErr)
-			return 1, true
-		}
-
-		if ok {
-			fmt.Printf("Converted target %q to string in %s\n", targetName, targFile)
-
-			converted = true
-
-			break
-		}
-	}
-
-	if !converted {
-		fmt.Fprintf(os.Stderr, "target %q not found or not a function target\n", targetName)
-		return 1, true
-	}
-
-	return 0, true
+	return convertTargetInFiles(
+		"--to-string",
+		args[0],
+		"string",
+		"a function target",
+		ConvertFuncTargetToString,
+	)
 }
 
 func (r *targRunner) logError(prefix string, err error) {
@@ -1866,6 +1662,9 @@ func (r *targRunner) validateSourceDir(path string) (string, error) {
 
 	return absPath, nil
 }
+
+// targetConverter converts a target in a file. Returns true if conversion was performed.
+type targetConverter func(filePath, targetName string) (bool, error)
 
 // buildAndQueryBinary builds the binary and queries its commands.
 func buildAndQueryBinary(
@@ -2197,6 +1996,49 @@ func computeModuleCacheKey(mt moduleTargets, importRoot string, bootstrap []byte
 	return cacheKey, nil
 }
 
+// convertTargetInFiles finds and converts a target using the provided converter.
+func convertTargetInFiles(
+	_, targetName, successVerb, notFoundDesc string,
+	convert targetConverter,
+) (exitCode int, done bool) {
+	// Get working directory
+	startDir, err := os.Getwd()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error getting working directory: %v\n", err)
+		return 1, true
+	}
+
+	// Find targ files
+	targFiles, err := findTargFiles(startDir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error finding targ files: %v\n", err)
+		return 1, true
+	}
+
+	if len(targFiles) == 0 {
+		fmt.Fprintln(os.Stderr, "no targ files found")
+		return 1, true
+	}
+
+	// Convert target in each file until we find it
+	for _, targFile := range targFiles {
+		ok, convErr := convert(targFile, targetName)
+		if convErr != nil {
+			fmt.Fprintf(os.Stderr, "error converting target: %v\n", convErr)
+			return 1, true
+		}
+
+		if ok {
+			fmt.Printf("Converted target %q to %s in %s\n", targetName, successVerb, targFile)
+			return 0, true
+		}
+	}
+
+	fmt.Fprintf(os.Stderr, "target %q not found or not %s\n", targetName, notFoundDesc)
+
+	return 1, true
+}
+
 // copyFileStrippingTag copies a file to destPath, removing the //go:build targ line.
 func copyFileStrippingTag(srcPath, destPath string) error {
 	//nolint:gosec // build tool reads source files by design
@@ -2519,6 +2361,34 @@ func findCommandBinary(registry []moduleRegistry, cmdName string) (string, bool)
 	return "", false
 }
 
+// findFuncTarget searches for a target with a function argument in targ.Targ().
+func findFuncTarget(file *ast.File, targetName string) *funcTargetInfo {
+	for _, decl := range file.Decls {
+		genDecl, ok := decl.(*ast.GenDecl)
+		if !ok || genDecl.Tok != token.VAR {
+			continue
+		}
+
+		for _, spec := range genDecl.Specs {
+			valueSpec, ok := spec.(*ast.ValueSpec)
+			if !ok || len(valueSpec.Names) == 0 || len(valueSpec.Values) == 0 {
+				continue
+			}
+
+			if !targetMatchesName(valueSpec, targetName) {
+				continue
+			}
+
+			ident, call := extractFuncTargCall(valueSpec.Values[0])
+			if ident != nil {
+				return &funcTargetInfo{call: call, funcIdent: ident}
+			}
+		}
+	}
+
+	return nil
+}
+
 // findModCacheDir finds the cached module directory for a clean version.
 func findModCacheDir(modulePath, version string) (string, bool) {
 	if !isCleanVersion(version) {
@@ -2538,6 +2408,34 @@ func findModCacheDir(modulePath, version string) (string, bool) {
 	}
 
 	return "", false
+}
+
+// findStringTarget searches for a target with a string argument in targ.Targ().
+func findStringTarget(file *ast.File, targetName string) *stringTargetInfo {
+	for _, decl := range file.Decls {
+		genDecl, ok := decl.(*ast.GenDecl)
+		if !ok || genDecl.Tok != token.VAR {
+			continue
+		}
+
+		for _, spec := range genDecl.Specs {
+			valueSpec, ok := spec.(*ast.ValueSpec)
+			if !ok || len(valueSpec.Names) == 0 || len(valueSpec.Values) == 0 {
+				continue
+			}
+
+			if !targetMatchesName(valueSpec, targetName) {
+				continue
+			}
+
+			cmd, call := extractStringTargCall(valueSpec.Values[0])
+			if cmd != "" {
+				return &stringTargetInfo{call: call, shellCmd: cmd}
+			}
+		}
+	}
+
+	return nil
 }
 
 // findTargFiles finds all files with the targ build tag in the given directory.
@@ -3124,6 +3022,19 @@ func remapPackageInfosToIsolated(
 	return result, pathMapping, nil
 }
 
+// removeFuncDecl removes a function declaration from file.Decls.
+func removeFuncDecl(file *ast.File, funcDecl *ast.FuncDecl) {
+	newDecls := make([]ast.Decl, 0, len(file.Decls)-1)
+
+	for _, decl := range file.Decls {
+		if decl != funcDecl {
+			newDecls = append(newDecls, decl)
+		}
+	}
+
+	file.Decls = newDecls
+}
+
 func resolveTargDependency() TargDependency {
 	dep := TargDependency{
 		ModulePath: defaultTargModulePath,
@@ -3319,6 +3230,39 @@ func tryCachedBinary(binaryPath string) ([]commandInfo, bool) {
 	}
 
 	return cmds, true
+}
+
+// validateCreateOptions validates all names in create options are valid kebab-case.
+func validateCreateOptions(opts CreateOptions) error {
+	if !IsValidTargetName(opts.Name) {
+		return fmt.Errorf(
+			"%w %q: must be lowercase letters, numbers, and hyphens",
+			errInvalidTarget,
+			opts.Name,
+		)
+	}
+
+	for _, p := range opts.Path {
+		if !IsValidTargetName(p) {
+			return fmt.Errorf(
+				"%w %q: must be lowercase letters, numbers, and hyphens",
+				errInvalidGroup,
+				p,
+			)
+		}
+	}
+
+	for _, dep := range opts.Deps {
+		if !IsValidTargetName(dep) {
+			return fmt.Errorf(
+				"%w %q: must be lowercase letters, numbers, and hyphens",
+				errInvalidDependency,
+				dep,
+			)
+		}
+	}
+
+	return nil
 }
 
 // validateNoPackageMain ensures no targ files use package main.

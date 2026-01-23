@@ -16,5 +16,5 @@ var (
 func Checksum(inputs []string, dest string) (bool, error) {
 	return internal.Checksum(inputs, dest, func(patterns []string) ([]string, error) {
 		return Match(patterns...)
-	})
+	}, nil)
 }

@@ -12,16 +12,6 @@ import (
 	"sync"
 )
 
-// Exported variables.
-var (
-	ExecCommand = exec.Command
-	IsWindows   = func() bool { return runtime.GOOS == "windows" }
-	Stderr      = io.Writer(os.Stderr)
-	Stdin       = io.Reader(os.Stdin)
-	Stdout      = io.Writer(os.Stdout)
-)
-
-// SafeBuffer is a thread-safe buffer for concurrent writes.
 // SafeBuffer is a thread-safe buffer for concurrent writes.
 type SafeBuffer struct {
 	mu  sync.Mutex
@@ -47,16 +37,47 @@ func (b *SafeBuffer) Write(p []byte) (int, error) {
 	return n, nil
 }
 
+// ShellEnv provides shell execution environment for dependency injection.
+type ShellEnv struct {
+	ExecCommand func(string, ...string) *exec.Cmd
+	IsWindows   func() bool
+	Stdin       io.Reader
+	Stdout      io.Writer
+	Stderr      io.Writer
+	Cleanup     *CleanupManager
+}
+
+// DefaultShellEnv returns the standard OS implementations with the default cleanup manager.
+func DefaultShellEnv() *ShellEnv {
+	return &ShellEnv{
+		ExecCommand: exec.Command,
+		IsWindows:   func() bool { return runtime.GOOS == "windows" },
+		Stdin:       os.Stdin,
+		Stdout:      os.Stdout,
+		Stderr:      os.Stderr,
+		Cleanup:     defaultCleanup,
+	}
+}
+
+// EnableCleanup enables automatic cleanup of child processes on SIGINT/SIGTERM.
+func EnableCleanup() {
+	defaultCleanup.EnableCleanup()
+}
+
 // ExeSuffix returns ".exe" on Windows, otherwise an empty string.
-func ExeSuffix() string {
-	if IsWindows() {
+func ExeSuffix(env *ShellEnv) string {
+	if env == nil {
+		env = DefaultShellEnv()
+	}
+
+	if env.IsWindows() {
 		return ".exe"
 	}
 
 	return ""
 }
 
-// FormatCommand formats a command with proper quoting for display
+// FormatCommand formats a command with proper quoting for display.
 func FormatCommand(name string, args []string) string {
 	parts := make([]string, 0, 1+len(args))
 
@@ -68,10 +89,19 @@ func FormatCommand(name string, args []string) string {
 	return strings.Join(parts, " ")
 }
 
+// IsWindowsOS reports whether the current OS is Windows.
+func IsWindowsOS() bool {
+	return runtime.GOOS == "windows"
+}
+
 // Output executes a command and returns combined output.
-func Output(name string, args ...string) (string, error) {
-	cmd := ExecCommand(name, args...)
-	cmd.Stdin = Stdin
+func Output(env *ShellEnv, name string, args ...string) (string, error) {
+	if env == nil {
+		env = DefaultShellEnv()
+	}
+
+	cmd := env.ExecCommand(name, args...)
+	cmd.Stdin = env.Stdin
 	SetProcGroup(cmd)
 
 	var buf SafeBuffer
@@ -84,9 +114,9 @@ func Output(name string, args ...string) (string, error) {
 		return "", fmt.Errorf("starting command: %w", err)
 	}
 
-	RegisterProcess(cmd.Process)
+	env.Cleanup.RegisterProcess(cmd.Process)
 	err = cmd.Wait()
-	UnregisterProcess(cmd.Process)
+	env.Cleanup.UnregisterProcess(cmd.Process)
 
 	if err != nil {
 		return buf.String(), fmt.Errorf("waiting for command: %w", err)
@@ -95,7 +125,7 @@ func Output(name string, args ...string) (string, error) {
 	return buf.String(), nil
 }
 
-// QuoteArg quotes an argument for display (exported for testing)
+// QuoteArg quotes an argument for display (exported for testing).
 func QuoteArg(value string) string {
 	if value == "" {
 		return `""`
@@ -109,11 +139,15 @@ func QuoteArg(value string) string {
 }
 
 // Run executes a command streaming stdout/stderr.
-func Run(name string, args ...string) error {
-	cmd := ExecCommand(name, args...)
-	cmd.Stdout = Stdout
-	cmd.Stderr = Stderr
-	cmd.Stdin = Stdin
+func Run(env *ShellEnv, name string, args ...string) error {
+	if env == nil {
+		env = DefaultShellEnv()
+	}
+
+	cmd := env.ExecCommand(name, args...)
+	cmd.Stdout = env.Stdout
+	cmd.Stderr = env.Stderr
+	cmd.Stdin = env.Stdin
 	SetProcGroup(cmd)
 
 	err := cmd.Start()
@@ -121,9 +155,9 @@ func Run(name string, args ...string) error {
 		return fmt.Errorf("starting command: %w", err)
 	}
 
-	RegisterProcess(cmd.Process)
+	env.Cleanup.RegisterProcess(cmd.Process)
 	err = cmd.Wait()
-	UnregisterProcess(cmd.Process)
+	env.Cleanup.UnregisterProcess(cmd.Process)
 
 	if err != nil {
 		return fmt.Errorf("waiting for command: %w", err)
@@ -133,14 +167,23 @@ func Run(name string, args ...string) error {
 }
 
 // RunV executes a command and prints it first.
-func RunV(name string, args ...string) error {
-	_, _ = fmt.Fprintln(Stdout, "+", FormatCommand(name, args))
-	return Run(name, args...)
+func RunV(env *ShellEnv, name string, args ...string) error {
+	if env == nil {
+		env = DefaultShellEnv()
+	}
+
+	_, _ = fmt.Fprintln(env.Stdout, "+", FormatCommand(name, args))
+
+	return Run(env, name, args...)
 }
 
 // WithExeSuffix appends the OS-specific executable suffix if missing.
-func WithExeSuffix(name string) string {
-	if !IsWindows() {
+func WithExeSuffix(env *ShellEnv, name string) string {
+	if env == nil {
+		env = DefaultShellEnv()
+	}
+
+	if !env.IsWindows() {
 		return name
 	}
 
@@ -150,6 +193,12 @@ func WithExeSuffix(name string) string {
 
 	return name + ".exe"
 }
+
+// unexported variables.
+var (
+	//nolint:gochecknoglobals // singleton pattern for shared cleanup state
+	defaultCleanup = NewCleanupManager(PlatformKillProcess)
+)
 
 func quoteArg(value string) string {
 	return QuoteArg(value)

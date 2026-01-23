@@ -3370,6 +3370,97 @@ func TestRunWithEnv_NoCommands(t *testing.T) {
 	g.Expect(env.Output()).To(ContainSubstring("No commands found"))
 }
 
+func TestRunWithEnv_ShellCommandTarget(t *testing.T) {
+	g := NewWithT(t)
+
+	// Shell command target without variables
+	target := &mockTarget{
+		fn:   "true",
+		name: "simple",
+	}
+
+	// Use RunWithEnv with AllowDefault so single target is default
+	env := &ExecuteEnv{args: []string{"cmd"}}
+	err := RunWithEnv(env, RunOptions{AllowDefault: true}, target)
+	g.Expect(err).ToNot(HaveOccurred())
+}
+
+func TestRunWithEnv_ShellCommandTarget_ExecutionError(t *testing.T) {
+	g := NewWithT(t)
+
+	// Shell command that will fail
+	target := &mockTarget{
+		fn:   "false",
+		name: "fail",
+	}
+
+	env := &ExecuteEnv{args: []string{"cmd"}}
+	err := RunWithEnv(env, RunOptions{AllowDefault: true}, target)
+	g.Expect(err).To(HaveOccurred())
+}
+
+func TestRunWithEnv_ShellCommandTarget_Help(t *testing.T) {
+	g := NewWithT(t)
+
+	target := &mockTarget{
+		fn:          "echo $name",
+		name:        "greet",
+		description: "Greet someone",
+	}
+
+	output := captureStdout(t, func() {
+		env := &ExecuteEnv{args: []string{"cmd", "--help"}}
+		err := RunWithEnv(env, RunOptions{AllowDefault: true}, target)
+		g.Expect(err).ToNot(HaveOccurred())
+	})
+
+	g.Expect(output).To(ContainSubstring("greet"))
+	g.Expect(output).To(ContainSubstring("--name"))
+}
+
+func TestRunWithEnv_ShellCommandTarget_HelpOnly(t *testing.T) {
+	g := NewWithT(t)
+
+	target := &mockTarget{
+		fn:   "echo $name",
+		name: "greet",
+	}
+
+	// HelpOnly mode should not execute the command, just return remaining args
+	env := &ExecuteEnv{args: []string{"cmd", "--name=world", "extra"}}
+	err := RunWithEnv(env, RunOptions{AllowDefault: true, HelpOnly: true}, target)
+	g.Expect(err).ToNot(HaveOccurred())
+}
+
+func TestRunWithEnv_ShellCommandTarget_MissingVar(t *testing.T) {
+	g := NewWithT(t)
+
+	target := &mockTarget{
+		fn:   "echo $name $port",
+		name: "greet",
+	}
+
+	// Only provide name, not port - should error
+	env := &ExecuteEnv{args: []string{"cmd", "--name=world"}}
+	err := RunWithEnv(env, RunOptions{AllowDefault: true}, target)
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(env.Output()).To(ContainSubstring("port"))
+}
+
+func TestRunWithEnv_ShellCommandTarget_WithVar(t *testing.T) {
+	g := NewWithT(t)
+
+	// Shell command target with variables
+	target := &mockTarget{
+		fn:   "echo $name > /dev/null",
+		name: "greet",
+	}
+
+	env := &ExecuteEnv{args: []string{"cmd", "--name=world"}}
+	err := RunWithEnv(env, RunOptions{AllowDefault: true}, target)
+	g.Expect(err).ToNot(HaveOccurred())
+}
+
 func TestRunWithEnv_TimeoutError(t *testing.T) {
 	g := NewWithT(t)
 

@@ -105,6 +105,7 @@ func TestChecksumRequiresInputs(t *testing.T) {
 }
 
 func TestChecksum_CloseFileError(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	testFile := filepath.Join(dir, "test.txt")
 
@@ -112,15 +113,19 @@ func TestChecksum_CloseFileError(t *testing.T) {
 		t.Fatalf("failed to create test file: %v", err)
 	}
 
-	orig := internal.OpenFile
-
-	defer func() { internal.OpenFile = orig }()
-
-	internal.OpenFile = func(_ string) (io.ReadCloser, error) {
+	ops := internal.DefaultFileOps()
+	ops.OpenFile = func(_ string) (io.ReadCloser, error) {
 		return errorCloser{Reader: strings.NewReader("content")}, nil
 	}
 
-	_, err := file.Checksum([]string{testFile}, filepath.Join(dir, "checksum.txt"))
+	matchFn := func(patterns []string) ([]string, error) { return patterns, nil }
+
+	_, err := internal.Checksum(
+		[]string{testFile},
+		filepath.Join(dir, "checksum.txt"),
+		matchFn,
+		ops,
+	)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -141,6 +146,7 @@ func TestChecksum_MatchError(t *testing.T) {
 }
 
 func TestChecksum_MkdirError(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	testFile := filepath.Join(dir, "test.txt")
 
@@ -148,16 +154,20 @@ func TestChecksum_MkdirError(t *testing.T) {
 		t.Fatalf("failed to create test file: %v", err)
 	}
 
-	orig := internal.MkdirAll
-
-	defer func() { internal.MkdirAll = orig }()
-
-	internal.MkdirAll = func(_ string, _ fs.FileMode) error {
+	ops := internal.DefaultFileOps()
+	ops.MkdirAll = func(_ string, _ fs.FileMode) error {
 		return errors.New("mkdir error")
 	}
 
+	matchFn := func(patterns []string) ([]string, error) { return patterns, nil }
+
 	// Use a nested path to trigger mkdir
-	_, err := file.Checksum([]string{testFile}, filepath.Join(dir, "nested", "checksum.txt"))
+	_, err := internal.Checksum(
+		[]string{testFile},
+		filepath.Join(dir, "nested", "checksum.txt"),
+		matchFn,
+		ops,
+	)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -170,6 +180,7 @@ func TestChecksum_MkdirError(t *testing.T) {
 // DI-based error path tests
 
 func TestChecksum_OpenFileError(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	testFile := filepath.Join(dir, "test.txt")
 
@@ -177,15 +188,19 @@ func TestChecksum_OpenFileError(t *testing.T) {
 		t.Fatalf("failed to create test file: %v", err)
 	}
 
-	orig := internal.OpenFile
-
-	defer func() { internal.OpenFile = orig }()
-
-	internal.OpenFile = func(_ string) (io.ReadCloser, error) {
+	ops := internal.DefaultFileOps()
+	ops.OpenFile = func(_ string) (io.ReadCloser, error) {
 		return nil, errors.New("open error")
 	}
 
-	_, err := file.Checksum([]string{testFile}, filepath.Join(dir, "checksum.txt"))
+	matchFn := func(patterns []string) ([]string, error) { return patterns, nil }
+
+	_, err := internal.Checksum(
+		[]string{testFile},
+		filepath.Join(dir, "checksum.txt"),
+		matchFn,
+		ops,
+	)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -196,6 +211,7 @@ func TestChecksum_OpenFileError(t *testing.T) {
 }
 
 func TestChecksum_ReadExistingChecksumError(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	testFile := filepath.Join(dir, "test.txt")
 	checksumFile := filepath.Join(dir, "checksum.txt")
@@ -209,15 +225,14 @@ func TestChecksum_ReadExistingChecksumError(t *testing.T) {
 		t.Fatalf("failed to create checksum file: %v", err)
 	}
 
-	orig := internal.ReadFile
-
-	defer func() { internal.ReadFile = orig }()
-
-	internal.ReadFile = func(_ string) ([]byte, error) {
+	ops := internal.DefaultFileOps()
+	ops.ReadFile = func(_ string) ([]byte, error) {
 		return nil, errors.New("permission denied")
 	}
 
-	_, err := file.Checksum([]string{testFile}, checksumFile)
+	matchFn := func(patterns []string) ([]string, error) { return patterns, nil }
+
+	_, err := internal.Checksum([]string{testFile}, checksumFile, matchFn, ops)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -228,6 +243,7 @@ func TestChecksum_ReadExistingChecksumError(t *testing.T) {
 }
 
 func TestChecksum_ReadFileError(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	testFile := filepath.Join(dir, "test.txt")
 
@@ -235,15 +251,19 @@ func TestChecksum_ReadFileError(t *testing.T) {
 		t.Fatalf("failed to create test file: %v", err)
 	}
 
-	orig := internal.OpenFile
-
-	defer func() { internal.OpenFile = orig }()
-
-	internal.OpenFile = func(_ string) (io.ReadCloser, error) {
+	ops := internal.DefaultFileOps()
+	ops.OpenFile = func(_ string) (io.ReadCloser, error) {
 		return errorReader{}, nil
 	}
 
-	_, err := file.Checksum([]string{testFile}, filepath.Join(dir, "checksum.txt"))
+	matchFn := func(patterns []string) ([]string, error) { return patterns, nil }
+
+	_, err := internal.Checksum(
+		[]string{testFile},
+		filepath.Join(dir, "checksum.txt"),
+		matchFn,
+		ops,
+	)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -278,6 +298,7 @@ func TestChecksum_WriteError(t *testing.T) {
 }
 
 func TestChecksum_WriteFileError(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	testFile := filepath.Join(dir, "test.txt")
 
@@ -285,15 +306,19 @@ func TestChecksum_WriteFileError(t *testing.T) {
 		t.Fatalf("failed to create test file: %v", err)
 	}
 
-	orig := internal.WriteFile
-
-	defer func() { internal.WriteFile = orig }()
-
-	internal.WriteFile = func(_ string, _ []byte, _ fs.FileMode) error {
+	ops := internal.DefaultFileOps()
+	ops.WriteFile = func(_ string, _ []byte, _ fs.FileMode) error {
 		return errors.New("write error")
 	}
 
-	_, err := file.Checksum([]string{testFile}, filepath.Join(dir, "checksum.txt"))
+	matchFn := func(patterns []string) ([]string, error) { return patterns, nil }
+
+	_, err := internal.Checksum(
+		[]string{testFile},
+		filepath.Join(dir, "checksum.txt"),
+		matchFn,
+		ops,
+	)
 	if err == nil {
 		t.Fatal("expected error")
 	}

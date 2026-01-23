@@ -11,25 +11,49 @@ import (
 	"time"
 )
 
-// Exported variables.
-var (
-	Getwd        = os.Getwd
-	StatFile     = os.Stat
-	UserCacheDir = os.UserCacheDir
-)
+// SystemOps provides system operations for dependency injection.
+type SystemOps struct {
+	Getwd        func() (string, error)
+	Stat         func(string) (os.FileInfo, error)
+	UserCacheDir func() (string, error)
+}
+
+// DefaultSystemOps returns the standard OS implementations.
+func DefaultSystemOps() *SystemOps {
+	return &SystemOps{
+		Getwd:        os.Getwd,
+		Stat:         os.Stat,
+		UserCacheDir: os.UserCacheDir,
+	}
+}
 
 // Newer reports whether inputs are newer than outputs, or when outputs are empty,
 // whether the input match set or file modtimes changed since the last run.
-func Newer(inputs, outputs []string, matchFn func([]string) ([]string, error)) (bool, error) {
+// If ops is nil, DefaultSystemOps() is used.
+// If fileOps is nil, DefaultFileOps() is used.
+func Newer(
+	inputs, outputs []string,
+	matchFn func([]string) ([]string, error),
+	ops *SystemOps,
+	fileOps *FileOps,
+) (bool, error) {
 	if len(inputs) == 0 {
 		return false, ErrNoPatterns
 	}
 
-	if len(outputs) > 0 {
-		return newerWithOutputs(inputs, outputs, matchFn)
+	if ops == nil {
+		ops = DefaultSystemOps()
 	}
 
-	return newerWithCache(inputs, matchFn)
+	if fileOps == nil {
+		fileOps = DefaultFileOps()
+	}
+
+	if len(outputs) > 0 {
+		return newerWithOutputs(inputs, outputs, matchFn, ops)
+	}
+
+	return newerWithCache(inputs, matchFn, ops, fileOps)
 }
 
 type newerCache struct {
@@ -39,9 +63,9 @@ type newerCache struct {
 	Files   map[string]int64 `json:"files"`
 }
 
-func anyOutputOlderThan(outputs []string, threshold time.Time) bool {
+func anyOutputOlderThan(outputs []string, threshold time.Time, ops *SystemOps) bool {
 	for _, path := range outputs {
-		info, err := StatFile(path)
+		info, err := ops.Stat(path)
 		if err != nil {
 			return true
 		}
@@ -78,8 +102,8 @@ func cacheEqual(a, b *newerCache) bool {
 	return true
 }
 
-func cacheFilePath(cwd, pattern string) (string, error) {
-	cacheDir, err := UserCacheDir()
+func cacheFilePath(cwd, pattern string, ops *SystemOps, fileOps *FileOps) (string, error) {
+	cacheDir, err := ops.UserCacheDir()
 	if err != nil {
 		return "", fmt.Errorf("getting user cache dir: %w", err)
 	}
@@ -88,7 +112,7 @@ func cacheFilePath(cwd, pattern string) (string, error) {
 
 	dir := filepath.Join(cacheDir, "targ", "newer")
 	//nolint:mnd // standard cache directory permissions
-	err = MkdirAll(dir, 0o755)
+	err = fileOps.MkdirAll(dir, 0o755)
 	if err != nil {
 		return "", fmt.Errorf("creating cache directory: %w", err)
 	}
@@ -101,11 +125,11 @@ func hashString(value string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-func latestModTime(paths []string) (time.Time, bool) {
+func latestModTime(paths []string, ops *SystemOps) (time.Time, bool) {
 	latest := time.Time{}
 
 	for _, path := range paths {
-		info, err := StatFile(path)
+		info, err := ops.Stat(path)
 		if err != nil {
 			return time.Time{}, true
 		}
@@ -118,8 +142,13 @@ func latestModTime(paths []string) (time.Time, bool) {
 	return latest, false
 }
 
-func newerWithCache(inputs []string, matchFn func([]string) ([]string, error)) (bool, error) {
-	cwd, err := Getwd()
+func newerWithCache(
+	inputs []string,
+	matchFn func([]string) ([]string, error),
+	ops *SystemOps,
+	fileOps *FileOps,
+) (bool, error) {
+	cwd, err := ops.Getwd()
 	if err != nil {
 		return false, fmt.Errorf("getting working directory: %w", err)
 	}
@@ -127,14 +156,14 @@ func newerWithCache(inputs []string, matchFn func([]string) ([]string, error)) (
 	changed := false
 
 	for _, pattern := range inputs {
-		cachePath, err := cacheFilePath(cwd, pattern)
+		cachePath, err := cacheFilePath(cwd, pattern, ops, fileOps)
 		if err != nil {
 			return false, err
 		}
 
-		prev, _ := readCache(cachePath)
+		prev, _ := readCache(cachePath, fileOps)
 
-		next, err := snapshotPattern(cwd, pattern, matchFn)
+		next, err := snapshotPattern(cwd, pattern, matchFn, ops)
 		if err != nil {
 			return false, err
 		}
@@ -143,7 +172,7 @@ func newerWithCache(inputs []string, matchFn func([]string) ([]string, error)) (
 			changed = true
 		}
 
-		err = writeCache(cachePath, next)
+		err = writeCache(cachePath, next, fileOps)
 		if err != nil {
 			return false, err
 		}
@@ -155,6 +184,7 @@ func newerWithCache(inputs []string, matchFn func([]string) ([]string, error)) (
 func newerWithOutputs(
 	inputs, outputs []string,
 	matchFn func([]string) ([]string, error),
+	ops *SystemOps,
 ) (bool, error) {
 	inMatches, err := matchFn(inputs)
 	if err != nil {
@@ -170,16 +200,16 @@ func newerWithOutputs(
 		return true, nil
 	}
 
-	latestInput, inputMissing := latestModTime(inMatches)
+	latestInput, inputMissing := latestModTime(inMatches, ops)
 	if inputMissing || latestInput.IsZero() {
 		return true, nil
 	}
 
-	return anyOutputOlderThan(outMatches, latestInput), nil
+	return anyOutputOlderThan(outMatches, latestInput, ops), nil
 }
 
-func readCache(path string) (*newerCache, error) {
-	data, err := ReadFile(path)
+func readCache(path string, fileOps *FileOps) (*newerCache, error) {
+	data, err := fileOps.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("reading cache file: %w", err)
 	}
@@ -197,6 +227,7 @@ func readCache(path string) (*newerCache, error) {
 func snapshotPattern(
 	cwd, pattern string,
 	matchFn func([]string) ([]string, error),
+	ops *SystemOps,
 ) (*newerCache, error) {
 	matches, err := matchFn([]string{pattern})
 	if err != nil {
@@ -205,7 +236,7 @@ func snapshotPattern(
 
 	files := make(map[string]int64, len(matches))
 	for _, path := range matches {
-		info, err := StatFile(path)
+		info, err := ops.Stat(path)
 		if err != nil {
 			return nil, fmt.Errorf("getting file info for %s: %w", path, err)
 		}
@@ -223,14 +254,14 @@ func snapshotPattern(
 	}, nil
 }
 
-func writeCache(path string, cache *newerCache) error {
+func writeCache(path string, cache *newerCache, fileOps *FileOps) error {
 	data, err := json.Marshal(cache)
 	if err != nil {
 		return fmt.Errorf("marshaling cache: %w", err)
 	}
 
 	//nolint:mnd // standard cache file permissions
-	err = WriteFile(path, data, 0o644)
+	err = fileOps.WriteFile(path, data, 0o644)
 	if err != nil {
 		return fmt.Errorf("writing cache file: %w", err)
 	}

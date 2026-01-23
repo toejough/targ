@@ -49,19 +49,26 @@ func OutputContext(
 }
 
 // RunContextV runs a command with context support, printing it first.
-func RunContextV(ctx context.Context, name string, args []string) error {
-	_, _ = fmt.Fprintln(Stdout, "+", FormatCommand(name, args))
-	return RunContextWithIO(ctx, name, args)
+func RunContextV(ctx context.Context, env *ShellEnv, name string, args []string) error {
+	if env == nil {
+		env = DefaultShellEnv()
+	}
+
+	_, _ = fmt.Fprintln(env.Stdout, "+", FormatCommand(name, args))
+
+	return RunContextWithIO(ctx, env, name, args)
 }
 
-// RunContext runs a command with context support.
-
 // RunContextWithIO runs a command with context support and custom IO.
-func RunContextWithIO(ctx context.Context, name string, args []string) error {
+func RunContextWithIO(ctx context.Context, env *ShellEnv, name string, args []string) error {
+	if env == nil {
+		env = DefaultShellEnv()
+	}
+
 	cmd := exec.CommandContext(ctx, name, args...)
-	cmd.Stdout = Stdout
-	cmd.Stderr = Stderr
-	cmd.Stdin = Stdin
+	cmd.Stdout = env.Stdout
+	cmd.Stderr = env.Stderr
+	cmd.Stdin = env.Stdin
 
 	return runWithContext(ctx, cmd)
 }

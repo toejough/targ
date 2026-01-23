@@ -35,15 +35,10 @@ func TestExeSuffix(t *testing.T) {
 }
 
 func TestExeSuffix_Windows(t *testing.T) {
-	// Save and restore
-	orig := internal.IsWindows
+	env := internal.DefaultShellEnv()
+	env.IsWindows = func() bool { return true }
 
-	defer func() { internal.IsWindows = orig }()
-
-	// Inject Windows behavior
-	internal.IsWindows = func() bool { return true }
-
-	suffix := sh.ExeSuffix()
+	suffix := internal.ExeSuffix(env)
 	if suffix != ".exe" {
 		t.Errorf("ExeSuffix() = %q, want .exe on Windows", suffix)
 	}
@@ -68,44 +63,24 @@ func TestIsWindows(_ *testing.T) {
 }
 
 func TestKillAllProcesses(t *testing.T) {
-	// Save and restore state
-	internal.CleanupMu.Lock()
-
-	origEnabled := internal.CleanupEnabled
-	origProcs := internal.RunningProcs
-	origKillFunc := internal.KillProcessFunc
-	internal.CleanupEnabled = true
-	internal.RunningProcs = make(map[*os.Process]struct{})
-
-	internal.CleanupMu.Unlock()
-
-	defer func() {
-		internal.CleanupMu.Lock()
-
-		internal.CleanupEnabled = origEnabled
-		internal.RunningProcs = origProcs
-		internal.KillProcessFunc = origKillFunc
-
-		internal.CleanupMu.Unlock()
-	}()
-
 	// Track which processes were killed
 	var killedProcs []*os.Process
 
-	internal.KillProcessFunc = func(p *os.Process) {
+	manager := internal.NewCleanupManager(func(p *os.Process) {
 		killedProcs = append(killedProcs, p)
-	}
+	})
+	manager.EnableCleanup()
 
 	// Create fake process entries
 	proc1 := &os.Process{Pid: 1}
 	proc2 := &os.Process{Pid: 2}
 
-	// Register the processes via internal API
-	internal.RegisterProcess(proc1)
-	internal.RegisterProcess(proc2)
+	// Register the processes
+	manager.RegisterProcess(proc1)
+	manager.RegisterProcess(proc2)
 
 	// Kill all processes
-	internal.KillAllProcesses()
+	manager.KillAllProcesses()
 
 	// Verify both processes were killed
 	if len(killedProcs) != 2 {
@@ -123,15 +98,8 @@ func TestKillProcessFunc_Integration(t *testing.T) {
 		t.Fatalf("failed to start subprocess: %v", err)
 	}
 
-	// Save and get the actual kill function
-	internal.CleanupMu.Lock()
-
-	killFunc := internal.KillProcessFunc
-
-	internal.CleanupMu.Unlock()
-
-	// Call the real killProcessFunc to kill the process group
-	killFunc(cmd.Process)
+	// Call the platform kill function
+	internal.PlatformKillProcess(cmd.Process)
 
 	// Clean up - wait for the process to exit (it should be killed)
 	_ = cmd.Wait()
@@ -177,10 +145,9 @@ func TestOutputContext_Success(t *testing.T) {
 }
 
 func TestOutput_ReturnsCombinedOutput(t *testing.T) {
-	restore := overrideExec(t)
-	defer restore()
+	env := overrideExec(t)
 
-	output, err := sh.Output("combined")
+	output, err := internal.Output(env, "combined")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -193,15 +160,14 @@ func TestOutput_ReturnsCombinedOutput(t *testing.T) {
 
 func TestQuoteArg_ViaRunV(t *testing.T) {
 	// Test quoting behavior through RunV's verbose output
-	restore := overrideExec(t)
-	defer restore()
+	env := overrideExec(t)
 
 	var out bytes.Buffer
 
-	internal.Stdout = &out
-	internal.Stderr = &out
+	env.Stdout = &out
+	env.Stderr = &out
 
-	// Test various quoting scenarios through the public API
+	// Test various quoting scenarios through the internal API
 	tests := []struct {
 		args     []string
 		contains string
@@ -214,7 +180,7 @@ func TestQuoteArg_ViaRunV(t *testing.T) {
 	for _, tc := range tests {
 		out.Reset()
 
-		err := sh.RunV(tc.args[0], tc.args[1:]...)
+		err := internal.RunV(env, tc.args[0], tc.args[1:]...)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -225,23 +191,26 @@ func TestQuoteArg_ViaRunV(t *testing.T) {
 	}
 }
 
+func TestRunContextV_NilEnv(t *testing.T) {
+	ctx := context.Background()
+
+	// Use the public API which passes nil env to internal.RunContextV
+	err := sh.RunContextV(ctx, "true")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestRunContextV_PrintsCommand(t *testing.T) {
 	var out bytes.Buffer
 
-	origStdout := internal.Stdout
-	origStderr := internal.Stderr
-
-	defer func() {
-		internal.Stdout = origStdout
-		internal.Stderr = origStderr
-	}()
-
-	internal.Stdout = &out
-	internal.Stderr = &out
+	env := internal.DefaultShellEnv()
+	env.Stdout = &out
+	env.Stderr = &out
 
 	ctx := context.Background()
 
-	err := sh.RunContextV(ctx, "echo", "hello")
+	err := internal.RunContextV(ctx, env, "echo", []string{"hello"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -279,20 +248,13 @@ func TestRunContext_Cancellation(t *testing.T) {
 func TestRunContext_Success(t *testing.T) {
 	var out bytes.Buffer
 
-	origStdout := internal.Stdout
-	origStderr := internal.Stderr
-
-	defer func() {
-		internal.Stdout = origStdout
-		internal.Stderr = origStderr
-	}()
-
-	internal.Stdout = &out
-	internal.Stderr = &out
+	env := internal.DefaultShellEnv()
+	env.Stdout = &out
+	env.Stderr = &out
 
 	ctx := context.Background()
 
-	err := sh.RunContext(ctx, "echo", "hello")
+	err := internal.RunContextWithIO(ctx, env, "echo", []string{"hello"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -302,16 +264,23 @@ func TestRunContext_Success(t *testing.T) {
 	}
 }
 
+func TestRunV_NilEnv(t *testing.T) {
+	// Use the public API which passes nil env to internal.RunV
+	err := sh.RunV("true")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestRunV_PrintsCommand(t *testing.T) {
-	restore := overrideExec(t)
-	defer restore()
+	env := overrideExec(t)
 
 	var out bytes.Buffer
 
-	internal.Stdout = &out
-	internal.Stderr = &out
+	env.Stdout = &out
+	env.Stderr = &out
 
-	err := sh.RunV("echo", "hello")
+	err := internal.RunV(env, "echo", "hello")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -322,25 +291,23 @@ func TestRunV_PrintsCommand(t *testing.T) {
 }
 
 func TestRun_ReturnsError(t *testing.T) {
-	restore := overrideExec(t)
-	defer restore()
+	env := overrideExec(t)
 
-	err := sh.Run("fail")
+	err := internal.Run(env, "fail")
 	if err == nil {
 		t.Fatal("expected error")
 	}
 }
 
 func TestRun_Success(t *testing.T) {
-	restore := overrideExec(t)
-	defer restore()
+	env := overrideExec(t)
 
 	var out bytes.Buffer
 
-	internal.Stdout = &out
-	internal.Stderr = &out
+	env.Stdout = &out
+	env.Stderr = &out
 
-	err := sh.Run("echo", "hello")
+	err := internal.Run(env, "echo", "hello")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -374,13 +341,8 @@ func TestWithExeSuffix(t *testing.T) {
 }
 
 func TestWithExeSuffix_Windows(t *testing.T) {
-	// Save and restore
-	orig := internal.IsWindows
-
-	defer func() { internal.IsWindows = orig }()
-
-	// Inject Windows behavior
-	internal.IsWindows = func() bool { return true }
+	env := internal.DefaultShellEnv()
+	env.IsWindows = func() bool { return true }
 
 	tests := []struct {
 		input    string
@@ -393,7 +355,7 @@ func TestWithExeSuffix_Windows(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		result := sh.WithExeSuffix(tc.input)
+		result := internal.WithExeSuffix(env, tc.input)
 		if result != tc.expected {
 			t.Errorf("WithExeSuffix(%q) = %q, want %q", tc.input, result, tc.expected)
 		}
@@ -438,15 +400,11 @@ func helperSleep() {
 	os.Exit(0)
 }
 
-func overrideExec(t *testing.T) func() {
+func overrideExec(t *testing.T) *internal.ShellEnv {
 	t.Helper()
 
-	prevExec := internal.ExecCommand
-	prevStdout := internal.Stdout
-	prevStderr := internal.Stderr
-	prevStdin := internal.Stdin
-
-	internal.ExecCommand = func(name string, args ...string) *exec.Cmd {
+	env := internal.DefaultShellEnv()
+	env.ExecCommand = func(name string, args ...string) *exec.Cmd {
 		cmdArgs := append([]string{"-test.run=TestHelperProcess", "--", name}, args...)
 		cmd := exec.Command(os.Args[0], cmdArgs...)
 
@@ -455,12 +413,7 @@ func overrideExec(t *testing.T) func() {
 		return cmd
 	}
 
-	return func() {
-		internal.ExecCommand = prevExec
-		internal.Stdout = prevStdout
-		internal.Stderr = prevStderr
-		internal.Stdin = prevStdin
-	}
+	return env
 }
 
 func parseHelperArgs() (string, []string) {

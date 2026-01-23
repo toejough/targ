@@ -3,15 +3,9 @@ package internal
 import (
 	"context"
 	"fmt"
+	"os"
 	"sort"
 	"time"
-)
-
-// Exported variables.
-var (
-	NewTicker = func(d time.Duration) Ticker { //nolint:gochecknoglobals // DI injection point
-		return &realTicker{ticker: time.NewTicker(d)}
-	}
 )
 
 // ChangeSet holds the files that changed between watch polls.
@@ -27,21 +21,41 @@ type Ticker interface {
 	Stop()
 }
 
+// WatchOps provides watch operations for dependency injection.
+type WatchOps struct {
+	NewTicker func(time.Duration) Ticker
+	Stat      func(string) (os.FileInfo, error)
+}
+
 // WatchOptions configures file watching behavior.
 type WatchOptions struct {
 	Interval time.Duration
 }
 
+// DefaultWatchOps returns the standard implementations.
+func DefaultWatchOps() *WatchOps {
+	return &WatchOps{
+		NewTicker: func(d time.Duration) Ticker { return &realTicker{ticker: time.NewTicker(d)} },
+		Stat:      os.Stat,
+	}
+}
+
 // Watch polls patterns for changes and invokes callback with any detected changes.
+// If ops is nil, DefaultWatchOps() is used.
 func Watch(
 	ctx context.Context,
 	patterns []string,
 	opts WatchOptions,
 	callback func(ChangeSet) error,
 	matchFn func([]string) ([]string, error),
+	ops *WatchOps,
 ) error {
 	if len(patterns) == 0 {
 		return ErrNoPatterns
+	}
+
+	if ops == nil {
+		ops = DefaultWatchOps()
 	}
 
 	interval := opts.Interval
@@ -49,12 +63,12 @@ func Watch(
 		interval = defaultWatchInterval
 	}
 
-	prev, err := snapshot(patterns, matchFn)
+	prev, err := snapshot(patterns, matchFn, ops)
 	if err != nil {
 		return err
 	}
 
-	ticker := NewTicker(interval)
+	ticker := ops.NewTicker(interval)
 	defer ticker.Stop()
 
 	for {
@@ -62,19 +76,9 @@ func Watch(
 		case <-ctx.Done():
 			return fmt.Errorf("watch cancelled: %w", ctx.Err())
 		case <-ticker.C():
-			next, err := snapshot(patterns, matchFn)
+			prev, err = processTick(prev, patterns, matchFn, ops, callback)
 			if err != nil {
 				return err
-			}
-
-			changes := diffSnapshot(prev, next)
-			if changes != nil {
-				err := callback(*changes)
-				if err != nil {
-					return err
-				}
-
-				prev = next
 			}
 		}
 	}
@@ -136,7 +140,37 @@ func diffSnapshot(prev, next *fileSnapshot) *ChangeSet {
 	}
 }
 
-func snapshot(patterns []string, matchFn func([]string) ([]string, error)) (*fileSnapshot, error) {
+// processTick handles a single watch tick, returning the new snapshot if changes occurred.
+func processTick(
+	prev *fileSnapshot,
+	patterns []string,
+	matchFn func([]string) ([]string, error),
+	ops *WatchOps,
+	callback func(ChangeSet) error,
+) (*fileSnapshot, error) {
+	next, err := snapshot(patterns, matchFn, ops)
+	if err != nil {
+		return prev, err
+	}
+
+	changes := diffSnapshot(prev, next)
+	if changes != nil {
+		err := callback(*changes)
+		if err != nil {
+			return prev, err
+		}
+
+		return next, nil
+	}
+
+	return prev, nil
+}
+
+func snapshot(
+	patterns []string,
+	matchFn func([]string) ([]string, error),
+	ops *WatchOps,
+) (*fileSnapshot, error) {
 	matches, err := matchFn(patterns)
 	if err != nil {
 		return nil, err
@@ -144,7 +178,7 @@ func snapshot(patterns []string, matchFn func([]string) ([]string, error)) (*fil
 
 	files := make(map[string]int64, len(matches))
 	for _, path := range matches {
-		info, err := StatFile(path)
+		info, err := ops.Stat(path)
 		if err != nil {
 			return nil, fmt.Errorf("getting file info for %s: %w", path, err)
 		}

@@ -9,5 +9,5 @@ import (
 func Newer(inputs, outputs []string) (bool, error) {
 	return internal.Newer(inputs, outputs, func(patterns []string) ([]string, error) {
 		return Match(patterns...)
-	})
+	}, nil, nil)
 }

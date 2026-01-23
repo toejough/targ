@@ -215,20 +215,19 @@ func TestNewer_CacheDetectsRemovedFile(t *testing.T) {
 }
 
 func TestNewer_CacheMkdirError(t *testing.T) {
-	origUserCacheDir := internal.UserCacheDir
-	origMkdirAll := internal.MkdirAll
+	t.Parallel()
 
-	defer func() {
-		internal.UserCacheDir = origUserCacheDir
-		internal.MkdirAll = origMkdirAll
-	}()
+	sysOps := internal.DefaultSystemOps()
+	sysOps.UserCacheDir = func() (string, error) { return "/cache", nil }
 
-	internal.UserCacheDir = func() (string, error) { return "/cache", nil }
-	internal.MkdirAll = func(_ string, _ fs.FileMode) error {
+	fileOps := internal.DefaultFileOps()
+	fileOps.MkdirAll = func(_ string, _ fs.FileMode) error {
 		return errors.New("mkdir error")
 	}
 
-	_, err := file.Newer([]string{"*.go"}, nil)
+	matchFn := func(patterns []string) ([]string, error) { return patterns, nil }
+
+	_, err := internal.Newer([]string{"*.go"}, nil, matchFn, sysOps, fileOps)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -241,16 +240,17 @@ func TestNewer_CacheMkdirError(t *testing.T) {
 // DI-based error path tests
 
 func TestNewer_GetwdError(t *testing.T) {
-	orig := internal.Getwd
+	t.Parallel()
 
-	defer func() { internal.Getwd = orig }()
-
-	internal.Getwd = func() (string, error) {
+	sysOps := internal.DefaultSystemOps()
+	sysOps.Getwd = func() (string, error) {
 		return "", errors.New("getwd error")
 	}
 
+	matchFn := func(patterns []string) ([]string, error) { return patterns, nil }
+
 	// Empty outputs triggers cache mode which uses Getwd
-	_, err := file.Newer([]string{"*.go"}, nil)
+	_, err := internal.Newer([]string{"*.go"}, nil, matchFn, sysOps, nil)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -261,23 +261,25 @@ func TestNewer_GetwdError(t *testing.T) {
 }
 
 func TestNewer_StatFileError(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
+	testFile := filepath.Join(dir, "test.txt")
 
 	// Create a file so Match returns something
-	if err := os.WriteFile(filepath.Join(dir, "test.txt"), []byte("test"), 0o644); err != nil {
+	if err := os.WriteFile(testFile, []byte("test"), 0o644); err != nil {
 		t.Fatalf("failed to create test file: %v", err)
 	}
 
-	orig := internal.StatFile
-
-	defer func() { internal.StatFile = orig }()
-
-	internal.StatFile = func(_ string) (os.FileInfo, error) {
+	sysOps := internal.DefaultSystemOps()
+	sysOps.Stat = func(_ string) (os.FileInfo, error) {
 		return nil, errors.New("stat error")
 	}
 
+	// Return the actual file path, not the pattern
+	matchFn := func(_ []string) ([]string, error) { return []string{testFile}, nil }
+
 	// Empty outputs triggers cache mode which stats files
-	_, err := file.Newer([]string{filepath.Join(dir, "*.txt")}, nil)
+	_, err := internal.Newer([]string{filepath.Join(dir, "*.txt")}, nil, matchFn, sysOps, nil)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -288,16 +290,17 @@ func TestNewer_StatFileError(t *testing.T) {
 }
 
 func TestNewer_UserCacheDirError(t *testing.T) {
-	orig := internal.UserCacheDir
+	t.Parallel()
 
-	defer func() { internal.UserCacheDir = orig }()
-
-	internal.UserCacheDir = func() (string, error) {
+	sysOps := internal.DefaultSystemOps()
+	sysOps.UserCacheDir = func() (string, error) {
 		return "", errors.New("cache dir error")
 	}
 
+	matchFn := func(patterns []string) ([]string, error) { return patterns, nil }
+
 	// Empty outputs triggers cache mode
-	_, err := file.Newer([]string{"*.go"}, nil)
+	_, err := internal.Newer([]string{"*.go"}, nil, matchFn, sysOps, nil)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -308,22 +311,24 @@ func TestNewer_UserCacheDirError(t *testing.T) {
 }
 
 func TestNewer_WriteCacheError(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
+	testFile := filepath.Join(dir, "test.txt")
 
 	// Create a file so Match returns something
-	if err := os.WriteFile(filepath.Join(dir, "test.txt"), []byte("test"), 0o644); err != nil {
+	if err := os.WriteFile(testFile, []byte("test"), 0o644); err != nil {
 		t.Fatalf("failed to create test file: %v", err)
 	}
 
-	orig := internal.WriteFile
-
-	defer func() { internal.WriteFile = orig }()
-
-	internal.WriteFile = func(_ string, _ []byte, _ fs.FileMode) error {
+	fileOps := internal.DefaultFileOps()
+	fileOps.WriteFile = func(_ string, _ []byte, _ fs.FileMode) error {
 		return errors.New("write error")
 	}
 
-	_, err := file.Newer([]string{filepath.Join(dir, "*.txt")}, nil)
+	// Return the actual file path, not the pattern
+	matchFn := func(_ []string) ([]string, error) { return []string{testFile}, nil }
+
+	_, err := internal.Newer([]string{filepath.Join(dir, "*.txt")}, nil, matchFn, nil, fileOps)
 	if err == nil {
 		t.Fatal("expected error")
 	}

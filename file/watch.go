@@ -21,5 +21,5 @@ func Watch(
 ) error {
 	return internal.Watch(ctx, patterns, opts, callback, func(p []string) ([]string, error) {
 		return Match(p...)
-	})
+	}, nil)
 }

@@ -39,11 +39,6 @@ linters = [
 path = '_test\.go$'
 text = 'dot-imports'
 
-# Exclude gochecknoglobals from DI injection point files
-[[linters.exclusions.rules]]
-path = '(internal/file/checksum\.go|internal/file/newer\.go|internal/sh/sh\.go|internal/sh/cleanup\.go)$'
-linters = ['gochecknoglobals']
-
 [linters.settings.depguard.rules.all]
 files = ['$all', '!$test']
 allow = [

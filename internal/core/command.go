@@ -207,6 +207,13 @@ type positionalHelp struct {
 	Required    bool
 }
 
+// shellArgParseResult holds the result of parsing shell command arguments.
+type shellArgParseResult struct {
+	varValues     map[string]string
+	remaining     []string
+	helpRequested bool
+}
+
 func appendDepsLine(lines []string, node *commandNode) []string {
 	if len(node.Deps) == 0 {
 		return lines
@@ -953,8 +960,6 @@ func executeGroupWithParents(
 }
 
 // executeShellCommand handles execution of shell command targets with $var substitution.
-//
-//nolint:cyclop,funlen,gocognit // Function handles complete execution flow including parsing and substitution
 func executeShellCommand(
 	ctx context.Context,
 	args []string,
@@ -964,78 +969,22 @@ func executeShellCommand(
 	_ bool, // explicit - not used for shell commands
 	opts RunOptions,
 ) ([]string, error) {
-	// Parse flags from args to get variable values
-	varValues := make(map[string]string)
-	remaining := make([]string, 0, len(args))
-	shortToLong := buildShortToLongMap(node.ShellVars)
+	parsed := parseShellCommandArgs(args, node.ShellVars)
 
-	for i := 0; i < len(args); i++ {
-		arg := args[i]
-
-		// Handle --help
-		if arg == "--help" || arg == "-h" {
-			printCommandHelp(node, opts)
-
-			return nil, nil
-		}
-
-		// Handle long flags
-		if after, ok := strings.CutPrefix(arg, "--"); ok {
-			flagName := after
-			value := ""
-
-			// Handle --flag=value syntax
-			if idx := strings.Index(flagName, "="); idx != -1 {
-				value = flagName[idx+1:]
-				flagName = flagName[:idx]
-			} else if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
-				// Handle --flag value syntax
-				i++
-				value = args[i]
-			}
-
-			if isShellVar(flagName, node.ShellVars) {
-				varValues[strings.ToLower(flagName)] = value
-			} else {
-				remaining = append(remaining, arg)
-			}
-
-			continue
-		}
-
-		// Handle short flags
-		if strings.HasPrefix(arg, "-") && len(arg) > 1 {
-			shortFlag := string(arg[1])
-			if longName, ok := shortToLong[shortFlag]; ok {
-				value := ""
-
-				if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
-					i++
-					value = args[i]
-				}
-
-				varValues[longName] = value
-
-				continue
-			}
-		}
-
-		remaining = append(remaining, arg)
+	if parsed.helpRequested {
+		printCommandHelp(node, opts)
+		return nil, nil
 	}
 
-	// In help-only mode, skip execution
 	if opts.HelpOnly {
-		return remaining, nil
+		return parsed.remaining, nil
 	}
 
-	// Check that all required variables are provided
-	for _, varName := range node.ShellVars {
-		if _, ok := varValues[varName]; !ok {
-			return nil, fmt.Errorf("%w: --%s", errMissingRequiredFlag, varName)
-		}
+	err := validateShellVars(parsed.varValues, node.ShellVars)
+	if err != nil {
+		return nil, err
 	}
 
-	// Execute with runtime overrides
 	config := TargetConfig{
 		WatchPatterns: node.WatchPatterns,
 		CachePatterns: node.CachePatterns,
@@ -1043,14 +992,14 @@ func executeShellCommand(
 		CacheDisabled: node.CacheDisabled,
 	}
 
-	err := ExecuteWithOverrides(ctx, opts.Overrides, config, func() error {
-		return runShellWithVars(ctx, node.ShellCommand, varValues)
+	err = ExecuteWithOverrides(ctx, opts.Overrides, config, func() error {
+		return runShellWithVars(ctx, node.ShellCommand, parsed.varValues)
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	return remaining, nil
+	return parsed.remaining, nil
 }
 
 // executionInfoLines builds the lines for execution info display.
@@ -1525,6 +1474,109 @@ func parseGroupLike(group GroupLike) (*commandNode, error) {
 	}
 
 	return node, nil
+}
+
+// parseShellCommandArgs parses flags from args to get variable values for shell vars.
+func parseShellCommandArgs(args, shellVars []string) shellArgParseResult {
+	varValues := make(map[string]string)
+	remaining := make([]string, 0, len(args))
+	shortToLong := buildShortToLongMap(shellVars)
+
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+
+		if arg == "--help" || arg == "-h" {
+			return shellArgParseResult{helpRequested: true, remaining: args[i+1:]}
+		}
+
+		if skip, handled := parseShellLongFlag(
+			arg,
+			args,
+			i,
+			shellVars,
+			varValues,
+			&remaining,
+		); handled {
+			i += skip
+			continue
+		}
+
+		if skip, handled := parseShellShortFlag(arg, args, i, shortToLong, varValues); handled {
+			i += skip
+			continue
+		}
+
+		remaining = append(remaining, arg)
+	}
+
+	return shellArgParseResult{varValues: varValues, remaining: remaining}
+}
+
+// parseShellLongFlag parses a long flag (--flag or --flag=value).
+// Returns skip count and whether the arg was handled.
+func parseShellLongFlag(
+	arg string,
+	args []string,
+	idx int,
+	shellVars []string,
+	varValues map[string]string,
+	remaining *[]string,
+) (skip int, handled bool) {
+	after, ok := strings.CutPrefix(arg, "--")
+	if !ok {
+		return 0, false
+	}
+
+	flagName := after
+	value := ""
+
+	if eqIdx := strings.Index(flagName, "="); eqIdx != -1 {
+		value = flagName[eqIdx+1:]
+		flagName = flagName[:eqIdx]
+	} else if idx+1 < len(args) && !strings.HasPrefix(args[idx+1], "-") {
+		skip = 1
+		value = args[idx+1]
+	}
+
+	if isShellVar(flagName, shellVars) {
+		varValues[strings.ToLower(flagName)] = value
+	} else {
+		*remaining = append(*remaining, arg)
+	}
+
+	return skip, true
+}
+
+// parseShellShortFlag parses a short flag (-f).
+// Returns skip count and whether the arg was handled.
+func parseShellShortFlag(
+	arg string,
+	args []string,
+	idx int,
+	shortToLong map[string]string,
+	varValues map[string]string,
+) (skip int, handled bool) {
+	if !strings.HasPrefix(arg, "-") || len(arg) <= 1 {
+		return 0, false
+	}
+
+	shortFlag := string(arg[1])
+	longName, ok := shortToLong[shortFlag]
+
+	if !ok {
+		return 0, false
+	}
+
+	value := ""
+
+	if idx+1 < len(args) && !strings.HasPrefix(args[idx+1], "-") {
+		skip = 1
+		value = args[idx+1]
+	}
+
+	varValues[longName] = value
+
+	return skip, true
 }
 
 func parseTagParts(opts *TagOptions, tag string) {
@@ -2266,6 +2318,17 @@ func validateLongFlagArgs(args []string, longNames map[string]bool) error {
 
 		if longNames[name] {
 			return fmt.Errorf("%w%s (got -%s)", errLongFlagFormat, name, name)
+		}
+	}
+
+	return nil
+}
+
+// validateShellVars checks that all required shell variables are provided.
+func validateShellVars(varValues map[string]string, requiredVars []string) error {
+	for _, varName := range requiredVars {
+		if _, ok := varValues[varName]; !ok {
+			return fmt.Errorf("%w: --%s", errMissingRequiredFlag, varName)
 		}
 	}
 

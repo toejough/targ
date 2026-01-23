@@ -8,79 +8,82 @@ import (
 	"syscall"
 )
 
-// Exported variables.
-var (
-	CleanupEnabled bool
-	CleanupMu      sync.Mutex
-	// KillProcessFunc is injectable for testing
-	KillProcessFunc = func(*os.Process) {}
-	RunningProcs    = make(map[*os.Process]struct{})
-)
+// CleanupManager manages process cleanup on signals.
+type CleanupManager struct {
+	mu              sync.Mutex
+	enabled         bool
+	signalInstalled bool
+	runningProcs    map[*os.Process]struct{}
+	killFunc        func(*os.Process)
+}
+
+// NewCleanupManager creates a new CleanupManager with the given kill function.
+func NewCleanupManager(killFunc func(*os.Process)) *CleanupManager {
+	return &CleanupManager{
+		runningProcs: make(map[*os.Process]struct{}),
+		killFunc:     killFunc,
+	}
+}
 
 // EnableCleanup enables automatic cleanup of child processes on SIGINT/SIGTERM.
-func EnableCleanup() {
-	CleanupMu.Lock()
-	defer CleanupMu.Unlock()
+func (m *CleanupManager) EnableCleanup() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
-	if CleanupEnabled {
+	if m.enabled {
 		return
 	}
 
-	CleanupEnabled = true
+	m.enabled = true
 
-	if !signalInstalled {
-		signalInstalled = true
+	if !m.signalInstalled {
+		m.signalInstalled = true
 		sigCh := make(chan os.Signal, 1)
 		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 
 		go func() {
 			<-sigCh
-			KillAllProcesses()
+			m.KillAllProcesses()
 			os.Exit(exitCodeSigInt)
 		}()
 	}
 }
 
 // KillAllProcesses kills all tracked processes.
-func KillAllProcesses() {
-	CleanupMu.Lock()
+func (m *CleanupManager) KillAllProcesses() {
+	m.mu.Lock()
 
-	procs := make([]*os.Process, 0, len(RunningProcs))
-	for p := range RunningProcs {
+	procs := make([]*os.Process, 0, len(m.runningProcs))
+	for p := range m.runningProcs {
 		procs = append(procs, p)
 	}
 
-	CleanupMu.Unlock()
+	m.mu.Unlock()
 
 	for _, p := range procs {
-		KillProcessFunc(p)
+		m.killFunc(p)
 	}
 }
 
 // RegisterProcess adds a process to the cleanup list.
-func RegisterProcess(p *os.Process) {
-	CleanupMu.Lock()
-	defer CleanupMu.Unlock()
+func (m *CleanupManager) RegisterProcess(p *os.Process) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
-	if CleanupEnabled {
-		RunningProcs[p] = struct{}{}
+	if m.enabled {
+		m.runningProcs[p] = struct{}{}
 	}
 }
 
 // UnregisterProcess removes a process from the cleanup list.
-func UnregisterProcess(p *os.Process) {
-	CleanupMu.Lock()
-	defer CleanupMu.Unlock()
+func (m *CleanupManager) UnregisterProcess(p *os.Process) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
-	delete(RunningProcs, p)
+	delete(m.runningProcs, p)
 }
 
 // unexported constants.
 const (
 	exitCodeSigInt = 130
-)
-
-// unexported variables.
-var (
-	signalInstalled bool
 )

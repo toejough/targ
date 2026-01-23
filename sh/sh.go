@@ -3,6 +3,7 @@ package sh
 
 import (
 	"context"
+	"os"
 
 	internal "github.com/toejough/targ/internal/sh"
 )
@@ -15,48 +16,48 @@ func EnableCleanup() {
 
 // ExeSuffix returns ".exe" on Windows, otherwise an empty string.
 func ExeSuffix() string {
-	return internal.ExeSuffix()
+	return internal.ExeSuffix(nil)
 }
 
 // IsWindows reports whether the current OS is Windows.
 func IsWindows() bool {
-	return internal.IsWindows()
+	return internal.IsWindowsOS()
 }
 
 // Output executes a command and returns combined output.
 func Output(name string, args ...string) (string, error) {
-	return internal.Output(name, args...)
+	return internal.Output(nil, name, args...)
 }
 
 // OutputContext executes a command and returns combined output, with context support.
 // When ctx is cancelled, the process and all its children are killed.
 func OutputContext(ctx context.Context, name string, args ...string) (string, error) {
-	return internal.OutputContext(ctx, name, args, internal.Stdin)
+	return internal.OutputContext(ctx, name, args, os.Stdin)
 }
 
 // Run executes a command streaming stdout/stderr.
 func Run(name string, args ...string) error {
-	return internal.Run(name, args...)
+	return internal.Run(nil, name, args...)
 }
 
 // RunContext executes a command with context support.
 // When ctx is cancelled, the process and all its children are killed.
 func RunContext(ctx context.Context, name string, args ...string) error {
-	return internal.RunContextWithIO(ctx, name, args)
+	return internal.RunContextWithIO(ctx, nil, name, args)
 }
 
 // RunContextV executes a command, prints it first, with context support.
 // When ctx is cancelled, the process and all its children are killed.
 func RunContextV(ctx context.Context, name string, args ...string) error {
-	return internal.RunContextV(ctx, name, args)
+	return internal.RunContextV(ctx, nil, name, args)
 }
 
 // RunV executes a command and prints it first.
 func RunV(name string, args ...string) error {
-	return internal.RunV(name, args...)
+	return internal.RunV(nil, name, args...)
 }
 
 // WithExeSuffix appends the OS-specific executable suffix if missing.
 func WithExeSuffix(name string) string {
-	return internal.WithExeSuffix(name)
+	return internal.WithExeSuffix(nil, name)
 }
