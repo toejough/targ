@@ -74,9 +74,9 @@ Commands run via the system shell, so pipes and shell features work:
 targ.Targ("go test -coverprofile=coverage.out $package && go tool cover -html=coverage.out")
 ```
 
-### Stage 2: Add Flags
+### Stage 2: Programmatic Flags
 
-Need options? Use a function with a struct parameter:
+Need conditional logic or computed values? Use a function with a struct parameter:
 
 ```go
 //go:build targ
@@ -125,21 +125,18 @@ targ test --cover
 
 ### Stage 3: Dedicated Binary
 
-Ready to ship? Remove the build tag and add main:
+Ready to ship? Remove the build tag and switch to main:
 
 ```go
 package main
 
 import "github.com/toejough/targ"
 
-func init() {
+func main() {
     targ.Register(
         targ.Targ(build).Description("Compile the project"),
         targ.Targ(test).Description("Run tests"),
     )
-}
-
-func main() {
     targ.ExecuteRegistered()
 }
 
