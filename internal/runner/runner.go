@@ -51,6 +51,12 @@ type SyncOptions struct {
 	PackagePath string // Module path to sync (e.g., "github.com/foo/bar")
 }
 
+// TargFlags holds extracted targ-specific flags.
+type TargFlags struct {
+	NoBinaryCache bool   // Disable binary caching
+	SourceDir     string // Source directory for targ files
+}
+
 // TargDependency represents a targ module dependency for isolated builds.
 type TargDependency struct {
 	ModulePath string
@@ -1401,14 +1407,26 @@ func (r *targRunner) run() int {
 	}
 
 	helpRequested, helpTargets := ParseHelpRequest(r.args)
-	r.noBinaryCache, r.args = extractTargFlags(r.args)
+
+	var flags TargFlags
+	flags, r.args = ExtractTargFlags(r.args)
+	r.noBinaryCache = flags.NoBinaryCache
 
 	var err error
 
-	r.startDir, err = os.Getwd()
-	if err != nil {
-		r.logError("Error resolving working directory", err)
-		return 1
+	// Use source dir if provided, otherwise use current working directory
+	if flags.SourceDir != "" {
+		r.startDir, err = r.validateSourceDir(flags.SourceDir)
+		if err != nil {
+			r.logError("Error with --source directory", err)
+			return 1
+		}
+	} else {
+		r.startDir, err = os.Getwd()
+		if err != nil {
+			r.logError("Error resolving working directory", err)
+			return 1
+		}
 	}
 
 	// Discover targ packages
@@ -1475,6 +1493,29 @@ func (r *targRunner) tryRunCached(binaryPath, targBinName string) (exitCode int,
 	}
 
 	return 0, true
+}
+
+func (r *targRunner) validateSourceDir(path string) (string, error) {
+	// Convert to absolute path if relative
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return "", fmt.Errorf("resolving path: %w", err)
+	}
+
+	info, err := os.Stat(absPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", fmt.Errorf("directory does not exist: %s", absPath)
+		}
+
+		return "", fmt.Errorf("checking path: %w", err)
+	}
+
+	if !info.IsDir() {
+		return "", fmt.Errorf("path is not a directory: %s", absPath)
+	}
+
+	return absPath, nil
 }
 
 // buildAndQueryBinary builds the binary and queries its commands.
@@ -1985,15 +2026,28 @@ func extractBinName(binArg string) string {
 	return binArg
 }
 
-// extractTargFlags extracts targ-specific flags (--no-binary-cache) from args.
-// Returns the flag value and remaining args to pass to the binary.
-func extractTargFlags(args []string) (noBinaryCache bool, remaining []string) {
+// ExtractTargFlags extracts targ-specific flags from args.
+// Returns the flags and remaining args to pass to the binary.
+//
+// Position-sensitive flags (like --source, -s) are only recognized when they
+// appear BEFORE the first target name. After a target is seen, these flags
+// are passed through to the binary.
+func ExtractTargFlags(args []string) (flags TargFlags, remaining []string) {
 	remaining = make([]string, 0, len(args))
+	seenTarget := false
 
-	for _, arg := range args {
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		isFlag := strings.HasPrefix(arg, "-")
+
+		// Track when we see a target name (first non-flag)
+		if !isFlag && !seenTarget {
+			seenTarget = true
+		}
+
 		switch arg {
 		case "--no-binary-cache":
-			noBinaryCache = true
+			flags.NoBinaryCache = true
 		case "--no-cache":
 			// Deprecated: use --no-binary-cache instead
 			fmt.Fprintln(
@@ -2001,13 +2055,21 @@ func extractTargFlags(args []string) (noBinaryCache bool, remaining []string) {
 				"warning: --no-cache is deprecated, use --no-binary-cache instead",
 			)
 
-			noBinaryCache = true
+			flags.NoBinaryCache = true
+		case "--source", "-s":
+			// Position-sensitive: only before first target
+			if !seenTarget && i+1 < len(args) {
+				i++
+				flags.SourceDir = args[i]
+			} else {
+				remaining = append(remaining, arg)
+			}
 		default:
 			remaining = append(remaining, arg)
 		}
 	}
 
-	return noBinaryCache, remaining
+	return flags, remaining
 }
 
 // fetchPackage runs go get to fetch a package.
