@@ -36,7 +36,22 @@ Targ makes it easy to start with simple build targets and evolve to a full CLI. 
 
 ### Stage 1: String Commands
 
-Start with shell commands for quick automation. Create a file with `//go:build targ`:
+Scaffold targets from the command line:
+
+```bash
+targ --create test "go test -race $package"
+targ --create lint "golangci-lint run --fix $path"
+```
+
+This creates a targ file with string command targets. Variables like `$package` become CLI flags:
+
+```bash
+targ test --package=./...
+targ test -p ./cmd/...           # short flags auto-generated
+targ lint --path=./internal/...
+```
+
+The generated file looks like:
 
 ```go
 //go:build targ
@@ -49,19 +64,14 @@ func init() {
     targ.Register(Test, Lint)
 }
 
-var Test = targ.Targ("go test -race -cover ./...").Description("Run tests with race detection")
-var Lint = targ.Targ("golangci-lint run --fix ./...").Description("Lint and auto-fix")
+var Test = targ.Targ("go test -race $package")
+var Lint = targ.Targ("golangci-lint run --fix $path")
 ```
 
-```bash
-targ test
-targ lint
-```
-
-The commands run via the system shell, so pipes and shell features work:
+Commands run via the system shell, so pipes and shell features work:
 
 ```go
-var Coverage = targ.Targ("go test -coverprofile=coverage.out ./... && go tool cover -html=coverage.out")
+var Coverage = targ.Targ("go test -coverprofile=coverage.out $package && go tool cover -html=coverage.out")
 ```
 
 ### Stage 2: Add Flags
