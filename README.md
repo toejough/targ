@@ -8,17 +8,15 @@ Build CLIs and run build targets with minimal configuration. Inspired by Mage, g
 
 ## Quick Reference
 
-**Key files:** `targ.go` (public API), `sh/` (shell execution), `file/` (file utilities)
-
 | Want to...          | Do this                                               |
 | ------------------- | ----------------------------------------------------- |
 | Run build targets   | `//go:build targ` files + `targ <command>`            |
 | Define a target     | `var Build = targ.Targ(build)`                        |
 | Add flags/args      | Function with struct parameter + `targ:"..."` tags    |
 | Shell command target| `var Tidy = targ.Targ("go mod tidy")`                 |
-| Run shell commands  | `sh.Run("go", "build")` or `sh.RunContext(ctx, ...)`  |
-| Skip unchanged work | `file.Newer(inputs, outputs)` or `file.Checksum(...)` |
-| Watch for changes   | `file.Watch(ctx, patterns, opts, callback)`           |
+| Run shell commands  | `targ.Run("go", "build")` or `targ.RunContext(ctx, ...)`  |
+| Skip unchanged work | `targ.Newer(inputs, outputs)` or `targ.Checksum(...)` |
+| Watch for changes   | `targ.Watch(ctx, patterns, opts, callback)`           |
 | Run deps once       | `targ.Deps(A, B, C)` or `.Deps(A, B)`                 |
 | Scaffold a target   | `targ --create build` or `targ --create tidy "go mod tidy"` |
 
@@ -36,42 +34,46 @@ go get github.com/toejough/targ
 
 Targ makes it easy to start with simple build targets and evolve to a full CLI. The same code works in both modes.
 
-### Stage 1: Simple Functions
+### Stage 1: String Commands
 
-Start with plain functions for quick automation. Use `//go:build targ`:
+Start with shell commands for quick automation. Create a file with `//go:build targ`:
 
 ```go
 //go:build targ
 
-package main
+package dev
 
-import "github.com/toejough/targ/sh"
+import "github.com/toejough/targ"
 
-// Build compiles the project.
-func Build() error { return sh.Run("go", "build", "-o", "myapp", "./...") }
+func init() {
+    targ.Register(Test, Lint)
+}
 
-// Test runs all tests.
-func Test() error { return sh.Run("go", "test", "./...") }
+var Test = targ.Targ("go test -race -cover ./...").Description("Run tests with race detection")
+var Lint = targ.Targ("golangci-lint run --fix ./...").Description("Lint and auto-fix")
 ```
 
 ```bash
-targ build
 targ test
+targ lint
+```
+
+The commands run via the system shell, so pipes and shell features work:
+
+```go
+var Coverage = targ.Targ("go test -coverprofile=coverage.out ./... && go tool cover -html=coverage.out")
 ```
 
 ### Stage 2: Add Flags
 
-Need options? Use the Target builder with a struct parameter:
+Need options? Use a function with a struct parameter:
 
 ```go
 //go:build targ
 
-package main
+package dev
 
-import (
-    "github.com/toejough/targ"
-    "github.com/toejough/targ/sh"
-)
+import "github.com/toejough/targ"
 
 func init() {
     targ.Register(Build, Test)
@@ -89,7 +91,7 @@ func build(args BuildArgs) error {
     if args.Verbose {
         cmdArgs = append(cmdArgs, "-v")
     }
-    return sh.Run("go", append(cmdArgs, "./...")...)
+    return targ.Run("go", append(cmdArgs, "./...")...)
 }
 
 var Test = targ.Targ(test).Description("Run tests")
@@ -103,7 +105,7 @@ func test(args TestArgs) error {
     if args.Cover {
         cmdArgs = append(cmdArgs, "-cover")
     }
-    return sh.Run("go", append(cmdArgs, "./...")...)
+    return targ.Run("go", append(cmdArgs, "./...")...)
 }
 ```
 
@@ -303,7 +305,7 @@ func checkAll() error {
 
 // Pass context for cancellation
 func watch(ctx context.Context) error {
-    return file.Watch(ctx, []string{"**/*.go"}, file.WatchOptions{}, func(_ file.ChangeSet) error {
+    return targ.Watch(ctx, []string{"**/*.go"}, targ.WatchOptions{}, func(_ targ.ChangeSet) error {
         targ.ResetDeps()
         return targ.Deps(Tidy, Lint, Test, targ.WithContext(ctx))
     })
@@ -327,22 +329,20 @@ var CI = targ.Targ(ci).ParallelDeps(Test, Lint)  // parallel
 
 ## Shell Helpers
 
-Use `targ/sh` for command execution:
+Run commands with `targ.Run` and friends:
 
 ```go
-import "github.com/toejough/targ/sh"
-
-err := sh.Run("go", "build", "./...")           // inherit stdout/stderr
-err := sh.RunV("go", "test", "./...")           // print command first
-out, err := sh.Output("go", "env", "GOMOD")     // capture output
+err := targ.Run("go", "build", "./...")           // inherit stdout/stderr
+err := targ.RunV("go", "test", "./...")           // print command first
+out, err := targ.Output("go", "env", "GOMOD")     // capture output
 ```
 
 For cancellable commands (e.g., in watch mode), use context variants. When cancelled, the entire process tree is killed:
 
 ```go
-err := sh.RunContext(ctx, "go", "test", "./...")
-err := sh.RunContextV(ctx, "golangci-lint", "run")
-out, err := sh.OutputContext(ctx, "go", "list", "./...")
+err := targ.RunContext(ctx, "go", "test", "./...")
+err := targ.RunContextV(ctx, "golangci-lint", "run")
+out, err := targ.OutputContext(ctx, "go", "list", "./...")
 ```
 
 ## File Checks
@@ -350,9 +350,7 @@ out, err := sh.OutputContext(ctx, "go", "list", "./...")
 Skip work when files haven't changed:
 
 ```go
-import "github.com/toejough/targ/file"
-
-needs, err := file.Newer([]string{"**/*.go"}, []string{"bin/app"})
+needs, err := targ.Newer([]string{"**/*.go"}, []string{"bin/app"})
 if !needs {
     return nil  // outputs are up to date
 }
@@ -361,7 +359,7 @@ if !needs {
 Content-based checking (when modtimes aren't reliable):
 
 ```go
-changed, err := file.Checksum([]string{"**/*.go"}, ".cache/build.sum")
+changed, err := targ.Checksum([]string{"**/*.go"}, ".cache/build.sum")
 if !changed {
     return nil
 }
@@ -375,9 +373,9 @@ React to file changes:
 
 ```go
 func watch(ctx context.Context) error {
-    return file.Watch(ctx, []string{"**/*.go"}, file.WatchOptions{}, func(_ file.ChangeSet) error {
+    return targ.Watch(ctx, []string{"**/*.go"}, targ.WatchOptions{}, func(_ targ.ChangeSet) error {
         targ.ResetDeps()  // clear dep cache so targets run again
-        return sh.RunContext(ctx, "go", "test", "./...")
+        return targ.RunContext(ctx, "go", "test", "./...")
     })
 }
 ```
@@ -452,12 +450,12 @@ Useful for loading enum values from config, conditional required fields, or envi
 
 ```go
 func build() error {
-    needs, _ := file.Newer([]string{"**/*.go"}, []string{"bin/app"})
+    needs, _ := targ.Newer([]string{"**/*.go"}, []string{"bin/app"})
     if !needs {
         fmt.Println("up to date")
         return nil
     }
-    return sh.Run("go", "build", "-o", "bin/app", "./...")
+    return targ.Run("go", "build", "-o", "bin/app", "./...")
 }
 
 var Build = targ.Targ(build)
