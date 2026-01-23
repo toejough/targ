@@ -1,5 +1,9 @@
 version = '2'
 
+# Run options
+[run]
+relative-path-mode = 'gomod'
+
 # Fast linters only - for quick fail-fast checks
 [linters]
 default = 'none'

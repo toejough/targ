@@ -330,6 +330,48 @@ func checkForFail(ctx context.Context) error {
 	)
 }
 
+// Helper Functions
+
+// checkFuncThinness returns a reason string if the function is not thin, empty string if thin.
+func checkFuncThinness(fn *ast.FuncDecl) string {
+	if fn.Body == nil {
+		return "" // Interface method or external function
+	}
+
+	stmts := fn.Body.List
+
+	// Empty function is thin
+	if len(stmts) == 0 {
+		return ""
+	}
+
+	// Single statement is potentially thin
+	if len(stmts) == 1 {
+		// Single return statement
+		if ret, ok := stmts[0].(*ast.ReturnStmt); ok {
+			return checkReturnThinness(ret)
+		}
+		// Single expression statement (e.g., targ.Register(...) or pkg.Func())
+		if expr, ok := stmts[0].(*ast.ExprStmt); ok {
+			if isExternalCall(expr.X) {
+				return ""
+			}
+		}
+	}
+
+	// Check for simple error-handling wrapper pattern:
+	// result, err := pkg.Func(...)
+	// if err != nil { return ... }
+	// return result
+	if len(stmts) >= 2 && len(stmts) <= 3 {
+		if isSimpleErrorWrapper(stmts) {
+			return ""
+		}
+	}
+
+	return fmt.Sprintf("has %d statements (thin functions have 1 or simple error handling)", len(stmts))
+}
+
 func checkNils(ctx context.Context) error {
 	return targ.Deps(
 		CheckNilsFix,
@@ -346,6 +388,63 @@ func checkNilsFix(ctx context.Context) error {
 func checkNilsForFail(ctx context.Context) error {
 	fmt.Println("Checking for nil issues...")
 	return sh.RunContext(ctx, "nilaway", "./...")
+}
+
+// checkReturnThinness checks if a return statement is a thin wrapper.
+func checkReturnThinness(ret *ast.ReturnStmt) string {
+	if len(ret.Results) == 0 {
+		return "" // Empty return is thin
+	}
+
+	// Single result
+	if len(ret.Results) == 1 {
+		result := ret.Results[0]
+
+		// Call to another package
+		if call, ok := result.(*ast.CallExpr); ok {
+			if isExternalCall(call) {
+				return ""
+			}
+
+			return "calls local function, not external package"
+		}
+		// Returning a variable or selector (like pkg.Var)
+		if isExternalSelector(result) {
+			return ""
+		}
+		// Returning a literal
+		if isBasicLit(result) {
+			return ""
+		}
+		// Returning an identifier (variable, nil, true, false)
+		if _, ok := result.(*ast.Ident); ok {
+			return ""
+		}
+	}
+
+	// Multiple results - check if it's a call with multiple returns
+	// e.g., return pkg.Func(args...)
+	if len(ret.Results) >= 1 {
+		if call, ok := ret.Results[0].(*ast.CallExpr); ok {
+			if isExternalCall(call) {
+				return ""
+			}
+		}
+	}
+
+	return "return expression is not a simple external call or re-export"
+}
+
+// checkSpecThinness checks if a type/const/var spec is thin.
+func checkSpecThinness(fset *token.FileSet, path string, tok token.Token, spec ast.Spec) *thinViolation {
+	switch s := spec.(type) {
+	case *ast.TypeSpec:
+		return checkTypeSpecThinness(fset, path, s)
+	case *ast.ValueSpec:
+		return checkValueSpecThinness(fset, path, tok, s)
+	}
+
+	return nil
 }
 
 func checkThinAPI(ctx context.Context) error {
@@ -448,6 +547,82 @@ func checkThinAPI(ctx context.Context) error {
 	}
 
 	return fmt.Errorf("found %d non-thin declarations", len(violations))
+}
+
+// checkTypeSpecThinness checks if a type declaration is thin.
+func checkTypeSpecThinness(fset *token.FileSet, path string, ts *ast.TypeSpec) *thinViolation {
+	// Type alias is thin: type X = pkg.Y
+	if ts.Assign.IsValid() {
+		return nil
+	}
+
+	// Interface definitions are thin (just signatures)
+	if _, ok := ts.Type.(*ast.InterfaceType); ok {
+		return nil
+	}
+
+	// Struct with fields is not thin
+	if st, ok := ts.Type.(*ast.StructType); ok {
+		if st.Fields != nil && len(st.Fields.List) > 0 {
+			return &thinViolation{
+				File:   path,
+				Line:   fset.Position(ts.Pos()).Line,
+				Name:   "type " + ts.Name.Name,
+				Reason: "struct with fields (should be in internal/)",
+			}
+		}
+		// Empty struct is thin
+		return nil
+	}
+
+	// Other type definitions (not aliases) are not thin
+	return &thinViolation{
+		File:   path,
+		Line:   fset.Position(ts.Pos()).Line,
+		Name:   "type " + ts.Name.Name,
+		Reason: "type definition (not alias) should be in internal/",
+	}
+}
+
+// checkValueSpecThinness checks if a const/var declaration is thin.
+func checkValueSpecThinness(fset *token.FileSet, path string, tok token.Token, vs *ast.ValueSpec) *thinViolation {
+	// Constants that reference external package are thin
+	if tok == token.CONST {
+		for _, val := range vs.Values {
+			if !isExternalSelector(val) && !isBasicLit(val) {
+				return &thinViolation{
+					File:   path,
+					Line:   fset.Position(vs.Pos()).Line,
+					Name:   "const " + nameListString(vs.Names),
+					Reason: "const value is not a re-export or literal",
+				}
+			}
+		}
+
+		return nil
+	}
+
+	// Variables: check if assigned from external package or is a function call
+	if tok == token.VAR {
+		for _, val := range vs.Values {
+			if isExternalSelector(val) || isExternalCall(val) || isBasicLit(val) {
+				continue
+			}
+			// Allow nil assignments
+			if ident, ok := val.(*ast.Ident); ok && ident.Name == "nil" {
+				continue
+			}
+
+			return &thinViolation{
+				File:   path,
+				Line:   fset.Position(vs.Pos()).Line,
+				Name:   "var " + nameListString(vs.Names),
+				Reason: "var value is not a re-export, external call, or literal",
+			}
+		}
+	}
+
+	return nil
 }
 
 func clean() {
@@ -666,6 +841,26 @@ func fmtCode(ctx context.Context) error {
 	return sh.RunContext(ctx, "golangci-lint", "run", "-c", "dev/golangci-fmt.toml")
 }
 
+func funcDeclName(fn *ast.FuncDecl) string {
+	if fn.Recv != nil && len(fn.Recv.List) > 0 {
+		recvType := fn.Recv.List[0].Type
+		var typeName string
+
+		switch t := recvType.(type) {
+		case *ast.StarExpr:
+			if ident, ok := t.X.(*ast.Ident); ok {
+				typeName = "*" + ident.Name
+			}
+		case *ast.Ident:
+			typeName = t.Name
+		}
+
+		return fmt.Sprintf("(%s).%s", typeName, fn.Name.Name)
+	}
+
+	return fn.Name.Name
+}
+
 func fuzz() error {
 	fmt.Println("Running fuzz tests...")
 
@@ -762,207 +957,6 @@ func globs(dir string, ext []string) ([]string, error) {
 	return files, err
 }
 
-// hasRelevantChanges returns true if the changeset contains files we care about.
-// Filters out generated files and build artifacts that Check() itself creates.
-func hasRelevantChanges(changes file.ChangeSet) bool {
-	allFiles := append(append(changes.Added, changes.Removed...), changes.Modified...)
-
-	for _, f := range allFiles {
-		// Skip generated test files
-		if strings.Contains(f, "generated_") {
-			continue
-		}
-		// Skip coverage output
-		if strings.HasSuffix(f, "coverage.out") {
-			continue
-		}
-		// Found a relevant change
-		return true
-	}
-
-	return false
-}
-
-func installTools() error {
-	fmt.Println("Installing development tools...")
-	return sh.Run("./dev/dev-install.sh")
-}
-
-// Helper Functions
-
-// checkFuncThinness returns a reason string if the function is not thin, empty string if thin.
-func checkFuncThinness(fn *ast.FuncDecl) string {
-	if fn.Body == nil {
-		return "" // Interface method or external function
-	}
-
-	stmts := fn.Body.List
-
-	// Empty function is thin
-	if len(stmts) == 0 {
-		return ""
-	}
-
-	// Single statement is potentially thin
-	if len(stmts) == 1 {
-		// Single return statement
-		if ret, ok := stmts[0].(*ast.ReturnStmt); ok {
-			return checkReturnThinness(ret)
-		}
-		// Single expression statement (e.g., targ.Register(...) or pkg.Func())
-		if expr, ok := stmts[0].(*ast.ExprStmt); ok {
-			if isExternalCall(expr.X) {
-				return ""
-			}
-		}
-	}
-
-	// Check for simple error-handling wrapper pattern:
-	// result, err := pkg.Func(...)
-	// if err != nil { return ... }
-	// return result
-	if len(stmts) >= 2 && len(stmts) <= 3 {
-		if isSimpleErrorWrapper(stmts) {
-			return ""
-		}
-	}
-
-	return fmt.Sprintf("has %d statements (thin functions have 1 or simple error handling)", len(stmts))
-}
-
-// checkReturnThinness checks if a return statement is a thin wrapper.
-func checkReturnThinness(ret *ast.ReturnStmt) string {
-	if len(ret.Results) == 0 {
-		return "" // Empty return is thin
-	}
-
-	// Single result
-	if len(ret.Results) == 1 {
-		result := ret.Results[0]
-
-		// Call to another package
-		if call, ok := result.(*ast.CallExpr); ok {
-			if isExternalCall(call) {
-				return ""
-			}
-
-			return "calls local function, not external package"
-		}
-		// Returning a variable or selector (like pkg.Var)
-		if isExternalSelector(result) {
-			return ""
-		}
-		// Returning a literal
-		if isBasicLit(result) {
-			return ""
-		}
-		// Returning an identifier (variable, nil, true, false)
-		if _, ok := result.(*ast.Ident); ok {
-			return ""
-		}
-	}
-
-	// Multiple results - check if it's a call with multiple returns
-	// e.g., return pkg.Func(args...)
-	if len(ret.Results) >= 1 {
-		if call, ok := ret.Results[0].(*ast.CallExpr); ok {
-			if isExternalCall(call) {
-				return ""
-			}
-		}
-	}
-
-	return "return expression is not a simple external call or re-export"
-}
-
-// checkSpecThinness checks if a type/const/var spec is thin.
-func checkSpecThinness(fset *token.FileSet, path string, tok token.Token, spec ast.Spec) *thinViolation {
-	switch s := spec.(type) {
-	case *ast.TypeSpec:
-		return checkTypeSpecThinness(fset, path, s)
-	case *ast.ValueSpec:
-		return checkValueSpecThinness(fset, path, tok, s)
-	}
-
-	return nil
-}
-
-// checkTypeSpecThinness checks if a type declaration is thin.
-func checkTypeSpecThinness(fset *token.FileSet, path string, ts *ast.TypeSpec) *thinViolation {
-	// Type alias is thin: type X = pkg.Y
-	if ts.Assign.IsValid() {
-		return nil
-	}
-
-	// Interface definitions are thin (just signatures)
-	if _, ok := ts.Type.(*ast.InterfaceType); ok {
-		return nil
-	}
-
-	// Struct with fields is not thin
-	if st, ok := ts.Type.(*ast.StructType); ok {
-		if st.Fields != nil && len(st.Fields.List) > 0 {
-			return &thinViolation{
-				File:   path,
-				Line:   fset.Position(ts.Pos()).Line,
-				Name:   "type " + ts.Name.Name,
-				Reason: "struct with fields (should be in internal/)",
-			}
-		}
-		// Empty struct is thin
-		return nil
-	}
-
-	// Other type definitions (not aliases) are not thin
-	return &thinViolation{
-		File:   path,
-		Line:   fset.Position(ts.Pos()).Line,
-		Name:   "type " + ts.Name.Name,
-		Reason: "type definition (not alias) should be in internal/",
-	}
-}
-
-// checkValueSpecThinness checks if a const/var declaration is thin.
-func checkValueSpecThinness(fset *token.FileSet, path string, tok token.Token, vs *ast.ValueSpec) *thinViolation {
-	// Constants that reference external package are thin
-	if tok == token.CONST {
-		for _, val := range vs.Values {
-			if !isExternalSelector(val) && !isBasicLit(val) {
-				return &thinViolation{
-					File:   path,
-					Line:   fset.Position(vs.Pos()).Line,
-					Name:   "const " + nameListString(vs.Names),
-					Reason: "const value is not a re-export or literal",
-				}
-			}
-		}
-
-		return nil
-	}
-
-	// Variables: check if assigned from external package or is a function call
-	if tok == token.VAR {
-		for _, val := range vs.Values {
-			if isExternalSelector(val) || isExternalCall(val) || isBasicLit(val) {
-				continue
-			}
-			// Allow nil assignments
-			if ident, ok := val.(*ast.Ident); ok && ident.Name == "nil" {
-				continue
-			}
-
-			return &thinViolation{
-				File:   path,
-				Line:   fset.Position(vs.Pos()).Line,
-				Name:   "var " + nameListString(vs.Names),
-				Reason: "var value is not a re-export, external call, or literal",
-			}
-		}
-	}
-
-	return nil
-}
-
 // hasBuildTagOrGenerated checks if a file has build tags or generated markers.
 func hasBuildTagOrGenerated(path string) (bool, error) {
 	file, err := os.Open(path)
@@ -993,30 +987,84 @@ func hasBuildTagOrGenerated(path string) (bool, error) {
 	return false, nil
 }
 
-func funcDeclName(fn *ast.FuncDecl) string {
-	if fn.Recv != nil && len(fn.Recv.List) > 0 {
-		recvType := fn.Recv.List[0].Type
-		var typeName string
+// hasRelevantChanges returns true if the changeset contains files we care about.
+// Filters out generated files and build artifacts that Check() itself creates.
+func hasRelevantChanges(changes file.ChangeSet) bool {
+	allFiles := append(append(changes.Added, changes.Removed...), changes.Modified...)
 
-		switch t := recvType.(type) {
-		case *ast.StarExpr:
-			if ident, ok := t.X.(*ast.Ident); ok {
-				typeName = "*" + ident.Name
-			}
-		case *ast.Ident:
-			typeName = t.Name
+	for _, f := range allFiles {
+		// Skip generated test files
+		if strings.Contains(f, "generated_") {
+			continue
 		}
-
-		return fmt.Sprintf("(%s).%s", typeName, fn.Name.Name)
+		// Skip coverage output
+		if strings.HasSuffix(f, "coverage.out") {
+			continue
+		}
+		// Found a relevant change
+		return true
 	}
 
-	return fn.Name.Name
+	return false
+}
+
+func installTools() error {
+	fmt.Println("Installing development tools...")
+	return sh.Run("./dev/dev-install.sh")
 }
 
 func isBasicLit(expr ast.Expr) bool {
 	_, ok := expr.(*ast.BasicLit)
 
 	return ok
+}
+
+// isEntryPointCoverageLine checks coverage.out format lines (e.g., "module/file.go:1.1,2.2 1 0")
+func isEntryPointCoverageLine(line string) bool {
+	// main.go files are CLI entry points
+	if strings.Contains(line, "/main.go:") {
+		return true
+	}
+
+	// internal/runner contains CLI tooling that's hard to unit test
+	if strings.Contains(line, "/internal/runner/") {
+		return true
+	}
+
+	// internal/core/execute.go contains os.Exit entry points
+	if strings.Contains(line, "/internal/core/execute.go:") {
+		return true
+	}
+
+	// Top-level module files: github.com/toejough/targ/<file>.go
+	const modulePrefix = "github.com/toejough/targ/"
+
+	idx := strings.Index(line, modulePrefix)
+	if idx == -1 {
+		return false
+	}
+
+	afterModule := line[idx+len(modulePrefix):]
+
+	// Find where the file path ends (at the colon)
+	colonIdx := strings.Index(afterModule, ":")
+	if colonIdx == -1 {
+		return false
+	}
+
+	pathPart := afterModule[:colonIdx]
+
+	return !strings.Contains(pathPart, "/")
+}
+
+// isEntryPointFile returns true for files excluded from coverage checks:
+// - main.go files (thin CLI entry points)
+// - Top-level module files (re-exports and dependency injection wrappers)
+// These files should only contain transparent re-exports or thin wrappers
+// that inject dependencies into internal APIs.
+// This works on "go tool cover -func" output format.
+func isEntryPointFile(coverageLine string) bool {
+	return isEntryPointCoverageLine(coverageLine)
 }
 
 // isExternalCall checks if a call expression calls an external package.
@@ -1047,6 +1095,25 @@ func isExternalSelector(expr ast.Expr) bool {
 	_, ok = sel.X.(*ast.Ident)
 
 	return ok
+}
+
+func isGeneratedFile(path string) (bool, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return false, fmt.Errorf("failed to open %s: %w", path, err)
+	}
+	defer file.Close()
+
+	buf := make([]byte, 200)
+
+	n, err := file.Read(buf)
+	if err != nil && err != io.EOF {
+		return false, fmt.Errorf("failed to read %s: %w", path, err)
+	}
+
+	content := string(buf[:n])
+
+	return strings.Contains(content, "Code generated") || strings.Contains(content, "DO NOT EDIT"), nil
 }
 
 // isSimpleErrorWrapper checks for pattern:
@@ -1095,72 +1162,6 @@ func isSimpleErrorWrapper(stmts []ast.Stmt) bool {
 	}
 
 	return true
-}
-
-func nameListString(names []*ast.Ident) string {
-	var result []string
-	for _, n := range names {
-		result = append(result, n.Name)
-	}
-
-	return strings.Join(result, ", ")
-}
-
-// isEntryPointCoverageLine checks coverage.out format lines (e.g., "module/file.go:1.1,2.2 1 0")
-func isEntryPointCoverageLine(line string) bool {
-	// main.go files are CLI entry points
-	if strings.Contains(line, "/main.go:") {
-		return true
-	}
-
-	// Top-level module files: github.com/toejough/targ/<file>.go
-	const modulePrefix = "github.com/toejough/targ/"
-
-	idx := strings.Index(line, modulePrefix)
-	if idx == -1 {
-		return false
-	}
-
-	afterModule := line[idx+len(modulePrefix):]
-
-	// Find where the file path ends (at the colon)
-	colonIdx := strings.Index(afterModule, ":")
-	if colonIdx == -1 {
-		return false
-	}
-
-	pathPart := afterModule[:colonIdx]
-
-	return !strings.Contains(pathPart, "/")
-}
-
-// isEntryPointFile returns true for files excluded from coverage checks:
-// - main.go files (thin CLI entry points)
-// - Top-level module files (re-exports and dependency injection wrappers)
-// These files should only contain transparent re-exports or thin wrappers
-// that inject dependencies into internal APIs.
-// This works on "go tool cover -func" output format.
-func isEntryPointFile(coverageLine string) bool {
-	return isEntryPointCoverageLine(coverageLine)
-}
-
-func isGeneratedFile(path string) (bool, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return false, fmt.Errorf("failed to open %s: %w", path, err)
-	}
-	defer file.Close()
-
-	buf := make([]byte, 200)
-
-	n, err := file.Read(buf)
-	if err != nil && err != io.EOF {
-		return false, fmt.Errorf("failed to read %s: %w", path, err)
-	}
-
-	content := string(buf[:n])
-
-	return strings.Contains(content, "Code generated") || strings.Contains(content, "DO NOT EDIT"), nil
 }
 
 func lint(ctx context.Context) error {
@@ -1270,6 +1271,15 @@ func mutate() error {
 		"./dev/...",
 		"-run=TestMutation",
 	)
+}
+
+func nameListString(names []*ast.Ident) string {
+	var result []string
+	for _, n := range names {
+		result = append(result, n.Name)
+	}
+
+	return strings.Join(result, ", ")
 }
 
 // output runs a command and captures stdout only (stderr goes to os.Stderr).

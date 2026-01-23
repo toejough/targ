@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/toejough/targ/dev/issues/internal"
 )
 
 func TestListOutputsHeaderAndColumns(t *testing.T) {
@@ -39,9 +41,9 @@ func TestListOutputsHeaderAndColumns(t *testing.T) {
 		t.Fatalf("unexpected write error: %v", err)
 	}
 
-	cmd := &List{File: path}
+	cmd := &ListArgs{File: path}
 	output := captureStdout(t, func() {
-		if err := cmd.Run(); err != nil {
+		if err := internal.List(*cmd); err != nil {
 			t.Fatalf("unexpected run error: %v", err)
 		}
 	})
@@ -71,8 +73,8 @@ func TestNormalizePriority(t *testing.T) {
 		"custom": "custom",
 	}
 	for input, want := range cases {
-		if got := normalizePriority(input); got != want {
-			t.Fatalf("normalizePriority(%q) = %q, want %q", input, got, want)
+		if got := internal.NormalizePriority(input); got != want {
+			t.Fatalf("NormalizePriority(%q) = %q, want %q", input, got, want)
 		}
 	}
 }
@@ -87,8 +89,8 @@ func TestNormalizeStatus(t *testing.T) {
 		" review ":    "review",
 	}
 	for input, want := range cases {
-		if got := normalizeStatus(input); got != want {
-			t.Fatalf("normalizeStatus(%q) = %q, want %q", input, got, want)
+		if got := internal.NormalizeStatus(input); got != want {
+			t.Fatalf("NormalizeStatus(%q) = %q, want %q", input, got, want)
 		}
 	}
 }
@@ -107,18 +109,18 @@ func TestParseAndUpdateStatus(t *testing.T) {
 **Description**
 Something
 `
-	file, err := parseIssueFile(content)
+	file, err := internal.ParseIssueFile(content)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	iss, _ := file.find(1)
+	iss, _ := file.Find(1)
 	if iss == nil {
 		t.Fatal("expected issue")
 	}
-	block := issueBlockLines(file.lines, *iss)
-	block = updateIssueStatus(block, "backlog")
-	if parseStatus(block) != "backlog" {
-		t.Fatalf("expected status to be added, got %q", parseStatus(block))
+	block := internal.IssueBlockLines(file.Lines(), *iss)
+	block = internal.UpdateIssueStatus(block, "backlog")
+	if internal.ParseStatus(block) != "backlog" {
+		t.Fatalf("expected status to be added, got %q", internal.ParseStatus(block))
 	}
 }
 
@@ -140,18 +142,18 @@ func TestParse_StopsAtSectionHeader(t *testing.T) {
 		"**Status**",
 		"done",
 	}, "\n")
-	file, err := parseIssueFile(content)
+	file, err := internal.ParseIssueFile(content)
 	if err != nil {
 		t.Fatalf("unexpected parse error: %v", err)
 	}
-	if len(file.issues) != 2 {
-		t.Fatalf("expected 2 issues, got %d", len(file.issues))
+	if len(file.Issues()) != 2 {
+		t.Fatalf("expected 2 issues, got %d", len(file.Issues()))
 	}
-	if file.issues[0].Number != 1 {
-		t.Fatalf("expected first issue number 1, got %d", file.issues[0].Number)
+	if file.Issues()[0].Number != 1 {
+		t.Fatalf("expected first issue number 1, got %d", file.Issues()[0].Number)
 	}
-	if file.issues[1].Number != 2 {
-		t.Fatalf("expected second issue number 2, got %d", file.issues[1].Number)
+	if file.Issues()[1].Number != 2 {
+		t.Fatalf("expected second issue number 2, got %d", file.Issues()[1].Number)
 	}
 }
 
@@ -165,15 +167,15 @@ func TestUpdateSectionField(t *testing.T) {
 		"**Priority**",
 		"Low",
 	}
-	lines = updateSectionField(lines, "Description", "New")
+	lines = internal.UpdateSectionField(lines, "Description", "New")
 	if got := testSectionValue(lines, "Description"); got != "New" {
 		t.Fatalf("expected updated description, got %q", got)
 	}
-	lines = updateSectionField(lines, "Acceptance", "OK")
+	lines = internal.UpdateSectionField(lines, "Acceptance", "OK")
 	if got := testSectionValue(lines, "Acceptance"); got != "OK" {
 		t.Fatalf("expected inserted acceptance, got %q", got)
 	}
-	lines = updateSectionField(lines, "Details", "Steps")
+	lines = internal.UpdateSectionField(lines, "Details", "Steps")
 	if got := testSectionValue(lines, "Details"); got != "Steps" {
 		t.Fatalf("expected inserted details, got %q", got)
 	}

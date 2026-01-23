@@ -1,5 +1,9 @@
 version = '2'
 
+# Run options
+[run]
+relative-path-mode = 'gomod'
+
 [linters]
 default = 'none' # disable all linters - this is a formatter config file
 

@@ -8,7 +8,7 @@ require (
 	github.com/akedrou/textdiff v0.1.0
 	github.com/bmatcuk/doublestar/v4 v4.9.2
 	github.com/onsi/gomega v1.39.0
-	github.com/toejough/go-reorder v0.0.0-20260117211236-3c8f179f2882
+	github.com/toejough/go-reorder v0.0.0-20260123033158-812dc6e76018
 	github.com/toejough/testredundancy v0.0.0-20260114211127-a9e3ddec91a4
 	pgregory.net/rapid v1.2.0
 )

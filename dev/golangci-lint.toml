@@ -1,5 +1,9 @@
 version = '2'
 
+# Run options
+[run]
+relative-path-mode = 'gomod'
+
 # Linter rules
 [linters]
 default = 'all'
@@ -17,41 +21,51 @@ disable = [
 # Exclude certain linters from test files
 [[linters.exclusions.rules]]
 path = '_test\.go$'
-linters = ['dogsled', 'dupl', 'err113', 'gochecknoglobals', 'goconst', 'gosec', 'mnd', 'noctx', 'noinlineerr', 'testpackage', 'wrapcheck']
-
-# Exclude gochecknoinits from examples (they use init() by design)
-[[linters.exclusions.rules]]
-path = 'examples/'
-linters = ['gochecknoinits']
-
-# Exclude gochecknoglobals from DI injection point files
-[[linters.exclusions.rules]]
-path = '(file/checksum\.go|file/newer\.go|sh/sh\.go|internal/core/override\.go)$'
-linters = ['gochecknoglobals']
-
-# Exclude gochecknoinits from signal handler setup
-[[linters.exclusions.rules]]
-path = 'sh/cleanup_unix\.go$'
-linters = ['gochecknoinits']
-
-# Exclude revive exported-type-comment from type alias files and exported interfaces
-[[linters.exclusions.rules]]
-path = '(targ\.go|group\.go|target\.go|file/watch\.go|buildtool/discover\.go|buildtool/internal/parse/parse\.go|internal/core/(command|run_env|types|deps|override)\.go)$'
-linters = ['revive']
-text = 'exported'
+linters = [
+	'dogsled',
+	'dupl',
+	'err113',
+	'gochecknoglobals',
+	'goconst',
+	'gosec',
+	'mnd',
+	'noctx',
+	'noinlineerr',
+	'wrapcheck',
+]
 
 # Allow dot imports in test files (gomega requires them)
 [[linters.exclusions.rules]]
 path = '_test\.go$'
 text = 'dot-imports'
 
+# Exclude gochecknoglobals from DI injection point files
+[[linters.exclusions.rules]]
+path = '(internal/file/checksum\.go|internal/file/newer\.go|internal/sh/sh\.go|internal/sh/cleanup\.go)$'
+linters = ['gochecknoglobals']
+
 [linters.settings.depguard.rules.all]
 files = ['$all', '!$test']
-allow = ['$gostd', 'github.com/dave/dst', 'github.com/toejough/imptest', 'github.com/toejough/targ', 'github.com/toejough/go-reorder', 'github.com/bmatcuk/doublestar/v4', 'golang.org/x/tools/go/packages']
+allow = [
+	'$gostd',
+	'github.com/dave/dst',
+	'github.com/toejough/imptest',
+	'github.com/toejough/targ',
+	'github.com/toejough/go-reorder',
+	'github.com/bmatcuk/doublestar/v4',
+	'golang.org/x/tools/go/packages',
+]
 
 [linters.settings.depguard.rules.test]
 files = ['$test']
-allow = ['$gostd', 'github.com/dave/dst', 'github.com/toejough/imptest', 'github.com/toejough/targ', 'github.com/onsi/gomega', 'pgregory.net/rapid']
+allow = [
+	'$gostd',
+	'github.com/dave/dst',
+	'github.com/toejough/imptest',
+	'github.com/toejough/targ',
+	'github.com/onsi/gomega',
+	'pgregory.net/rapid',
+]
 
 [linters.settings.nlreturn]
 block-size = 2
@@ -60,7 +74,33 @@ block-size = 2
 # ignore-decls should work for conventional declarations like 't *testing.T' but doesn't
 # See: https://github.com/blizzy78/varnamelen/issues/5
 # Using ignore-names as workaround
-ignore-names = ['t', 'b', 'rt', 'a', 'g', 'i', 'j', 'fs', 'fn', 'ok', 'r', 'p', 'mt', 'f', 'v', 'w', 'pc', 'm', 'n', 'ch', 'wg', 'tc', 'tt', 'fv', 'ft']
+ignore-names = [
+	't',
+	'b',
+	'rt',
+	'a',
+	'g',
+	'i',
+	'j',
+	'fs',
+	'fn',
+	'ok',
+	'r',
+	'p',
+	'mt',
+	'f',
+	'v',
+	'w',
+	'pc',
+	'm',
+	'n',
+	'ch',
+	'wg',
+	'tc',
+	'tt',
+	'fv',
+	'ft',
+]
 
 [linters.settings.unused]
 field-writes-are-uses = false
@@ -69,7 +109,7 @@ local-variables-are-used = false
 
 [linters.settings.wrapcheck]
 # Allow internal packages without wrapping (they're part of this project)
-ignore-package-globs = ['github.com/toejough/targ/internal/*']
+ignore-package-globs = ['*/internal/*']
 
 # how to handle the issues the linters find
 [issues]
