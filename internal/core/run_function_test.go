@@ -63,16 +63,17 @@ func TestRunWithEnv_CaretResetsToRoot(t *testing.T) {
 func TestRunWithEnv_ContextFunction(t *testing.T) {
 	helloWorldCalled = false
 
-	env := MockrunEnv(t)
+	mock, imp := MockRunEnv(t)
 	done := make(chan struct{})
 
 	go func() {
-		_ = RunWithEnv(env.Mock, RunOptions{AllowDefault: true}, ContextFunc)
+		_ = RunWithEnv(mock, RunOptions{AllowDefault: true}, ContextFunc)
 
 		close(done)
 	}()
 
-	env.Method.Args.ExpectCalledWithExactly().InjectReturnValues([]string{"cmd"})
+	imp.Args.ArgsEqual().Return([]string{"cmd"})
+	imp.SupportsSignals.ArgsEqual().Return(true)
 	<-done
 
 	if !helloWorldCalled {
@@ -145,16 +146,17 @@ func TestRunWithEnv_FunctionSubcommand(t *testing.T) {
 		Hello: func() { called = true },
 	}
 
-	env := MockrunEnv(t)
+	mock, imp := MockRunEnv(t)
 	done := make(chan struct{})
 
 	go func() {
-		_ = RunWithEnv(env.Mock, RunOptions{AllowDefault: true}, root)
+		_ = RunWithEnv(mock, RunOptions{AllowDefault: true}, root)
 
 		close(done)
 	}()
 
-	env.Method.Args.ExpectCalledWithExactly().InjectReturnValues([]string{"cmd", "hello"})
+	imp.Args.ArgsEqual().Return([]string{"cmd", "hello"})
+	imp.SupportsSignals.ArgsEqual().Return(true)
 	<-done
 
 	if !called {
@@ -165,14 +167,15 @@ func TestRunWithEnv_FunctionSubcommand(t *testing.T) {
 func TestRunWithEnv_FunctionWithHelpFlag(t *testing.T) {
 	defaultFuncCalled = false
 
-	env := MockrunEnv(t)
+	mock, imp := MockRunEnv(t)
 	done := make(chan error, 1)
 
 	go func() {
-		done <- RunWithEnv(env.Mock, RunOptions{AllowDefault: true, HelpOnly: true}, DefaultFunc)
+		done <- RunWithEnv(mock, RunOptions{AllowDefault: true, HelpOnly: true}, DefaultFunc)
 	}()
 
-	env.Method.Args.ExpectCalledWithExactly().InjectReturnValues([]string{"cmd"})
+	imp.Args.ArgsEqual().Return([]string{"cmd"})
+	imp.SupportsSignals.ArgsEqual().Return(true)
 
 	err := <-done
 	// HelpOnly should skip execution
@@ -256,17 +259,17 @@ func TestRunWithEnv_MultipleRoots_SubcommandThenRoot(t *testing.T) {
 	multiRootFlashCalls = 0
 	multiRootDiscoverCalls = 0
 
-	env := MockrunEnv(t)
+	mock, imp := MockRunEnv(t)
 	done := make(chan struct{})
 
 	go func() {
-		_ = RunWithEnv(env.Mock, RunOptions{AllowDefault: false}, &firmwareRoot{}, &discoverRoot{})
+		_ = RunWithEnv(mock, RunOptions{AllowDefault: false}, &firmwareRoot{}, &discoverRoot{})
 
 		close(done)
 	}()
 
-	env.Method.Args.ExpectCalledWithExactly().
-		InjectReturnValues([]string{"cmd", "firmware", "flash-only", "discover"})
+	imp.Args.ArgsEqual().Return([]string{"cmd", "firmware", "flash-only", "discover"})
+	imp.SupportsSignals.ArgsEqual().Return(true)
 	<-done
 
 	if multiRootFlashCalls != 1 {
@@ -282,16 +285,17 @@ func TestRunWithEnv_MultipleSubcommands(t *testing.T) {
 	multiSubOneCalls = 0
 	multiSubTwoCalls = 0
 
-	env := MockrunEnv(t)
+	mock, imp := MockRunEnv(t)
 	done := make(chan struct{})
 
 	go func() {
-		_ = RunWithEnv(env.Mock, RunOptions{AllowDefault: true}, &MultiSubRoot{})
+		_ = RunWithEnv(mock, RunOptions{AllowDefault: true}, &MultiSubRoot{})
 
 		close(done)
 	}()
 
-	env.Method.Args.ExpectCalledWithExactly().InjectReturnValues([]string{"cmd", "one", "two"})
+	imp.Args.ArgsEqual().Return([]string{"cmd", "one", "two"})
+	imp.SupportsSignals.ArgsEqual().Return(true)
 	<-done
 
 	if multiSubOneCalls != 1 {
@@ -306,16 +310,17 @@ func TestRunWithEnv_MultipleSubcommands(t *testing.T) {
 func TestRunWithEnv_MultipleTargets_FunctionByName(t *testing.T) {
 	helloWorldCalled = false
 
-	env := MockrunEnv(t)
+	mock, imp := MockRunEnv(t)
 	done := make(chan struct{})
 
 	go func() {
-		_ = RunWithEnv(env.Mock, RunOptions{AllowDefault: true}, HelloWorld, &TestCmdStruct{})
+		_ = RunWithEnv(mock, RunOptions{AllowDefault: true}, HelloWorld, &TestCmdStruct{})
 
 		close(done)
 	}()
 
-	env.Method.Args.ExpectCalledWithExactly().InjectReturnValues([]string{"cmd", "hello-world"})
+	imp.Args.ArgsEqual().Return([]string{"cmd", "hello-world"})
+	imp.SupportsSignals.ArgsEqual().Return(true)
 	<-done
 
 	if !helloWorldCalled {
@@ -326,16 +331,17 @@ func TestRunWithEnv_MultipleTargets_FunctionByName(t *testing.T) {
 func TestRunWithEnv_SingleFunction_DefaultCommand(t *testing.T) {
 	defaultFuncCalled = false
 
-	env := MockrunEnv(t)
+	mock, imp := MockRunEnv(t)
 	done := make(chan struct{})
 
 	go func() {
-		_ = RunWithEnv(env.Mock, RunOptions{AllowDefault: true}, DefaultFunc)
+		_ = RunWithEnv(mock, RunOptions{AllowDefault: true}, DefaultFunc)
 
 		close(done)
 	}()
 
-	env.Method.Args.ExpectCalledWithExactly().InjectReturnValues([]string{"cmd"})
+	imp.Args.ArgsEqual().Return([]string{"cmd"})
+	imp.SupportsSignals.ArgsEqual().Return(true)
 	<-done
 
 	if !defaultFuncCalled {
@@ -346,16 +352,17 @@ func TestRunWithEnv_SingleFunction_DefaultCommand(t *testing.T) {
 func TestRunWithEnv_SingleFunction_NoDefault(t *testing.T) {
 	defaultFuncCalled = false
 
-	env := MockrunEnv(t)
+	mock, imp := MockRunEnv(t)
 	done := make(chan struct{})
 
 	go func() {
-		_ = RunWithEnv(env.Mock, RunOptions{AllowDefault: false}, DefaultFunc)
+		_ = RunWithEnv(mock, RunOptions{AllowDefault: false}, DefaultFunc)
 
 		close(done)
 	}()
 
-	env.Method.Args.ExpectCalledWithExactly().InjectReturnValues([]string{"cmd"})
+	imp.Args.ArgsEqual().Return([]string{"cmd"})
+	imp.SupportsSignals.ArgsEqual().Return(true)
 	<-done
 
 	if defaultFuncCalled {

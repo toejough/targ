@@ -15,8 +15,6 @@ type InterleavedFlagsPositionals struct {
 	Count int    `targ:"flag,short=c"`
 }
 
-// --- Positional Arguments ---
-
 type PositionalArgs struct {
 	Src string `targ:"positional"`
 	Dst string `targ:"positional"`

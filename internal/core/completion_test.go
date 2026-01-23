@@ -64,7 +64,6 @@ func (c *PositionalCompletionCmd) TagOptions(field string, opts TagOptions) (Tag
 	return opts, nil
 }
 
-// VariadicFlagCmd has a slice flag to test variadic value skipping.
 type VariadicFlagCmd struct {
 	Files  []string `targ:"flag"`
 	Target string   `targ:"positional,enum=build|test"`

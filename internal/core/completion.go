@@ -154,7 +154,6 @@ type completionFlagSpec struct {
 	Variadic   bool
 }
 
-// completionState holds state for shell completion.
 type completionState struct {
 	roots               []*commandNode
 	prefix              string
@@ -417,7 +416,6 @@ func (s *completionState) suggestRootsIfAllowed() {
 	}
 }
 
-// positionalCounter tracks state for counting positional arguments.
 type positionalCounter struct {
 	args  []string
 	specs map[string]completionFlagSpec

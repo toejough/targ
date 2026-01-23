@@ -62,7 +62,6 @@ func RunContextV(ctx context.Context, name string, args ...string) error {
 	return RunContext(ctx, name, args...)
 }
 
-// safeBuffer is a thread-safe buffer for capturing concurrent writes.
 type safeBuffer struct {
 	mu  sync.Mutex
 	buf bytes.Buffer

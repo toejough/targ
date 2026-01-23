@@ -569,5 +569,4 @@ const (
 	testContextKey contextKey = "key"
 )
 
-// contextKey is a typed key for context values in tests.
 type contextKey string

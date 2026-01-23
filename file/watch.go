@@ -3,19 +3,16 @@ package file
 import (
 	"context"
 	"fmt"
-	"os"
 	"sort"
 	"time"
 )
 
-// ChangeSet contains the files that changed between snapshots.
 type ChangeSet struct {
 	Added    []string
 	Removed  []string
 	Modified []string
 }
 
-// WatchOptions configures the Watch function.
 type WatchOptions struct {
 	Interval time.Duration
 }
@@ -122,7 +119,7 @@ func snapshot(patterns []string) (*fileSnapshot, error) {
 
 	files := make(map[string]int64, len(matches))
 	for _, path := range matches {
-		info, err := os.Stat(path)
+		info, err := statFile(path)
 		if err != nil {
 			return nil, fmt.Errorf("getting file info for %s: %w", path, err)
 		}

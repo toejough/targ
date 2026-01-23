@@ -13,13 +13,12 @@ import (
 	"time"
 )
 
-// ExecuteEnv captures args and errors for testing.
 type ExecuteEnv struct {
 	args   []string
 	output strings.Builder
 }
 
-// NewExecuteEnv returns a runEnv that captures output for testing.
+// NewExecuteEnv returns a RunEnv that captures output for testing.
 func NewExecuteEnv(args []string) *ExecuteEnv {
 	return &ExecuteEnv{args: args}
 }
@@ -49,13 +48,27 @@ func (e *ExecuteEnv) Println(args ...any) {
 	fmt.Fprintln(&e.output, args...)
 }
 
-// ExitError is returned when a command exits with a non-zero code.
+// SupportsSignals returns false for test environments.
+func (e *ExecuteEnv) SupportsSignals() bool {
+	return false
+}
+
 type ExitError struct {
 	Code int
 }
 
 func (e ExitError) Error() string {
 	return fmt.Sprintf("exit code %d", e.Code)
+}
+
+type RunEnv interface {
+	Args() []string
+	Printf(format string, args ...any)
+	Println(args ...any)
+	Exit(code int)
+	// SupportsSignals returns true if signal handling should be enabled.
+	// Production implementations return true; test mocks return false.
+	SupportsSignals() bool
 }
 
 // DetectShell returns the current shell name (bash, zsh, fish) or empty string.
@@ -85,7 +98,7 @@ func DetectShell() string {
 // RunWithEnv executes commands with a custom environment.
 //
 //nolint:cyclop // Entry point orchestrating setup, flag extraction, and execution paths
-func RunWithEnv(env runEnv, opts RunOptions, targets ...any) error {
+func RunWithEnv(env RunEnv, opts RunOptions, targets ...any) error {
 	exec := &runExecutor{
 		env:        env,
 		opts:       opts,
@@ -153,56 +166,21 @@ var (
 	errTimeoutRequiresDuration = errors.New("--timeout requires a duration value (e.g., 10m, 1h)")
 )
 
-// completeFunc is the function type for command completion.
 type completeFunc func([]*commandNode, string) error
 
-// listCommandInfo represents a command in the __list output.
 type listCommandInfo struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
 }
 
-// listFunc is the function type for listing commands.
 type listFunc func([]*commandNode) error
 
-// listOutput is the JSON structure returned by the __list command.
 type listOutput struct {
 	Commands []listCommandInfo `json:"commands"`
 }
 
-type osRunEnv struct{}
-
-func (osRunEnv) Args() []string {
-	return os.Args
-}
-
-func (osRunEnv) Exit(code int) {
-	os.Exit(code)
-}
-
-func (osRunEnv) Printf(format string, args ...any) {
-	fmt.Printf(format, args...)
-}
-
-func (osRunEnv) Println(args ...any) {
-	fmt.Println(args...)
-}
-
-type runEnv interface {
-	Args() []string
-	Printf(format string, args ...any)
-	Println(args ...any)
-	Exit(code int)
-}
-
-// NewOsRunEnv returns a runEnv that uses os.Args and real stdout/exit.
-func NewOsRunEnv() runEnv {
-	return osRunEnv{}
-}
-
-// runExecutor holds state for executing commands.
 type runExecutor struct {
-	env        runEnv
+	env        RunEnv
 	opts       RunOptions
 	ctx        context.Context //nolint:containedctx // stored for command execution
 	cancelFunc context.CancelFunc
@@ -470,7 +448,7 @@ func (e *runExecutor) printCompletion(shell string) error {
 func (e *runExecutor) setupContext() error {
 	e.ctx = context.Background()
 
-	if _, ok := e.env.(osRunEnv); ok {
+	if e.env.SupportsSignals() {
 		ctx, cancel := signal.NotifyContext(e.ctx, os.Interrupt, syscall.SIGTERM)
 		e.ctx = ctx
 		e.cancelFunc = cancel

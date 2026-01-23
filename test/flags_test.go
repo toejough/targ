@@ -7,8 +7,6 @@ import (
 	"github.com/toejough/targ"
 )
 
-// --- Flag Parsing Tests ---
-
 type CustomFlagName struct {
 	User string `targ:"name=user_name"`
 }
@@ -84,8 +82,6 @@ type ShortMixedFlags struct {
 
 func (c *ShortMixedFlags) Run() {}
 
-// --- TagOptions Override ---
-
 type TagOptionsOverride struct {
 	Mode string `targ:"flag,enum=dev|prod"`
 }
@@ -103,8 +99,6 @@ func (c *TagOptionsOverride) TagOptions(
 
 	return opts, nil
 }
-
-// --- Custom Types ---
 
 type TextValue struct {
 	Value string

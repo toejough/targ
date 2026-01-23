@@ -13,7 +13,6 @@ import (
 	"github.com/toejough/targ/sh"
 )
 
-// DepMode specifies how dependencies are executed.
 type DepMode int
 
 // DepMode values.
@@ -24,8 +23,6 @@ const (
 	DepModeParallel
 )
 
-// Target wraps a function or shell command with configuration.
-// Use Targ() to create a Target, then chain builder methods.
 type Target struct {
 	fn              any           // func(...) or string (shell command)
 	name            string        // CLI name override
@@ -435,7 +432,6 @@ func Targ(fn any) *Target {
 	return &Target{fn: fn}
 }
 
-// repetitionState tracks state across loop iterations.
 type repetitionState struct {
 	lastErr      error
 	backoffDelay time.Duration

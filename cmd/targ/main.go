@@ -14,6 +14,7 @@ import (
 	"go/parser"
 	"go/token"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -134,19 +135,16 @@ type buildContext struct {
 	importRoot    string
 }
 
-// commandInfo represents a command from a module binary.
 type commandInfo struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
 }
 
-// contentPatch represents a string replacement in existing content.
 type contentPatch struct {
 	old string
 	new string
 }
 
-// createOptions holds parsed options for the --create flag.
 type createOptions struct {
 	Path     []string // Group path components (e.g., ["dev", "lint"] for "dev lint fast")
 	Name     string   // Target name (e.g., "fast")
@@ -155,13 +153,11 @@ type createOptions struct {
 	Cache    []string // Cache patterns
 }
 
-// groupModifications holds the result of processing groups for a new target.
 type groupModifications struct {
 	newCode        string         // New group declarations to append
 	contentPatches []contentPatch // Modifications to existing content
 }
 
-// listOutput is the JSON structure returned by __list command.
 type listOutput struct {
 	Commands []commandInfo `json:"commands"`
 }
@@ -171,7 +167,6 @@ type moduleBootstrap struct {
 	cacheKey string
 }
 
-// moduleRegistry tracks built binaries and their commands.
 type moduleRegistry struct {
 	BinaryPath string
 	ModuleRoot string
@@ -179,7 +174,6 @@ type moduleRegistry struct {
 	Commands   []commandInfo
 }
 
-// moduleTargets groups discovered packages by their module.
 type moduleTargets struct {
 	ModuleRoot string
 	ModulePath string
@@ -263,7 +257,36 @@ func (n *namespaceNode) sortedChildren() []*namespaceNode {
 	return children
 }
 
-// syncOptions holds parsed options for the --sync flag.
+type osFileSystem struct{}
+
+func (osFileSystem) ReadDir(name string) ([]fs.DirEntry, error) {
+	entries, err := os.ReadDir(name)
+	if err != nil {
+		return nil, fmt.Errorf("reading directory %s: %w", name, err)
+	}
+
+	return entries, nil
+}
+
+//nolint:gosec // build tool reads user source files by design
+func (osFileSystem) ReadFile(name string) ([]byte, error) {
+	data, err := os.ReadFile(name)
+	if err != nil {
+		return nil, fmt.Errorf("reading file %s: %w", name, err)
+	}
+
+	return data, nil
+}
+
+func (osFileSystem) WriteFile(name string, data []byte, perm fs.FileMode) error {
+	err := os.WriteFile(name, data, perm)
+	if err != nil {
+		return fmt.Errorf("writing file %s: %w", name, err)
+	}
+
+	return nil
+}
+
 type syncOptions struct {
 	PackagePath string // Module path to sync (e.g., "github.com/foo/bar")
 }
@@ -274,7 +297,6 @@ type targDependency struct {
 	ReplaceDir string
 }
 
-// targRunner holds state for a single targ invocation.
 type targRunner struct {
 	binArg        string
 	args          []string
@@ -322,7 +344,7 @@ func (r *targRunner) buildAndRunWithOptions(
 }
 
 func (r *targRunner) discoverPackages() ([]buildtool.PackageInfo, error) {
-	infos, err := buildtool.Discover(buildtool.OSFileSystem{}, buildtool.Options{
+	infos, err := buildtool.Discover(osFileSystem{}, buildtool.Options{
 		StartDir: r.startDir,
 		BuildTag: "targ",
 	})
@@ -714,7 +736,7 @@ func (r *targRunner) prepareBootstrap(
 		return moduleBootstrap{}, fmt.Errorf("error generating code: %w", err)
 	}
 
-	taggedFiles, err := buildtool.TaggedFiles(buildtool.OSFileSystem{}, buildtool.Options{
+	taggedFiles, err := buildtool.TaggedFiles(osFileSystem{}, buildtool.Options{
 		StartDir: r.startDir,
 		BuildTag: "targ",
 	})

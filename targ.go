@@ -4,6 +4,7 @@ package targ
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 
 	"github.com/toejough/targ/internal/core"
@@ -21,32 +22,22 @@ const (
 	TagKindUnknown    = core.TagKindUnknown
 )
 
-// DepsOption configures Deps behavior.
 type DepsOption = core.DepsOption
 
-// --- Re-exported types from core ---
-
-// Example represents a help example with a title and code block.
 type Example = core.Example
 
-// ExecuteResult contains the result of executing commands.
 type ExecuteResult struct {
 	Output string
 }
 
-// ExitError is returned when a command exits with a non-zero code.
 type ExitError = core.ExitError
 
-// Interleaved wraps a value with its parse position for tracking flag ordering.
 type Interleaved[T any] = core.Interleaved[T]
 
-// RunOptions controls runtime behavior for RunWithOptions.
 type RunOptions = core.RunOptions
 
-// TagKind identifies the type of a struct field in command parsing.
 type TagKind = core.TagKind
 
-// TagOptions contains parsed tag options for a struct field.
 type TagOptions = core.TagOptions
 
 // AppendBuiltinExamples adds built-in examples after custom examples.
@@ -151,7 +142,7 @@ func ResetDeps() {
 
 // RunWithOptions executes the CLI using os.Args and exits on error.
 func RunWithOptions(opts RunOptions, targets ...any) {
-	err := core.RunWithEnv(core.NewOsRunEnv(), opts, targets...)
+	err := core.RunWithEnv(osRunEnv{}, opts, targets...)
 	if err != nil {
 		var exitErr ExitError
 		if errors.As(err, &exitErr) {
@@ -170,3 +161,15 @@ func WithContext(ctx context.Context) DepsOption { return core.WithContext(ctx) 
 var (
 	registry []any //nolint:gochecknoglobals // Global registry is intentional for Register() API
 )
+
+type osRunEnv struct{}
+
+func (osRunEnv) Args() []string { return os.Args }
+
+func (osRunEnv) Exit(code int) { os.Exit(code) }
+
+func (osRunEnv) Printf(f string, a ...any) { fmt.Printf(f, a...) }
+
+func (osRunEnv) Println(a ...any) { fmt.Println(a...) }
+
+func (osRunEnv) SupportsSignals() bool { return true }

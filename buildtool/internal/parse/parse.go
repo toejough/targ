@@ -10,7 +10,6 @@ import (
 	"unicode"
 )
 
-// ReflectTag parses struct field tags in the reflect format.
 type ReflectTag string
 
 // NewReflectTag creates a ReflectTag from a raw tag string.

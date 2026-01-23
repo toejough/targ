@@ -8,7 +8,6 @@ import (
 	"go/parser"
 	"go/token"
 	"io/fs"
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -23,61 +22,22 @@ var (
 	ErrNoTaggedFiles          = errors.New("no tagged files found")
 )
 
-// FileInfo describes a file containing targ targets.
 type FileInfo struct {
 	Path string
 	Base string
 }
 
-// FileSystem abstracts file operations for testability.
 type FileSystem interface {
 	ReadDir(name string) ([]fs.DirEntry, error)
 	ReadFile(name string) ([]byte, error)
 	WriteFile(name string, data []byte, perm fs.FileMode) error
 }
 
-// OSFileSystem implements FileSystem using the os package.
-type OSFileSystem struct{}
-
-// ReadDir reads the named directory.
-func (OSFileSystem) ReadDir(name string) ([]fs.DirEntry, error) {
-	entries, err := os.ReadDir(name)
-	if err != nil {
-		return nil, fmt.Errorf("reading directory %s: %w", name, err)
-	}
-
-	return entries, nil
-}
-
-// ReadFile reads the named file.
-//
-//nolint:gosec // build tool reads user source files by design
-func (OSFileSystem) ReadFile(name string) ([]byte, error) {
-	data, err := os.ReadFile(name)
-	if err != nil {
-		return nil, fmt.Errorf("reading file %s: %w", name, err)
-	}
-
-	return data, nil
-}
-
-// WriteFile writes data to the named file.
-func (OSFileSystem) WriteFile(name string, data []byte, perm fs.FileMode) error {
-	err := os.WriteFile(name, data, perm)
-	if err != nil {
-		return fmt.Errorf("writing file %s: %w", name, err)
-	}
-
-	return nil
-}
-
-// Options configures the Discover function.
 type Options struct {
 	StartDir string
 	BuildTag string
 }
 
-// PackageInfo describes a package containing targ targets.
 type PackageInfo struct {
 	Dir                      string
 	Package                  string
@@ -86,13 +46,11 @@ type PackageInfo struct {
 	UsesExplicitRegistration bool // true if package has init() calling targ.Register()
 }
 
-// TaggedDir represents a directory containing tagged files.
 type TaggedDir struct {
 	Path  string
 	Depth int
 }
 
-// TaggedFile represents a file with a targ build tag.
 type TaggedFile struct {
 	Path    string
 	Content []byte
@@ -192,7 +150,6 @@ type dirQueueEntry struct {
 	depth int
 }
 
-// packageInfoParser holds state for parsing package info from tagged files.
 type packageInfoParser struct {
 	dir                      taggedDir
 	fset                     *token.FileSet

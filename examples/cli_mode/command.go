@@ -3,8 +3,6 @@ package main
 
 import "fmt"
 
-// --- Build ---
-
 type BuildArgs struct {
 	Target string `targ:"flag"`
 }

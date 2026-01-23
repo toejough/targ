@@ -10,7 +10,7 @@ import (
 )
 
 func TestDiscover_BasicPackage(t *testing.T) {
-	fsMock := MockFileSystem(t)
+	mock, imp := MockFileSystem(t)
 	opts := buildtool.Options{StartDir: "/root"}
 	done := make(chan struct{})
 
@@ -20,16 +20,16 @@ func TestDiscover_BasicPackage(t *testing.T) {
 	)
 
 	go func() {
-		infos, err = buildtool.Discover(fsMock.Mock, opts)
+		infos, err = buildtool.Discover(mock, opts)
 
 		close(done)
 	}()
 
-	fsMock.Method.ReadDir.ExpectCalledWithExactly("/root").InjectReturnValues([]fs.DirEntry{
+	imp.ReadDir.ArgsEqual("/root").Return([]fs.DirEntry{
 		fakeDirEntry{name: "targets.go", dir: false},
 	}, nil)
-	fsMock.Method.ReadFile.ExpectCalledWithExactly("/root/targets.go").
-		InjectReturnValues([]byte(`//go:build targ
+	imp.ReadFile.ArgsEqual("/root/targets.go").
+		Return([]byte(`//go:build targ
 
 package dev
 
@@ -67,7 +67,7 @@ func build() {}
 }
 
 func TestDiscover_CapturesPackageDoc(t *testing.T) {
-	fsMock := MockFileSystem(t)
+	mock, imp := MockFileSystem(t)
 	opts := buildtool.Options{StartDir: "/root"}
 	done := make(chan struct{})
 
@@ -77,16 +77,16 @@ func TestDiscover_CapturesPackageDoc(t *testing.T) {
 	)
 
 	go func() {
-		infos, err = buildtool.Discover(fsMock.Mock, opts)
+		infos, err = buildtool.Discover(mock, opts)
 
 		close(done)
 	}()
 
-	fsMock.Method.ReadDir.ExpectCalledWithExactly("/root").InjectReturnValues([]fs.DirEntry{
+	imp.ReadDir.ArgsEqual("/root").Return([]fs.DirEntry{
 		fakeDirEntry{name: "targets.go", dir: false},
 	}, nil)
-	fsMock.Method.ReadFile.ExpectCalledWithExactly("/root/targets.go").
-		InjectReturnValues([]byte(`//go:build targ
+	imp.ReadFile.ArgsEqual("/root/targets.go").
+		Return([]byte(`//go:build targ
 
 // Package dev provides development targets.
 package dev
@@ -112,7 +112,7 @@ func init() { targ.Register() }
 }
 
 func TestDiscover_DetectsExplicitRegistration(t *testing.T) {
-	fsMock := MockFileSystem(t)
+	mock, imp := MockFileSystem(t)
 	opts := buildtool.Options{StartDir: "/root"}
 	done := make(chan struct{})
 
@@ -122,16 +122,16 @@ func TestDiscover_DetectsExplicitRegistration(t *testing.T) {
 	)
 
 	go func() {
-		infos, err = buildtool.Discover(fsMock.Mock, opts)
+		infos, err = buildtool.Discover(mock, opts)
 
 		close(done)
 	}()
 
-	fsMock.Method.ReadDir.ExpectCalledWithExactly("/root").InjectReturnValues([]fs.DirEntry{
+	imp.ReadDir.ArgsEqual("/root").Return([]fs.DirEntry{
 		fakeDirEntry{name: "targets.go", dir: false},
 	}, nil)
-	fsMock.Method.ReadFile.ExpectCalledWithExactly("/root/targets.go").
-		InjectReturnValues([]byte(`//go:build targ
+	imp.ReadFile.ArgsEqual("/root/targets.go").
+		Return([]byte(`//go:build targ
 
 package dev
 
@@ -161,7 +161,7 @@ func myTarget() {}
 }
 
 func TestDiscover_DetectsExplicitRegistrationWithAlias(t *testing.T) {
-	fsMock := MockFileSystem(t)
+	mock, imp := MockFileSystem(t)
 	opts := buildtool.Options{StartDir: "/root"}
 	done := make(chan struct{})
 
@@ -171,16 +171,16 @@ func TestDiscover_DetectsExplicitRegistrationWithAlias(t *testing.T) {
 	)
 
 	go func() {
-		infos, err = buildtool.Discover(fsMock.Mock, opts)
+		infos, err = buildtool.Discover(mock, opts)
 
 		close(done)
 	}()
 
-	fsMock.Method.ReadDir.ExpectCalledWithExactly("/root").InjectReturnValues([]fs.DirEntry{
+	imp.ReadDir.ArgsEqual("/root").Return([]fs.DirEntry{
 		fakeDirEntry{name: "targets.go", dir: false},
 	}, nil)
-	fsMock.Method.ReadFile.ExpectCalledWithExactly("/root/targets.go").
-		InjectReturnValues([]byte(`//go:build targ
+	imp.ReadFile.ArgsEqual("/root/targets.go").
+		Return([]byte(`//go:build targ
 
 package dev
 
@@ -210,23 +210,23 @@ func myTarget() {}
 }
 
 func TestDiscover_ErrorsOnMainFunction(t *testing.T) {
-	fsMock := MockFileSystem(t)
+	mock, imp := MockFileSystem(t)
 	opts := buildtool.Options{StartDir: "/root"}
 	done := make(chan struct{})
 
 	var err error
 
 	go func() {
-		_, err = buildtool.Discover(fsMock.Mock, opts)
+		_, err = buildtool.Discover(mock, opts)
 
 		close(done)
 	}()
 
-	fsMock.Method.ReadDir.ExpectCalledWithExactly("/root").InjectReturnValues([]fs.DirEntry{
+	imp.ReadDir.ArgsEqual("/root").Return([]fs.DirEntry{
 		fakeDirEntry{name: "targets.go", dir: false},
 	}, nil)
-	fsMock.Method.ReadFile.ExpectCalledWithExactly("/root/targets.go").
-		InjectReturnValues([]byte(`//go:build targ
+	imp.ReadFile.ArgsEqual("/root/targets.go").
+		Return([]byte(`//go:build targ
 
 package dev
 
@@ -241,29 +241,29 @@ func main() {}
 }
 
 func TestDiscover_ErrorsOnMultiplePackageNames(t *testing.T) {
-	fsMock := MockFileSystem(t)
+	mock, imp := MockFileSystem(t)
 	opts := buildtool.Options{StartDir: "/root"}
 	done := make(chan struct{})
 
 	var err error
 
 	go func() {
-		_, err = buildtool.Discover(fsMock.Mock, opts)
+		_, err = buildtool.Discover(mock, opts)
 
 		close(done)
 	}()
 
-	fsMock.Method.ReadDir.ExpectCalledWithExactly("/root").InjectReturnValues([]fs.DirEntry{
+	imp.ReadDir.ArgsEqual("/root").Return([]fs.DirEntry{
 		fakeDirEntry{name: "a.go", dir: false},
 		fakeDirEntry{name: "b.go", dir: false},
 	}, nil)
-	fsMock.Method.ReadFile.ExpectCalledWithExactly("/root/a.go").
-		InjectReturnValues([]byte(`//go:build targ
+	imp.ReadFile.ArgsEqual("/root/a.go").
+		Return([]byte(`//go:build targ
 
 package dev
 `), nil)
-	fsMock.Method.ReadFile.ExpectCalledWithExactly("/root/b.go").
-		InjectReturnValues([]byte(`//go:build targ
+	imp.ReadFile.ArgsEqual("/root/b.go").
+		Return([]byte(`//go:build targ
 
 package other
 `), nil)
@@ -276,7 +276,7 @@ package other
 }
 
 func TestDiscover_MultiplePackages(t *testing.T) {
-	fsMock := MockFileSystem(t)
+	mock, imp := MockFileSystem(t)
 	opts := buildtool.Options{StartDir: "/root"}
 	done := make(chan struct{})
 
@@ -286,17 +286,17 @@ func TestDiscover_MultiplePackages(t *testing.T) {
 	)
 
 	go func() {
-		infos, err = buildtool.Discover(fsMock.Mock, opts)
+		infos, err = buildtool.Discover(mock, opts)
 
 		close(done)
 	}()
 
-	fsMock.Method.ReadDir.ExpectCalledWithExactly("/root").InjectReturnValues([]fs.DirEntry{
+	imp.ReadDir.ArgsEqual("/root").Return([]fs.DirEntry{
 		fakeDirEntry{name: "dev", dir: true},
 		fakeDirEntry{name: "targets.go", dir: false},
 	}, nil)
-	fsMock.Method.ReadFile.ExpectCalledWithExactly("/root/targets.go").
-		InjectReturnValues([]byte(`//go:build targ
+	imp.ReadFile.ArgsEqual("/root/targets.go").
+		Return([]byte(`//go:build targ
 
 package root
 
@@ -304,11 +304,11 @@ import "github.com/toejough/targ"
 
 func init() { targ.Register() }
 `), nil)
-	fsMock.Method.ReadDir.ExpectCalledWithExactly("/root/dev").InjectReturnValues([]fs.DirEntry{
+	imp.ReadDir.ArgsEqual("/root/dev").Return([]fs.DirEntry{
 		fakeDirEntry{name: "dev.go", dir: false},
 	}, nil)
-	fsMock.Method.ReadFile.ExpectCalledWithExactly("/root/dev/dev.go").
-		InjectReturnValues([]byte(`//go:build targ
+	imp.ReadFile.ArgsEqual("/root/dev/dev.go").
+		Return([]byte(`//go:build targ
 
 package dev
 
@@ -329,7 +329,7 @@ func init() { targ.Register() }
 }
 
 func TestDiscover_NoExplicitRegistration(t *testing.T) {
-	fsMock := MockFileSystem(t)
+	mock, imp := MockFileSystem(t)
 	opts := buildtool.Options{StartDir: "/root"}
 	done := make(chan struct{})
 
@@ -339,16 +339,16 @@ func TestDiscover_NoExplicitRegistration(t *testing.T) {
 	)
 
 	go func() {
-		infos, err = buildtool.Discover(fsMock.Mock, opts)
+		infos, err = buildtool.Discover(mock, opts)
 
 		close(done)
 	}()
 
-	fsMock.Method.ReadDir.ExpectCalledWithExactly("/root").InjectReturnValues([]fs.DirEntry{
+	imp.ReadDir.ArgsEqual("/root").Return([]fs.DirEntry{
 		fakeDirEntry{name: "targets.go", dir: false},
 	}, nil)
-	fsMock.Method.ReadFile.ExpectCalledWithExactly("/root/targets.go").
-		InjectReturnValues([]byte(`//go:build targ
+	imp.ReadFile.ArgsEqual("/root/targets.go").
+		Return([]byte(`//go:build targ
 
 package dev
 
@@ -371,7 +371,7 @@ func Build() {}
 }
 
 func TestDiscover_NoTaggedFiles(t *testing.T) {
-	fsMock := MockFileSystem(t)
+	mock, imp := MockFileSystem(t)
 	opts := buildtool.Options{StartDir: "/root"}
 	done := make(chan struct{})
 
@@ -381,16 +381,16 @@ func TestDiscover_NoTaggedFiles(t *testing.T) {
 	)
 
 	go func() {
-		infos, err = buildtool.Discover(fsMock.Mock, opts)
+		infos, err = buildtool.Discover(mock, opts)
 
 		close(done)
 	}()
 
-	fsMock.Method.ReadDir.ExpectCalledWithExactly("/root").InjectReturnValues([]fs.DirEntry{
+	imp.ReadDir.ArgsEqual("/root").Return([]fs.DirEntry{
 		fakeDirEntry{name: "main.go", dir: false},
 	}, nil)
-	fsMock.Method.ReadFile.ExpectCalledWithExactly("/root/main.go").
-		InjectReturnValues([]byte(`package main
+	imp.ReadFile.ArgsEqual("/root/main.go").
+		Return([]byte(`package main
 
 func main() {}
 `), nil)
@@ -407,7 +407,7 @@ func main() {}
 }
 
 func TestDiscover_SkipsHiddenDirectories(t *testing.T) {
-	fsMock := MockFileSystem(t)
+	mock, imp := MockFileSystem(t)
 	opts := buildtool.Options{StartDir: "/root"}
 	done := make(chan struct{})
 
@@ -417,17 +417,17 @@ func TestDiscover_SkipsHiddenDirectories(t *testing.T) {
 	)
 
 	go func() {
-		infos, err = buildtool.Discover(fsMock.Mock, opts)
+		infos, err = buildtool.Discover(mock, opts)
 
 		close(done)
 	}()
 
-	fsMock.Method.ReadDir.ExpectCalledWithExactly("/root").InjectReturnValues([]fs.DirEntry{
+	imp.ReadDir.ArgsEqual("/root").Return([]fs.DirEntry{
 		fakeDirEntry{name: ".hidden", dir: true},
 		fakeDirEntry{name: "targets.go", dir: false},
 	}, nil)
-	fsMock.Method.ReadFile.ExpectCalledWithExactly("/root/targets.go").
-		InjectReturnValues([]byte(`//go:build targ
+	imp.ReadFile.ArgsEqual("/root/targets.go").
+		Return([]byte(`//go:build targ
 
 package dev
 
@@ -449,7 +449,7 @@ func init() { targ.Register() }
 }
 
 func TestDiscover_SkipsTestFiles(t *testing.T) {
-	fsMock := MockFileSystem(t)
+	mock, imp := MockFileSystem(t)
 	opts := buildtool.Options{StartDir: "/root"}
 	done := make(chan struct{})
 
@@ -459,17 +459,17 @@ func TestDiscover_SkipsTestFiles(t *testing.T) {
 	)
 
 	go func() {
-		infos, err = buildtool.Discover(fsMock.Mock, opts)
+		infos, err = buildtool.Discover(mock, opts)
 
 		close(done)
 	}()
 
-	fsMock.Method.ReadDir.ExpectCalledWithExactly("/root").InjectReturnValues([]fs.DirEntry{
+	imp.ReadDir.ArgsEqual("/root").Return([]fs.DirEntry{
 		fakeDirEntry{name: "targets.go", dir: false},
 		fakeDirEntry{name: "targets_test.go", dir: false},
 	}, nil)
-	fsMock.Method.ReadFile.ExpectCalledWithExactly("/root/targets.go").
-		InjectReturnValues([]byte(`//go:build targ
+	imp.ReadFile.ArgsEqual("/root/targets.go").
+		Return([]byte(`//go:build targ
 
 package dev
 
@@ -495,7 +495,7 @@ func init() { targ.Register() }
 }
 
 func TestDiscover_SkipsVendorDirectory(t *testing.T) {
-	fsMock := MockFileSystem(t)
+	mock, imp := MockFileSystem(t)
 	opts := buildtool.Options{StartDir: "/root"}
 	done := make(chan struct{})
 
@@ -505,17 +505,17 @@ func TestDiscover_SkipsVendorDirectory(t *testing.T) {
 	)
 
 	go func() {
-		infos, err = buildtool.Discover(fsMock.Mock, opts)
+		infos, err = buildtool.Discover(mock, opts)
 
 		close(done)
 	}()
 
-	fsMock.Method.ReadDir.ExpectCalledWithExactly("/root").InjectReturnValues([]fs.DirEntry{
+	imp.ReadDir.ArgsEqual("/root").Return([]fs.DirEntry{
 		fakeDirEntry{name: "vendor", dir: true},
 		fakeDirEntry{name: "targets.go", dir: false},
 	}, nil)
-	fsMock.Method.ReadFile.ExpectCalledWithExactly("/root/targets.go").
-		InjectReturnValues([]byte(`//go:build targ
+	imp.ReadFile.ArgsEqual("/root/targets.go").
+		Return([]byte(`//go:build targ
 
 package dev
 
@@ -536,7 +536,7 @@ func init() { targ.Register() }
 }
 
 func TestSelectTaggedDirs_ReturnsDirectories(t *testing.T) {
-	fsMock := MockFileSystem(t)
+	mock, imp := MockFileSystem(t)
 	opts := buildtool.Options{StartDir: "/root"}
 	done := make(chan struct{})
 
@@ -546,16 +546,16 @@ func TestSelectTaggedDirs_ReturnsDirectories(t *testing.T) {
 	)
 
 	go func() {
-		dirs, err = buildtool.SelectTaggedDirs(fsMock.Mock, opts)
+		dirs, err = buildtool.SelectTaggedDirs(mock, opts)
 
 		close(done)
 	}()
 
-	fsMock.Method.ReadDir.ExpectCalledWithExactly("/root").InjectReturnValues([]fs.DirEntry{
+	imp.ReadDir.ArgsEqual("/root").Return([]fs.DirEntry{
 		fakeDirEntry{name: "targets.go", dir: false},
 	}, nil)
-	fsMock.Method.ReadFile.ExpectCalledWithExactly("/root/targets.go").
-		InjectReturnValues([]byte(`//go:build targ
+	imp.ReadFile.ArgsEqual("/root/targets.go").
+		Return([]byte(`//go:build targ
 
 package dev
 `), nil)
@@ -576,7 +576,7 @@ package dev
 }
 
 func TestTaggedFiles_ReturnsFiles(t *testing.T) {
-	fsMock := MockFileSystem(t)
+	mock, imp := MockFileSystem(t)
 	opts := buildtool.Options{StartDir: "/root"}
 	done := make(chan struct{})
 
@@ -586,16 +586,16 @@ func TestTaggedFiles_ReturnsFiles(t *testing.T) {
 	)
 
 	go func() {
-		files, err = buildtool.TaggedFiles(fsMock.Mock, opts)
+		files, err = buildtool.TaggedFiles(mock, opts)
 
 		close(done)
 	}()
 
-	fsMock.Method.ReadDir.ExpectCalledWithExactly("/root").InjectReturnValues([]fs.DirEntry{
+	imp.ReadDir.ArgsEqual("/root").Return([]fs.DirEntry{
 		fakeDirEntry{name: "targets.go", dir: false},
 	}, nil)
-	fsMock.Method.ReadFile.ExpectCalledWithExactly("/root/targets.go").
-		InjectReturnValues([]byte(`//go:build targ
+	imp.ReadFile.ArgsEqual("/root/targets.go").
+		Return([]byte(`//go:build targ
 
 package dev
 `), nil)
@@ -614,8 +614,6 @@ package dev
 		t.Errorf("expected path '/root/targets.go', got %q", files[0].Path)
 	}
 }
-
-// Test helpers
 
 type fakeDirEntry struct {
 	name string

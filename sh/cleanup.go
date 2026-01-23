@@ -42,6 +42,8 @@ const (
 var (
 	cleanupEnabled bool       //nolint:gochecknoglobals // signal handler state
 	cleanupMu      sync.Mutex //nolint:gochecknoglobals // protects cleanup state
+	// killProcessFunc is injectable for testing. Set via osKillProcess in sh.go.
+	killProcessFunc = func(*os.Process) {} //nolint:gochecknoglobals // injectable for testing
 	//nolint:gochecknoglobals // processes to kill on signal
 	runningProcs    = make(map[*os.Process]struct{})
 	signalInstalled bool //nolint:gochecknoglobals // tracks signal handler setup
@@ -59,7 +61,7 @@ func killAllProcesses() {
 	cleanupMu.Unlock()
 
 	for _, p := range procs {
-		killProcess(p)
+		killProcessFunc(p)
 	}
 }
 

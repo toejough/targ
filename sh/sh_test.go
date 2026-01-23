@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -30,6 +31,19 @@ func TestExeSuffix(t *testing.T) {
 	}
 }
 
+func TestExeSuffix_Windows(t *testing.T) {
+	// Mock Windows behavior
+	origIsWindows := isWindows
+	isWindows = func() bool { return true }
+
+	defer func() { isWindows = origIsWindows }()
+
+	suffix := ExeSuffix()
+	if suffix != ".exe" {
+		t.Errorf("ExeSuffix() = %q, want .exe on Windows", suffix)
+	}
+}
+
 func TestHelperProcess(_ *testing.T) {
 	if os.Getenv("GO_WANT_HELPER_PROCESS") != "1" {
 		return
@@ -46,6 +60,68 @@ func TestHelperProcess(_ *testing.T) {
 func TestIsWindows(_ *testing.T) {
 	// Just verify it returns a bool and doesn't panic
 	_ = IsWindows()
+}
+
+func TestKillAllProcesses(t *testing.T) {
+	// Save and restore state
+	cleanupMu.Lock()
+
+	origEnabled := cleanupEnabled
+	origProcs := runningProcs
+	origKillFunc := killProcessFunc
+	cleanupEnabled = true
+	runningProcs = make(map[*os.Process]struct{})
+
+	cleanupMu.Unlock()
+
+	defer func() {
+		cleanupMu.Lock()
+
+		cleanupEnabled = origEnabled
+		runningProcs = origProcs
+		killProcessFunc = origKillFunc
+
+		cleanupMu.Unlock()
+	}()
+
+	// Track which processes were killed
+	var killedProcs []*os.Process
+
+	killProcessFunc = func(p *os.Process) {
+		killedProcs = append(killedProcs, p)
+	}
+
+	// Create fake process entries (we don't need real processes, just pointers)
+	proc1 := &os.Process{Pid: 1}
+	proc2 := &os.Process{Pid: 2}
+
+	// Register the processes
+	registerProcess(proc1)
+	registerProcess(proc2)
+
+	// Kill all processes
+	killAllProcesses()
+
+	// Verify both processes were killed
+	if len(killedProcs) != 2 {
+		t.Errorf("expected 2 processes killed, got %d", len(killedProcs))
+	}
+}
+
+func TestKillProcessFunc_Integration(t *testing.T) {
+	// Start a real subprocess with its own process group
+	cmd := exec.Command("sleep", "60")
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("failed to start subprocess: %v", err)
+	}
+
+	// Call the real killProcessFunc to kill the process group
+	killProcessFunc(cmd.Process)
+
+	// Clean up - wait for the process to exit (it should be killed)
+	_ = cmd.Wait()
 }
 
 func TestOutputContext_Cancellation(t *testing.T) {
@@ -272,6 +348,31 @@ func TestWithExeSuffix(t *testing.T) {
 	if IsWindows() {
 		tests[0].expected = "myapp.exe"
 		tests[2].expected = "path/to/myapp.exe"
+	}
+
+	for _, tc := range tests {
+		result := WithExeSuffix(tc.input)
+		if result != tc.expected {
+			t.Errorf("WithExeSuffix(%q) = %q, want %q", tc.input, result, tc.expected)
+		}
+	}
+}
+
+func TestWithExeSuffix_Windows(t *testing.T) {
+	// Mock Windows behavior
+	origIsWindows := isWindows
+	isWindows = func() bool { return true }
+
+	defer func() { isWindows = origIsWindows }()
+
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"myapp", "myapp.exe"},
+		{"myapp.exe", "myapp.exe"},
+		{"path/to/myapp", "path/to/myapp.exe"},
+		{"myapp.EXE", "myapp.EXE"}, // Case-insensitive suffix check
 	}
 
 	for _, tc := range tests {

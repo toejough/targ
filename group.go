@@ -5,8 +5,6 @@ import (
 	"regexp"
 )
 
-// Group organizes targets into a CLI namespace.
-// Groups are non-executable - they only contain other targets or groups.
 type Group struct {
 	name    string
 	members []any // *Target or *Group

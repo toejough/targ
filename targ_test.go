@@ -16,7 +16,6 @@ func (c *ContinueOnErrorCmd) Run() error {
 	return targ.Deps(incrementCount, incrementCount, targ.ContinueOnError())
 }
 
-// DepsCmd runs Deps with duplicate targets to verify deduplication.
 type DepsCmd struct{}
 
 func (d *DepsCmd) Run() error {

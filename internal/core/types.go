@@ -8,21 +8,16 @@ const (
 	TagKindUnknown    TagKind = "unknown"
 )
 
-// Example represents a help example with a title and code block.
 type Example struct {
 	Title string // e.g., "Enable shell completion"
 	Code  string // e.g., "eval \"$(targ --completion)\""
 }
 
-// Interleaved wraps a value with its parse position for tracking flag ordering.
-// Use []Interleaved[T] when you need to know the relative order of flags
-// across multiple slice fields (e.g., interleaved --include and --exclude).
 type Interleaved[T any] struct {
 	Value    T
 	Position int
 }
 
-// RunOptions controls runtime behavior for RunWithOptions.
 type RunOptions struct {
 	AllowDefault      bool
 	DisableHelp       bool
@@ -52,10 +47,8 @@ type RunOptions struct {
 	Overrides RuntimeOverrides
 }
 
-// TagKind identifies the type of a struct field in command parsing.
 type TagKind string
 
-// TagOptions contains parsed tag options for a struct field.
 type TagOptions struct {
 	Kind        TagKind
 	Name        string

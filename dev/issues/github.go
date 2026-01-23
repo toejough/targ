@@ -11,7 +11,6 @@ import (
 	"github.com/toejough/targ/sh"
 )
 
-// gitHubIssue represents an issue from GitHub.
 type gitHubIssue struct {
 	Number int     `json:"number"`
 	Title  string  `json:"title"`
@@ -20,13 +19,11 @@ type gitHubIssue struct {
 	Labels []label `json:"labels"`
 }
 
-// gitHubUpdates holds optional updates for a GitHub issue.
 type gitHubUpdates struct {
 	Title *string
 	Body  *string
 }
 
-// label represents a GitHub label.
 type label struct {
 	Name string `json:"name"`
 }

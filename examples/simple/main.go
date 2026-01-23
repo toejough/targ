@@ -21,14 +21,10 @@ func init() {
 	)
 }
 
-// --- Math ---
-
 type AddArgs struct {
 	A int `targ:"positional"`
 	B int `targ:"positional"`
 }
-
-// --- Greet ---
 
 type GreetArgs struct {
 	Name string `targ:"required,desc=Name of the person to greet"`

@@ -34,7 +34,6 @@ var (
 	Validate = targ.Targ(validate).Description("Validate issue formatting and structure")
 )
 
-// CreateArgs are arguments for the create command.
 type CreateArgs struct {
 	File       string `targ:"flag,default=issues.md,desc=Issue file to update"`
 	GitHub     bool   `targ:"flag,desc=Create issue on GitHub instead of locally"`
@@ -45,12 +44,10 @@ type CreateArgs struct {
 	Acceptance string `targ:"flag,default=TBD,desc=Acceptance criteria"`
 }
 
-// DedupeArgs are arguments for the dedupe command.
 type DedupeArgs struct {
 	File string `targ:"flag,default=issues.md,desc=Issue file to update"`
 }
 
-// ListArgs are arguments for the list command.
 type ListArgs struct {
 	File   string `targ:"flag,default=issues.md,desc=Issue file to read"`
 	Status string `targ:"flag,desc=Filter by status,enum=backlog|selected|in-progress|review|done|cancelled|blocked"`
@@ -58,14 +55,12 @@ type ListArgs struct {
 	Source string `targ:"flag,default=all,desc=Issue source,enum=all|local|github"`
 }
 
-// MoveArgs are arguments for the move command.
 type MoveArgs struct {
 	File   string `targ:"flag,default=issues.md,desc=Issue file to update"`
 	ID     string `targ:"positional,required,desc=Issue ID (e.g. 5 for local or gh#5 for GitHub)"`
 	Status string `targ:"flag,required,desc=New status,enum=backlog|selected|in-progress|review|done|cancelled|blocked"`
 }
 
-// UpdateArgs are arguments for the update command.
 type UpdateArgs struct {
 	File       string `targ:"flag,default=issues.md,desc=Issue file to update"`
 	ID         string `targ:"positional,required,desc=Issue ID (e.g. 5 for local or gh#5 for GitHub)"`
@@ -76,7 +71,6 @@ type UpdateArgs struct {
 	Details    string `targ:"flag,desc=Implementation details"`
 }
 
-// ValidateArgs are arguments for the validate command.
 type ValidateArgs struct {
 	File string `targ:"flag,default=issues.md,desc=Issue file to validate"`
 }
@@ -89,8 +83,6 @@ type issue struct {
 	Start   int
 	End     int
 }
-
-// Issue file parsing and manipulation types/functions.
 
 type issueFile struct {
 	lines  []string

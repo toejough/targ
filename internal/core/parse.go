@@ -31,7 +31,6 @@ var (
 	textUnmarshalerType = reflect.TypeFor[encoding.TextUnmarshaler]()
 )
 
-// parseContext holds state for argument parsing.
 type parseContext struct {
 	node            *commandNode
 	expandedArgs    []string
@@ -160,8 +159,6 @@ type parseResult struct {
 	subcommand          *commandNode
 	positionalsComplete bool
 }
-
-// --- Argument parsing ---
 
 type positionalSpec struct {
 	field    reflect.StructField
@@ -408,11 +405,7 @@ func collectStructPositionalSpecs(typ reflect.Type, inst reflect.Value) ([]posit
 }
 
 func customSetter(fieldVal reflect.Value) (func(string) error, bool) {
-	if setter, ok := addressableCustomSetter(fieldVal); ok {
-		return setter, true
-	}
-
-	return valueTypeCustomSetter(fieldVal)
+	return addressableCustomSetter(fieldVal)
 }
 
 // isInterleavedType checks if a type is Interleaved[T] by looking for Value and Position fields.
@@ -869,49 +862,4 @@ func setSliceField(fieldVal reflect.Value, value string, pos *int) error {
 	fieldVal.Set(reflect.Append(fieldVal, elem))
 
 	return nil
-}
-
-func valueTypeCustomSetter(fieldVal reflect.Value) (func(string) error, bool) {
-	fieldType := fieldVal.Type()
-	if fieldType.Implements(textUnmarshalerType) {
-		return func(value string) error {
-			next := reflect.New(fieldType).Elem()
-
-			u, ok := next.Interface().(encoding.TextUnmarshaler)
-			if !ok {
-				return errTextUnmarshalerFailed
-			}
-
-			err := u.UnmarshalText([]byte(value))
-			if err != nil {
-				return fmt.Errorf("unmarshaling text: %w", err)
-			}
-
-			fieldVal.Set(next)
-
-			return nil
-		}, true
-	}
-
-	if fieldType.Implements(stringSetterType) {
-		return func(value string) error {
-			next := reflect.New(fieldType).Elem()
-
-			s, ok := next.Interface().(interface{ Set(s string) error })
-			if !ok {
-				return errStringSetterFailed
-			}
-
-			err := s.Set(value)
-			if err != nil {
-				return err
-			}
-
-			fieldVal.Set(next)
-
-			return nil
-		}, true
-	}
-
-	return nil, false
 }

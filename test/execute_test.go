@@ -25,8 +25,6 @@ func (c *ExecuteErrorCmd) Run() error {
 	return errors.New("command failed")
 }
 
-// --- Basic Execute Tests ---
-
 type ExecuteTestCmd struct {
 	Name   string `targ:"flag"`
 	Called bool
@@ -44,8 +42,6 @@ func (c *FastCmd) Run(_ context.Context) error {
 	c.Called = true
 	return nil
 }
-
-// --- Interleaved Flags Tests ---
 
 type InterleavedFlagsCmd struct {
 	Include []targ.Interleaved[string] `targ:"flag"`
@@ -66,15 +62,11 @@ type MapStringIntCmd struct {
 
 func (c *MapStringIntCmd) Run() {}
 
-// --- Map Flags Tests ---
-
 type MapStringStringCmd struct {
 	Labels map[string]string `targ:"flag"`
 }
 
 func (c *MapStringStringCmd) Run() {}
-
-// --- Repeated Flags Tests ---
 
 type RepeatedFlagsCmd struct {
 	Tags []string `targ:"flag"`
@@ -102,8 +94,6 @@ func (c *SlowCmd) Run(ctx context.Context) error {
 		return nil
 	}
 }
-
-// --- Timeout Tests ---
 
 type TimeoutCmd struct {
 	Called bool
