@@ -31,6 +31,596 @@ import (
 	"github.com/toejough/targ/buildtool"
 )
 
+// ContentPatch represents a string replacement to apply to file content.
+type ContentPatch struct {
+	Old string
+	New string
+}
+
+// CreateOptions holds options for the --create command.
+type CreateOptions struct {
+	Path     []string // Group path components (e.g., ["dev", "lint"] for "dev lint fast")
+	Name     string   // Target name (e.g., "fast")
+	ShellCmd string   // Shell command to execute
+	Deps     []string // Dependency target names
+	Cache    []string // Cache patterns
+}
+
+// SyncOptions holds options for the --sync command.
+type SyncOptions struct {
+	PackagePath string // Module path to sync (e.g., "github.com/foo/bar")
+}
+
+// TargDependency represents a targ module dependency for isolated builds.
+type TargDependency struct {
+	ModulePath string
+	Version    string
+	ReplaceDir string
+}
+
+// AddImportToTargFile adds a blank import for the given package to the targ file.
+func AddImportToTargFile(path, packagePath string) error {
+	//nolint:gosec // build tool reads user source files by design
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("reading file: %w", err)
+	}
+
+	fset := token.NewFileSet()
+
+	file, err := parser.ParseFile(fset, path, content, parser.ParseComments)
+	if err != nil {
+		return fmt.Errorf("parsing file: %w", err)
+	}
+
+	// Add the blank import
+	importSpec := &ast.ImportSpec{
+		Name: ast.NewIdent("_"),
+		Path: &ast.BasicLit{
+			Kind:  token.STRING,
+			Value: strconv.Quote(packagePath),
+		},
+	}
+
+	// Find or create import declaration
+	var importDecl *ast.GenDecl
+
+	for _, decl := range file.Decls {
+		genDecl, ok := decl.(*ast.GenDecl)
+		if ok && genDecl.Tok == token.IMPORT {
+			importDecl = genDecl
+
+			break
+		}
+	}
+
+	if importDecl != nil {
+		// Add to existing import block
+		importDecl.Specs = append(importDecl.Specs, importSpec)
+	} else {
+		// Create new import declaration
+		importDecl = &ast.GenDecl{
+			Tok:   token.IMPORT,
+			Specs: []ast.Spec{importSpec},
+		}
+		// Insert after package declaration
+		file.Decls = append([]ast.Decl{importDecl}, file.Decls...)
+	}
+
+	// Format and write back
+	var buf bytes.Buffer
+
+	err = format.Node(&buf, fset, file)
+	if err != nil {
+		return fmt.Errorf("formatting file: %w", err)
+	}
+
+	err = os.WriteFile(path, buf.Bytes(), filePermissionsForCode)
+	if err != nil {
+		return fmt.Errorf("writing file: %w", err)
+	}
+
+	return nil
+}
+
+// AddTargetToFile adds a target variable to an existing targ file.
+func AddTargetToFile(path, name, shellCmd string) error {
+	return AddTargetToFileWithOptions(path, CreateOptions{
+		Name:     name,
+		ShellCmd: shellCmd,
+	})
+}
+
+// AddTargetToFileWithOptions adds a target with full options to an existing targ file.
+func AddTargetToFileWithOptions(path string, opts CreateOptions) error {
+	//nolint:gosec // build tool reads user source files by design
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("reading file: %w", err)
+	}
+
+	// Build the full variable name including path
+	fullPath := append(opts.Path, opts.Name) //nolint:gocritic // intentional copy
+	varName := PathToPascal(fullPath)
+
+	// Check if target already exists
+	if strings.Contains(string(content), fmt.Sprintf("var %s = ", varName)) {
+		return fmt.Errorf("%w: %s", errDuplicateTarget, strings.Join(fullPath, "/"))
+	}
+
+	// Build the target code
+	var code strings.Builder
+
+	// Comment
+	code.WriteString(fmt.Sprintf("\n// %s runs: %s\n", varName, opts.ShellCmd))
+
+	// Start variable declaration
+	escapedCmd := escapeGoString(opts.ShellCmd)
+	code.WriteString(fmt.Sprintf("var %s = targ.Targ(%q)", varName, escapedCmd))
+
+	// Add Name() - use just the target name, not the full path
+	code.WriteString(fmt.Sprintf(".Name(%q)", opts.Name))
+
+	// Add Deps() if specified
+	if len(opts.Deps) > 0 {
+		depVars := make([]string, len(opts.Deps))
+		for i, dep := range opts.Deps {
+			depVars[i] = KebabToPascal(dep)
+		}
+
+		code.WriteString(fmt.Sprintf(".Deps(%s)", strings.Join(depVars, ", ")))
+	}
+
+	// Add Cache() if specified
+	if len(opts.Cache) > 0 {
+		patterns := make([]string, len(opts.Cache))
+		for i, p := range opts.Cache {
+			patterns[i] = fmt.Sprintf("%q", p)
+		}
+
+		code.WriteString(fmt.Sprintf(".Cache(%s)", strings.Join(patterns, ", ")))
+	}
+
+	code.WriteString("\n")
+
+	// Generate group modifications (new groups and patches to existing groups)
+	groupMods := generateGroupModifications(opts.Path, varName, string(content))
+
+	// Apply patches to existing content
+	modifiedContent := string(content)
+	for _, patch := range groupMods.ContentPatches {
+		modifiedContent = strings.Replace(modifiedContent, patch.Old, patch.New, 1)
+	}
+
+	// Append new code
+	newContent := modifiedContent + code.String() + groupMods.newCode
+
+	err = os.WriteFile(path, []byte(newContent), filePermissionsForCode)
+	if err != nil {
+		return fmt.Errorf("writing file: %w", err)
+	}
+
+	return nil
+}
+
+// CheckImportExists checks if a blank import for the given package already exists in the file.
+func CheckImportExists(path, packagePath string) (bool, error) {
+	//nolint:gosec // build tool reads user source files by design
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return false, fmt.Errorf("reading file: %w", err)
+	}
+
+	fset := token.NewFileSet()
+
+	file, err := parser.ParseFile(fset, path, content, parser.ImportsOnly)
+	if err != nil {
+		return false, fmt.Errorf("parsing file: %w", err)
+	}
+
+	for _, imp := range file.Imports {
+		importPath, err := strconv.Unquote(imp.Path.Value)
+		if err != nil {
+			continue
+		}
+
+		if importPath == packagePath {
+			return true, nil
+		}
+	}
+
+	return false, nil
+}
+
+// CreateGroupMemberPatch creates a patch to add a new member to an existing group.
+// Returns nil if the member already exists in the group.
+func CreateGroupMemberPatch(content, groupVarName, newMember string) *ContentPatch {
+	// Find the group declaration: var GroupName = targ.NewGroup("name", member1, member2)
+	// We need to add newMember before the closing parenthesis
+
+	// Find the start of the group declaration
+	pattern := fmt.Sprintf("var %s = targ.NewGroup(", groupVarName)
+
+	startIdx := strings.Index(content, pattern)
+	if startIdx == -1 {
+		return nil
+	}
+
+	// Find the closing parenthesis for this declaration
+	// We need to handle nested parentheses (though unlikely in this context)
+	parenStart := startIdx + len(pattern)
+	parenCount := 1
+	endIdx := -1
+
+	for i := parenStart; i < len(content) && parenCount > 0; i++ {
+		switch content[i] {
+		case '(':
+			parenCount++
+		case ')':
+			parenCount--
+			if parenCount == 0 {
+				endIdx = i
+			}
+		}
+	}
+
+	if endIdx == -1 {
+		return nil
+	}
+
+	// Extract the current group declaration
+	oldDecl := content[startIdx : endIdx+1]
+
+	// Check if member already exists
+	if strings.Contains(oldDecl, newMember) {
+		return nil
+	}
+
+	// Create the new declaration by inserting the member before the closing paren
+	newDecl := content[startIdx:endIdx] + ", " + newMember + ")"
+
+	return &ContentPatch{
+		Old: oldDecl,
+		New: newDecl,
+	}
+}
+
+// EnsureFallbackModuleRoot creates a fallback module root for isolated builds.
+func EnsureFallbackModuleRoot(startDir, modulePath string, dep TargDependency) (string, error) {
+	hash := sha256.Sum256([]byte(startDir))
+
+	root := filepath.Join(projectCacheDir(startDir), "mod", hex.EncodeToString(hash[:8]))
+
+	//nolint:gosec,mnd // standard cache directory permissions
+	err := os.MkdirAll(root, 0o755)
+	if err != nil {
+		return "", fmt.Errorf("creating fallback module directory: %w", err)
+	}
+
+	err = linkModuleRoot(startDir, root)
+	if err != nil {
+		return "", err
+	}
+
+	err = writeFallbackGoMod(root, modulePath, dep)
+	if err != nil {
+		return "", err
+	}
+
+	err = touchFile(filepath.Join(root, "go.sum"))
+	if err != nil {
+		return "", err
+	}
+
+	return root, nil
+}
+
+// FindModuleForPath walks up from the given path to find the nearest go.mod.
+// Returns the module root directory, module path, whether found, and any error.
+func FindModuleForPath(path string) (string, string, bool, error) {
+	// Start from the directory containing the path
+	dir := path
+
+	info, err := os.Stat(path)
+	if err == nil && !info.IsDir() {
+		dir = filepath.Dir(path)
+	}
+
+	for {
+		modPath := filepath.Join(dir, "go.mod")
+
+		//nolint:gosec // build tool reads go.mod files by design
+		data, err := os.ReadFile(modPath)
+		if err == nil {
+			modulePath := parseModulePath(string(data))
+			if modulePath == "" {
+				return "", "", true, fmt.Errorf("%w: %s", errModulePathNotFound, modPath)
+			}
+
+			return dir, modulePath, true, nil
+		}
+
+		if !os.IsNotExist(err) {
+			return "", "", false, fmt.Errorf("reading go.mod: %w", err)
+		}
+
+		// Move up to parent directory
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			// Reached filesystem root
+			break
+		}
+
+		dir = parent
+	}
+
+	return "", "", false, nil
+}
+
+// FindOrCreateTargFile finds an existing targ file in the current directory or creates a new one.
+func FindOrCreateTargFile(startDir string) (string, error) {
+	// Look for existing targ files in the current directory
+	entries, err := os.ReadDir(startDir)
+	if err != nil {
+		return "", fmt.Errorf("reading directory: %w", err)
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+
+		name := entry.Name()
+		if !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		// Check if it has the targ build tag
+		path := filepath.Join(startDir, name)
+		if HasTargBuildTag(path) {
+			return path, nil
+		}
+	}
+
+	// No existing targ file found, create a new one
+	targFile := filepath.Join(startDir, "targs.go")
+	pkgName := filepath.Base(startDir)
+	// Sanitize package name (remove invalid characters)
+	pkgName = strings.ReplaceAll(pkgName, "-", "")
+
+	pkgName = strings.ReplaceAll(pkgName, ".", "")
+	if pkgName == "" {
+		pkgName = defaultPackageName
+	}
+
+	content := fmt.Sprintf(`//go:build targ
+
+package %s
+
+import "github.com/toejough/targ"
+
+// Ensure targ import is used
+var _ = targ.Targ
+`, pkgName)
+
+	err = os.WriteFile(targFile, []byte(content), filePermissionsForCode)
+	if err != nil {
+		return "", fmt.Errorf("creating targ file: %w", err)
+	}
+
+	return targFile, nil
+}
+
+// HasTargBuildTag returns true if the file has the targ build tag.
+func HasTargBuildTag(path string) bool {
+	//nolint:gosec // build tool reads user source files by design
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	// Check for //go:build targ at the start
+	lines := strings.SplitSeq(string(content), "\n")
+	for line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+
+		if strings.HasPrefix(line, "//go:build") && strings.Contains(line, "targ") {
+			return true
+		}
+		// Stop at package declaration
+		if strings.HasPrefix(line, "package ") {
+			break
+		}
+	}
+
+	return false
+}
+
+// IsValidTargetName returns true if the name is valid for a target (kebab-case).
+// Must start with lowercase letter, contain only lowercase letters, numbers, and hyphens,
+// and cannot end with a hyphen.
+func IsValidTargetName(name string) bool {
+	return validTargetNameRe.MatchString(name)
+}
+
+// KebabToPascal converts kebab-case to PascalCase.
+func KebabToPascal(s string) string {
+	parts := strings.Split(s, "-")
+	for i, part := range parts {
+		if len(part) > 0 {
+			parts[i] = strings.ToUpper(part[:1]) + part[1:]
+		}
+	}
+
+	return strings.Join(parts, "")
+}
+
+// NamespacePaths computes collapsed namespace paths for a set of files.
+func NamespacePaths(files []string, root string) (map[string][]string, error) {
+	if len(files) == 0 {
+		return map[string][]string{}, nil
+	}
+
+	raw := make(map[string][]string, len(files))
+
+	paths := make([][]string, 0, len(files))
+	for _, file := range files {
+		rel, err := filepath.Rel(root, file)
+		if err != nil {
+			return nil, fmt.Errorf("getting relative path for %s: %w", file, err)
+		}
+
+		rel = filepath.ToSlash(rel)
+
+		parts := strings.Split(rel, "/")
+		if len(parts) == 0 {
+			parts = []string{filepath.Base(file)}
+		}
+
+		last := parts[len(parts)-1]
+		parts[len(parts)-1] = strings.TrimSuffix(last, filepath.Ext(last))
+		raw[file] = parts
+		paths = append(paths, parts)
+	}
+
+	common := append([]string(nil), paths[0]...)
+	for _, p := range paths[1:] {
+		common = commonPrefix(common, p)
+		if len(common) == 0 {
+			break
+		}
+	}
+
+	trimmed := make(map[string][]string, len(files))
+	for file, parts := range raw {
+		if len(common) >= len(parts) {
+			trimmed[file] = nil
+			continue
+		}
+
+		trimmed[file] = append([]string(nil), parts[len(common):]...)
+	}
+
+	return compressNamespacePaths(trimmed), nil
+}
+
+// ParseCreateArgs parses arguments after --create into CreateOptions.
+// Format: [path...] <name> [--deps dep1 dep2...] [--cache pattern1...] "shell-command"
+// The shell command is always the last argument.
+//
+//nolint:cyclop // Parsing logic has necessary branches for each flag type
+func ParseCreateArgs(args []string) (CreateOptions, error) {
+	var opts CreateOptions
+
+	// Need at least 2 args: name and shell command
+	if len(args) < 2 { //nolint:mnd // minimum: name + command
+		return opts, errCreateUsage
+	}
+
+	// Shell command is always the last argument
+	opts.ShellCmd = args[len(args)-1]
+	remaining := args[:len(args)-1]
+
+	// Parse remaining arguments
+	var pathAndName []string
+
+	i := 0
+	for i < len(remaining) {
+		arg := remaining[i]
+
+		switch {
+		case arg == "--deps":
+			// Collect deps until next flag or end
+			i++
+			for i < len(remaining) && !strings.HasPrefix(remaining[i], "--") {
+				opts.Deps = append(opts.Deps, remaining[i])
+				i++
+			}
+		case arg == "--cache":
+			// Collect cache patterns until next flag or end
+			i++
+			for i < len(remaining) && !strings.HasPrefix(remaining[i], "--") {
+				opts.Cache = append(opts.Cache, remaining[i])
+				i++
+			}
+		case strings.HasPrefix(arg, "--"):
+			return opts, fmt.Errorf("%w: %s", errUnknownCreateFlag, arg)
+		default:
+			// Non-flag argument: path component or name
+			pathAndName = append(pathAndName, arg)
+			i++
+		}
+	}
+
+	// Need at least the target name
+	if len(pathAndName) < 1 {
+		return opts, errCreateUsage
+	}
+
+	// Last of pathAndName is name, rest are path
+	opts.Name = pathAndName[len(pathAndName)-1]
+	if len(pathAndName) > 1 {
+		opts.Path = pathAndName[:len(pathAndName)-1]
+	}
+
+	return opts, nil
+}
+
+// ParseHelpRequest parses args to determine if help was requested and if a target was specified.
+func ParseHelpRequest(args []string) (bool, bool) {
+	helpRequested := false
+	sawTarget := false
+
+	for _, arg := range args {
+		if arg == "--" {
+			break
+		}
+
+		if arg == "--help" || arg == "-h" {
+			helpRequested = true
+			continue
+		}
+
+		if strings.HasPrefix(arg, "-") {
+			continue
+		}
+
+		sawTarget = true
+	}
+
+	return helpRequested, sawTarget
+}
+
+// ParseSyncArgs parses arguments after --sync into SyncOptions.
+// Format: --sync <package-path>
+func ParseSyncArgs(args []string) (SyncOptions, error) {
+	var opts SyncOptions
+
+	if len(args) < 1 {
+		return opts, errSyncUsage
+	}
+
+	opts.PackagePath = args[0]
+
+	// Validate that it looks like a module path
+	if !looksLikeModulePath(opts.PackagePath) {
+		return opts, fmt.Errorf("%w: %s", errInvalidPackagePath, opts.PackagePath)
+	}
+
+	return opts, nil
+}
+
+// PathToPascal converts a path like ["dev", "lint", "fast"] to "DevLintFast".
+func PathToPascal(path []string) string {
+	var result strings.Builder
+	for _, p := range path {
+		result.WriteString(KebabToPascal(p))
+	}
+
+	return result.String()
+}
+
 // Run executes the targ CLI with the given binary name and arguments.
 // Returns the exit code to pass to os.Exit().
 func Run() int {
@@ -47,6 +637,45 @@ func Run() int {
 	}
 
 	return r.run()
+}
+
+// WriteBootstrapFile creates a temporary bootstrap file and returns its path and cleanup function.
+func WriteBootstrapFile(dir string, data []byte) (string, func() error, error) {
+	//nolint:gosec,mnd // standard directory permissions for bootstrap
+	err := os.MkdirAll(dir, 0o755)
+	if err != nil {
+		return "", nil, fmt.Errorf("creating bootstrap directory: %w", err)
+	}
+
+	temp, err := os.CreateTemp(dir, "targ_bootstrap_*.go")
+	if err != nil {
+		return "", nil, fmt.Errorf("creating temp file: %w", err)
+	}
+
+	tempFile := temp.Name()
+
+	_, err = temp.Write(data)
+	if err != nil {
+		_ = temp.Close()
+		return "", nil, fmt.Errorf("writing bootstrap file: %w", err)
+	}
+
+	err = temp.Close()
+	if err != nil {
+		return "", nil, fmt.Errorf("closing bootstrap file: %w", err)
+	}
+
+	cleanup := func() error {
+		err := os.Remove(tempFile)
+
+		if err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("removing bootstrap file: %w", err)
+		}
+
+		return nil
+	}
+
+	return tempFile, cleanup, nil
 }
 
 // unexported constants.
@@ -154,22 +783,9 @@ type commandInfo struct {
 	Description string `json:"description"`
 }
 
-type contentPatch struct {
-	old string
-	new string
-}
-
-type createOptions struct {
-	Path     []string // Group path components (e.g., ["dev", "lint"] for "dev lint fast")
-	Name     string   // Target name (e.g., "fast")
-	ShellCmd string   // Shell command to execute
-	Deps     []string // Dependency target names
-	Cache    []string // Cache patterns
-}
-
 type groupModifications struct {
 	newCode        string         // New group declarations to append
-	contentPatches []contentPatch // Modifications to existing content
+	ContentPatches []ContentPatch // Modifications to existing content
 }
 
 type listOutput struct {
@@ -301,16 +917,6 @@ func (osFileSystem) WriteFile(name string, data []byte, perm fs.FileMode) error 
 	return nil
 }
 
-type syncOptions struct {
-	PackagePath string // Module path to sync (e.g., "github.com/foo/bar")
-}
-
-type targDependency struct {
-	ModulePath string
-	Version    string
-	ReplaceDir string
-}
-
 type targRunner struct {
 	binArg        string
 	args          []string
@@ -340,7 +946,7 @@ func (r *targRunner) buildAndRunWithOptions(
 ) int {
 	bootstrapDir := r.resolveBootstrapDir(buildDir, isolated)
 
-	tempFile, cleanupTemp, err := writeBootstrapFile(bootstrapDir, bootstrapCode)
+	tempFile, cleanupTemp, err := WriteBootstrapFile(bootstrapDir, bootstrapCode)
 	if err != nil {
 		r.logError("Error writing bootstrap file", err)
 		return r.exitWithCleanup(1)
@@ -433,14 +1039,14 @@ func (r *targRunner) exitWithCleanup(code int) int {
 //nolint:funlen // Validation logic is straightforward but verbose
 func (r *targRunner) handleCreateFlag(args []string) (exitCode int, done bool) {
 	// Parse the create arguments
-	opts, err := parseCreateArgs(args)
+	opts, err := ParseCreateArgs(args)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1, true
 	}
 
 	// Validate target name (kebab-case)
-	if !isValidTargetName(opts.Name) {
+	if !IsValidTargetName(opts.Name) {
 		fmt.Fprintf(
 			os.Stderr,
 			"invalid target name %q: must be lowercase letters, numbers, and hyphens\n",
@@ -452,7 +1058,7 @@ func (r *targRunner) handleCreateFlag(args []string) (exitCode int, done bool) {
 
 	// Validate path components (all must be valid kebab-case names)
 	for _, p := range opts.Path {
-		if !isValidTargetName(p) {
+		if !IsValidTargetName(p) {
 			fmt.Fprintf(
 				os.Stderr,
 				"invalid group name %q: must be lowercase letters, numbers, and hyphens\n",
@@ -465,7 +1071,7 @@ func (r *targRunner) handleCreateFlag(args []string) (exitCode int, done bool) {
 
 	// Validate dependency names
 	for _, dep := range opts.Deps {
-		if !isValidTargetName(dep) {
+		if !IsValidTargetName(dep) {
 			fmt.Fprintf(
 				os.Stderr,
 				"invalid dependency name %q: must be lowercase letters, numbers, and hyphens\n",
@@ -484,14 +1090,14 @@ func (r *targRunner) handleCreateFlag(args []string) (exitCode int, done bool) {
 	}
 
 	// Find or create targ file
-	targFile, err := findOrCreateTargFile(startDir)
+	targFile, err := FindOrCreateTargFile(startDir)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error finding/creating targ file: %v\n", err)
 		return 1, true
 	}
 
 	// Add the target to the file
-	err = addTargetToFileWithOptions(targFile, opts)
+	err = AddTargetToFileWithOptions(targFile, opts)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error adding target: %v\n", err)
 		return 1, true
@@ -626,7 +1232,7 @@ func (r *targRunner) handleSingleModule(infos []buildtool.PackageInfo) int {
 		return r.handleNoTargets()
 	}
 
-	_, _, moduleFound, err := findModuleForPath(filePaths[0])
+	_, _, moduleFound, err := FindModuleForPath(filePaths[0])
 	if err != nil {
 		r.logError("Error checking for module", err)
 		return r.exitWithCleanup(1)
@@ -637,7 +1243,7 @@ func (r *targRunner) handleSingleModule(infos []buildtool.PackageInfo) int {
 		return r.handleIsolatedModule(infos)
 	}
 
-	importRoot, modulePath, _, err := findModuleForPath(filePaths[0])
+	importRoot, modulePath, _, err := FindModuleForPath(filePaths[0])
 	if err != nil {
 		r.logError("Error checking for module", err)
 		return r.exitWithCleanup(1)
@@ -670,7 +1276,7 @@ func (r *targRunner) handleSingleModule(infos []buildtool.PackageInfo) int {
 
 func (r *targRunner) handleSyncFlag(args []string) (exitCode int, done bool) {
 	// Parse the sync arguments
-	opts, err := parseSyncArgs(args)
+	opts, err := ParseSyncArgs(args)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1, true
@@ -684,14 +1290,14 @@ func (r *targRunner) handleSyncFlag(args []string) (exitCode int, done bool) {
 	}
 
 	// Find or create targ file
-	targFile, err := findOrCreateTargFile(startDir)
+	targFile, err := FindOrCreateTargFile(startDir)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error finding/creating targ file: %v\n", err)
 		return 1, true
 	}
 
 	// Check if import already exists
-	exists, err := checkImportExists(targFile, opts.PackagePath)
+	exists, err := CheckImportExists(targFile, opts.PackagePath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error checking imports: %v\n", err)
 		return 1, true
@@ -710,7 +1316,7 @@ func (r *targRunner) handleSyncFlag(args []string) (exitCode int, done bool) {
 	}
 
 	// Add the import to the targ file
-	err = addImportToTargFile(targFile, opts.PackagePath)
+	err = AddImportToTargFile(targFile, opts.PackagePath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error adding import: %v\n", err)
 		return 1, true
@@ -794,7 +1400,7 @@ func (r *targRunner) run() int {
 		r.errOut = io.Discard
 	}
 
-	helpRequested, helpTargets := parseHelpRequest(r.args)
+	helpRequested, helpTargets := ParseHelpRequest(r.args)
 	r.noBinaryCache, r.args = extractTargFlags(r.args)
 
 	var err error
@@ -871,156 +1477,11 @@ func (r *targRunner) tryRunCached(binaryPath, targBinName string) (exitCode int,
 	return 0, true
 }
 
-// addImportToTargFile adds a blank import for the given package to the targ file.
-func addImportToTargFile(path, packagePath string) error {
-	//nolint:gosec // build tool reads user source files by design
-	content, err := os.ReadFile(path)
-	if err != nil {
-		return fmt.Errorf("reading file: %w", err)
-	}
-
-	fset := token.NewFileSet()
-
-	file, err := parser.ParseFile(fset, path, content, parser.ParseComments)
-	if err != nil {
-		return fmt.Errorf("parsing file: %w", err)
-	}
-
-	// Add the blank import
-	importSpec := &ast.ImportSpec{
-		Name: ast.NewIdent("_"),
-		Path: &ast.BasicLit{
-			Kind:  token.STRING,
-			Value: strconv.Quote(packagePath),
-		},
-	}
-
-	// Find or create import declaration
-	var importDecl *ast.GenDecl
-
-	for _, decl := range file.Decls {
-		genDecl, ok := decl.(*ast.GenDecl)
-		if ok && genDecl.Tok == token.IMPORT {
-			importDecl = genDecl
-
-			break
-		}
-	}
-
-	if importDecl != nil {
-		// Add to existing import block
-		importDecl.Specs = append(importDecl.Specs, importSpec)
-	} else {
-		// Create new import declaration
-		importDecl = &ast.GenDecl{
-			Tok:   token.IMPORT,
-			Specs: []ast.Spec{importSpec},
-		}
-		// Insert after package declaration
-		file.Decls = append([]ast.Decl{importDecl}, file.Decls...)
-	}
-
-	// Format and write back
-	var buf bytes.Buffer
-
-	err = format.Node(&buf, fset, file)
-	if err != nil {
-		return fmt.Errorf("formatting file: %w", err)
-	}
-
-	err = os.WriteFile(path, buf.Bytes(), filePermissionsForCode)
-	if err != nil {
-		return fmt.Errorf("writing file: %w", err)
-	}
-
-	return nil
-}
-
-// addTargetToFile adds a target variable to an existing targ file.
-func addTargetToFile(path, name, shellCmd string) error {
-	return addTargetToFileWithOptions(path, createOptions{
-		Name:     name,
-		ShellCmd: shellCmd,
-	})
-}
-
-// addTargetToFileWithOptions adds a target with full options to an existing targ file.
-func addTargetToFileWithOptions(path string, opts createOptions) error {
-	//nolint:gosec // build tool reads user source files by design
-	content, err := os.ReadFile(path)
-	if err != nil {
-		return fmt.Errorf("reading file: %w", err)
-	}
-
-	// Build the full variable name including path
-	fullPath := append(opts.Path, opts.Name) //nolint:gocritic // intentional copy
-	varName := pathToPascal(fullPath)
-
-	// Check if target already exists
-	if strings.Contains(string(content), fmt.Sprintf("var %s = ", varName)) {
-		return fmt.Errorf("%w: %s", errDuplicateTarget, strings.Join(fullPath, "/"))
-	}
-
-	// Build the target code
-	var code strings.Builder
-
-	// Comment
-	code.WriteString(fmt.Sprintf("\n// %s runs: %s\n", varName, opts.ShellCmd))
-
-	// Start variable declaration
-	escapedCmd := escapeGoString(opts.ShellCmd)
-	code.WriteString(fmt.Sprintf("var %s = targ.Targ(%q)", varName, escapedCmd))
-
-	// Add Name() - use just the target name, not the full path
-	code.WriteString(fmt.Sprintf(".Name(%q)", opts.Name))
-
-	// Add Deps() if specified
-	if len(opts.Deps) > 0 {
-		depVars := make([]string, len(opts.Deps))
-		for i, dep := range opts.Deps {
-			depVars[i] = kebabToPascal(dep)
-		}
-
-		code.WriteString(fmt.Sprintf(".Deps(%s)", strings.Join(depVars, ", ")))
-	}
-
-	// Add Cache() if specified
-	if len(opts.Cache) > 0 {
-		patterns := make([]string, len(opts.Cache))
-		for i, p := range opts.Cache {
-			patterns[i] = fmt.Sprintf("%q", p)
-		}
-
-		code.WriteString(fmt.Sprintf(".Cache(%s)", strings.Join(patterns, ", ")))
-	}
-
-	code.WriteString("\n")
-
-	// Generate group modifications (new groups and patches to existing groups)
-	groupMods := generateGroupModifications(opts.Path, varName, string(content))
-
-	// Apply patches to existing content
-	modifiedContent := string(content)
-	for _, patch := range groupMods.contentPatches {
-		modifiedContent = strings.Replace(modifiedContent, patch.old, patch.new, 1)
-	}
-
-	// Append new code
-	newContent := modifiedContent + code.String() + groupMods.newCode
-
-	err = os.WriteFile(path, []byte(newContent), filePermissionsForCode)
-	if err != nil {
-		return fmt.Errorf("writing file: %w", err)
-	}
-
-	return nil
-}
-
 // buildAndQueryBinary builds the binary and queries its commands.
 func buildAndQueryBinary(
 	ctx buildContext,
 	_ moduleTargets,
-	dep targDependency,
+	dep TargDependency,
 	binaryPath string,
 	bootstrap moduleBootstrap,
 	errOut io.Writer,
@@ -1030,7 +1491,7 @@ func buildAndQueryBinary(
 		bootstrapDir = filepath.Join(ctx.buildRoot, "tmp")
 	}
 
-	tempFile, cleanupTemp, err := writeBootstrapFile(bootstrapDir, bootstrap.code)
+	tempFile, cleanupTemp, err := WriteBootstrapFile(bootstrapDir, bootstrap.code)
 	if err != nil {
 		return nil, fmt.Errorf("writing bootstrap file: %w", err)
 	}
@@ -1073,7 +1534,7 @@ func buildBootstrapData(
 func buildModuleBinary(
 	mt moduleTargets,
 	startDir string,
-	dep targDependency,
+	dep TargDependency,
 	noBinaryCache bool,
 	errOut io.Writer,
 ) (moduleRegistry, error) {
@@ -1173,35 +1634,6 @@ func buildSourceRoot() (string, bool) {
 	}
 
 	return "", false
-}
-
-// checkImportExists checks if a blank import for the given package already exists in the file.
-func checkImportExists(path, packagePath string) (bool, error) {
-	//nolint:gosec // build tool reads user source files by design
-	content, err := os.ReadFile(path)
-	if err != nil {
-		return false, fmt.Errorf("reading file: %w", err)
-	}
-
-	fset := token.NewFileSet()
-
-	file, err := parser.ParseFile(fset, path, content, parser.ImportsOnly)
-	if err != nil {
-		return false, fmt.Errorf("parsing file: %w", err)
-	}
-
-	for _, imp := range file.Imports {
-		importPath, err := strconv.Unquote(imp.Path.Value)
-		if err != nil {
-			continue
-		}
-
-		if importPath == packagePath {
-			return true, nil
-		}
-	}
-
-	return false, nil
 }
 
 // cleanupStaleModSymlinks removes stale go.mod/go.sum symlinks from before the fix.
@@ -1393,70 +1825,17 @@ func copyFileStrippingTag(srcPath, destPath string) error {
 	return nil
 }
 
-// createGroupMemberPatch creates a patch to add a new member to an existing group.
-// Returns nil if the member already exists in the group.
-func createGroupMemberPatch(content, groupVarName, newMember string) *contentPatch {
-	// Find the group declaration: var GroupName = targ.NewGroup("name", member1, member2)
-	// We need to add newMember before the closing parenthesis
-
-	// Find the start of the group declaration
-	pattern := fmt.Sprintf("var %s = targ.NewGroup(", groupVarName)
-
-	startIdx := strings.Index(content, pattern)
-	if startIdx == -1 {
-		return nil
-	}
-
-	// Find the closing parenthesis for this declaration
-	// We need to handle nested parentheses (though unlikely in this context)
-	parenStart := startIdx + len(pattern)
-	parenCount := 1
-	endIdx := -1
-
-	for i := parenStart; i < len(content) && parenCount > 0; i++ {
-		switch content[i] {
-		case '(':
-			parenCount++
-		case ')':
-			parenCount--
-			if parenCount == 0 {
-				endIdx = i
-			}
-		}
-	}
-
-	if endIdx == -1 {
-		return nil
-	}
-
-	// Extract the current group declaration
-	oldDecl := content[startIdx : endIdx+1]
-
-	// Check if member already exists
-	if strings.Contains(oldDecl, newMember) {
-		return nil
-	}
-
-	// Create the new declaration by inserting the member before the closing paren
-	newDecl := content[startIdx:endIdx] + ", " + newMember + ")"
-
-	return &contentPatch{
-		old: oldDecl,
-		new: newDecl,
-	}
-}
-
 // createIsolatedBuildDir creates an isolated build directory with targ files.
 // Files are copied (with build tags stripped) preserving collapsed namespace paths.
 // Returns the tmp directory path, the module path to use for imports, and a cleanup function.
 func createIsolatedBuildDir(
 	infos []buildtool.PackageInfo,
 	startDir string,
-	dep targDependency,
+	dep TargDependency,
 ) (tmpDir string, cleanup func(), err error) {
 	filePaths := collectFilePaths(infos)
 
-	paths, err := namespacePaths(filePaths, startDir)
+	paths, err := NamespacePaths(filePaths, startDir)
 	if err != nil {
 		return "", nil, fmt.Errorf("computing namespace paths: %w", err)
 	}
@@ -1572,37 +1951,8 @@ func dispatchCompletion(registry []moduleRegistry, args []string) error {
 	return nil
 }
 
-func ensureFallbackModuleRoot(startDir, modulePath string, dep targDependency) (string, error) {
-	hash := sha256.Sum256([]byte(startDir))
-
-	root := filepath.Join(projectCacheDir(startDir), "mod", hex.EncodeToString(hash[:8]))
-
-	//nolint:gosec,mnd // standard cache directory permissions
-	err := os.MkdirAll(root, 0o755)
-	if err != nil {
-		return "", fmt.Errorf("creating fallback module directory: %w", err)
-	}
-
-	err = linkModuleRoot(startDir, root)
-	if err != nil {
-		return "", err
-	}
-
-	err = writeFallbackGoMod(root, modulePath, dep)
-	if err != nil {
-		return "", err
-	}
-
-	err = touchFile(filepath.Join(root, "go.sum"))
-	if err != nil {
-		return "", err
-	}
-
-	return root, nil
-}
-
 // ensureTargDependency runs go get to ensure targ dependency is available.
-func ensureTargDependency(dep targDependency, importRoot string) {
+func ensureTargDependency(dep TargDependency, importRoot string) {
 	//nolint:gosec // build tool runs go get by design
 	getCmd := exec.CommandContext(context.Background(), "go", "get", dep.ModulePath)
 	getCmd.Dir = importRoot
@@ -1708,101 +2058,6 @@ func findModCacheDir(modulePath, version string) (string, bool) {
 	return "", false
 }
 
-// findModuleForPath walks up from the given path to find the nearest go.mod.
-// Returns the module root directory, module path, whether found, and any error.
-func findModuleForPath(path string) (string, string, bool, error) {
-	// Start from the directory containing the path
-	dir := path
-
-	info, err := os.Stat(path)
-	if err == nil && !info.IsDir() {
-		dir = filepath.Dir(path)
-	}
-
-	for {
-		modPath := filepath.Join(dir, "go.mod")
-
-		//nolint:gosec // build tool reads go.mod files by design
-		data, err := os.ReadFile(modPath)
-		if err == nil {
-			modulePath := parseModulePath(string(data))
-			if modulePath == "" {
-				return "", "", true, fmt.Errorf("%w: %s", errModulePathNotFound, modPath)
-			}
-
-			return dir, modulePath, true, nil
-		}
-
-		if !os.IsNotExist(err) {
-			return "", "", false, fmt.Errorf("reading go.mod: %w", err)
-		}
-
-		// Move up to parent directory
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			// Reached filesystem root
-			break
-		}
-
-		dir = parent
-	}
-
-	return "", "", false, nil
-}
-
-// findOrCreateTargFile finds an existing targ file in the current directory or creates a new one.
-func findOrCreateTargFile(startDir string) (string, error) {
-	// Look for existing targ files in the current directory
-	entries, err := os.ReadDir(startDir)
-	if err != nil {
-		return "", fmt.Errorf("reading directory: %w", err)
-	}
-
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-
-		name := entry.Name()
-		if !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
-			continue
-		}
-		// Check if it has the targ build tag
-		path := filepath.Join(startDir, name)
-		if hasTargBuildTag(path) {
-			return path, nil
-		}
-	}
-
-	// No existing targ file found, create a new one
-	targFile := filepath.Join(startDir, "targs.go")
-	pkgName := filepath.Base(startDir)
-	// Sanitize package name (remove invalid characters)
-	pkgName = strings.ReplaceAll(pkgName, "-", "")
-
-	pkgName = strings.ReplaceAll(pkgName, ".", "")
-	if pkgName == "" {
-		pkgName = defaultPackageName
-	}
-
-	content := fmt.Sprintf(`//go:build targ
-
-package %s
-
-import "github.com/toejough/targ"
-
-// Ensure targ import is used
-var _ = targ.Targ
-`, pkgName)
-
-	err = os.WriteFile(targFile, []byte(content), filePermissionsForCode)
-	if err != nil {
-		return "", fmt.Errorf("creating targ file: %w", err)
-	}
-
-	return targFile, nil
-}
-
 // generateGroupModifications creates group declarations and modifications for the path.
 // For existing groups, it returns patches to add the new member.
 // For new groups, it returns code to append.
@@ -1825,16 +2080,16 @@ func generateGroupModifications(
 
 	for i := len(path) - 1; i >= 0; i-- {
 		groupPath := path[:i+1]
-		groupVarName := pathToPascal(groupPath)
+		groupVarName := PathToPascal(groupPath)
 		groupName := path[i] // Use the last component as the group's name
 
 		// Check if group already exists
 		groupPattern := fmt.Sprintf("var %s = ", groupVarName)
 		if strings.Contains(existingContent, groupPattern) {
 			// Group exists - create a patch to add the new member
-			patch := createGroupMemberPatch(existingContent, groupVarName, childVarName)
+			patch := CreateGroupMemberPatch(existingContent, groupVarName, childVarName)
 			if patch != nil {
-				mods.contentPatches = append(mods.contentPatches, *patch)
+				mods.ContentPatches = append(mods.ContentPatches, *patch)
 			}
 
 			childVarName = groupVarName
@@ -1908,7 +2163,7 @@ func groupByModule(infos []buildtool.PackageInfo, startDir string) ([]moduleTarg
 		}
 
 		// Find module for first file in package
-		modRoot, modPath, found, err := findModuleForPath(info.Files[0].Path)
+		modRoot, modPath, found, err := FindModuleForPath(info.Files[0].Path)
 		if err != nil {
 			return nil, err
 		}
@@ -1942,33 +2197,6 @@ func groupByModule(infos []buildtool.PackageInfo, startDir string) ([]moduleTarg
 	})
 
 	return result, nil
-}
-
-// hasTargBuildTag returns true if the file has the targ build tag.
-func hasTargBuildTag(path string) bool {
-	//nolint:gosec // build tool reads user source files by design
-	content, err := os.ReadFile(path)
-	if err != nil {
-		return false
-	}
-	// Check for //go:build targ at the start
-	lines := strings.SplitSeq(string(content), "\n")
-	for line := range lines {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-
-		if strings.HasPrefix(line, "//go:build") && strings.Contains(line, "targ") {
-			return true
-		}
-		// Stop at package declaration
-		if strings.HasPrefix(line, "package ") {
-			break
-		}
-	}
-
-	return false
 }
 
 // isCleanVersion returns true if the version is suitable for cache lookup.
@@ -2014,25 +2242,6 @@ func isRemovedFlag(arg string) bool {
 // isSyncFlag checks if the argument is the --sync flag.
 func isSyncFlag(arg string) bool {
 	return arg == "--sync"
-}
-
-// isValidTargetName returns true if the name is valid for a target (kebab-case).
-// Must start with lowercase letter, contain only lowercase letters, numbers, and hyphens,
-// and cannot end with a hyphen.
-func isValidTargetName(name string) bool {
-	return validTargetNameRe.MatchString(name)
-}
-
-// kebabToPascal converts kebab-case to PascalCase.
-func kebabToPascal(s string) string {
-	parts := strings.Split(s, "-")
-	for i, part := range parts {
-		if len(part) > 0 {
-			parts[i] = strings.ToUpper(part[:1]) + part[1:]
-		}
-	}
-
-	return strings.Join(parts, "")
 }
 
 // linkModuleEntry creates a symlink for a single directory entry if needed.
@@ -2089,145 +2298,11 @@ func looksLikeModulePath(path string) bool {
 	return strings.Contains(first, ".")
 }
 
-func namespacePaths(files []string, root string) (map[string][]string, error) {
-	if len(files) == 0 {
-		return map[string][]string{}, nil
-	}
-
-	raw := make(map[string][]string, len(files))
-
-	paths := make([][]string, 0, len(files))
-	for _, file := range files {
-		rel, err := filepath.Rel(root, file)
-		if err != nil {
-			return nil, fmt.Errorf("getting relative path for %s: %w", file, err)
-		}
-
-		rel = filepath.ToSlash(rel)
-
-		parts := strings.Split(rel, "/")
-		if len(parts) == 0 {
-			parts = []string{filepath.Base(file)}
-		}
-
-		last := parts[len(parts)-1]
-		parts[len(parts)-1] = strings.TrimSuffix(last, filepath.Ext(last))
-		raw[file] = parts
-		paths = append(paths, parts)
-	}
-
-	common := append([]string(nil), paths[0]...)
-	for _, p := range paths[1:] {
-		common = commonPrefix(common, p)
-		if len(common) == 0 {
-			break
-		}
-	}
-
-	trimmed := make(map[string][]string, len(files))
-	for file, parts := range raw {
-		if len(common) >= len(parts) {
-			trimmed[file] = nil
-			continue
-		}
-
-		trimmed[file] = append([]string(nil), parts[len(common):]...)
-	}
-
-	return compressNamespacePaths(trimmed), nil
-}
-
 func newBootstrapBuilder(moduleRoot, modulePath string) *bootstrapBuilder {
 	return &bootstrapBuilder{
 		moduleRoot: moduleRoot,
 		modulePath: modulePath,
 	}
-}
-
-// parseCreateArgs parses arguments after --create into createOptions.
-// Format: [path...] <name> [--deps dep1 dep2...] [--cache pattern1...] "shell-command"
-// The shell command is always the last argument.
-//
-//nolint:cyclop // Parsing logic has necessary branches for each flag type
-func parseCreateArgs(args []string) (createOptions, error) {
-	var opts createOptions
-
-	// Need at least 2 args: name and shell command
-	if len(args) < 2 { //nolint:mnd // minimum: name + command
-		return opts, errCreateUsage
-	}
-
-	// Shell command is always the last argument
-	opts.ShellCmd = args[len(args)-1]
-	remaining := args[:len(args)-1]
-
-	// Parse remaining arguments
-	var pathAndName []string
-
-	i := 0
-	for i < len(remaining) {
-		arg := remaining[i]
-
-		switch {
-		case arg == "--deps":
-			// Collect deps until next flag or end
-			i++
-			for i < len(remaining) && !strings.HasPrefix(remaining[i], "--") {
-				opts.Deps = append(opts.Deps, remaining[i])
-				i++
-			}
-		case arg == "--cache":
-			// Collect cache patterns until next flag or end
-			i++
-			for i < len(remaining) && !strings.HasPrefix(remaining[i], "--") {
-				opts.Cache = append(opts.Cache, remaining[i])
-				i++
-			}
-		case strings.HasPrefix(arg, "--"):
-			return opts, fmt.Errorf("%w: %s", errUnknownCreateFlag, arg)
-		default:
-			// Non-flag argument: path component or name
-			pathAndName = append(pathAndName, arg)
-			i++
-		}
-	}
-
-	// Need at least the target name
-	if len(pathAndName) < 1 {
-		return opts, errCreateUsage
-	}
-
-	// Last of pathAndName is name, rest are path
-	opts.Name = pathAndName[len(pathAndName)-1]
-	if len(pathAndName) > 1 {
-		opts.Path = pathAndName[:len(pathAndName)-1]
-	}
-
-	return opts, nil
-}
-
-func parseHelpRequest(args []string) (bool, bool) {
-	helpRequested := false
-	sawTarget := false
-
-	for _, arg := range args {
-		if arg == "--" {
-			break
-		}
-
-		if arg == "--help" || arg == "-h" {
-			helpRequested = true
-			continue
-		}
-
-		if strings.HasPrefix(arg, "-") {
-			continue
-		}
-
-		sawTarget = true
-	}
-
-	return helpRequested, sawTarget
 }
 
 func parseModulePath(content string) string {
@@ -2241,40 +2316,11 @@ func parseModulePath(content string) string {
 	return ""
 }
 
-// parseSyncArgs parses arguments after --sync into syncOptions.
-// Format: --sync <package-path>
-func parseSyncArgs(args []string) (syncOptions, error) {
-	var opts syncOptions
-
-	if len(args) < 1 {
-		return opts, errSyncUsage
-	}
-
-	opts.PackagePath = args[0]
-
-	// Validate that it looks like a module path
-	if !looksLikeModulePath(opts.PackagePath) {
-		return opts, fmt.Errorf("%w: %s", errInvalidPackagePath, opts.PackagePath)
-	}
-
-	return opts, nil
-}
-
-// pathToPascal converts a path like ["dev", "lint", "fast"] to "DevLintFast".
-func pathToPascal(path []string) string {
-	var result strings.Builder
-	for _, p := range path {
-		result.WriteString(kebabToPascal(p))
-	}
-
-	return result.String()
-}
-
 // prepareBuildContext determines build roots and handles fallback module setup.
 func prepareBuildContext(
 	mt moduleTargets,
 	startDir string,
-	dep targDependency,
+	dep TargDependency,
 ) (buildContext, error) {
 	ctx := buildContext{
 		usingFallback: mt.ModulePath == targLocalModule,
@@ -2285,7 +2331,7 @@ func prepareBuildContext(
 	if ctx.usingFallback {
 		var err error
 
-		ctx.buildRoot, err = ensureFallbackModuleRoot(startDir, mt.ModulePath, dep)
+		ctx.buildRoot, err = EnsureFallbackModuleRoot(startDir, mt.ModulePath, dep)
 		if err != nil {
 			return ctx, fmt.Errorf("preparing fallback module: %w", err)
 		}
@@ -2429,7 +2475,7 @@ func remapPackageInfosToIsolated(
 ) ([]buildtool.PackageInfo, map[string]string, error) {
 	filePaths := collectFilePaths(infos)
 
-	paths, err := namespacePaths(filePaths, startDir)
+	paths, err := NamespacePaths(filePaths, startDir)
 	if err != nil {
 		return nil, nil, fmt.Errorf("computing namespace paths: %w", err)
 	}
@@ -2477,8 +2523,8 @@ func remapPackageInfosToIsolated(
 	return result, pathMapping, nil
 }
 
-func resolveTargDependency() targDependency {
-	dep := targDependency{
+func resolveTargDependency() TargDependency {
+	dep := TargDependency{
 		ModulePath: defaultTargModulePath,
 	}
 
@@ -2662,45 +2708,7 @@ func validateNoPackageMain(mt moduleTargets) error {
 	return nil
 }
 
-func writeBootstrapFile(dir string, data []byte) (string, func() error, error) {
-	//nolint:gosec,mnd // standard directory permissions for bootstrap
-	err := os.MkdirAll(dir, 0o755)
-	if err != nil {
-		return "", nil, fmt.Errorf("creating bootstrap directory: %w", err)
-	}
-
-	temp, err := os.CreateTemp(dir, "targ_bootstrap_*.go")
-	if err != nil {
-		return "", nil, fmt.Errorf("creating temp file: %w", err)
-	}
-
-	tempFile := temp.Name()
-
-	_, err = temp.Write(data)
-	if err != nil {
-		_ = temp.Close()
-		return "", nil, fmt.Errorf("writing bootstrap file: %w", err)
-	}
-
-	err = temp.Close()
-	if err != nil {
-		return "", nil, fmt.Errorf("closing bootstrap file: %w", err)
-	}
-
-	cleanup := func() error {
-		err := os.Remove(tempFile)
-
-		if err != nil && !os.IsNotExist(err) {
-			return fmt.Errorf("removing bootstrap file: %w", err)
-		}
-
-		return nil
-	}
-
-	return tempFile, cleanup, nil
-}
-
-func writeFallbackGoMod(root, modulePath string, dep targDependency) error {
+func writeFallbackGoMod(root, modulePath string, dep TargDependency) error {
 	modPath := filepath.Join(root, "go.mod")
 
 	if dep.ModulePath == "" {
@@ -2731,7 +2739,7 @@ func writeFallbackGoMod(root, modulePath string, dep targDependency) error {
 }
 
 // writeIsolatedGoMod creates a go.mod for isolated builds.
-func writeIsolatedGoMod(tmpDir string, dep targDependency) error {
+func writeIsolatedGoMod(tmpDir string, dep TargDependency) error {
 	modPath := filepath.Join(tmpDir, "go.mod")
 
 	if dep.ModulePath == "" {

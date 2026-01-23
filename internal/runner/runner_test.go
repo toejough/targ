@@ -1,4 +1,4 @@
-package runner
+package runner_test
 
 import (
 	"os"
@@ -7,6 +7,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/toejough/targ/internal/runner"
 )
 
 func TestAddImportToTargFile(t *testing.T) {
@@ -25,7 +27,7 @@ var Lint = targ.Targ("golangci-lint run")
 		t.Fatalf("write error: %v", err)
 	}
 
-	err := addImportToTargFile(targFile, "github.com/foo/bar")
+	err := runner.AddImportToTargFile(targFile, "github.com/foo/bar")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -71,7 +73,7 @@ var Lint = targ.Targ("golangci-lint run")
 		t.Fatalf("write error: %v", err)
 	}
 
-	err := addImportToTargFile(targFile, "github.com/foo/bar")
+	err := runner.AddImportToTargFile(targFile, "github.com/foo/bar")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -102,7 +104,7 @@ func TestAddTargetToFile(t *testing.T) {
 	}
 
 	// Add a target
-	err = addTargetToFile(targFile, "my-lint", "golangci-lint run")
+	err = runner.AddTargetToFile(targFile, "my-lint", "golangci-lint run")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -125,7 +127,7 @@ func TestAddTargetToFile(t *testing.T) {
 	}
 
 	// Try adding duplicate
-	err = addTargetToFile(targFile, "my-lint", "different command")
+	err = runner.AddTargetToFile(targFile, "my-lint", "different command")
 	if err == nil {
 		t.Error("expected error for duplicate target")
 	}
@@ -153,13 +155,13 @@ var Dev = targ.NewGroup("dev", DevLint)
 	}
 
 	// Add a new target to the existing path
-	opts := createOptions{
+	opts := runner.CreateOptions{
 		Name:     "fast",
 		ShellCmd: "golangci-lint run --fast",
 		Path:     []string{"dev", "lint"},
 	}
 
-	err = addTargetToFileWithOptions(targFile, opts)
+	err = runner.AddTargetToFileWithOptions(targFile, opts)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -212,13 +214,13 @@ var Dev = targ.NewGroup("dev", DevBuild)
 	}
 
 	// Add a new target with a deeper path (dev/lint/fast)
-	opts := createOptions{
+	opts := runner.CreateOptions{
 		Name:     "fast",
 		ShellCmd: "golangci-lint run --fast",
 		Path:     []string{"dev", "lint"},
 	}
 
-	err = addTargetToFileWithOptions(targFile, opts)
+	err = runner.AddTargetToFileWithOptions(targFile, opts)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -253,13 +255,13 @@ func TestAddTargetToFileWithOptions_WithCache(t *testing.T) {
 		t.Fatalf("write error: %v", err)
 	}
 
-	opts := createOptions{
+	opts := runner.CreateOptions{
 		Name:     "build",
 		ShellCmd: "go build",
 		Cache:    []string{"**/*.go", "go.mod"},
 	}
 
-	err = addTargetToFileWithOptions(targFile, opts)
+	err = runner.AddTargetToFileWithOptions(targFile, opts)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -283,13 +285,13 @@ func TestAddTargetToFileWithOptions_WithDeps(t *testing.T) {
 		t.Fatalf("write error: %v", err)
 	}
 
-	opts := createOptions{
+	opts := runner.CreateOptions{
 		Name:     "build",
 		ShellCmd: "go build",
 		Deps:     []string{"lint", "test"},
 	}
 
-	err = addTargetToFileWithOptions(targFile, opts)
+	err = runner.AddTargetToFileWithOptions(targFile, opts)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -313,13 +315,13 @@ func TestAddTargetToFileWithOptions_WithPath(t *testing.T) {
 		t.Fatalf("write error: %v", err)
 	}
 
-	opts := createOptions{
+	opts := runner.CreateOptions{
 		Name:     "fast",
 		ShellCmd: "golangci-lint run --fast",
 		Path:     []string{"dev", "lint"},
 	}
 
-	err = addTargetToFileWithOptions(targFile, opts)
+	err = runner.AddTargetToFileWithOptions(targFile, opts)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -359,7 +361,7 @@ import (
 		t.Fatalf("write error: %v", err)
 	}
 
-	exists, err := checkImportExists(targFile, "github.com/foo/bar")
+	exists, err := runner.CheckImportExists(targFile, "github.com/foo/bar")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -383,7 +385,7 @@ import "github.com/toejough/targ"
 		t.Fatalf("write error: %v", err)
 	}
 
-	exists, err := checkImportExists(targFile, "github.com/foo/bar")
+	exists, err := runner.CheckImportExists(targFile, "github.com/foo/bar")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -396,24 +398,24 @@ import "github.com/toejough/targ"
 func TestCreateGroupMemberPatch(t *testing.T) {
 	content := `var DevLint = targ.NewGroup("lint", DevLintSlow)`
 
-	patch := createGroupMemberPatch(content, "DevLint", "DevLintFast")
+	patch := runner.CreateGroupMemberPatch(content, "DevLint", "DevLintFast")
 	if patch == nil {
 		t.Fatal("expected patch, got nil")
 	}
 
-	if patch.old != `var DevLint = targ.NewGroup("lint", DevLintSlow)` {
-		t.Errorf("unexpected old: %q", patch.old)
+	if patch.Old != `var DevLint = targ.NewGroup("lint", DevLintSlow)` {
+		t.Errorf("unexpected Old: %q", patch.Old)
 	}
 
-	if patch.new != `var DevLint = targ.NewGroup("lint", DevLintSlow, DevLintFast)` {
-		t.Errorf("unexpected new: %q", patch.new)
+	if patch.New != `var DevLint = targ.NewGroup("lint", DevLintSlow, DevLintFast)` {
+		t.Errorf("unexpected New: %q", patch.New)
 	}
 }
 
 func TestCreateGroupMemberPatch_AlreadyExists(t *testing.T) {
 	content := `var DevLint = targ.NewGroup("lint", DevLintSlow, DevLintFast)`
 
-	patch := createGroupMemberPatch(content, "DevLint", "DevLintFast")
+	patch := runner.CreateGroupMemberPatch(content, "DevLint", "DevLintFast")
 	if patch != nil {
 		t.Error("expected nil patch when member already exists")
 	}
@@ -429,10 +431,10 @@ func TestEnsureFallbackModuleRoot(t *testing.T) {
 		t.Fatalf("unexpected write error: %v", err)
 	}
 
-	root, err := ensureFallbackModuleRoot(
+	root, err := runner.EnsureFallbackModuleRoot(
 		dir,
 		"targ.local",
-		targDependency{ModulePath: "github.com/toejough/targ", Version: "v0.0.0"},
+		runner.TargDependency{ModulePath: "github.com/toejough/targ", Version: "v0.0.0"},
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -458,7 +460,7 @@ func TestEnsureFallbackModuleRoot(t *testing.T) {
 func TestFindModuleForPath_NoModule(t *testing.T) {
 	dir := t.TempDir()
 
-	root, modulePath, found, err := findModuleForPath(dir)
+	root, modulePath, found, err := runner.FindModuleForPath(dir)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -488,7 +490,7 @@ func TestFindModuleForPath_WalksUp(t *testing.T) {
 	}
 
 	// Should find parent's go.mod by walking up
-	root, modulePath, found, err := findModuleForPath(child)
+	root, modulePath, found, err := runner.FindModuleForPath(child)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -507,7 +509,7 @@ func TestFindModuleForPath_WalksUp(t *testing.T) {
 }
 
 func TestFindModuleForPath_WithFile(t *testing.T) {
-	// Test that findModuleForPath works when given a file path
+	// Test that FindModuleForPath works when given a file path
 	parent := t.TempDir()
 
 	modContent := "module example.com/parent\n\ngo 1.21\n"
@@ -527,7 +529,7 @@ func TestFindModuleForPath_WithFile(t *testing.T) {
 	}
 
 	// Should find parent's go.mod when given a file path
-	root, modulePath, found, err := findModuleForPath(targetFile)
+	root, modulePath, found, err := runner.FindModuleForPath(targetFile)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -553,7 +555,7 @@ func TestFindModuleForPath_WithModule(t *testing.T) {
 		t.Fatalf("unexpected write error: %v", err)
 	}
 
-	root, modulePath, found, err := findModuleForPath(dir)
+	root, modulePath, found, err := runner.FindModuleForPath(dir)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -574,7 +576,7 @@ func TestFindModuleForPath_WithModule(t *testing.T) {
 func TestFindOrCreateTargFile_CreatesNew(t *testing.T) {
 	dir := t.TempDir()
 
-	targFile, err := findOrCreateTargFile(dir)
+	targFile, err := runner.FindOrCreateTargFile(dir)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -609,7 +611,7 @@ func TestFindOrCreateTargFile_FindsExisting(t *testing.T) {
 		t.Fatalf("unexpected write error: %v", err)
 	}
 
-	targFile, err := findOrCreateTargFile(dir)
+	targFile, err := runner.FindOrCreateTargFile(dir)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -646,16 +648,16 @@ func TestHasTargBuildTag(t *testing.T) {
 		t.Fatalf("unexpected write error: %v", err)
 	}
 
-	if !hasTargBuildTag(withTag) {
-		t.Error("expected hasTargBuildTag to return true for file with targ tag")
+	if !runner.HasTargBuildTag(withTag) {
+		t.Error("expected HasTargBuildTag to return true for file with targ tag")
 	}
 
-	if hasTargBuildTag(withoutTag) {
-		t.Error("expected hasTargBuildTag to return false for file without tag")
+	if runner.HasTargBuildTag(withoutTag) {
+		t.Error("expected HasTargBuildTag to return false for file without tag")
 	}
 
-	if hasTargBuildTag(otherTag) {
-		t.Error("expected hasTargBuildTag to return false for file with different tag")
+	if runner.HasTargBuildTag(otherTag) {
+		t.Error("expected HasTargBuildTag to return false for file with different tag")
 	}
 }
 
@@ -679,8 +681,8 @@ func TestIsValidTargetName(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := isValidTargetName(tt.name); got != tt.valid {
-				t.Errorf("isValidTargetName(%q) = %v, want %v", tt.name, got, tt.valid)
+			if got := runner.IsValidTargetName(tt.name); got != tt.valid {
+				t.Errorf("IsValidTargetName(%q) = %v, want %v", tt.name, got, tt.valid)
 			}
 		})
 	}
@@ -700,8 +702,8 @@ func TestKebabToPascal(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
-			if got := kebabToPascal(tt.input); got != tt.expected {
-				t.Errorf("kebabToPascal(%q) = %q, want %q", tt.input, got, tt.expected)
+			if got := runner.KebabToPascal(tt.input); got != tt.expected {
+				t.Errorf("KebabToPascal(%q) = %q, want %q", tt.input, got, tt.expected)
 			}
 		})
 	}
@@ -714,7 +716,7 @@ func TestNamespacePaths_CompressesSegments(t *testing.T) {
 		"/root/tools/other/bar.go",
 	}
 
-	paths, err := namespacePaths(files, "/root")
+	paths, err := runner.NamespacePaths(files, "/root")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -732,7 +734,7 @@ func TestNamespacePaths_CompressesSegments(t *testing.T) {
 }
 
 func TestParseCreateArgs_Basic(t *testing.T) {
-	opts, err := parseCreateArgs([]string{"lint", "golangci-lint run"})
+	opts, err := runner.ParseCreateArgs([]string{"lint", "golangci-lint run"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -751,7 +753,7 @@ func TestParseCreateArgs_Basic(t *testing.T) {
 }
 
 func TestParseCreateArgs_FullOptions(t *testing.T) {
-	opts, err := parseCreateArgs([]string{
+	opts, err := runner.ParseCreateArgs([]string{
 		"dev", "build",
 		"--deps", "lint", "test",
 		"--cache", "**/*.go",
@@ -783,21 +785,23 @@ func TestParseCreateArgs_FullOptions(t *testing.T) {
 }
 
 func TestParseCreateArgs_TooFewArgs(t *testing.T) {
-	_, err := parseCreateArgs([]string{"lint"})
+	_, err := runner.ParseCreateArgs([]string{"lint"})
 	if err == nil {
 		t.Error("expected error for too few args")
 	}
 }
 
 func TestParseCreateArgs_UnknownFlag(t *testing.T) {
-	_, err := parseCreateArgs([]string{"lint", "--unknown", "cmd"})
+	_, err := runner.ParseCreateArgs([]string{"lint", "--unknown", "cmd"})
 	if err == nil {
 		t.Error("expected error for unknown flag")
 	}
 }
 
 func TestParseCreateArgs_WithCache(t *testing.T) {
-	opts, err := parseCreateArgs([]string{"build", "--cache", "**/*.go", "go.mod", "go build"})
+	opts, err := runner.ParseCreateArgs(
+		[]string{"build", "--cache", "**/*.go", "go.mod", "go build"},
+	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -813,7 +817,7 @@ func TestParseCreateArgs_WithCache(t *testing.T) {
 }
 
 func TestParseCreateArgs_WithDeps(t *testing.T) {
-	opts, err := parseCreateArgs([]string{"build", "--deps", "lint", "test", "go build"})
+	opts, err := runner.ParseCreateArgs([]string{"build", "--deps", "lint", "test", "go build"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -829,7 +833,7 @@ func TestParseCreateArgs_WithDeps(t *testing.T) {
 }
 
 func TestParseCreateArgs_WithPath(t *testing.T) {
-	opts, err := parseCreateArgs([]string{"dev", "lint", "fast", "golangci-lint run --fast"})
+	opts, err := runner.ParseCreateArgs([]string{"dev", "lint", "fast", "golangci-lint run --fast"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -849,19 +853,19 @@ func TestParseCreateArgs_WithPath(t *testing.T) {
 }
 
 func TestParseHelpRequestIgnoresSubcommandHelp(t *testing.T) {
-	help, target := parseHelpRequest([]string{"issues", "--help"})
+	help, target := runner.ParseHelpRequest([]string{"issues", "--help"})
 	if help && !target {
 		t.Fatal("expected help to be scoped to target")
 	}
 
-	help, target = parseHelpRequest([]string{"--help"})
+	help, target = runner.ParseHelpRequest([]string{"--help"})
 	if !help || target {
 		t.Fatal("expected top-level help without target")
 	}
 }
 
 func TestParseSyncArgs_Basic(t *testing.T) {
-	opts, err := parseSyncArgs([]string{"github.com/foo/bar"})
+	opts, err := runner.ParseSyncArgs([]string{"github.com/foo/bar"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -872,14 +876,14 @@ func TestParseSyncArgs_Basic(t *testing.T) {
 }
 
 func TestParseSyncArgs_InvalidPath(t *testing.T) {
-	_, err := parseSyncArgs([]string{"invalid-path"})
+	_, err := runner.ParseSyncArgs([]string{"invalid-path"})
 	if err == nil {
 		t.Error("expected error for invalid package path")
 	}
 }
 
 func TestParseSyncArgs_NoArgs(t *testing.T) {
-	_, err := parseSyncArgs([]string{})
+	_, err := runner.ParseSyncArgs([]string{})
 	if err == nil {
 		t.Error("expected error for no args")
 	}
@@ -898,9 +902,9 @@ func TestPathToPascal(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(strings.Join(tt.path, "/"), func(t *testing.T) {
-			got := pathToPascal(tt.path)
+			got := runner.PathToPascal(tt.path)
 			if got != tt.expected {
-				t.Errorf("pathToPascal(%v) = %q, want %q", tt.path, got, tt.expected)
+				t.Errorf("PathToPascal(%v) = %q, want %q", tt.path, got, tt.expected)
 			}
 		})
 	}
@@ -910,7 +914,7 @@ func TestWriteBootstrapFileCleanup(t *testing.T) {
 	dir := t.TempDir()
 	data := []byte("package main\n")
 
-	path, cleanup, err := writeBootstrapFile(dir, data)
+	path, cleanup, err := runner.WriteBootstrapFile(dir, data)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
