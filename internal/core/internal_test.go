@@ -680,6 +680,15 @@ func TestCommandMetaOverrides(t *testing.T) {
 	}
 }
 
+func TestCompletionChain_NilNode(t *testing.T) {
+	g := NewWithT(t)
+
+	// Exercises the nil node early return branch
+	chain, err := completionChain(nil, []string{})
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(chain).To(BeNil())
+}
+
 func TestCompletionExample_Bash(t *testing.T) {
 	t.Setenv("SHELL", "/bin/bash")
 
@@ -3720,38 +3729,6 @@ func (t *testTextUnmarshaler) UnmarshalText(text []byte) error {
 	return nil
 }
 
-// extractShellName extracts and validates the shell name from a path.
-// This is the testable core logic of DetectShell().
-func extractShellName(shell string) string {
-	shell = strings.TrimSpace(shell)
-	if shell == "" {
-		return ""
-	}
-
-	base := shell
-	if idx := strings.LastIndex(base, "/"); idx != -1 {
-		base = base[idx+1:]
-	}
-
-	if idx := strings.LastIndex(base, "\\"); idx != -1 {
-		base = base[idx+1:]
-	}
-
-	switch base {
-	case bashShell, zshShell, fishShell:
-		return base
-	default:
-		return ""
-	}
-}
-
-// --- Helpers for other test files ---
-
-// parseCommand is a helper used by completion_test.go
-func parseCommand(f any) (*commandNode, error) {
-	return parseStruct(f)
-}
-
 func captureStdout(t *testing.T, fn func()) string {
 	t.Helper()
 
@@ -3779,4 +3756,29 @@ func captureStdout(t *testing.T, fn func()) string {
 	_ = r.Close()
 
 	return buf.String()
+}
+
+// extractShellName extracts and validates the shell name from a path.
+// This is the testable core logic of DetectShell().
+func extractShellName(shell string) string {
+	shell = strings.TrimSpace(shell)
+	if shell == "" {
+		return ""
+	}
+
+	base := shell
+	if idx := strings.LastIndex(base, "/"); idx != -1 {
+		base = base[idx+1:]
+	}
+
+	if idx := strings.LastIndex(base, "\\"); idx != -1 {
+		base = base[idx+1:]
+	}
+
+	switch base {
+	case bashShell, zshShell, fishShell:
+		return base
+	default:
+		return ""
+	}
 }

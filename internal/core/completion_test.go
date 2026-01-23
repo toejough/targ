@@ -78,41 +78,16 @@ type VariadicFlagCmd struct {
 
 func (c *VariadicFlagCmd) Run() {}
 
-func TestCompletion_SuggestsEnumValuesAfterFlag(t *testing.T) {
-
-	out := captureCompletion(t, &EnumCmd{}, "app --mode ")
-	if !strings.Contains(out, "dev") || !strings.Contains(out, "prod") {
-		t.Fatalf("expected enum suggestions, got: %q", out)
-	}
-}
-
-func TestCompletion_SuggestsEnumValuesAfterShortFlag(t *testing.T) {
-
-	out := captureCompletion(t, &EnumCmd{}, "app -m ")
-	if !strings.Contains(out, "dev") || !strings.Contains(out, "prod") {
-		t.Fatalf("expected enum suggestions for short flag, got: %q", out)
-	}
-}
-
-func TestCompletion_SuggestsPositionalValues(t *testing.T) {
-
-	out := captureCompletion(t, &PositionalCompletionCmd{}, "app --status cancelled ")
-	if !strings.Contains(out, "40") || !strings.Contains(out, "41") {
-		t.Fatalf("expected positional suggestions, got: %q", out)
-	}
-}
-
-func TestCompletion_SuggestsRootsAfterCommand(t *testing.T) {
-
-	out := captureCompletionMulti(t, []any{&CompletionFirmwareRoot{}, &CompletionDiscoverRoot{}},
-		"app firmware flash-only d")
-	if !strings.Contains(out, "discover") {
-		t.Fatalf("expected discover suggestion, got: %q", out)
+func TestCompletion_BackslashInDoubleQuotes(t *testing.T) {
+	// Test backslash escape inside double quotes
+	out := captureCompletion(t, &EnumCmd{}, `app --mode "de\"`)
+	// The \" is an escaped quote, not end of string
+	if strings.Contains(out, "dev") {
+		t.Fatalf("expected no match with escaped quote, got: %q", out)
 	}
 }
 
 func TestCompletion_CaretSuggestion(t *testing.T) {
-
 	out := captureCompletionMulti(t, []any{&CompletionFirmwareRoot{}, &CompletionDiscoverRoot{}},
 		"app firmware flash-only ")
 	if !strings.Contains(out, "^") {
@@ -121,7 +96,6 @@ func TestCompletion_CaretSuggestion(t *testing.T) {
 }
 
 func TestCompletion_ChainedRootCommands(t *testing.T) {
-
 	out := captureCompletionMulti(t, []any{&CompletionFirmwareRoot{}, &CompletionDiscoverRoot{}},
 		"app firmware discover ")
 	// After chaining through both commands, should suggest roots again
@@ -130,16 +104,73 @@ func TestCompletion_ChainedRootCommands(t *testing.T) {
 	}
 }
 
-func TestCompletion_FlagSuggestion(t *testing.T) {
+func TestCompletion_EnumFlagFollowedByDash(t *testing.T) {
+	// Test case where after an enum flag, user is typing another flag (prefix starts with -)
+	// This should NOT suggest enum values since we're clearly typing a new flag
+	out := captureCompletion(t, &EnumCmd{}, "app --mode -")
+	// Should NOT suggest dev/prod since prefix "-" indicates we're typing a flag
+	// Instead should suggest flags that start with "-"
+	if strings.Contains(out, "dev") || strings.Contains(out, "prod") {
+		t.Fatalf("expected no enum values when prefix is -, got: %q", out)
+	}
+}
 
+func TestCompletion_EnumFlagFollowedByNonEnumArg(t *testing.T) {
+	// Test case where previous arg is not an enum flag (exercises final return nil)
+	out := captureCompletion(t, &EnumCmd{}, "app --mode dev notaflag ")
+	// "notaflag" doesn't match any enum flag, so enumValuesForArg returns nil
+	// In single-root mode, should suggest the root command
+	if !strings.Contains(out, "enum-cmd") {
+		t.Fatalf("expected root command suggestion after non-flag arg, got: %q", out)
+	}
+}
+
+func TestCompletion_EscapedSpace(t *testing.T) {
+	// Test escaped space in argument
+	out := captureCompletion(t, &EnumCmd{}, `app --mode de\ `)
+	// The escaped space is part of the arg, so "de " doesn't match any enum
+	if strings.Contains(out, "dev") {
+		t.Fatalf("expected no dev suggestion with escaped space, got: %q", out)
+	}
+}
+
+func TestCompletion_FlagSuggestion(t *testing.T) {
 	out := captureCompletion(t, &EnumCmd{}, "app --")
 	if !strings.Contains(out, "--mode") {
 		t.Fatalf("expected --mode flag suggestion, got: %q", out)
 	}
 }
 
-func TestCompletion_MultipleRootsAtRootLevel(t *testing.T) {
+func TestCompletion_MultiRootChainedRemaining(t *testing.T) {
+	// Test multi-root mode where remaining args DO match a root
+	// After firmware flash-only runs, "discover" matches a root so we chain to it
+	out := captureCompletionMulti(t, []any{&CompletionFirmwareRoot{}, &CompletionDiscoverRoot{}},
+		"app firmware flash-only discover ")
+	// After chaining to discover, we should suggest roots again (both firmware and discover)
+	if !strings.Contains(out, "firmware") || !strings.Contains(out, "discover") {
+		t.Fatalf("expected root suggestions after chaining, got: %q", out)
+	}
+}
 
+func TestCompletion_MultiRootUnknownRemaining(t *testing.T) {
+	// Test multi-root mode where remaining args don't match any root
+	// After firmware runs, "unknown" doesn't match any root so chain resolution stops
+	// But suggestions still happen for current context (flash-only's parent has subcommands)
+	out := captureCompletionMulti(t, []any{&CompletionFirmwareRoot{}, &CompletionDiscoverRoot{}},
+		"app firmware flash-only unknown ")
+	// The "unknown" remaining doesn't match any root, so followRemaining returns false
+	// This means we should NOT suggest root commands (firmware, discover)
+	// But we still get suggestions for the current subcommand context
+	if strings.Contains(out, "firmware") || strings.Contains(out, "discover") {
+		t.Fatalf("expected no root suggestions for unknown remaining, got: %q", out)
+	}
+	// Should still suggest caret (path reset) and flags
+	if !strings.Contains(out, "^") {
+		t.Fatalf("expected ^ suggestion, got: %q", out)
+	}
+}
+
+func TestCompletion_MultipleRootsAtRootLevel(t *testing.T) {
 	out := captureCompletionMulti(t, []any{&CompletionFirmwareRoot{}, &CompletionDiscoverRoot{}},
 		"app ")
 	if !strings.Contains(out, "firmware") || !strings.Contains(out, "discover") {
@@ -148,7 +179,6 @@ func TestCompletion_MultipleRootsAtRootLevel(t *testing.T) {
 }
 
 func TestCompletion_MultipleRootsWithPrefix(t *testing.T) {
-
 	out := captureCompletionMulti(t, []any{&CompletionFirmwareRoot{}, &CompletionDiscoverRoot{}},
 		"app f")
 	if !strings.Contains(out, "firmware") {
@@ -156,16 +186,91 @@ func TestCompletion_MultipleRootsWithPrefix(t *testing.T) {
 	}
 }
 
-func TestCompletion_SingleRootAtRoot(t *testing.T) {
+func TestCompletion_PartialRootMatchSuggestsMatchingRoots(t *testing.T) {
+	// "fir " (with trailing space) - doesn't match any root exactly but should suggest matching roots
+	out := captureCompletionMulti(t, []any{&CompletionFirmwareRoot{}, &CompletionDiscoverRoot{}},
+		"app fir ")
+	if !strings.Contains(out, "firmware") {
+		t.Fatalf("expected firmware suggestion for partial match, got: %q", out)
+	}
+}
 
+// Tests for tokenization edge cases
+
+func TestCompletion_QuotedArg(t *testing.T) {
+	// Test that quoted arguments are handled properly
+	out := captureCompletion(t, &EnumCmd{}, `app --mode "de`)
+	// Should suggest enum values since we're in a quoted string completing "de"
+	if !strings.Contains(out, "dev") {
+		t.Fatalf("expected dev suggestion with quoted arg, got: %q", out)
+	}
+}
+
+func TestCompletion_SingleQuotedArg(t *testing.T) {
+	// Test single quotes
+	out := captureCompletion(t, &EnumCmd{}, `app --mode 'de`)
+	if !strings.Contains(out, "dev") {
+		t.Fatalf("expected dev suggestion with single quoted arg, got: %q", out)
+	}
+}
+
+func TestCompletion_SingleRootAtRoot(t *testing.T) {
 	out := captureCompletion(t, &EnumCmd{}, "app ")
 	if !strings.Contains(out, "enum-cmd") {
 		t.Fatalf("expected enum-cmd suggestion, got: %q", out)
 	}
 }
 
-func TestCompletion_UnknownRootPrefix(t *testing.T) {
+func TestCompletion_SingleRootWithRemaining(t *testing.T) {
+	// Test single root mode with subcommand followed by extra remaining args
+	// CompletionFirmwareRoot has FlashOnly subcommand; after that completes,
+	// "extra" triggers followRemaining in single-root mode
+	out := captureCompletion(t, &CompletionFirmwareRoot{}, "app flash-only extra ")
+	// In single root mode with remaining args, followRemaining sets currentNode back to root
+	// and allows re-running. Should suggest flash-only (the subcommand) and flags
+	if !strings.Contains(out, "flash-only") {
+		t.Fatalf("expected subcommand suggestions after remaining args, got: %q", out)
+	}
+}
 
+func TestCompletion_SuggestsEnumValuesAfterFlag(t *testing.T) {
+	out := captureCompletion(t, &EnumCmd{}, "app --mode ")
+	if !strings.Contains(out, "dev") || !strings.Contains(out, "prod") {
+		t.Fatalf("expected enum suggestions, got: %q", out)
+	}
+}
+
+func TestCompletion_SuggestsEnumValuesAfterShortFlag(t *testing.T) {
+	out := captureCompletion(t, &EnumCmd{}, "app -m ")
+	if !strings.Contains(out, "dev") || !strings.Contains(out, "prod") {
+		t.Fatalf("expected enum suggestions for short flag, got: %q", out)
+	}
+}
+
+func TestCompletion_SuggestsPositionalValues(t *testing.T) {
+	out := captureCompletion(t, &PositionalCompletionCmd{}, "app --status cancelled ")
+	if !strings.Contains(out, "40") || !strings.Contains(out, "41") {
+		t.Fatalf("expected positional suggestions, got: %q", out)
+	}
+}
+
+func TestCompletion_SuggestsRootsAfterCommand(t *testing.T) {
+	out := captureCompletionMulti(t, []any{&CompletionFirmwareRoot{}, &CompletionDiscoverRoot{}},
+		"app firmware flash-only d")
+	if !strings.Contains(out, "discover") {
+		t.Fatalf("expected discover suggestion, got: %q", out)
+	}
+}
+
+func TestCompletion_TagOptionsOverride(t *testing.T) {
+	out := captureCompletion(t, &EnumOverrideCmd{}, "app --mode ")
+	// TagOptions overrides enum to alpha|beta
+	if !strings.Contains(out, "alpha") || !strings.Contains(out, "beta") {
+		t.Fatalf("expected overridden enum values, got: %q", out)
+	}
+}
+
+func TestCompletion_UnknownRootPrefix(t *testing.T) {
 	out := captureCompletionMulti(t, []any{&CompletionFirmwareRoot{}, &CompletionDiscoverRoot{}},
 		"app xyz")
 	// Should not suggest anything since no match
@@ -175,7 +280,6 @@ func TestCompletion_UnknownRootPrefix(t *testing.T) {
 }
 
 func TestCompletion_VariadicFlagSkipsMultipleValues(t *testing.T) {
-
 	out := captureCompletion(t, &VariadicFlagCmd{}, "app --files a.txt b.txt ")
 	// Should suggest positional enum values after skipping variadic flag values
 	if !strings.Contains(out, "build") || !strings.Contains(out, "test") {
@@ -183,17 +287,7 @@ func TestCompletion_VariadicFlagSkipsMultipleValues(t *testing.T) {
 	}
 }
 
-func TestCompletion_TagOptionsOverride(t *testing.T) {
-
-	out := captureCompletion(t, &EnumOverrideCmd{}, "app --mode ")
-	// TagOptions overrides enum to alpha|beta
-	if !strings.Contains(out, "alpha") || !strings.Contains(out, "beta") {
-		t.Fatalf("expected overridden enum values, got: %q", out)
-	}
-}
-
 func TestPrintCompletionScriptPlaceholders(t *testing.T) {
-
 	cases := []string{"bash", "zsh", "fish"}
 	for _, shell := range cases {
 		out := captureStdout(t, func() {

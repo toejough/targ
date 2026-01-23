@@ -213,7 +213,8 @@ var (
 	)
 	errWatchRequiresPattern = errors.New("--watch requires a pattern")
 	errWhileRequiresCommand = errors.New("--while requires a command")
-	fileWatch               = file.Watch
+	//nolint:gochecknoglobals // DI injection point for testing
+	fileWatch = file.Watch
 )
 
 // checkConflicts verifies CLI overrides don't conflict with Target config.

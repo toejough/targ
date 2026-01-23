@@ -1,8 +1,10 @@
 package core_test
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -159,6 +161,32 @@ func TestDeps_InvalidTypeViaDeps(t *testing.T) {
 	}
 }
 
+func TestDeps_NilPointerTarget(t *testing.T) {
+	// Pass a typed nil pointer through Deps
+	var nilPtr *DepStruct
+
+	target := func() error {
+		return core.Deps(nilPtr)
+	}
+
+	_, err := core.Execute([]string{"cmd"}, target)
+	if err == nil {
+		t.Fatal("expected error for nil pointer target")
+	}
+}
+
+func TestDeps_NilTarget(t *testing.T) {
+	// Pass nil directly through Deps
+	target := func() error {
+		return core.Deps(nil)
+	}
+
+	_, err := core.Execute([]string{"cmd"}, target)
+	if err == nil {
+		t.Fatal("expected error for nil target")
+	}
+}
+
 func TestParallelDepsReturnsError(t *testing.T) {
 	started := make(chan struct{}, 1)
 	release := make(chan struct{})
@@ -252,7 +280,12 @@ func TestParallelDepsSharesDependencies(t *testing.T) {
 	}
 
 	target := func() error {
-		return core.Deps(inner, func() error { return inner() }, core.Parallel(), core.ContinueOnError())
+		return core.Deps(
+			inner,
+			func() error { return inner() },
+			core.Parallel(),
+			core.ContinueOnError(),
+		)
 	}
 
 	_, err := core.Execute([]string{"cmd"}, target)
@@ -312,6 +345,84 @@ func TestResetDeps(t *testing.T) {
 	_, err := core.Execute([]string{"cmd"}, target)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestSerialDeps_ContextCanceledNoFirstError(t *testing.T) {
+	// Test that when context is canceled and no prior errors,
+	// the context canceled error is returned
+	secondRan := false
+
+	target := func() error {
+		ctx, cancel := context.WithCancel(context.Background())
+
+		return core.Deps(
+			func() {
+				// First target succeeds but cancels context
+				cancel()
+			},
+			func() {
+				// Second target won't run due to cancellation
+				secondRan = true
+			},
+			core.WithContext(ctx),
+		)
+	}
+
+	result, err := core.Execute([]string{"cmd"}, target)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+
+	// Second target should not run since context was canceled
+	if secondRan {
+		t.Fatal("second target should not have run")
+	}
+
+	// Output should contain context canceled error
+	if !strings.Contains(result.Output, "context canceled") {
+		t.Fatalf("expected output to contain context canceled, got: %v", result.Output)
+	}
+}
+
+func TestSerialDeps_ContextCanceledWithFirstError(t *testing.T) {
+	// Test that when context is canceled AND there's a firstErr from ContinueOnError,
+	// the firstErr is returned (not the context error)
+	thirdRan := false
+
+	target := func() error {
+		ctx, cancel := context.WithCancel(context.Background())
+
+		return core.Deps(
+			func() error {
+				return errors.New("first error")
+			},
+			func() {
+				// Cancel context during second target
+				cancel()
+			},
+			func() {
+				// Third target won't run due to cancellation check
+				thirdRan = true
+			},
+			core.ContinueOnError(),
+			core.WithContext(ctx),
+		)
+	}
+
+	result, err := core.Execute([]string{"cmd"}, target)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+
+	// Third target should not run since context was canceled before it
+	if thirdRan {
+		t.Fatal("third target should not have run")
+	}
+
+	// Output should contain the first error
+	if !strings.Contains(result.Output, "first error") {
+		t.Fatalf("expected output to contain first error, got: %v", result.Output)
 	}
 }
 
