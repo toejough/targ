@@ -92,7 +92,7 @@ Maps requirements to architecture. Coverage: Necessary (inherent), Needs design,
 | Failure         | Source - `func Name() error`         | [Source](#source)       |
 | Cancellation    | Source - `func Name(ctx) error`      | [Source](#source)       |
 | Dependencies    | Execution - `.Deps()`                | [Execution](#execution) |
-| Parallel        | Execution - `.ParallelDeps()`        | [Execution](#execution) |
+| Parallel        | Execution - `.Deps(..., DepModeParallel)`        | [Execution](#execution) |
 | Serial          | Execution - `.Deps()` (default)      | [Execution](#execution) |
 | Help text       | Execution - `.Description()`         | [Execution](#execution) |
 | Arguments       | Arguments - struct parameter         | [Arguments](#arguments) |
@@ -554,7 +554,7 @@ Parse CLI flags and positionals into the args struct.
 
 Order of operations:
 
-1. **Deps**: Run dependencies (serial or parallel per `.Deps()`/`.ParallelDeps()`)
+1. **Deps**: Run dependencies (serial or parallel per `.Deps()`/`.Deps(..., DepModeParallel)`)
 2. **Cache check**: Skip if cached and inputs unchanged
 3. **Function**: Invoke the target function
 4. **Retry**: On failure, retry with backoff if configured
@@ -730,7 +730,7 @@ Verified 2026-01-23.
 | Method | Status | Location |
 | ------ | ------ | -------- |
 | `.Deps()` | ✅ | `internal/core/target.go` |
-| `.ParallelDeps()` | ✅ | `internal/core/target.go` |
+| `.Deps(..., DepModeParallel)` | ✅ | `internal/core/target.go` |
 | `.Cache()` | ✅ | `internal/core/target.go` |
 | `.Watch()` | ✅ | `internal/core/target.go` |
 | `.Times()` | ✅ | `internal/core/target.go` |

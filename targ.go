@@ -39,9 +39,6 @@ type ChangeSet = internalfile.ChangeSet
 // DepMode controls how dependencies are executed (parallel or serial).
 type DepMode = core.DepMode
 
-// DepsOption configures dependency execution behavior.
-type DepsOption = core.DepsOption
-
 // Example represents a usage example shown in help text.
 type Example = core.Example
 
@@ -88,23 +85,6 @@ func Checksum(inputs []string, dest string) (bool, error) {
 	return internalfile.Checksum(inputs, dest, func(patterns []string) ([]string, error) {
 		return Match(patterns...)
 	}, nil)
-}
-
-// ContinueOnError runs all dependencies even if one fails.
-// Without this option, Deps fails fast (cancels remaining on first error).
-func ContinueOnError() DepsOption { return core.ContinueOnError() }
-
-// --- Dependency Execution ---
-
-// Deps executes dependencies, each exactly once per CLI run.
-// Options can be mixed with targets in any order:
-//
-//	targ.Deps(A, B, C)                              // serial, fail-fast
-//	targ.Deps(A, B, C, targ.Parallel())             // parallel, fail-fast
-//	targ.Deps(A, B, C, targ.ContinueOnError())      // serial, run all
-//	targ.Deps(A, B, targ.Parallel(), targ.WithContext(ctx))
-func Deps(args ...any) error {
-	return core.Deps(args...)
 }
 
 // EmptyExamples returns an empty slice to disable examples in help.
@@ -204,9 +184,6 @@ func OutputContext(ctx context.Context, name string, args ...string) (string, er
 	return internalsh.OutputContext(ctx, name, args, os.Stdin)
 }
 
-// Parallel runs dependencies concurrently instead of sequentially.
-func Parallel() DepsOption { return core.Parallel() }
-
 // PrependBuiltinExamples adds built-in examples before custom examples.
 func PrependBuiltinExamples(custom ...Example) []Example {
 	return core.PrependBuiltinExamples(custom...)
@@ -217,13 +194,6 @@ func PrependBuiltinExamples(custom ...Example) []Example {
 // Use ExecuteRegistered() in main() to run the registered targets.
 func Register(targets ...any) {
 	core.RegisterTarget(targets...)
-}
-
-// ResetDeps clears the dependency execution cache, allowing all targets
-// to run again on subsequent Deps() calls. This is useful for watch mode
-// where the same targets need to re-run on each file change.
-func ResetDeps() {
-	core.ResetDeps()
 }
 
 // Run executes a command streaming stdout/stderr.
@@ -279,8 +249,12 @@ func Shell(ctx context.Context, cmd string, args any) error {
 // Shell command targets (run in user's shell):
 //
 //	var lint = targ.Targ("golangci-lint run ./...")
-func Targ(fn any) *Target {
-	return core.Targ(fn)
+//
+// Deps-only targets (no function, just runs dependencies):
+//
+//	var all = targ.Targ().Name("all").Deps(build, test, lint)
+func Targ(fn ...any) *Target {
+	return core.Targ(fn...)
 }
 
 // Watch polls patterns for changes and invokes callback with any detected changes.
@@ -294,10 +268,6 @@ func Watch(
 		return Match(p...)
 	}, nil)
 }
-
-// WithContext passes a custom context to dependencies.
-// Useful for cancellation in watch mode.
-func WithContext(ctx context.Context) DepsOption { return core.WithContext(ctx) }
 
 // WithExeSuffix appends the OS-specific executable suffix if missing.
 func WithExeSuffix(name string) string {

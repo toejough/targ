@@ -520,7 +520,7 @@ func TestRunWithEnv_HelpShowsParallelDeps(t *testing.T) {
 	depB := core.Targ(func() {}).Name("dep-b")
 	target := core.Targ(func() {}).
 		Name("parallel").
-		ParallelDeps(depA, depB)
+		Deps(depA, depB, core.DepModeParallel)
 
 	output := captureStdoutRun(t, func() {
 		_, _ = core.ExecuteWithOptions(

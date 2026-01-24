@@ -259,7 +259,7 @@ func TestTarget_ParallelDepsRunConcurrently(t *testing.T) {
 		close(bStarted)
 		<-done
 	})
-	c := targ.Targ(func() {}).ParallelDeps(a, b)
+	c := targ.Targ(func() {}).Deps(a, b, targ.DepModeParallel)
 
 	go func() {
 		_ = c.Run(context.Background())

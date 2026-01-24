@@ -203,7 +203,7 @@ Verified 2026-01-23.
 | Failure         | ✅ | `func Name() error` |
 | Cancellation    | ✅ | `func Name(ctx context.Context) error` |
 | Dependencies    | ✅ | `.Deps()` |
-| Parallel        | ✅ | `.ParallelDeps()`, `--parallel/-p` |
+| Parallel        | ✅ | `.Deps(..., DepModeParallel)`, `--parallel/-p` |
 | Serial          | ✅ | `.Deps()` (default) |
 | Help text       | ✅ | `.Description()` |
 | Arguments       | ✅ | Struct parameter with `targ:` tags |

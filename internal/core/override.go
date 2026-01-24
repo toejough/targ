@@ -44,7 +44,7 @@ type TargetConfig struct {
 	CachePatterns []string
 	WatchDisabled bool // True if target explicitly allows CLI --watch
 	CacheDisabled bool // True if target explicitly allows CLI --cache
-	HasDeps       bool // True if target has .Deps() or .ParallelDeps() configured
+	HasDeps       bool // True if target has .Deps() configured
 }
 
 // ExecuteWithOverrides runs a function with runtime overrides applied.
@@ -249,7 +249,7 @@ func checkConflicts(overrides RuntimeOverrides, config TargetConfig) error {
 		return errCacheConflict
 	}
 
-	// Check deps conflict: CLI --deps vs Target.Deps()/ParallelDeps()
+	// Check deps conflict: CLI --deps vs Target.Deps()
 	// Note: There's no "disabled" option for deps - they must be defined in one place only
 	if len(overrides.Deps) > 0 && config.HasDeps {
 		return errDepsConflict

@@ -92,11 +92,23 @@ func (t *Target) CacheDir(dir string) *Target {
 	return t
 }
 
-// Deps sets dependencies that run serially before this target.
+// Deps sets dependencies that run before this target.
 // Each dependency runs exactly once even if referenced multiple times.
-func (t *Target) Deps(targets ...*Target) *Target {
-	t.deps = targets
+// Pass targ.Parallel as the last argument to run dependencies concurrently.
+//
+//	targ.Targ(build).Deps(generate, compile)           // serial (default)
+//	targ.Targ(build).Deps(lint, test, targ.Parallel)   // parallel
+func (t *Target) Deps(args ...any) *Target {
 	t.depMode = DepModeSerial
+
+	for _, arg := range args {
+		switch v := arg.(type) {
+		case *Target:
+			t.deps = append(t.deps, v)
+		case DepMode:
+			t.depMode = v
+		}
+	}
 
 	return t
 }
@@ -163,15 +175,6 @@ func (t *Target) GetTimes() int {
 // By default, the function name is used (converted to kebab-case).
 func (t *Target) Name(s string) *Target {
 	t.name = s
-	return t
-}
-
-// ParallelDeps sets dependencies that run concurrently before this target.
-// Each dependency runs exactly once even if referenced multiple times.
-func (t *Target) ParallelDeps(targets ...*Target) *Target {
-	t.deps = targets
-	t.depMode = DepModeParallel
-
 	return t
 }
 
@@ -317,6 +320,11 @@ func (t *Target) checkCache() (bool, error) {
 
 // execute runs the target's function or shell command.
 func (t *Target) execute(ctx context.Context, args []any) error {
+	if t.fn == nil {
+		// Deps-only target, nothing to execute
+		return nil
+	}
+
 	switch fn := t.fn.(type) {
 	case string:
 		return runShellCommand(ctx, fn)
@@ -467,25 +475,39 @@ func (t *Target) shouldContinueLoop(ctx context.Context, state *repetitionState)
 // Shell command targets (run in user's shell):
 //
 //	var lint = core.Targ("golangci-lint run ./...")
-func Targ(fn any) *Target {
-	if fn == nil {
+//
+// Deps-only targets (no function, just runs dependencies):
+//
+//	var all = core.Targ().Name("all").Deps(build, test, lint)
+func Targ(fn ...any) *Target {
+	if len(fn) == 0 {
+		// Deps-only target with no function
+		return &Target{}
+	}
+
+	if len(fn) > 1 {
+		panic("targ.Targ: expected at most one argument")
+	}
+
+	f := fn[0]
+	if f == nil {
 		panic("targ.Targ: fn cannot be nil")
 	}
 
 	// Validate fn is a function or string
-	switch v := fn.(type) {
+	switch v := f.(type) {
 	case string:
 		if v == "" {
 			panic("targ.Targ: shell command cannot be empty")
 		}
 	default:
-		fnValue := reflect.ValueOf(fn)
+		fnValue := reflect.ValueOf(f)
 		if fnValue.Kind() != reflect.Func {
-			panic(fmt.Sprintf("targ.Targ: expected func or string, got %T", fn))
+			panic(fmt.Sprintf("targ.Targ: expected func or string, got %T", f))
 		}
 	}
 
-	return &Target{fn: fn}
+	return &Target{fn: f}
 }
 
 // unexported constants.

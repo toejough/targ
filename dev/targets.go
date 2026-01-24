@@ -28,6 +28,14 @@ import (
 )
 
 func init() {
+	// Set dependencies (must be done after all targets are defined)
+	Check.Deps(DeleteDeadcode, Fmt, Tidy, Modernize, CheckNils, CheckCoverage, ReorderDecls, Lint, CheckThinAPI)
+	CheckCoverage.Deps(Test)
+	CheckNils.Deps(CheckNilsFix, CheckNilsForFail)
+	Mutate.Deps(CheckForFail)
+	Test.Deps(Generate)
+	TestForFail.Deps(Generate)
+
 	targ.Register(
 		Check,
 		CheckCoverage,
@@ -63,7 +71,7 @@ func init() {
 
 // Exported variables.
 var (
-	Check                = targ.Targ(check).Description("Run all checks & fixes")
+	Check = targ.Targ(check).Description("Run all checks & fixes")
 	CheckCoverage        = targ.Targ(checkCoverage).Description("Check function coverage")
 	CheckCoverageForFail = targ.Targ(checkCoverageForFail).Description("Check coverage (no test run)")
 	CheckForFail         = targ.Targ(checkForFail).Description("Run all checks (fail-fast)")
@@ -170,29 +178,14 @@ func analyzeThinness(path string) ([]thinViolation, error) {
 	return violations, nil
 }
 
-func check(ctx context.Context) error {
+func check(_ context.Context) error {
 	fmt.Println("Checking...")
-
-	return targ.Deps(
-		DeleteDeadcode, // no use doing anything else to dead code
-		Fmt,            // after dead code removal, format code including imports
-		Tidy,           // clean up the module dependencies
-		Modernize,      // no use doing anything else to old code patterns
-		CheckNils,      // is it nil free?
-		CheckCoverage,  // does our code work?
-		ReorderDecls,   // linter will yell about declaration order if not correct
-		Lint,
-		CheckThinAPI, // is public API thin wrappers only?
-		targ.WithContext(ctx),
-	)
+	return nil // deps handled by target definition
 }
 
 func checkCoverage(ctx context.Context) error {
 	fmt.Println("Checking coverage...")
-
-	if err := targ.Deps(Test, targ.WithContext(ctx)); err != nil {
-		return err
-	}
+	// Test runs as dep before this function
 
 	// Merge duplicate coverage blocks from cross-package testing
 	if err := mergeCoverageBlocks("coverage.out"); err != nil {
@@ -315,17 +308,57 @@ func checkCoverageForFail(ctx context.Context) error {
 func checkForFail(ctx context.Context) error {
 	fmt.Println("Checking...")
 
-	return targ.Deps(
+	// Run all checks in parallel
+	var wg sync.WaitGroup
+
+	errCh := make(chan error, 7)
+
+	targets := []*targ.Target{
 		ReorderDeclsCheck,
 		LintFast,
 		LintForFail,
 		Deadcode,
 		CheckThinAPI,
-		func() error { return targ.Deps(TestForFail, CheckCoverageForFail, targ.WithContext(ctx)) },
 		CheckNilsForFail,
-		targ.Parallel(),
-		targ.WithContext(ctx),
-	)
+	}
+
+	for _, t := range targets {
+		wg.Add(1)
+
+		go func(target *targ.Target) {
+			defer wg.Done()
+
+			if err := target.Run(ctx); err != nil {
+				errCh <- err
+			}
+		}(t)
+	}
+
+	// TestForFail -> CheckCoverageForFail (serial within parallel)
+	wg.Add(1)
+
+	go func() {
+		defer wg.Done()
+
+		if err := TestForFail.Run(ctx); err != nil {
+			errCh <- err
+			return
+		}
+
+		if err := CheckCoverageForFail.Run(ctx); err != nil {
+			errCh <- err
+		}
+	}()
+
+	wg.Wait()
+	close(errCh)
+
+	// Return first error if any
+	for err := range errCh {
+		return err
+	}
+
+	return nil
 }
 
 // Helper Functions
@@ -370,12 +403,8 @@ func checkFuncThinness(fn *ast.FuncDecl) string {
 	return fmt.Sprintf("has %d statements (thin functions have 1 or simple error handling)", len(stmts))
 }
 
-func checkNils(ctx context.Context) error {
-	return targ.Deps(
-		CheckNilsFix,
-		CheckNilsForFail,
-		targ.WithContext(ctx),
-	)
+func checkNils(_ context.Context) error {
+	return nil // deps handled by target definition
 }
 
 func checkNilsFix(ctx context.Context) error {
@@ -1343,10 +1372,7 @@ func modernize(ctx context.Context) error {
 
 func mutate() error {
 	fmt.Println("Running mutation tests...")
-
-	if err := targ.Deps(CheckForFail); err != nil {
-		return err
-	}
+	// CheckForFail runs as dep before this function
 
 	return targ.Run(
 		"go",
@@ -1618,10 +1644,7 @@ func reorderDeclsCheck(ctx context.Context) error {
 
 func test(ctx context.Context) error {
 	fmt.Println("Running unit tests...")
-
-	if err := targ.Deps(Generate); err != nil {
-		return err
-	}
+	// Generate runs as dep before this function
 
 	// Use -count=1 to disable caching so coverage is regenerated
 	err := targ.RunContext(ctx,
@@ -1669,10 +1692,7 @@ func test(ctx context.Context) error {
 
 func testForFail(ctx context.Context) error {
 	fmt.Println("Running unit tests for overall pass/fail...")
-
-	if err := targ.Deps(Generate); err != nil {
-		return err
-	}
+	// Generate runs as dep before this function
 
 	return targ.RunContext(ctx,
 		"go",
@@ -1735,9 +1755,8 @@ func watch(ctx context.Context) error {
 		checkCtx, cancel := context.WithCancel(ctx)
 		cancelCheck = cancel
 
-		targ.ResetDeps() // Clear execution cache so targets run again
-
-		err := check(checkCtx)
+		// Run Check target (which includes deps)
+		err := Check.Run(checkCtx)
 		if errors.Is(err, context.Canceled) {
 			fmt.Println("Check cancelled, restarting...")
 		} else if err != nil {

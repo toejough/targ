@@ -168,8 +168,7 @@ Builder methods control how targets execute - caching, retries, timeouts, and fi
 var Build = targ.Targ(build).
     Name("build").              // CLI name (default: function name in kebab-case)
     Description("Build the app"). // Help text
-    Deps(Generate, Compile).    // Run dependencies first (serial)
-    ParallelDeps(Lint, Test).   // Run dependencies first (parallel)
+    Deps(Generate, Compile).    // Run dependencies first (serial by default)
     Cache("**/*.go", "go.mod"). // Skip if files unchanged
     Watch("**/*.go").           // Re-run on file changes
     Timeout(5 * time.Minute).   // Execution timeout
@@ -182,8 +181,7 @@ var Build = targ.Targ(build).
 |--------|-------------|
 | `.Name(s)` | Override CLI command name |
 | `.Description(s)` | Help text |
-| `.Deps(targets...)` | Serial dependencies |
-| `.ParallelDeps(targets...)` | Parallel dependencies |
+| `.Deps(targets..., mode)` | Dependencies (serial default, pass `targ.DepModeParallel` for parallel) |
 | `.Cache(patterns...)` | Skip if files unchanged |
 | `.CacheDir(dir)` | Cache checksum directory |
 | `.Watch(patterns...)` | Re-run on file changes |
@@ -265,59 +263,17 @@ targ.Targ(build).Name("compile")
 
 ## Dependencies
 
-### Using targ.Deps()
-
-Run dependencies exactly once per invocation. By default, Deps **fails fast** - stops on first error:
+Use `.Deps()` to declare dependencies that run before a target:
 
 ```go
-func build() error {
-    return targ.Deps(Generate, Compile)  // stops if Generate fails
-}
-
-func test() error {
-    return targ.Deps(Build)  // Build only runs once even if called multiple times
-}
+targ.Targ(test).Deps(build)                            // serial (default)
+targ.Targ(ci).Deps(test, lint, targ.DepModeParallel)   // parallel
 ```
 
-```bash
-targ test lint  # runs Generate, Compile, Build, Test, then Lint - each only once
-```
-
-Options can be mixed with targets:
+Deps-only targets run dependencies without their own function:
 
 ```go
-// Parallel execution (fail-fast, cancels siblings on error)
-func ci() error {
-    return targ.Deps(Test, Lint, targ.Parallel())
-}
-
-// Run all even if some fail
-func checkAll() error {
-    return targ.Deps(Lint, Test, Vet, targ.Parallel(), targ.ContinueOnError())
-}
-
-// Pass context for cancellation
-func watch(ctx context.Context) error {
-    return targ.Watch(ctx, []string{"**/*.go"}, targ.WatchOptions{}, func(_ targ.ChangeSet) error {
-        targ.ResetDeps()
-        return targ.Deps(Tidy, Lint, Test, targ.WithContext(ctx))
-    })
-}
-```
-
-| Option | Effect |
-|--------|--------|
-| `targ.Parallel()` | Run concurrently instead of sequentially |
-| `targ.ContinueOnError()` | Run all targets, return first error |
-| `targ.WithContext(ctx)` | Pass context to targets (for cancellation) |
-
-### Using .Deps() Builder
-
-For static dependencies, use the builder method:
-
-```go
-targ.Targ(test).Deps(build)           // serial
-targ.Targ(ci).ParallelDeps(test, lint)  // parallel
+var all = targ.Targ().Name("all").Deps(build, test, lint)
 ```
 
 ## Shell Helpers
@@ -386,9 +342,10 @@ When run with watch patterns, the target re-runs automatically on file changes.
 ## Shell Completion
 
 ```bash
-source <(your-binary --completion bash)   # Bash
-source <(your-binary --completion zsh)    # Zsh
-your-binary --completion fish | source    # Fish
+source <(your-binary --completion)         # Detects current shell
+source <(your-binary --completion bash)    # Bash
+source <(your-binary --completion zsh)     # Zsh
+your-binary --completion fish | source     # Fish
 ```
 
 Supports commands, subcommands, flags, and enum values.

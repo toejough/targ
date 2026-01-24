@@ -147,36 +147,34 @@ func RunWithEnv(env RunEnv, opts RunOptions, targets ...any) error {
 		return ExitError{Code: 1}
 	}
 
-	return withDepTracker(exec.ctx, func() error {
-		err := exec.parseTargets(targets)
-		if err != nil {
-			return err
-		}
+	err = exec.parseTargets(targets)
+	if err != nil {
+		return err
+	}
 
-		if len(exec.roots) == 0 {
-			env.Println("No commands found.")
-			return nil
-		}
+	if len(exec.roots) == 0 {
+		env.Println("No commands found.")
+		return nil
+	}
 
-		exec.hasDefault = len(exec.roots) == 1 && opts.AllowDefault
+	exec.hasDefault = len(exec.roots) == 1 && opts.AllowDefault
 
-		if len(exec.args) < minArgsWithCommand {
-			return exec.handleNoArgs()
-		}
+	if len(exec.args) < minArgsWithCommand {
+		return exec.handleNoArgs()
+	}
 
-		exec.rest = exec.args[1:]
+	exec.rest = exec.args[1:]
 
-		handled, err := exec.handleSpecialCommands()
-		if handled || err != nil {
-			return err
-		}
+	handled, err := exec.handleSpecialCommands()
+	if handled || err != nil {
+		return err
+	}
 
-		if exec.hasDefault {
-			return exec.executeDefault()
-		}
+	if exec.hasDefault {
+		return exec.executeDefault()
+	}
 
-		return exec.executeMultiRoot()
-	})
+	return exec.executeMultiRoot()
 }
 
 // unexported constants.
