@@ -80,11 +80,13 @@ Need conditional logic or computed values? Use a function with a struct paramete
 
 ```go
 //go:build targ
+// ↑ Build tag: only compiled when running `targ` command, ignored by `go build`
 
 package dev
 
 import "github.com/toejough/targ"
 
+// Register targets at init time so targ can discover them
 func init() {
     targ.Register(
         targ.Targ(build).Description("Compile the project"),
@@ -92,11 +94,17 @@ func init() {
     )
 }
 
+// Struct fields become CLI flags. Tags control flag behavior:
+// - flag: explicitly mark as flag (default for struct fields)
+// - short=X: single-letter alias (-o instead of --output)
+// - default=X: value when flag not provided
+// - desc=X: help text shown in --help
 type BuildArgs struct {
     Output  string `targ:"flag,short=o,default=myapp,desc=Output binary name"`
     Verbose bool   `targ:"flag,short=v,desc=Verbose output"`
 }
 
+// Function receives parsed args. Use values for conditional logic.
 func build(args BuildArgs) error {
     cmdArgs := []string{"build", "-o", args.Output}
     if args.Verbose {
