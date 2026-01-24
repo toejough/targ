@@ -1,5 +1,9 @@
 package discover_test
 
+// LEGACY_TESTS: This file contains tests being evaluated for redundancy.
+// Property-based replacements are in *_properties_test.go files.
+// Do not add new tests here. See docs/test-migration.md for details.
+
 import (
 	"errors"
 	"io/fs"

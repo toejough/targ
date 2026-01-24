@@ -15,6 +15,8 @@ import (
 )
 
 func TestTarg_AcceptsFunction(t *testing.T) {
+	t.Parallel()
+
 	rapid.Check(t, func(_ *rapid.T) {
 		g := NewWithT(t)
 
@@ -28,6 +30,8 @@ func TestTarg_AcceptsFunction(t *testing.T) {
 }
 
 func TestTarg_AcceptsString(t *testing.T) {
+	t.Parallel()
+
 	rapid.Check(t, func(rt *rapid.T) {
 		g := NewWithT(t)
 
@@ -41,6 +45,8 @@ func TestTarg_AcceptsString(t *testing.T) {
 }
 
 func TestTarg_PanicsOnEmptyString(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	g.Expect(func() {
@@ -49,6 +55,8 @@ func TestTarg_PanicsOnEmptyString(t *testing.T) {
 }
 
 func TestTarg_PanicsOnNil(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	g.Expect(func() {
@@ -57,6 +65,8 @@ func TestTarg_PanicsOnNil(t *testing.T) {
 }
 
 func TestTarg_PanicsOnNonFuncNonString(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	g.Expect(func() {
@@ -65,6 +75,8 @@ func TestTarg_PanicsOnNonFuncNonString(t *testing.T) {
 }
 
 func TestTarget_BackoffBuilderReturnsSameTarget(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	original := targ.Targ(func() {})
@@ -74,6 +86,8 @@ func TestTarget_BackoffBuilderReturnsSameTarget(t *testing.T) {
 }
 
 func TestTarget_BackoffDelaysAfterFailure(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	execCount := 0
@@ -94,6 +108,8 @@ func TestTarget_BackoffDelaysAfterFailure(t *testing.T) {
 }
 
 func TestTarget_BuilderChainWithDepsAndTimeout(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	order := make([]string, 0)
@@ -110,6 +126,8 @@ func TestTarget_BuilderChainWithDepsAndTimeout(t *testing.T) {
 }
 
 func TestTarget_BuilderChainsPreserveSettings(t *testing.T) {
+	t.Parallel()
+
 	rapid.Check(t, func(rt *rapid.T) {
 		g := NewWithT(t)
 
@@ -124,6 +142,8 @@ func TestTarget_BuilderChainsPreserveSettings(t *testing.T) {
 }
 
 func TestTarget_BuilderMethodsReturnSameTarget(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	original := targ.Targ(func() {})
@@ -136,6 +156,8 @@ func TestTarget_BuilderMethodsReturnSameTarget(t *testing.T) {
 }
 
 func TestTarget_CacheBuilderReturnsSameTarget(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	original := targ.Targ(func() {})
@@ -145,6 +167,8 @@ func TestTarget_CacheBuilderReturnsSameTarget(t *testing.T) {
 }
 
 func TestTarget_CacheDisabledSetsFlag(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	target := targ.Targ(func() {}).Cache(targ.Disabled)
@@ -157,6 +181,8 @@ func TestTarget_CacheDisabledSetsFlag(t *testing.T) {
 }
 
 func TestTarget_CacheHitSkipsExecution(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	// Create temp dir and file for cache testing
@@ -184,6 +210,8 @@ func TestTarget_CacheHitSkipsExecution(t *testing.T) {
 }
 
 func TestTarget_CacheMissRunsExecution(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	// Create temp dir and file for cache testing
@@ -215,6 +243,8 @@ func TestTarget_CacheMissRunsExecution(t *testing.T) {
 }
 
 func TestTarget_DepsRunSerially(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	order := make([]string, 0)
@@ -228,6 +258,8 @@ func TestTarget_DepsRunSerially(t *testing.T) {
 }
 
 func TestTarget_DepsStopOnError(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	order := make([]string, 0)
@@ -244,6 +276,8 @@ func TestTarget_DepsStopOnError(t *testing.T) {
 }
 
 func TestTarget_ParallelDepsRunConcurrently(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	// Use channels to verify concurrent execution
@@ -275,6 +309,8 @@ func TestTarget_ParallelDepsRunConcurrently(t *testing.T) {
 }
 
 func TestTarget_RetryBuilderReturnsSameTarget(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	original := targ.Targ(func() {})
@@ -284,6 +320,8 @@ func TestTarget_RetryBuilderReturnsSameTarget(t *testing.T) {
 }
 
 func TestTarget_RunCallsFunction(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	called := false
@@ -297,6 +335,8 @@ func TestTarget_RunCallsFunction(t *testing.T) {
 }
 
 func TestTarget_RunPassesContext(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	var receivedValue any
@@ -313,6 +353,8 @@ func TestTarget_RunPassesContext(t *testing.T) {
 }
 
 func TestTarget_RunReturnsError(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	expectedErr := errors.New("test error")
@@ -325,6 +367,8 @@ func TestTarget_RunReturnsError(t *testing.T) {
 }
 
 func TestTarget_RunWithArgs(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	type Args struct {
@@ -343,6 +387,8 @@ func TestTarget_RunWithArgs(t *testing.T) {
 }
 
 func TestTarget_RunWithContextAndArgs(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	type Args struct {
@@ -369,6 +415,8 @@ func TestTarget_RunWithContextAndArgs(t *testing.T) {
 }
 
 func TestTarget_RunWithWatchRerunsOnFileChange(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	// Create temp dir and file for watch testing
@@ -409,6 +457,8 @@ func TestTarget_RunWithWatchRerunsOnFileChange(t *testing.T) {
 }
 
 func TestTarget_RunWithoutWatchRunsOnce(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	// Without watch patterns, Run should just run once and return
@@ -421,6 +471,8 @@ func TestTarget_RunWithoutWatchRunsOnce(t *testing.T) {
 }
 
 func TestTarget_ShellCommandExecution(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	// Simple shell command that should succeed
@@ -430,6 +482,8 @@ func TestTarget_ShellCommandExecution(t *testing.T) {
 }
 
 func TestTarget_ShellCommandFails(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	// Command that should fail
@@ -439,6 +493,8 @@ func TestTarget_ShellCommandFails(t *testing.T) {
 }
 
 func TestTarget_TimeoutCancelsExecution(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	target := targ.Targ(func(ctx context.Context) error {
@@ -452,6 +508,8 @@ func TestTarget_TimeoutCancelsExecution(t *testing.T) {
 }
 
 func TestTarget_TimesBuilderReturnsSameTarget(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	original := targ.Targ(func() {})
@@ -461,6 +519,8 @@ func TestTarget_TimesBuilderReturnsSameTarget(t *testing.T) {
 }
 
 func TestTarget_TimesCompletesAllWithRetry(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	execCount := 0
@@ -476,6 +536,8 @@ func TestTarget_TimesCompletesAllWithRetry(t *testing.T) {
 }
 
 func TestTarget_TimesRunsNTimes(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	execCount := 0
@@ -487,6 +549,8 @@ func TestTarget_TimesRunsNTimes(t *testing.T) {
 }
 
 func TestTarget_TimesStopsOnContextCancellation(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	execCount := 0
@@ -504,6 +568,8 @@ func TestTarget_TimesStopsOnContextCancellation(t *testing.T) {
 }
 
 func TestTarget_TimesStopsOnFailureWithoutRetry(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	execCount := 0
@@ -522,6 +588,8 @@ func TestTarget_TimesStopsOnFailureWithoutRetry(t *testing.T) {
 }
 
 func TestTarget_WatchBuilderReturnsSameTarget(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	original := targ.Targ(func() {})
@@ -531,6 +599,8 @@ func TestTarget_WatchBuilderReturnsSameTarget(t *testing.T) {
 }
 
 func TestTarget_WatchDisabledSetsFlag(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	target := targ.Targ(func() {}).Watch(targ.Disabled)
@@ -543,6 +613,8 @@ func TestTarget_WatchDisabledSetsFlag(t *testing.T) {
 }
 
 func TestTarget_WhileBuilderReturnsSameTarget(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	original := targ.Targ(func() {})
@@ -552,6 +624,8 @@ func TestTarget_WhileBuilderReturnsSameTarget(t *testing.T) {
 }
 
 func TestTarget_WhileStopsWhenPredicateFalse(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	execCount := 0

@@ -11,6 +11,8 @@ import (
 )
 
 func TestSubstituteVars_AllTypes(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	type Args struct {
@@ -39,6 +41,8 @@ func TestSubstituteVars_AllTypes(t *testing.T) {
 }
 
 func TestSubstituteVars_Basic(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	type Args struct {
@@ -56,6 +60,8 @@ func TestSubstituteVars_Basic(t *testing.T) {
 }
 
 func TestSubstituteVars_BraceStyle(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	type Args struct {
@@ -72,6 +78,8 @@ func TestSubstituteVars_BraceStyle(t *testing.T) {
 }
 
 func TestSubstituteVars_CaseInsensitive(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	type Args struct {
@@ -88,6 +96,8 @@ func TestSubstituteVars_CaseInsensitive(t *testing.T) {
 }
 
 func TestSubstituteVars_ContextCancelled(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	type Args struct{}
@@ -101,6 +111,8 @@ func TestSubstituteVars_ContextCancelled(t *testing.T) {
 }
 
 func TestSubstituteVars_MultipleVariables(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	type Args struct {
@@ -118,6 +130,8 @@ func TestSubstituteVars_MultipleVariables(t *testing.T) {
 }
 
 func TestSubstituteVars_NilArgs(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	ctx := context.Background()
@@ -132,6 +146,8 @@ func TestSubstituteVars_NilArgs(t *testing.T) {
 }
 
 func TestSubstituteVars_NoVariables(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	type Args struct {
@@ -147,6 +163,8 @@ func TestSubstituteVars_NoVariables(t *testing.T) {
 }
 
 func TestSubstituteVars_NonStruct(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	ctx := context.Background()
@@ -156,6 +174,8 @@ func TestSubstituteVars_NonStruct(t *testing.T) {
 }
 
 func TestSubstituteVars_Pointer(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	type Args struct {
@@ -171,6 +191,8 @@ func TestSubstituteVars_Pointer(t *testing.T) {
 }
 
 func TestSubstituteVars_Property(t *testing.T) {
+	t.Parallel()
+
 	rapid.Check(t, func(rt *rapid.T) {
 		g := NewWithT(t)
 
@@ -193,6 +215,8 @@ func TestSubstituteVars_Property(t *testing.T) {
 }
 
 func TestSubstituteVars_UnknownVariable(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	type Args struct {

@@ -1,5 +1,9 @@
 package targ_test
 
+// LEGACY_TESTS: This file contains tests being evaluated for redundancy.
+// Property-based replacements are in *_properties_test.go files.
+// Do not add new tests here. See docs/test-migration.md for details.
+
 import (
 	"context"
 	"errors"
@@ -159,6 +163,8 @@ func TestExecute_UnknownCommand(t *testing.T) {
 }
 
 func TestGroup_AsNamedRoot(t *testing.T) {
+	t.Parallel()
+
 	called := false
 	sub := targ.Targ(func() { called = true }).Name("sub")
 	group := targ.Group("grp", sub)
@@ -176,6 +182,8 @@ func TestGroup_AsNamedRoot(t *testing.T) {
 }
 
 func TestGroup_MultipleMembers(t *testing.T) {
+	t.Parallel()
+
 	var calledTarget string
 
 	build := targ.Targ(func() { calledTarget = "build" }).Name("build")
@@ -194,6 +202,8 @@ func TestGroup_MultipleMembers(t *testing.T) {
 }
 
 func TestGroup_NestedRouting(t *testing.T) {
+	t.Parallel()
+
 	called := false
 	inner := targ.Targ(func() { called = true }).Name("inner")
 	innerGroup := targ.Group("inner-grp", inner)
@@ -211,6 +221,8 @@ func TestGroup_NestedRouting(t *testing.T) {
 }
 
 func TestGroup_RoutesToMembers(t *testing.T) {
+	t.Parallel()
+
 	called := false
 	sub := targ.Targ(func() { called = true }).Name("sub")
 	group := targ.Group("grp", sub)
@@ -227,6 +239,8 @@ func TestGroup_RoutesToMembers(t *testing.T) {
 }
 
 func TestInterleavedFlags_IntType(t *testing.T) {
+	t.Parallel()
+
 	var gotValues []targ.Interleaved[int]
 
 	target := targ.Targ(func(args InterleavedIntArgs) {
@@ -252,6 +266,8 @@ func TestInterleavedFlags_IntType(t *testing.T) {
 }
 
 func TestInterleavedFlags_ReconstructOrder(t *testing.T) {
+	t.Parallel()
+
 	var (
 		gotIncludes []targ.Interleaved[string]
 		gotExcludes []targ.Interleaved[string]
@@ -299,6 +315,8 @@ func TestInterleavedFlags_ReconstructOrder(t *testing.T) {
 }
 
 func TestInterleavedFlags_TracksPosition(t *testing.T) {
+	t.Parallel()
+
 	var (
 		gotIncludes []targ.Interleaved[string]
 		gotExcludes []targ.Interleaved[string]
@@ -339,6 +357,8 @@ func TestInterleavedFlags_TracksPosition(t *testing.T) {
 }
 
 func TestMapFlags_InvalidFormat(t *testing.T) {
+	t.Parallel()
+
 	target := targ.Targ(func(_ MapStringStringArgs) {})
 
 	_, err := targ.Execute([]string{"app", "--labels", "invalid"}, target)
@@ -348,6 +368,8 @@ func TestMapFlags_InvalidFormat(t *testing.T) {
 }
 
 func TestMapFlags_OverwriteKey(t *testing.T) {
+	t.Parallel()
+
 	var gotLabels map[string]string
 
 	target := targ.Targ(func(args MapStringStringArgs) {
@@ -365,6 +387,8 @@ func TestMapFlags_OverwriteKey(t *testing.T) {
 }
 
 func TestMapFlags_StringInt(t *testing.T) {
+	t.Parallel()
+
 	var gotPorts map[string]int
 
 	target := targ.Targ(func(args MapStringIntArgs) {
@@ -390,6 +414,8 @@ func TestMapFlags_StringInt(t *testing.T) {
 }
 
 func TestMapFlags_StringString(t *testing.T) {
+	t.Parallel()
+
 	var gotLabels map[string]string
 
 	target := targ.Targ(func(args MapStringStringArgs) {
@@ -415,6 +441,8 @@ func TestMapFlags_StringString(t *testing.T) {
 }
 
 func TestMapFlags_ValueWithEquals(t *testing.T) {
+	t.Parallel()
+
 	var gotLabels map[string]string
 
 	target := targ.Targ(func(args MapStringStringArgs) {
@@ -432,6 +460,8 @@ func TestMapFlags_ValueWithEquals(t *testing.T) {
 }
 
 func TestMultipleRoots_RoutesCorrectly(t *testing.T) {
+	t.Parallel()
+
 	var calledTarget string
 
 	build := targ.Targ(func() { calledTarget = "build" }).Name("build")
@@ -448,6 +478,8 @@ func TestMultipleRoots_RoutesCorrectly(t *testing.T) {
 }
 
 func TestRepeatedFlags_Accumulates(t *testing.T) {
+	t.Parallel()
+
 	var gotTags []string
 
 	target := targ.Targ(func(args RepeatedFlagsArgs) {
@@ -469,6 +501,8 @@ func TestRepeatedFlags_Accumulates(t *testing.T) {
 }
 
 func TestRepeatedFlags_IntSlice(t *testing.T) {
+	t.Parallel()
+
 	var gotCounts []int
 
 	target := targ.Targ(func(args RepeatedIntFlagsArgs) {
@@ -493,6 +527,8 @@ func TestRepeatedFlags_IntSlice(t *testing.T) {
 }
 
 func TestStringTarget_NoVars_ExecutesDirectly(t *testing.T) {
+	t.Parallel()
+
 	// String target without variables should just execute
 	target := targ.Targ("true").Name("simple-cmd")
 
@@ -503,6 +539,8 @@ func TestStringTarget_NoVars_ExecutesDirectly(t *testing.T) {
 }
 
 func TestStringTarget_WithVars_EqualsValueSyntax(t *testing.T) {
+	t.Parallel()
+
 	// Test --flag=value syntax
 	target := targ.Targ("echo $name $port").Name("test-cmd")
 
@@ -513,6 +551,8 @@ func TestStringTarget_WithVars_EqualsValueSyntax(t *testing.T) {
 }
 
 func TestStringTarget_WithVars_InfersFlags(t *testing.T) {
+	t.Parallel()
+
 	// String target with $var should create flags from variables
 	target := targ.Targ("echo $name $port").Name("test-cmd")
 
@@ -525,6 +565,8 @@ func TestStringTarget_WithVars_InfersFlags(t *testing.T) {
 }
 
 func TestStringTarget_WithVars_MissingRequiredFlag(t *testing.T) {
+	t.Parallel()
+
 	target := targ.Targ("echo $name $port").Name("test-cmd")
 
 	// Missing --port should fail
@@ -535,6 +577,8 @@ func TestStringTarget_WithVars_MissingRequiredFlag(t *testing.T) {
 }
 
 func TestStringTarget_WithVars_MixedSyntax(t *testing.T) {
+	t.Parallel()
+
 	// Test mixing --flag=value and --flag value syntax
 	target := targ.Targ("echo $name $port").Name("test-cmd")
 
@@ -546,6 +590,8 @@ func TestStringTarget_WithVars_MixedSyntax(t *testing.T) {
 }
 
 func TestStringTarget_WithVars_MultiRoot(t *testing.T) {
+	t.Parallel()
+
 	// With multiple roots, need to specify command name
 	target := targ.Targ("echo $name").Name("echo-cmd")
 	other := targ.Targ(func() {}).Name("other")
@@ -557,6 +603,8 @@ func TestStringTarget_WithVars_MultiRoot(t *testing.T) {
 }
 
 func TestStringTarget_WithVars_ShortFlags(t *testing.T) {
+	t.Parallel()
+
 	// First letters should become short flags
 	target := targ.Targ("echo $name $port").Name("test-cmd")
 
@@ -570,6 +618,8 @@ func TestStringTarget_WithVars_ShortFlags(t *testing.T) {
 // --- Target/Group Tests ---
 
 func TestTarget_BasicExecution(t *testing.T) {
+	t.Parallel()
+
 	called := false
 	target := targ.Targ(func() { called = true })
 
@@ -584,6 +634,8 @@ func TestTarget_BasicExecution(t *testing.T) {
 }
 
 func TestTarget_CustomName_RoutesWithMultipleRoots(t *testing.T) {
+	t.Parallel()
+
 	var calledTarget string
 
 	first := targ.Targ(func() { calledTarget = "first" }).Name("first")
@@ -600,6 +652,8 @@ func TestTarget_CustomName_RoutesWithMultipleRoots(t *testing.T) {
 }
 
 func TestTarget_WithArgs(t *testing.T) {
+	t.Parallel()
+
 	type Args struct {
 		Name string `targ:"flag"`
 	}
@@ -621,6 +675,8 @@ func TestTarget_WithArgs(t *testing.T) {
 }
 
 func TestTarget_WithEmbeddedArgs(t *testing.T) {
+	t.Parallel()
+
 	type CommonArgs struct {
 		Verbose bool `targ:"flag,short=v"`
 	}
@@ -656,6 +712,8 @@ func TestTarget_WithEmbeddedArgs(t *testing.T) {
 }
 
 func TestTimeout_EqualsStyle(t *testing.T) {
+	t.Parallel()
+
 	called := false
 
 	target := targ.Targ(func(ctx context.Context) error {
@@ -680,6 +738,8 @@ func TestTimeout_EqualsStyle(t *testing.T) {
 }
 
 func TestTimeout_Exceeded(t *testing.T) {
+	t.Parallel()
+
 	target := targ.Targ(func(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
@@ -696,6 +756,8 @@ func TestTimeout_Exceeded(t *testing.T) {
 }
 
 func TestTimeout_GlobalAndPerCommand(t *testing.T) {
+	t.Parallel()
+
 	called := false
 
 	target := targ.Targ(func(ctx context.Context) error {
@@ -724,6 +786,8 @@ func TestTimeout_GlobalAndPerCommand(t *testing.T) {
 }
 
 func TestTimeout_InvalidDuration(t *testing.T) {
+	t.Parallel()
+
 	target := targ.Targ(func(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
@@ -740,6 +804,8 @@ func TestTimeout_InvalidDuration(t *testing.T) {
 }
 
 func TestTimeout_MultiCommandDifferentTimeouts(t *testing.T) {
+	t.Parallel()
+
 	fastCalled := false
 	slowCalled := false
 
@@ -778,6 +844,8 @@ func TestTimeout_MultiCommandDifferentTimeouts(t *testing.T) {
 }
 
 func TestTimeout_NotExceeded(t *testing.T) {
+	t.Parallel()
+
 	called := false
 
 	target := targ.Targ(func(ctx context.Context) error {
@@ -802,6 +870,8 @@ func TestTimeout_NotExceeded(t *testing.T) {
 }
 
 func TestTimeout_PerCommand(t *testing.T) {
+	t.Parallel()
+
 	called := false
 
 	target := targ.Targ(func(ctx context.Context) error {
@@ -830,6 +900,8 @@ func TestTimeout_PerCommand(t *testing.T) {
 }
 
 func TestTimeout_PerCommandExceeded(t *testing.T) {
+	t.Parallel()
+
 	target := targ.Targ(func(ctx context.Context) error {
 		select {
 		case <-ctx.Done():

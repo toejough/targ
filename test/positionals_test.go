@@ -1,7 +1,11 @@
 package targ_test
 
 import (
+	"strconv"
 	"testing"
+
+	. "github.com/onsi/gomega"
+	"pgregory.net/rapid"
 
 	"github.com/toejough/targ"
 )
@@ -26,6 +30,10 @@ type RequiredPositional struct {
 }
 
 func TestDefaultPositional(t *testing.T) {
+	t.Parallel()
+
+	g := NewWithT(t)
+
 	var gotPos string
 
 	target := targ.Targ(func(args DefaultPositional) {
@@ -33,143 +41,195 @@ func TestDefaultPositional(t *testing.T) {
 	})
 
 	_, err := targ.Execute([]string{"app"}, target)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(gotPos).To(Equal("default_value"))
+}
 
-	if gotPos != "default_value" {
-		t.Fatalf("expected default_value, got %q", gotPos)
-	}
+func TestDefaultPositional_OverrideWithValue(t *testing.T) {
+	t.Parallel()
+
+	rapid.Check(t, func(rt *rapid.T) {
+		g := NewWithT(t)
+
+		value := rapid.StringMatching(`[a-z]{3,10}`).Draw(rt, "value")
+
+		var gotPos string
+
+		target := targ.Targ(func(args DefaultPositional) {
+			gotPos = args.Pos
+		})
+
+		_, err := targ.Execute([]string{"app", value}, target)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(gotPos).To(Equal(value))
+	})
 }
 
 // --- Embedded Struct Flag Sharing ---
-// (Replaces "persistent flags" from struct model)
 
 func TestEmbeddedFlags_SharedAcrossTargets(t *testing.T) {
-	type CommonFlags struct {
-		Verbose bool `targ:"flag,short=v"`
-	}
+	t.Parallel()
 
-	type ChildArgs struct {
-		CommonFlags
+	rapid.Check(t, func(rt *rapid.T) {
+		g := NewWithT(t)
 
-		Name string `targ:"flag"`
-	}
+		type CommonFlags struct {
+			Verbose bool `targ:"flag,short=v"`
+		}
 
-	var (
-		gotVerbose bool
-		gotName    string
-	)
+		type ChildArgs struct {
+			CommonFlags
 
-	child := targ.Targ(func(args ChildArgs) {
-		gotVerbose = args.Verbose
-		gotName = args.Name
-	}).Name("child")
+			Name string `targ:"flag"`
+		}
 
-	group := targ.Group("parent", child)
+		name := rapid.StringMatching(`[a-z]{3,10}`).Draw(rt, "name")
+		verbose := rapid.Bool().Draw(rt, "verbose")
 
-	_, err := targ.Execute([]string{"app", "child", "--verbose", "--name", "ok"}, group)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+		var (
+			gotVerbose bool
+			gotName    string
+		)
 
-	if !gotVerbose {
-		t.Fatal("expected verbose flag to be set")
-	}
+		child := targ.Targ(func(args ChildArgs) {
+			gotVerbose = args.Verbose
+			gotName = args.Name
+		}).Name("child")
 
-	if gotName != "ok" {
-		t.Fatalf("expected name='ok', got %q", gotName)
-	}
+		group := targ.Group("parent", child)
+
+		args := []string{"app", "child", "--name", name}
+		if verbose {
+			args = append(args, "--verbose")
+		}
+
+		_, err := targ.Execute(args, group)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(gotVerbose).To(Equal(verbose))
+		g.Expect(gotName).To(Equal(name))
+	})
 }
 
 func TestGroup_CustomNameRouting(t *testing.T) {
-	var called string
+	t.Parallel()
 
-	sub := targ.Targ(func() { called = "sub" }).Name("sub")
-	custom := targ.Targ(func() { called = "custom" }).Name("custom")
-	group := targ.Group("parent", sub, custom)
+	rapid.Check(t, func(rt *rapid.T) {
+		g := NewWithT(t)
 
-	_, err := targ.Execute([]string{"app", "custom"}, group)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+		// Generate two distinct names
+		name1 := rapid.StringMatching(`[a-z]{3,6}`).Draw(rt, "name1")
+		name2 := rapid.StringMatching(`[a-z]{7,10}`).Draw(rt, "name2")
+		targetName := rapid.SampledFrom([]string{name1, name2}).Draw(rt, "target")
 
-	if called != "custom" {
-		t.Fatal("expected custom to be called")
-	}
+		var called string
+
+		sub := targ.Targ(func() { called = name1 }).Name(name1)
+		custom := targ.Targ(func() { called = name2 }).Name(name2)
+		group := targ.Group("parent", sub, custom)
+
+		_, err := targ.Execute([]string{"app", targetName}, group)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(called).To(Equal(targetName))
+	})
 }
 
 // --- Group Routing ---
 
 func TestGroup_SubcommandRouting(t *testing.T) {
-	var called string
+	t.Parallel()
 
-	sub := targ.Targ(func() { called = "sub" }).Name("sub")
-	custom := targ.Targ(func() { called = "custom" }).Name("custom")
-	group := targ.Group("parent", sub, custom)
+	rapid.Check(t, func(rt *rapid.T) {
+		g := NewWithT(t)
 
-	_, err := targ.Execute([]string{"app", "sub"}, group)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+		name := rapid.StringMatching(`[a-z]{3,10}`).Draw(rt, "name")
 
-	if called != "sub" {
-		t.Fatal("expected sub to be called")
-	}
+		var called bool
+
+		sub := targ.Targ(func() { called = true }).Name(name)
+		group := targ.Group("parent", sub)
+
+		_, err := targ.Execute([]string{"app", name}, group)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(called).To(BeTrue())
+	})
 }
 
 func TestInterleavedFlagsAndPositionals(t *testing.T) {
-	var (
-		gotName  string
-		gotCount int
-	)
+	t.Parallel()
 
-	target := targ.Targ(func(args InterleavedFlagsPositionals) {
-		gotName = args.Name
-		gotCount = args.Count
+	rapid.Check(t, func(rt *rapid.T) {
+		g := NewWithT(t)
+
+		name := rapid.StringMatching(`[A-Z][a-z]{2,8}`).Draw(rt, "name")
+		count := rapid.IntRange(0, 100).Draw(rt, "count")
+
+		var (
+			gotName  string
+			gotCount int
+		)
+
+		target := targ.Targ(func(args InterleavedFlagsPositionals) {
+			gotName = args.Name
+			gotCount = args.Count
+		})
+
+		_, err := targ.Execute([]string{"app", name, "--count", strconv.Itoa(count)}, target)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(gotName).To(Equal(name))
+		g.Expect(gotCount).To(Equal(count))
 	})
-
-	_, err := targ.Execute([]string{"app", "Bob", "--count", "2"}, target)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if gotName != "Bob" {
-		t.Fatalf("expected Name=Bob, got %q", gotName)
-	}
-
-	if gotCount != 2 {
-		t.Fatalf("expected Count=2, got %d", gotCount)
-	}
 }
 
 func TestPositionalArgs(t *testing.T) {
-	var gotSrc, gotDst string
+	t.Parallel()
 
-	target := targ.Targ(func(args PositionalArgs) {
-		gotSrc = args.Src
-		gotDst = args.Dst
+	rapid.Check(t, func(rt *rapid.T) {
+		g := NewWithT(t)
+
+		src := rapid.StringMatching(`[a-z]+\.txt`).Draw(rt, "src")
+		dst := rapid.StringMatching(`[a-z]+\.txt`).Draw(rt, "dst")
+
+		var gotSrc, gotDst string
+
+		target := targ.Targ(func(args PositionalArgs) {
+			gotSrc = args.Src
+			gotDst = args.Dst
+		})
+
+		_, err := targ.Execute([]string{"app", src, dst}, target)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(gotSrc).To(Equal(src))
+		g.Expect(gotDst).To(Equal(dst))
 	})
-
-	_, err := targ.Execute([]string{"app", "source.txt", "dest.txt"}, target)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if gotSrc != "source.txt" {
-		t.Errorf("expected Src='source.txt', got '%s'", gotSrc)
-	}
-
-	if gotDst != "dest.txt" {
-		t.Errorf("expected Dst='dest.txt', got '%s'", gotDst)
-	}
 }
 
 func TestRequiredPositional(t *testing.T) {
+	t.Parallel()
+
+	g := NewWithT(t)
+
 	target := targ.Targ(func(_ RequiredPositional) {})
 
 	_, err := targ.Execute([]string{"app"}, target)
-	if err == nil {
-		t.Fatal("expected error for missing required positional")
-	}
+	g.Expect(err).To(HaveOccurred())
+}
+
+func TestRequiredPositional_Provided(t *testing.T) {
+	t.Parallel()
+
+	rapid.Check(t, func(rt *rapid.T) {
+		g := NewWithT(t)
+
+		src := rapid.StringMatching(`[a-z]{3,10}`).Draw(rt, "src")
+
+		var gotSrc string
+
+		target := targ.Targ(func(args RequiredPositional) {
+			gotSrc = args.Src
+		})
+
+		_, err := targ.Execute([]string{"app", src}, target)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(gotSrc).To(Equal(src))
+	})
 }

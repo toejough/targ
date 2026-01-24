@@ -5,49 +5,66 @@ package targ_test
 import (
 	"testing"
 
+	. "github.com/onsi/gomega"
+	"pgregory.net/rapid"
+
 	"github.com/toejough/targ"
 )
 
-// TestAppendBuiltinExamples verifies custom examples come before built-ins.
 func TestAppendBuiltinExamples(t *testing.T) {
-	custom := targ.Example{Title: "Custom", Code: "custom"}
-	examples := targ.AppendBuiltinExamples(custom)
+	t.Parallel()
 
-	if len(examples) != 3 {
-		t.Fatalf("expected 3 examples, got %d", len(examples))
-	}
+	rapid.Check(t, func(rt *rapid.T) {
+		g := NewWithT(t)
 
-	if examples[0].Title != "Custom" {
-		t.Fatalf("expected first example to be custom, got %q", examples[0].Title)
-	}
+		// Generate random custom example
+		title := rapid.StringMatching(`[A-Z][a-z]{2,10}`).Draw(rt, "title")
+		code := rapid.StringMatching(`[a-z]{5,20}`).Draw(rt, "code")
+		custom := targ.Example{Title: title, Code: code}
+
+		examples := targ.AppendBuiltinExamples(custom)
+
+		// Custom should be first, followed by builtins
+		g.Expect(examples).To(HaveLen(3))
+		g.Expect(examples[0].Title).To(Equal(title))
+		g.Expect(examples[0].Code).To(Equal(code))
+	})
 }
 
-// TestBuiltinExamples verifies built-in examples are returned.
 func TestBuiltinExamples(t *testing.T) {
+	t.Parallel()
+
+	g := NewWithT(t)
+
 	examples := targ.BuiltinExamples()
-	if len(examples) != 2 {
-		t.Fatalf("expected 2 built-in examples, got %d", len(examples))
-	}
+	g.Expect(examples).To(HaveLen(2))
 }
 
-// TestEmptyExamples verifies empty examples returns empty slice.
 func TestEmptyExamples(t *testing.T) {
+	t.Parallel()
+
+	g := NewWithT(t)
+
 	examples := targ.EmptyExamples()
-	if len(examples) != 0 {
-		t.Fatalf("expected empty slice, got %d examples", len(examples))
-	}
+	g.Expect(examples).To(BeEmpty())
 }
 
-// TestPrependBuiltinExamples verifies built-ins come before custom examples.
 func TestPrependBuiltinExamples(t *testing.T) {
-	custom := targ.Example{Title: "Custom", Code: "custom"}
-	examples := targ.PrependBuiltinExamples(custom)
+	t.Parallel()
 
-	if len(examples) != 3 {
-		t.Fatalf("expected 3 examples, got %d", len(examples))
-	}
+	rapid.Check(t, func(rt *rapid.T) {
+		g := NewWithT(t)
 
-	if examples[2].Title != "Custom" {
-		t.Fatalf("expected last example to be custom, got %q", examples[2].Title)
-	}
+		// Generate random custom example
+		title := rapid.StringMatching(`[A-Z][a-z]{2,10}`).Draw(rt, "title")
+		code := rapid.StringMatching(`[a-z]{5,20}`).Draw(rt, "code")
+		custom := targ.Example{Title: title, Code: code}
+
+		examples := targ.PrependBuiltinExamples(custom)
+
+		// Builtins should be first, custom should be last
+		g.Expect(examples).To(HaveLen(3))
+		g.Expect(examples[2].Title).To(Equal(title))
+		g.Expect(examples[2].Code).To(Equal(code))
+	})
 }

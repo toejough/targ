@@ -3,6 +3,7 @@ package core
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 )
 
@@ -78,6 +79,10 @@ func (osRunEnv) Printf(f string, a ...any) {
 
 func (osRunEnv) Println(a ...any) {
 	fmt.Println(a...)
+}
+
+func (osRunEnv) Stdout() io.Writer {
+	return os.Stdout
 }
 
 func (osRunEnv) SupportsSignals() bool {

@@ -1,5 +1,9 @@
 package runner_test
 
+// LEGACY_TESTS: This file contains tests being evaluated for redundancy.
+// Property-based replacements are in *_properties_test.go files.
+// Do not add new tests here. See docs/test-migration.md for details.
+
 import (
 	"os"
 	"path/filepath"
@@ -12,6 +16,8 @@ import (
 )
 
 func TestAddImportToTargFile(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	targFile := filepath.Join(dir, "targs.go")
 
@@ -56,6 +62,8 @@ var Lint = targ.Targ("golangci-lint run")
 }
 
 func TestAddImportToTargFile_GroupedImports(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	targFile := filepath.Join(dir, "targs.go")
 
@@ -92,6 +100,8 @@ var Lint = targ.Targ("golangci-lint run")
 }
 
 func TestAddTargetToFile(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	targFile := filepath.Join(dir, "targs.go")
 
@@ -134,6 +144,8 @@ func TestAddTargetToFile(t *testing.T) {
 }
 
 func TestAddTargetToFileWithOptions_AddsToExistingGroup(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	targFile := filepath.Join(dir, "targs.go")
 
@@ -194,6 +206,8 @@ var Dev = targ.Group("dev", DevLint)
 }
 
 func TestAddTargetToFileWithOptions_AddsToPartialPath(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	targFile := filepath.Join(dir, "targs.go")
 
@@ -245,6 +259,8 @@ var Dev = targ.Group("dev", DevBuild)
 }
 
 func TestAddTargetToFileWithOptions_WithCache(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	targFile := filepath.Join(dir, "targs.go")
 
@@ -275,6 +291,8 @@ func TestAddTargetToFileWithOptions_WithCache(t *testing.T) {
 }
 
 func TestAddTargetToFileWithOptions_WithDeps(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	targFile := filepath.Join(dir, "targs.go")
 
@@ -305,6 +323,8 @@ func TestAddTargetToFileWithOptions_WithDeps(t *testing.T) {
 }
 
 func TestAddTargetToFileWithOptions_WithPath(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	targFile := filepath.Join(dir, "targs.go")
 
@@ -345,6 +365,8 @@ func TestAddTargetToFileWithOptions_WithPath(t *testing.T) {
 }
 
 func TestCheckImportExists_Exists(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	targFile := filepath.Join(dir, "targs.go")
 
@@ -372,6 +394,8 @@ import (
 }
 
 func TestCheckImportExists_NotExists(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	targFile := filepath.Join(dir, "targs.go")
 
@@ -396,6 +420,8 @@ import "github.com/toejough/targ"
 }
 
 func TestConvertFuncTargetToString(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	targFile := filepath.Join(dir, "targs.go")
 
@@ -444,6 +470,8 @@ func lint() error {
 }
 
 func TestConvertFuncTargetToString_ComplexFunc(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	targFile := filepath.Join(dir, "targs.go")
 
@@ -474,6 +502,8 @@ func lint() error {
 }
 
 func TestConvertStringTargetToFunc(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	targFile := filepath.Join(dir, "targs.go")
 
@@ -522,6 +552,8 @@ var Lint = targ.Targ("golangci-lint run").Name("lint")
 }
 
 func TestConvertStringTargetToFunc_NotFound(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	targFile := filepath.Join(dir, "targs.go")
 
@@ -548,6 +580,8 @@ var Build = targ.Targ("go build").Name("build")
 }
 
 func TestCreateGroupMemberPatch(t *testing.T) {
+	t.Parallel()
+
 	content := `var DevLint = targ.Group("lint", DevLintSlow)`
 
 	patch := runner.CreateGroupMemberPatch(content, "DevLint", "DevLintFast")
@@ -565,6 +599,8 @@ func TestCreateGroupMemberPatch(t *testing.T) {
 }
 
 func TestCreateGroupMemberPatch_AlreadyExists(t *testing.T) {
+	t.Parallel()
+
 	content := `var DevLint = targ.Group("lint", DevLintSlow, DevLintFast)`
 
 	patch := runner.CreateGroupMemberPatch(content, "DevLint", "DevLintFast")
@@ -574,6 +610,8 @@ func TestCreateGroupMemberPatch_AlreadyExists(t *testing.T) {
 }
 
 func TestEnsureFallbackModuleRoot(t *testing.T) {
+	t.Parallel()
+
 	if runtime.GOOS == "windows" {
 		t.Skip("symlink behavior is restricted on windows")
 	}
@@ -610,6 +648,8 @@ func TestEnsureFallbackModuleRoot(t *testing.T) {
 }
 
 func TestExtractTargFlags_DeprecatedNoCache(t *testing.T) {
+	t.Parallel()
+
 	args := []string{"--no-cache", "build"}
 
 	flags, _ := runner.ExtractTargFlags(args)
@@ -620,6 +660,8 @@ func TestExtractTargFlags_DeprecatedNoCache(t *testing.T) {
 }
 
 func TestExtractTargFlags_Empty(t *testing.T) {
+	t.Parallel()
+
 	args := []string{}
 
 	flags, remaining := runner.ExtractTargFlags(args)
@@ -638,6 +680,8 @@ func TestExtractTargFlags_Empty(t *testing.T) {
 }
 
 func TestExtractTargFlags_NoBinaryCache(t *testing.T) {
+	t.Parallel()
+
 	args := []string{"--no-binary-cache", "build"}
 
 	flags, remaining := runner.ExtractTargFlags(args)
@@ -652,6 +696,7 @@ func TestExtractTargFlags_NoBinaryCache(t *testing.T) {
 }
 
 func TestExtractTargFlags_ShortSAfterTarget(t *testing.T) {
+	t.Parallel()
 	// -s AFTER target name is passed through (for target's own flags)
 	args := []string{"build", "-s", "value"}
 
@@ -667,6 +712,7 @@ func TestExtractTargFlags_ShortSAfterTarget(t *testing.T) {
 }
 
 func TestExtractTargFlags_SourceAfterTarget(t *testing.T) {
+	t.Parallel()
 	// --source AFTER target name is passed through (not recognized as global)
 	args := []string{"build", "--source", "/some/path"}
 
@@ -682,6 +728,8 @@ func TestExtractTargFlags_SourceAfterTarget(t *testing.T) {
 }
 
 func TestExtractTargFlags_SourceLong(t *testing.T) {
+	t.Parallel()
+
 	args := []string{"--source", "/some/path", "build"}
 
 	flags, remaining := runner.ExtractTargFlags(args)
@@ -696,6 +744,7 @@ func TestExtractTargFlags_SourceLong(t *testing.T) {
 }
 
 func TestExtractTargFlags_SourceMissingPath(t *testing.T) {
+	t.Parallel()
 	// Test when --source is provided without a following argument
 	args := []string{"--source"}
 
@@ -708,6 +757,8 @@ func TestExtractTargFlags_SourceMissingPath(t *testing.T) {
 }
 
 func TestExtractTargFlags_SourceShort(t *testing.T) {
+	t.Parallel()
+
 	args := []string{"-s", "/some/path", "build"}
 
 	flags, remaining := runner.ExtractTargFlags(args)
@@ -722,6 +773,7 @@ func TestExtractTargFlags_SourceShort(t *testing.T) {
 }
 
 func TestExtractTargFlags_SourceWithEquals(t *testing.T) {
+	t.Parallel()
 	// The current implementation doesn't support --source=/path format
 	// This test documents current behavior (equals sign not supported)
 	args := []string{"--source=/some/path", "build"}
@@ -739,6 +791,8 @@ func TestExtractTargFlags_SourceWithEquals(t *testing.T) {
 }
 
 func TestExtractTargFlags_SourceWithOtherFlags(t *testing.T) {
+	t.Parallel()
+
 	args := []string{"--no-binary-cache", "-s", "/some/path", "build"}
 
 	flags, remaining := runner.ExtractTargFlags(args)
@@ -757,6 +811,8 @@ func TestExtractTargFlags_SourceWithOtherFlags(t *testing.T) {
 }
 
 func TestFindModuleForPath_NoModule(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 
 	root, modulePath, found, err := runner.FindModuleForPath(dir)
@@ -774,6 +830,7 @@ func TestFindModuleForPath_NoModule(t *testing.T) {
 }
 
 func TestFindModuleForPath_WalksUp(t *testing.T) {
+	t.Parallel()
 	// Create parent with go.mod
 	parent := t.TempDir()
 
@@ -808,6 +865,7 @@ func TestFindModuleForPath_WalksUp(t *testing.T) {
 }
 
 func TestFindModuleForPath_WithFile(t *testing.T) {
+	t.Parallel()
 	// Test that FindModuleForPath works when given a file path
 	parent := t.TempDir()
 
@@ -847,6 +905,8 @@ func TestFindModuleForPath_WithFile(t *testing.T) {
 }
 
 func TestFindModuleForPath_WithModule(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 
 	modContent := "module example.com/test\n\ngo 1.21\n"
@@ -873,6 +933,8 @@ func TestFindModuleForPath_WithModule(t *testing.T) {
 }
 
 func TestFindOrCreateTargFile_CreatesNew(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 
 	targFile, err := runner.FindOrCreateTargFile(dir)
@@ -899,6 +961,8 @@ func TestFindOrCreateTargFile_CreatesNew(t *testing.T) {
 }
 
 func TestFindOrCreateTargFile_FindsExisting(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 
 	// Create an existing targ file
@@ -921,6 +985,8 @@ func TestFindOrCreateTargFile_FindsExisting(t *testing.T) {
 }
 
 func TestHasTargBuildTag(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 
 	// File with targ build tag
@@ -961,6 +1027,8 @@ func TestHasTargBuildTag(t *testing.T) {
 }
 
 func TestIsValidTargetName(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name  string
 		valid bool
@@ -980,6 +1048,8 @@ func TestIsValidTargetName(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			if got := runner.IsValidTargetName(tt.name); got != tt.valid {
 				t.Errorf("IsValidTargetName(%q) = %v, want %v", tt.name, got, tt.valid)
 			}
@@ -988,6 +1058,8 @@ func TestIsValidTargetName(t *testing.T) {
 }
 
 func TestKebabToPascal(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		input    string
 		expected string
@@ -1001,6 +1073,8 @@ func TestKebabToPascal(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
+			t.Parallel()
+
 			if got := runner.KebabToPascal(tt.input); got != tt.expected {
 				t.Errorf("KebabToPascal(%q) = %q, want %q", tt.input, got, tt.expected)
 			}
@@ -1009,6 +1083,8 @@ func TestKebabToPascal(t *testing.T) {
 }
 
 func TestNamespacePaths_CompressesSegments(t *testing.T) {
+	t.Parallel()
+
 	files := []string{
 		"/root/tools/issues/issues.go",
 		"/root/tools/other/foo.go",
@@ -1033,6 +1109,8 @@ func TestNamespacePaths_CompressesSegments(t *testing.T) {
 }
 
 func TestParseCreateArgs_Basic(t *testing.T) {
+	t.Parallel()
+
 	opts, err := runner.ParseCreateArgs([]string{"lint", "golangci-lint run"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -1052,6 +1130,8 @@ func TestParseCreateArgs_Basic(t *testing.T) {
 }
 
 func TestParseCreateArgs_FullOptions(t *testing.T) {
+	t.Parallel()
+
 	opts, err := runner.ParseCreateArgs([]string{
 		"dev", "build",
 		"--deps", "lint", "test",
@@ -1084,6 +1164,8 @@ func TestParseCreateArgs_FullOptions(t *testing.T) {
 }
 
 func TestParseCreateArgs_TooFewArgs(t *testing.T) {
+	t.Parallel()
+
 	_, err := runner.ParseCreateArgs([]string{"lint"})
 	if err == nil {
 		t.Error("expected error for too few args")
@@ -1091,6 +1173,8 @@ func TestParseCreateArgs_TooFewArgs(t *testing.T) {
 }
 
 func TestParseCreateArgs_UnknownFlag(t *testing.T) {
+	t.Parallel()
+
 	_, err := runner.ParseCreateArgs([]string{"lint", "--unknown", "cmd"})
 	if err == nil {
 		t.Error("expected error for unknown flag")
@@ -1098,6 +1182,8 @@ func TestParseCreateArgs_UnknownFlag(t *testing.T) {
 }
 
 func TestParseCreateArgs_WithCache(t *testing.T) {
+	t.Parallel()
+
 	opts, err := runner.ParseCreateArgs(
 		[]string{"build", "--cache", "**/*.go", "go.mod", "go build"},
 	)
@@ -1116,6 +1202,8 @@ func TestParseCreateArgs_WithCache(t *testing.T) {
 }
 
 func TestParseCreateArgs_WithDeps(t *testing.T) {
+	t.Parallel()
+
 	opts, err := runner.ParseCreateArgs([]string{"build", "--deps", "lint", "test", "go build"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -1132,6 +1220,8 @@ func TestParseCreateArgs_WithDeps(t *testing.T) {
 }
 
 func TestParseCreateArgs_WithPath(t *testing.T) {
+	t.Parallel()
+
 	opts, err := runner.ParseCreateArgs([]string{"dev", "lint", "fast", "golangci-lint run --fast"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -1152,6 +1242,8 @@ func TestParseCreateArgs_WithPath(t *testing.T) {
 }
 
 func TestParseHelpRequestIgnoresSubcommandHelp(t *testing.T) {
+	t.Parallel()
+
 	help, target := runner.ParseHelpRequest([]string{"issues", "--help"})
 	if help && !target {
 		t.Fatal("expected help to be scoped to target")
@@ -1164,6 +1256,8 @@ func TestParseHelpRequestIgnoresSubcommandHelp(t *testing.T) {
 }
 
 func TestParseSyncArgs_Basic(t *testing.T) {
+	t.Parallel()
+
 	opts, err := runner.ParseSyncArgs([]string{"github.com/foo/bar"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -1175,6 +1269,8 @@ func TestParseSyncArgs_Basic(t *testing.T) {
 }
 
 func TestParseSyncArgs_InvalidPath(t *testing.T) {
+	t.Parallel()
+
 	_, err := runner.ParseSyncArgs([]string{"invalid-path"})
 	if err == nil {
 		t.Error("expected error for invalid package path")
@@ -1182,6 +1278,8 @@ func TestParseSyncArgs_InvalidPath(t *testing.T) {
 }
 
 func TestParseSyncArgs_NoArgs(t *testing.T) {
+	t.Parallel()
+
 	_, err := runner.ParseSyncArgs([]string{})
 	if err == nil {
 		t.Error("expected error for no args")
@@ -1189,6 +1287,8 @@ func TestParseSyncArgs_NoArgs(t *testing.T) {
 }
 
 func TestPathToPascal(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		path     []string
 		expected string
@@ -1201,6 +1301,8 @@ func TestPathToPascal(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(strings.Join(tt.path, "/"), func(t *testing.T) {
+			t.Parallel()
+
 			got := runner.PathToPascal(tt.path)
 			if got != tt.expected {
 				t.Errorf("PathToPascal(%v) = %q, want %q", tt.path, got, tt.expected)
@@ -1210,6 +1312,8 @@ func TestPathToPascal(t *testing.T) {
 }
 
 func TestWriteBootstrapFileCleanup(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	data := []byte("package main\n")
 

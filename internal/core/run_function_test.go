@@ -1,11 +1,12 @@
 package core_test
 
+// LEGACY_TESTS: This file contains tests being evaluated for redundancy.
+// Property-based replacements are in *_properties_test.go files.
+// Do not add new tests here. See docs/test-migration.md for details.
+
 import (
-	"bytes"
 	"context"
 	"errors"
-	"io"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -37,7 +38,7 @@ func OtherFunc() {
 	// Another function for multi-root tests
 }
 
-func TestRunWithEnv_CaretResetsToRoot(t *testing.T) {
+func TestRunWithEnv_CaretResetsToRoot(t *testing.T) { //nolint:paralleltest // uses global counters
 	multiSubOneCalls = 0
 	multiRootDiscoverCalls = 0
 
@@ -59,7 +60,7 @@ func TestRunWithEnv_CaretResetsToRoot(t *testing.T) {
 	}
 }
 
-func TestRunWithEnv_ContextFunction(t *testing.T) {
+func TestRunWithEnv_ContextFunction(t *testing.T) { //nolint:paralleltest // uses global state
 	helloWorldCalled = false
 
 	_, err := core.Execute([]string{"cmd"}, ContextFunc)
@@ -73,6 +74,8 @@ func TestRunWithEnv_ContextFunction(t *testing.T) {
 }
 
 func TestRunWithEnv_DisableCompletion(t *testing.T) {
+	t.Parallel()
+
 	// With DisableCompletion, --completion should be passed through as unknown flag
 	_, err := core.ExecuteWithOptions(
 		[]string{"cmd", "--completion", "bash"},
@@ -85,6 +88,8 @@ func TestRunWithEnv_DisableCompletion(t *testing.T) {
 }
 
 func TestRunWithEnv_DisableHelp(t *testing.T) {
+	t.Parallel()
+
 	// With DisableHelp, --help should be passed through as unknown flag
 	_, err := core.ExecuteWithOptions(
 		[]string{"cmd", "--help"},
@@ -107,6 +112,8 @@ func TestRunWithEnv_DisableHelp(t *testing.T) {
 }
 
 func TestRunWithEnv_DisableTimeout(t *testing.T) {
+	t.Parallel()
+
 	// With DisableTimeout, --timeout should be passed through as unknown flag
 	_, err := core.ExecuteWithOptions(
 		[]string{"cmd", "--timeout", "5m"},
@@ -119,6 +126,8 @@ func TestRunWithEnv_DisableTimeout(t *testing.T) {
 }
 
 func TestRunWithEnv_FunctionReturnsError(t *testing.T) {
+	t.Parallel()
+
 	_, err := core.Execute([]string{"cmd"}, ErrorFunc)
 	if err == nil {
 		t.Fatal("expected error from function")
@@ -138,6 +147,8 @@ func TestRunWithEnv_FunctionReturnsError(t *testing.T) {
 }
 
 func TestRunWithEnv_FunctionSubcommand(t *testing.T) {
+	t.Parallel()
+
 	called := false
 	helloTarget := core.Targ(func() { called = true }).Name("hello")
 	root := core.Group("root", helloTarget)
@@ -152,7 +163,7 @@ func TestRunWithEnv_FunctionSubcommand(t *testing.T) {
 	}
 }
 
-func TestRunWithEnv_FunctionWithHelpFlag(t *testing.T) {
+func TestRunWithEnv_FunctionWithHelpFlag(t *testing.T) { //nolint:paralleltest // uses global state
 	defaultFuncCalled = false
 
 	_, err := core.ExecuteWithOptions(
@@ -170,7 +181,7 @@ func TestRunWithEnv_FunctionWithHelpFlag(t *testing.T) {
 	}
 }
 
-func TestRunWithEnv_GlobDoubleStarRecursive(t *testing.T) {
+func TestRunWithEnv_GlobDoubleStarRecursive(t *testing.T) { //nolint:paralleltest // uses global counters
 	multiSubOneCalls = 0
 	multiSubTwoCalls = 0
 
@@ -193,7 +204,7 @@ func TestRunWithEnv_GlobDoubleStarRecursive(t *testing.T) {
 	}
 }
 
-func TestRunWithEnv_GlobNoMatches(t *testing.T) {
+func TestRunWithEnv_GlobNoMatches(t *testing.T) { //nolint:paralleltest // uses global counters
 	testACalls = 0
 
 	_, err := core.ExecuteWithOptions(
@@ -217,7 +228,7 @@ func TestRunWithEnv_GlobNoMatches(t *testing.T) {
 
 // --- Parallel execution with globs ---
 
-func TestRunWithEnv_GlobParallelExecution(t *testing.T) {
+func TestRunWithEnv_GlobParallelExecution(t *testing.T) { //nolint:paralleltest // uses global counters
 	testACalls = 0
 	testBCalls = 0
 	buildCalls = 0
@@ -247,6 +258,8 @@ func TestRunWithEnv_GlobParallelExecution(t *testing.T) {
 }
 
 func TestRunWithEnv_GlobParallelNoMatches(t *testing.T) {
+	t.Parallel()
+
 	_, err := core.ExecuteWithOptions(
 		[]string{"cmd", "--parallel", "nonexistent-*"},
 		core.RunOptions{AllowDefault: false},
@@ -262,7 +275,7 @@ func TestRunWithEnv_GlobParallelNoMatches(t *testing.T) {
 	}
 }
 
-func TestRunWithEnv_GlobPrefixMatches(t *testing.T) {
+func TestRunWithEnv_GlobPrefixMatches(t *testing.T) { //nolint:paralleltest // uses global counters
 	testACalls = 0
 	testBCalls = 0
 	buildCalls = 0
@@ -291,7 +304,7 @@ func TestRunWithEnv_GlobPrefixMatches(t *testing.T) {
 	}
 }
 
-func TestRunWithEnv_GlobStarMatchesAll(t *testing.T) {
+func TestRunWithEnv_GlobStarMatchesAll(t *testing.T) { //nolint:paralleltest // uses global counters
 	testACalls = 0
 	testBCalls = 0
 	buildCalls = 0
@@ -320,7 +333,7 @@ func TestRunWithEnv_GlobStarMatchesAll(t *testing.T) {
 	}
 }
 
-func TestRunWithEnv_GlobSubcommands(t *testing.T) {
+func TestRunWithEnv_GlobSubcommands(t *testing.T) { //nolint:paralleltest // uses global counters
 	multiSubOneCalls = 0
 	multiSubTwoCalls = 0
 
@@ -338,7 +351,7 @@ func TestRunWithEnv_GlobSubcommands(t *testing.T) {
 	}
 }
 
-func TestRunWithEnv_GlobSuffixMatches(t *testing.T) {
+func TestRunWithEnv_GlobSuffixMatches(t *testing.T) { //nolint:paralleltest // uses global counters
 	testACalls = 0
 	buildCalls = 0
 	deployACalls = 0
@@ -368,75 +381,77 @@ func TestRunWithEnv_GlobSuffixMatches(t *testing.T) {
 }
 
 func TestRunWithEnv_GlobalHelpMultipleRoots(t *testing.T) {
+	t.Parallel()
+
 	// Test --help with multiple roots (no default) - shows usage
-	output := captureStdoutRun(t, func() {
-		_, err := core.ExecuteWithOptions(
-			[]string{"cmd", "--help"},
-			core.RunOptions{AllowDefault: false},
-			DefaultFunc,
-			OtherFunc,
-		)
-		if err != nil {
-			t.Fatalf("expected no error for --help flag, got: %v", err)
-		}
-	})
+	result, err := core.ExecuteWithOptions(
+		[]string{"cmd", "--help"},
+		core.RunOptions{AllowDefault: false},
+		DefaultFunc,
+		OtherFunc,
+	)
+	if err != nil {
+		t.Fatalf("expected no error for --help flag, got: %v", err)
+	}
 
 	// Should show both commands in usage
-	if !strings.Contains(output, "default-func") || !strings.Contains(output, "other-func") {
-		t.Fatalf("expected help to list all commands, got: %s", output)
+	if !strings.Contains(result.Output, "default-func") || !strings.Contains(result.Output, "other-func") {
+		t.Fatalf("expected help to list all commands, got: %s", result.Output)
 	}
 }
 
 func TestRunWithEnv_GlobalHelpShort(t *testing.T) {
-	// Test -h (short form) at global level with default command
-	output := captureStdoutRun(t, func() {
-		_, err := core.Execute([]string{"cmd", "-h"}, DefaultFunc)
-		if err != nil {
-			t.Fatalf("expected no error for -h flag, got: %v", err)
-		}
-	})
+	t.Parallel()
 
-	if !strings.Contains(output, "default-func") {
-		t.Fatalf("expected help output to contain command name, got: %s", output)
+	// Test -h (short form) at global level with default command
+	result, err := core.Execute([]string{"cmd", "-h"}, DefaultFunc)
+	if err != nil {
+		t.Fatalf("expected no error for -h flag, got: %v", err)
+	}
+
+	if !strings.Contains(result.Output, "default-func") {
+		t.Fatalf("expected help output to contain command name, got: %s", result.Output)
 	}
 }
 
 func TestRunWithEnv_GlobalHelpWithArgs(t *testing.T) {
+	t.Parallel()
+
 	// Test --help with args after the flag - goes through handleGlobalHelp
-	output := captureStdoutRun(t, func() {
-		_, err := core.Execute([]string{"cmd", "--help", "default-func"}, DefaultFunc)
-		if err != nil {
-			t.Fatalf("expected no error for --help with args, got: %v", err)
-		}
-	})
+	result, err := core.Execute([]string{"cmd", "--help", "default-func"}, DefaultFunc)
+	if err != nil {
+		t.Fatalf("expected no error for --help with args, got: %v", err)
+	}
 
 	// Should show help for the default command
-	if !strings.Contains(output, "default-func") {
-		t.Fatalf("expected help output to contain command name, got: %s", output)
+	if !strings.Contains(result.Output, "default-func") {
+		t.Fatalf("expected help output to contain command name, got: %s", result.Output)
 	}
 }
 
 func TestRunWithEnv_GlobalHelpWithArgsMultiRoot(t *testing.T) {
+	t.Parallel()
+
 	// Test --help with args for multiple roots - goes through handleGlobalHelp else branch
-	output := captureStdoutRun(t, func() {
-		_, err := core.ExecuteWithOptions(
-			[]string{"cmd", "--help", "something"},
-			core.RunOptions{AllowDefault: false},
-			DefaultFunc,
-			OtherFunc,
-		)
-		if err != nil {
-			t.Fatalf("expected no error for --help with args, got: %v", err)
-		}
-	})
+	result, err := core.ExecuteWithOptions(
+		[]string{"cmd", "--help", "something"},
+		core.RunOptions{AllowDefault: false},
+		DefaultFunc,
+		OtherFunc,
+	)
+	if err != nil {
+		t.Fatalf("expected no error for --help with args, got: %v", err)
+	}
 
 	// Should show usage listing all commands
-	if !strings.Contains(output, "default-func") || !strings.Contains(output, "other-func") {
-		t.Fatalf("expected help to list all commands, got: %s", output)
+	if !strings.Contains(result.Output, "default-func") || !strings.Contains(result.Output, "other-func") {
+		t.Fatalf("expected help to list all commands, got: %s", result.Output)
 	}
 }
 
 func TestRunWithEnv_GroupUnknownSubcommand(t *testing.T) {
+	t.Parallel()
+
 	helloTarget := core.Targ(func() {}).Name("hello")
 	root := core.Group("root", helloTarget)
 
@@ -448,6 +463,8 @@ func TestRunWithEnv_GroupUnknownSubcommand(t *testing.T) {
 }
 
 func TestRunWithEnv_GroupWithNoSubcommand(t *testing.T) {
+	t.Parallel()
+
 	helloTarget := core.Targ(func() {}).Name("hello")
 	root := core.Group("root", helloTarget)
 
@@ -461,6 +478,8 @@ func TestRunWithEnv_GroupWithNoSubcommand(t *testing.T) {
 // --- Execution info in help tests ---
 
 func TestRunWithEnv_HelpShowsExecutionInfo(t *testing.T) {
+	t.Parallel()
+
 	depTarget := core.Targ(func() {}).Name("dep")
 	mainTarget := core.Targ(func() {}).
 		Name("main").
@@ -473,92 +492,90 @@ func TestRunWithEnv_HelpShowsExecutionInfo(t *testing.T) {
 		Backoff(time.Second, 2.0)
 
 	// Use single target with AllowDefault to get command-specific help
-	output := captureStdoutRun(t, func() {
-		_, _ = core.ExecuteWithOptions(
-			[]string{"cmd", "--help"},
-			core.RunOptions{AllowDefault: true},
-			mainTarget,
-		)
-	})
+	result, _ := core.ExecuteWithOptions(
+		[]string{"cmd", "--help"},
+		core.RunOptions{AllowDefault: true},
+		mainTarget,
+	)
 
 	// Check for execution info sections
-	if !strings.Contains(output, "Execution:") {
-		t.Fatalf("expected Execution section in help, got: %s", output)
+	if !strings.Contains(result.Output, "Execution:") {
+		t.Fatalf("expected Execution section in help, got: %s", result.Output)
 	}
 
-	if !strings.Contains(output, "Deps:") {
-		t.Fatalf("expected Deps line in help, got: %s", output)
+	if !strings.Contains(result.Output, "Deps:") {
+		t.Fatalf("expected Deps line in help, got: %s", result.Output)
 	}
 
-	if !strings.Contains(output, "Cache:") {
-		t.Fatalf("expected Cache line in help, got: %s", output)
+	if !strings.Contains(result.Output, "Cache:") {
+		t.Fatalf("expected Cache line in help, got: %s", result.Output)
 	}
 
-	if !strings.Contains(output, "Watch:") {
-		t.Fatalf("expected Watch line in help, got: %s", output)
+	if !strings.Contains(result.Output, "Watch:") {
+		t.Fatalf("expected Watch line in help, got: %s", result.Output)
 	}
 
-	if !strings.Contains(output, "Timeout:") {
-		t.Fatalf("expected Timeout line in help, got: %s", output)
+	if !strings.Contains(result.Output, "Timeout:") {
+		t.Fatalf("expected Timeout line in help, got: %s", result.Output)
 	}
 
-	if !strings.Contains(output, "Times:") {
-		t.Fatalf("expected Times line in help, got: %s", output)
+	if !strings.Contains(result.Output, "Times:") {
+		t.Fatalf("expected Times line in help, got: %s", result.Output)
 	}
 
-	if !strings.Contains(output, "Retry:") {
-		t.Fatalf("expected Retry line in help, got: %s", output)
+	if !strings.Contains(result.Output, "Retry:") {
+		t.Fatalf("expected Retry line in help, got: %s", result.Output)
 	}
 
-	if !strings.Contains(output, "backoff:") {
-		t.Fatalf("expected backoff info in help, got: %s", output)
+	if !strings.Contains(result.Output, "backoff:") {
+		t.Fatalf("expected backoff info in help, got: %s", result.Output)
 	}
 }
 
 func TestRunWithEnv_HelpShowsParallelDeps(t *testing.T) {
+	t.Parallel()
+
 	depA := core.Targ(func() {}).Name("dep-a")
 	depB := core.Targ(func() {}).Name("dep-b")
 	target := core.Targ(func() {}).
 		Name("parallel").
 		Deps(depA, depB, core.DepModeParallel)
 
-	output := captureStdoutRun(t, func() {
-		_, _ = core.ExecuteWithOptions(
-			[]string{"cmd", "--help"},
-			core.RunOptions{AllowDefault: true},
-			target,
-		)
-	})
+	result, _ := core.ExecuteWithOptions(
+		[]string{"cmd", "--help"},
+		core.RunOptions{AllowDefault: true},
+		target,
+	)
 
-	if !strings.Contains(output, "parallel") {
-		t.Fatalf("expected 'parallel' mode in Deps line, got: %s", output)
+	if !strings.Contains(result.Output, "parallel") {
+		t.Fatalf("expected 'parallel' mode in Deps line, got: %s", result.Output)
 	}
 }
 
 func TestRunWithEnv_HelpShowsRetryWithoutBackoff(t *testing.T) {
+	t.Parallel()
+
 	// Test retry without backoff
 	target := core.Targ(func() {}).
 		Name("retry-only").
 		Retry()
 
-	output := captureStdoutRun(t, func() {
-		_, _ = core.ExecuteWithOptions(
-			[]string{"cmd", "--help"},
-			core.RunOptions{AllowDefault: true},
-			target,
-		)
-	})
+	result, _ := core.ExecuteWithOptions(
+		[]string{"cmd", "--help"},
+		core.RunOptions{AllowDefault: true},
+		target,
+	)
 
-	if !strings.Contains(output, "Retry: yes") {
-		t.Fatalf("expected 'Retry: yes' in help, got: %s", output)
+	if !strings.Contains(result.Output, "Retry: yes") {
+		t.Fatalf("expected 'Retry: yes' in help, got: %s", result.Output)
 	}
 	// Should NOT contain backoff when not configured
-	if strings.Contains(output, "backoff:") {
-		t.Fatalf("expected no backoff in help when not configured, got: %s", output)
+	if strings.Contains(result.Output, "backoff:") {
+		t.Fatalf("expected no backoff in help when not configured, got: %s", result.Output)
 	}
 }
 
-func TestRunWithEnv_MultipleRoots_SubcommandThenRoot(t *testing.T) {
+func TestRunWithEnv_MultipleRoots_SubcommandThenRoot(t *testing.T) { //nolint:paralleltest // uses global counters
 	multiRootFlashCalls = 0
 	multiRootDiscoverCalls = 0
 
@@ -581,7 +598,7 @@ func TestRunWithEnv_MultipleRoots_SubcommandThenRoot(t *testing.T) {
 	}
 }
 
-func TestRunWithEnv_MultipleSubcommands(t *testing.T) {
+func TestRunWithEnv_MultipleSubcommands(t *testing.T) { //nolint:paralleltest // uses global counters
 	multiSubOneCalls = 0
 	multiSubTwoCalls = 0
 
@@ -599,7 +616,7 @@ func TestRunWithEnv_MultipleSubcommands(t *testing.T) {
 	}
 }
 
-func TestRunWithEnv_MultipleTargets_FunctionByName(t *testing.T) {
+func TestRunWithEnv_MultipleTargets_FunctionByName(t *testing.T) { //nolint:paralleltest // uses global state
 	helloWorldCalled = false
 	otherTarget := core.Targ(func() {}).Name("other")
 
@@ -613,7 +630,7 @@ func TestRunWithEnv_MultipleTargets_FunctionByName(t *testing.T) {
 	}
 }
 
-func TestRunWithEnv_SingleFunction_DefaultCommand(t *testing.T) {
+func TestRunWithEnv_SingleFunction_DefaultCommand(t *testing.T) { //nolint:paralleltest // uses global state
 	defaultFuncCalled = false
 
 	_, err := core.Execute([]string{"cmd"}, DefaultFunc)
@@ -626,7 +643,7 @@ func TestRunWithEnv_SingleFunction_DefaultCommand(t *testing.T) {
 	}
 }
 
-func TestRunWithEnv_SingleFunction_NoDefault(t *testing.T) {
+func TestRunWithEnv_SingleFunction_NoDefault(t *testing.T) { //nolint:paralleltest // uses global state
 	defaultFuncCalled = false
 
 	_, err := core.ExecuteWithOptions(
@@ -660,35 +677,6 @@ var (
 
 func buildTarget() *core.Target {
 	return core.Targ(func() { buildCalls++ }).Name("build")
-}
-
-func captureStdoutRun(t *testing.T, fn func()) string {
-	t.Helper()
-
-	orig := os.Stdout
-
-	r, w, err := os.Pipe()
-	if err != nil {
-		t.Fatalf("unexpected pipe error: %v", err)
-	}
-
-	os.Stdout = w
-
-	fn()
-
-	_ = w.Close()
-	os.Stdout = orig
-
-	var buf bytes.Buffer
-
-	_, err = io.Copy(&buf, r)
-	if err != nil {
-		t.Fatalf("unexpected stdout copy error: %v", err)
-	}
-
-	_ = r.Close()
-
-	return buf.String()
 }
 
 func deployATarget() *core.Target {

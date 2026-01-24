@@ -442,6 +442,14 @@ func (t *Target) runWithRepetition(ctx context.Context, args []any) error {
 			if err != nil {
 				return err
 			}
+		} else {
+			// Success - clear any previous error
+			state.lastErr = nil
+
+			// If retry is enabled, stop on first success
+			if t.retry {
+				break
+			}
 		}
 	}
 

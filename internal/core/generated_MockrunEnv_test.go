@@ -4,6 +4,8 @@
 package core_test
 
 import (
+	"io"
+
 	_imptest "github.com/toejough/imptest"
 	core "github.com/toejough/targ/internal/core"
 )
@@ -249,6 +251,12 @@ func (impl *mockRunEnvImpl) Println(args ...any) {
 		panic(resp.PanicValue)
 	}
 
+}
+
+// Stdout implements core.RunEnv.Stdout.
+// Returns io.Discard as the mock doesn't need to capture stdout.
+func (impl *mockRunEnvImpl) Stdout() io.Writer {
+	return io.Discard
 }
 
 // SupportsSignals implements core.RunEnv.SupportsSignals.

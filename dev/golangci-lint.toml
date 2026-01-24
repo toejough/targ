@@ -14,7 +14,6 @@ disable = [
 	'godox',          # saving todos till another validation step
 	'ireturn',        # I like generic return types
 	'nonamedreturns', # I like named returns
-	'paralleltest',   # not all tests can run in parallel (shared state)
 	'wsl',            # deprecated
 ]
 

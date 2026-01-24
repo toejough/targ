@@ -11,6 +11,8 @@ import (
 )
 
 func TestGroup_AcceptsMixedMembers(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	target := targ.Targ(func() {})
@@ -21,6 +23,8 @@ func TestGroup_AcceptsMixedMembers(t *testing.T) {
 }
 
 func TestGroup_AcceptsNestedGroups(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	target := targ.Targ(func() {})
@@ -32,6 +36,8 @@ func TestGroup_AcceptsNestedGroups(t *testing.T) {
 }
 
 func TestGroup_AcceptsTargetMembers(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	target1 := targ.Targ(func() {})
@@ -45,6 +51,8 @@ func TestGroup_AcceptsTargetMembers(t *testing.T) {
 }
 
 func TestGroup_AcceptsValidName(t *testing.T) {
+	t.Parallel()
+
 	rapid.Check(t, func(rt *rapid.T) {
 		g := NewWithT(t)
 
@@ -58,6 +66,8 @@ func TestGroup_AcceptsValidName(t *testing.T) {
 }
 
 func TestGroup_DeepNesting(t *testing.T) {
+	t.Parallel()
+
 	rapid.Check(t, func(rt *rapid.T) {
 		g := NewWithT(t)
 
@@ -92,6 +102,8 @@ func TestGroup_DeepNesting(t *testing.T) {
 }
 
 func TestGroup_PanicsOnEmptyName(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	g.Expect(func() {
@@ -100,6 +112,8 @@ func TestGroup_PanicsOnEmptyName(t *testing.T) {
 }
 
 func TestGroup_PanicsOnInvalidMemberType(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	g.Expect(func() {
@@ -116,6 +130,8 @@ func TestGroup_PanicsOnInvalidMemberType(t *testing.T) {
 }
 
 func TestGroup_PanicsOnInvalidName(t *testing.T) {
+	t.Parallel()
+
 	rapid.Check(t, func(rt *rapid.T) {
 		g := NewWithT(t)
 

@@ -14,6 +14,8 @@ import (
 )
 
 func TestExecuteWithOverrides_BackoffDelay(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 	ctx := context.Background()
 
@@ -40,6 +42,8 @@ func TestExecuteWithOverrides_BackoffDelay(t *testing.T) {
 }
 
 func TestExecuteWithOverrides_CacheConflict(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 	ctx := context.Background()
 
@@ -64,6 +68,8 @@ func TestExecuteWithOverrides_CacheConflict(t *testing.T) {
 }
 
 func TestExecuteWithOverrides_CacheDisabledAllowsOverride(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 	ctx := context.Background()
 
@@ -89,6 +95,8 @@ func TestExecuteWithOverrides_CacheDisabledAllowsOverride(t *testing.T) {
 }
 
 func TestExecuteWithOverrides_CancelDuringBackoff(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -116,6 +124,8 @@ func TestExecuteWithOverrides_CancelDuringBackoff(t *testing.T) {
 }
 
 func TestExecuteWithOverrides_CancelWithPreviousError(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -140,6 +150,8 @@ func TestExecuteWithOverrides_CancelWithPreviousError(t *testing.T) {
 }
 
 func TestExecuteWithOverrides_ContextCancellation(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // Cancel immediately
@@ -158,6 +170,8 @@ func TestExecuteWithOverrides_ContextCancellation(t *testing.T) {
 }
 
 func TestExecuteWithOverrides_DepsConflict(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 	ctx := context.Background()
 
@@ -180,6 +194,8 @@ func TestExecuteWithOverrides_DepsConflict(t *testing.T) {
 }
 
 func TestExecuteWithOverrides_DepsNoConflictWhenTargetHasNoDeps(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 	ctx := context.Background()
 
@@ -205,6 +221,8 @@ func TestExecuteWithOverrides_DepsNoConflictWhenTargetHasNoDeps(t *testing.T) {
 }
 
 func TestExecuteWithOverrides_NoConflictWhenCLIHasNoOverride(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 	ctx := context.Background()
 
@@ -228,6 +246,8 @@ func TestExecuteWithOverrides_NoConflictWhenCLIHasNoOverride(t *testing.T) {
 }
 
 func TestExecuteWithOverrides_NoConflictWhenTargetHasNoConfig(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -257,6 +277,8 @@ func TestExecuteWithOverrides_NoConflictWhenTargetHasNoConfig(t *testing.T) {
 }
 
 func TestExecuteWithOverrides_NoOverrides(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 	ctx := context.Background()
 
@@ -273,6 +295,8 @@ func TestExecuteWithOverrides_NoOverrides(t *testing.T) {
 }
 
 func TestExecuteWithOverrides_RetryAllFails(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 	ctx := context.Background()
 
@@ -292,6 +316,8 @@ func TestExecuteWithOverrides_RetryAllFails(t *testing.T) {
 // Integration tests for ExecuteWithOverrides
 
 func TestExecuteWithOverrides_Times(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 	ctx := context.Background()
 
@@ -308,6 +334,8 @@ func TestExecuteWithOverrides_Times(t *testing.T) {
 }
 
 func TestExecuteWithOverrides_TimesProperty(t *testing.T) {
+	t.Parallel()
+
 	rapid.Check(t, func(rt *rapid.T) {
 		g := NewWithT(t)
 		ctx := context.Background()
@@ -327,6 +355,8 @@ func TestExecuteWithOverrides_TimesProperty(t *testing.T) {
 }
 
 func TestExecuteWithOverrides_TimesWithError(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 	ctx := context.Background()
 
@@ -347,6 +377,8 @@ func TestExecuteWithOverrides_TimesWithError(t *testing.T) {
 }
 
 func TestExecuteWithOverrides_TimesWithRetry(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 	ctx := context.Background()
 
@@ -363,12 +395,14 @@ func TestExecuteWithOverrides_TimesWithRetry(t *testing.T) {
 	})
 
 	g.Expect(err).NotTo(HaveOccurred())
-	g.Expect(count).To(Equal(5)) // Continues all iterations with retry
+	g.Expect(count).To(Equal(3)) // Retry stops on first success
 }
 
 // Ownership model tests - conflict detection
 
 func TestExecuteWithOverrides_WatchConflict(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 	ctx := context.Background()
 
@@ -393,6 +427,8 @@ func TestExecuteWithOverrides_WatchConflict(t *testing.T) {
 }
 
 func TestExecuteWithOverrides_WatchDisabledAllowsOverride(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 	// Use a context that cancels after first execution to avoid blocking
 	ctx, cancel := context.WithCancel(context.Background())
@@ -427,6 +463,8 @@ func TestExecuteWithOverrides_WatchDisabledAllowsOverride(t *testing.T) {
 }
 
 func TestExecuteWithOverrides_WatchInitialError(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 	ctx := context.Background()
 
@@ -445,6 +483,8 @@ func TestExecuteWithOverrides_WatchInitialError(t *testing.T) {
 }
 
 func TestExecuteWithOverrides_WhileStopsOnFalse(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 	ctx := context.Background()
 
@@ -462,6 +502,8 @@ func TestExecuteWithOverrides_WhileStopsOnFalse(t *testing.T) {
 }
 
 func TestExecuteWithOverrides_WhileSucceeds(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 	ctx := context.Background()
 
@@ -479,6 +521,8 @@ func TestExecuteWithOverrides_WhileSucceeds(t *testing.T) {
 }
 
 func TestExtractOverrides_Backoff(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	args := []string{"build", "--backoff", "1s,2.0"}
@@ -491,6 +535,8 @@ func TestExtractOverrides_Backoff(t *testing.T) {
 }
 
 func TestExtractOverrides_BackoffEquals(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	args := []string{"build", "--backoff=500ms,1.5"}
@@ -503,6 +549,8 @@ func TestExtractOverrides_BackoffEquals(t *testing.T) {
 }
 
 func TestExtractOverrides_BackoffEqualsInvalidDuration(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	args := []string{"build", "--backoff=bad,2.0"}
@@ -513,6 +561,8 @@ func TestExtractOverrides_BackoffEqualsInvalidDuration(t *testing.T) {
 }
 
 func TestExtractOverrides_BackoffEqualsInvalidMultiplier(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	args := []string{"build", "--backoff=1s,bad"}
@@ -523,6 +573,8 @@ func TestExtractOverrides_BackoffEqualsInvalidMultiplier(t *testing.T) {
 }
 
 func TestExtractOverrides_BackoffEqualsMissingComma(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	args := []string{"build", "--backoff=1s"}
@@ -533,6 +585,8 @@ func TestExtractOverrides_BackoffEqualsMissingComma(t *testing.T) {
 }
 
 func TestExtractOverrides_BackoffInvalidDuration(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	args := []string{"build", "--backoff", "bad,2.0"}
@@ -543,6 +597,8 @@ func TestExtractOverrides_BackoffInvalidDuration(t *testing.T) {
 }
 
 func TestExtractOverrides_BackoffInvalidMultiplier(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	args := []string{"build", "--backoff", "1s,bad"}
@@ -553,6 +609,8 @@ func TestExtractOverrides_BackoffInvalidMultiplier(t *testing.T) {
 }
 
 func TestExtractOverrides_BackoffMissingComma(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	args := []string{"build", "--backoff", "1s"}
@@ -563,6 +621,8 @@ func TestExtractOverrides_BackoffMissingComma(t *testing.T) {
 }
 
 func TestExtractOverrides_BackoffMissingValue(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	args := []string{"build", "--backoff"}
@@ -573,6 +633,8 @@ func TestExtractOverrides_BackoffMissingValue(t *testing.T) {
 }
 
 func TestExtractOverrides_Cache(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	args := []string{"build", "--cache", "**/*.go"}
@@ -584,6 +646,8 @@ func TestExtractOverrides_Cache(t *testing.T) {
 }
 
 func TestExtractOverrides_CacheDir(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	args := []string{"build", "--cache-dir", "/tmp/cache"}
@@ -595,6 +659,8 @@ func TestExtractOverrides_CacheDir(t *testing.T) {
 }
 
 func TestExtractOverrides_CacheDirEquals(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	args := []string{"build", "--cache-dir=.my-cache"}
@@ -606,6 +672,8 @@ func TestExtractOverrides_CacheDirEquals(t *testing.T) {
 }
 
 func TestExtractOverrides_CacheDirMissing(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	args := []string{"build", "--cache-dir"}
@@ -616,6 +684,8 @@ func TestExtractOverrides_CacheDirMissing(t *testing.T) {
 }
 
 func TestExtractOverrides_CacheEquals(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	args := []string{"build", "--cache=lib/**/*.js"}
@@ -627,6 +697,8 @@ func TestExtractOverrides_CacheEquals(t *testing.T) {
 }
 
 func TestExtractOverrides_CacheMissing(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	args := []string{"build", "--cache"}
@@ -637,6 +709,8 @@ func TestExtractOverrides_CacheMissing(t *testing.T) {
 }
 
 func TestExtractOverrides_CacheMultiple(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	args := []string{"build", "--cache", "src/**", "--cache", "pkg/**"}
@@ -648,6 +722,8 @@ func TestExtractOverrides_CacheMultiple(t *testing.T) {
 }
 
 func TestExtractOverrides_Combined(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	args := []string{"build", "--times", "3", "--retry", "--watch", "**/*.go"}
@@ -661,6 +737,8 @@ func TestExtractOverrides_Combined(t *testing.T) {
 }
 
 func TestExtractOverrides_DepMode(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	args := []string{"build", "--dep-mode", "parallel"}
@@ -672,6 +750,8 @@ func TestExtractOverrides_DepMode(t *testing.T) {
 }
 
 func TestExtractOverrides_DepModeEquals(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	args := []string{"build", "--dep-mode=parallel"}
@@ -683,6 +763,8 @@ func TestExtractOverrides_DepModeEquals(t *testing.T) {
 }
 
 func TestExtractOverrides_DepModeEqualsInvalid(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	args := []string{"build", "--dep-mode=bad"}
@@ -693,6 +775,8 @@ func TestExtractOverrides_DepModeEqualsInvalid(t *testing.T) {
 }
 
 func TestExtractOverrides_DepModeInvalid(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	args := []string{"build", "--dep-mode", "invalid"}
@@ -703,6 +787,8 @@ func TestExtractOverrides_DepModeInvalid(t *testing.T) {
 }
 
 func TestExtractOverrides_DepModeMissing(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	args := []string{"build", "--dep-mode"}
@@ -713,6 +799,8 @@ func TestExtractOverrides_DepModeMissing(t *testing.T) {
 }
 
 func TestExtractOverrides_DepModeSerial(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	args := []string{"build", "--dep-mode", "serial"}
@@ -724,6 +812,8 @@ func TestExtractOverrides_DepModeSerial(t *testing.T) {
 }
 
 func TestExtractOverrides_Deps(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	args := []string{"build", "--deps", "lint", "test"}
@@ -735,6 +825,8 @@ func TestExtractOverrides_Deps(t *testing.T) {
 }
 
 func TestExtractOverrides_DepsEmptyBeforeFlag(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	args := []string{"build", "--deps", "--timeout", "5m"}
@@ -745,6 +837,8 @@ func TestExtractOverrides_DepsEmptyBeforeFlag(t *testing.T) {
 }
 
 func TestExtractOverrides_DepsEndsOnDoubleDash(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	args := []string{"build", "--deps", "lint", "test", "--", "deploy"}
@@ -756,6 +850,8 @@ func TestExtractOverrides_DepsEndsOnDoubleDash(t *testing.T) {
 }
 
 func TestExtractOverrides_DepsEndsOnFlag(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	args := []string{"build", "--deps", "lint", "test", "--timeout", "5m"}
@@ -767,6 +863,8 @@ func TestExtractOverrides_DepsEndsOnFlag(t *testing.T) {
 }
 
 func TestExtractOverrides_DepsMissing(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	args := []string{"build", "--deps"}
@@ -777,6 +875,8 @@ func TestExtractOverrides_DepsMissing(t *testing.T) {
 }
 
 func TestExtractOverrides_NoOverrides(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	args := []string{"build", "--verbose", "arg1"}
@@ -790,6 +890,8 @@ func TestExtractOverrides_NoOverrides(t *testing.T) {
 }
 
 func TestExtractOverrides_ParallelAfterTarget(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	// --parallel AFTER target name is passed through (not recognized as global)
@@ -802,6 +904,8 @@ func TestExtractOverrides_ParallelAfterTarget(t *testing.T) {
 }
 
 func TestExtractOverrides_ParallelBeforeTarget(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	// --parallel BEFORE target names is recognized as global flag
@@ -814,6 +918,8 @@ func TestExtractOverrides_ParallelBeforeTarget(t *testing.T) {
 }
 
 func TestExtractOverrides_ParallelShortBeforeTarget(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	// -p BEFORE target names is recognized as global flag
@@ -826,6 +932,8 @@ func TestExtractOverrides_ParallelShortBeforeTarget(t *testing.T) {
 }
 
 func TestExtractOverrides_Retry(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	args := []string{"build", "--retry", "arg1"}
@@ -837,6 +945,8 @@ func TestExtractOverrides_Retry(t *testing.T) {
 }
 
 func TestExtractOverrides_ShortPAfterTarget(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	// -p AFTER target name is passed through (for target's own flags like --port)
@@ -849,6 +959,8 @@ func TestExtractOverrides_ShortPAfterTarget(t *testing.T) {
 }
 
 func TestExtractOverrides_Times(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	args := []string{"build", "--times", "5", "arg1"}
@@ -860,6 +972,8 @@ func TestExtractOverrides_Times(t *testing.T) {
 }
 
 func TestExtractOverrides_TimesEquals(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	args := []string{"build", "--times=10"}
@@ -871,6 +985,8 @@ func TestExtractOverrides_TimesEquals(t *testing.T) {
 }
 
 func TestExtractOverrides_TimesInvalid(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	args := []string{"build", "--times", "abc"}
@@ -881,6 +997,8 @@ func TestExtractOverrides_TimesInvalid(t *testing.T) {
 }
 
 func TestExtractOverrides_TimesMissing(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	args := []string{"build", "--times"}
@@ -892,6 +1010,8 @@ func TestExtractOverrides_TimesMissing(t *testing.T) {
 
 // Property-based tests
 func TestExtractOverrides_TimesProperty(t *testing.T) {
+	t.Parallel()
+
 	rapid.Check(t, func(rt *rapid.T) {
 		g := NewWithT(t)
 		times := rapid.IntRange(1, 100).Draw(rt, "times")
@@ -905,6 +1025,8 @@ func TestExtractOverrides_TimesProperty(t *testing.T) {
 }
 
 func TestExtractOverrides_Watch(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	args := []string{"build", "--watch", "**/*.go", "arg1"}
@@ -916,6 +1038,8 @@ func TestExtractOverrides_Watch(t *testing.T) {
 }
 
 func TestExtractOverrides_WatchEquals(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	args := []string{"build", "--watch=src/**/*.ts"}
@@ -927,6 +1051,8 @@ func TestExtractOverrides_WatchEquals(t *testing.T) {
 }
 
 func TestExtractOverrides_WatchMissing(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	args := []string{"build", "--watch"}
@@ -937,6 +1063,8 @@ func TestExtractOverrides_WatchMissing(t *testing.T) {
 }
 
 func TestExtractOverrides_WatchMultiple(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	args := []string{"build", "--watch", "**/*.go", "--watch", "**/*.mod"}
@@ -948,6 +1076,8 @@ func TestExtractOverrides_WatchMultiple(t *testing.T) {
 }
 
 func TestExtractOverrides_WatchPatternsPreserved(t *testing.T) {
+	t.Parallel()
+
 	rapid.Check(t, func(rt *rapid.T) {
 		g := NewWithT(t)
 		// Generate valid glob patterns
@@ -962,6 +1092,8 @@ func TestExtractOverrides_WatchPatternsPreserved(t *testing.T) {
 }
 
 func TestExtractOverrides_While(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	args := []string{"build", "--while", "test -f lockfile"}
@@ -973,6 +1105,8 @@ func TestExtractOverrides_While(t *testing.T) {
 }
 
 func TestExtractOverrides_WhileEquals(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	args := []string{"build", "--while=pgrep -x myapp"}
@@ -984,6 +1118,8 @@ func TestExtractOverrides_WhileEquals(t *testing.T) {
 }
 
 func TestExtractOverrides_WhileMissing(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	args := []string{"build", "--while"}

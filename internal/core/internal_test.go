@@ -95,6 +95,8 @@ func InvalidReturnFunc() int {
 func InvalidSigFunc(_, _ int) {}
 
 func TestAppendBuiltinExamples(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	custom := Example{Title: "Custom", Code: "custom code"}
@@ -107,6 +109,8 @@ func TestAppendBuiltinExamples(t *testing.T) {
 }
 
 func TestApplyTagOptionsOverride_Error(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	// Test that TagOptions method errors are propagated during execution
@@ -128,6 +132,8 @@ func TestApplyTagOptionsOverride_Error(t *testing.T) {
 // --- applyTagOptionsOverride tests ---
 
 func TestApplyTagOptionsOverride_Success(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	// Test that TagOptions method is called and modifies the options
@@ -150,6 +156,8 @@ func TestApplyTagOptionsOverride_Success(t *testing.T) {
 }
 
 func TestApplyTagOptionsOverride_WrongArgCount(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	// Test that TagOptions method with wrong arg count returns an error
@@ -168,6 +176,8 @@ func TestApplyTagOptionsOverride_WrongArgCount(t *testing.T) {
 }
 
 func TestApplyTagOptionsOverride_WrongInputTypes(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	// Test that TagOptions method with wrong input types returns an error
@@ -186,6 +196,8 @@ func TestApplyTagOptionsOverride_WrongInputTypes(t *testing.T) {
 }
 
 func TestApplyTagOptionsOverride_WrongOutputTypes(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	// Test that TagOptions method with wrong output types returns an error
@@ -204,6 +216,8 @@ func TestApplyTagOptionsOverride_WrongOutputTypes(t *testing.T) {
 }
 
 func TestApplyTimeout_DisableTimeout(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	ctx := context.Background()
@@ -217,6 +231,8 @@ func TestApplyTimeout_DisableTimeout(t *testing.T) {
 }
 
 func TestApplyTimeout_Error(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	ctx := context.Background()
@@ -227,6 +243,8 @@ func TestApplyTimeout_Error(t *testing.T) {
 }
 
 func TestApplyTimeout_NoTimeout(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	ctx := context.Background()
@@ -240,6 +258,8 @@ func TestApplyTimeout_NoTimeout(t *testing.T) {
 }
 
 func TestApplyTimeout_WithTimeout(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	ctx := context.Background()
@@ -278,6 +298,8 @@ func TestBinaryName_FromOsArgs(t *testing.T) {
 }
 
 func TestBuildUsageLineForPath(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	node := &commandNode{
@@ -289,6 +311,8 @@ func TestBuildUsageLineForPath(t *testing.T) {
 }
 
 func TestBuildUsageLineForPath_WithFlags(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	node := &commandNode{
@@ -304,6 +328,8 @@ func TestBuildUsageLineForPath_WithFlags(t *testing.T) {
 }
 
 func TestBuildUsageLineForPath_WithOptionalFlags(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	node := &commandNode{
@@ -318,6 +344,8 @@ func TestBuildUsageLineForPath_WithOptionalFlags(t *testing.T) {
 }
 
 func TestBuildUsageLineForPath_WithOptionalPositionals(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	node := &commandNode{
@@ -332,6 +360,8 @@ func TestBuildUsageLineForPath_WithOptionalPositionals(t *testing.T) {
 }
 
 func TestBuildUsageLineForPath_WithPlaceholder(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	node := &commandNode{
@@ -346,6 +376,8 @@ func TestBuildUsageLineForPath_WithPlaceholder(t *testing.T) {
 }
 
 func TestBuildUsageLineForPath_WithPositionals(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	node := &commandNode{
@@ -360,6 +392,8 @@ func TestBuildUsageLineForPath_WithPositionals(t *testing.T) {
 }
 
 func TestBuildUsageLineForPath_WithSubcommands(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	node := &commandNode{
@@ -374,6 +408,8 @@ func TestBuildUsageLineForPath_WithSubcommands(t *testing.T) {
 }
 
 func TestBuildUsageLine_Success(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	node := &commandNode{
@@ -386,6 +422,8 @@ func TestBuildUsageLine_Success(t *testing.T) {
 }
 
 func TestBuildUsageLine_WithTagOptionsError(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	// Use a type with a TagOptions method that errors
@@ -403,6 +441,8 @@ func TestBuildUsageLine_WithTagOptionsError(t *testing.T) {
 // --- Examples tests ---
 
 func TestBuiltinExamples(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	examples := BuiltinExamples()
@@ -417,6 +457,8 @@ func TestBuiltinExamples(t *testing.T) {
 // --- camelToKebab ---
 
 func TestCamelToKebab(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		input string
 		want  string
@@ -444,6 +486,8 @@ func TestCamelToKebab(t *testing.T) {
 }
 
 func TestCollectCommands_NestedSubcommands(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	node := &commandNode{
@@ -477,6 +521,8 @@ func TestCollectCommands_NestedSubcommands(t *testing.T) {
 // --- collectCommands tests ---
 
 func TestCollectCommands_SingleRoot(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	node := &commandNode{
@@ -496,6 +542,8 @@ func TestCollectCommands_SingleRoot(t *testing.T) {
 }
 
 func TestCollectCommands_WithSubcommands(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	node := &commandNode{
@@ -532,6 +580,8 @@ func TestCollectCommands_WithSubcommands(t *testing.T) {
 // --- collectInstanceEnums tests ---
 
 func TestCollectInstanceEnums_NilNode(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	enumByFlag := map[string][]string{}
@@ -543,6 +593,8 @@ func TestCollectInstanceEnums_NilNode(t *testing.T) {
 }
 
 func TestCollectInstanceEnums_NilType(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	enumByFlag := map[string][]string{}
@@ -554,6 +606,8 @@ func TestCollectInstanceEnums_NilType(t *testing.T) {
 }
 
 func TestCompletionChain_NilNode(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	// Exercises the nil node early return branch
@@ -590,6 +644,8 @@ func TestCompletionExample_Zsh(t *testing.T) {
 }
 
 func TestCustomSetter_NonAddressable(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	// Create a non-addressable value
@@ -601,6 +657,8 @@ func TestCustomSetter_NonAddressable(t *testing.T) {
 }
 
 func TestCustomSetter_PlainType_NotFound(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	var target testPlainType
@@ -613,6 +671,8 @@ func TestCustomSetter_PlainType_NotFound(t *testing.T) {
 }
 
 func TestCustomSetter_StringSetter(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	var target testStringSetter
@@ -629,6 +689,8 @@ func TestCustomSetter_StringSetter(t *testing.T) {
 }
 
 func TestCustomSetter_TextUnmarshaler(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	var target testTextUnmarshaler
@@ -645,6 +707,8 @@ func TestCustomSetter_TextUnmarshaler(t *testing.T) {
 }
 
 func TestDepModeString(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	g.Expect(DepModeSerial.String()).To(Equal("serial"))
@@ -656,6 +720,8 @@ func TestDepModeString(t *testing.T) {
 }
 
 func TestDetectCompletionShell_ExplicitShell(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	exec := &runExecutor{
@@ -667,6 +733,8 @@ func TestDetectCompletionShell_ExplicitShell(t *testing.T) {
 }
 
 func TestDetectCompletionShell_FlagAfterCompletion(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	exec := &runExecutor{
@@ -702,6 +770,8 @@ func TestDetectCurrentShell_WithShellEnv(t *testing.T) {
 // --- Git URL detection tests ---
 
 func TestDetectRepoURL(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	// Running in the targ repo, should find a URL
@@ -712,6 +782,8 @@ func TestDetectRepoURL(t *testing.T) {
 }
 
 func TestDetectRepoURLFromDir_NoGit(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	// Use a temp dir with no .git
@@ -721,6 +793,8 @@ func TestDetectRepoURLFromDir_NoGit(t *testing.T) {
 }
 
 func TestDetectRepoURLFromDir_WithGit(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	// Create a temp dir with a fake .git/config
@@ -741,6 +815,8 @@ func TestDetectRepoURLFromDir_WithGit(t *testing.T) {
 }
 
 func TestDetectRepoURLWithGetwd_Error(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	// Mock a failing getwd function
@@ -780,6 +856,8 @@ func TestDetectShell_KnownShells(t *testing.T) {
 }
 
 func TestDetectShell_Property_KnownShellsAlwaysDetected(t *testing.T) {
+	t.Parallel()
+
 	knownShells := []string{"bash", "zsh", "fish"}
 
 	rapid.Check(t, func(rt *rapid.T) {
@@ -819,6 +897,8 @@ func TestDetectShell_UnknownOrEmpty(t *testing.T) {
 }
 
 func TestDoList_IncludesSubcommands(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	node := &commandNode{
@@ -838,6 +918,8 @@ func TestDoList_IncludesSubcommands(t *testing.T) {
 }
 
 func TestDoList_MultipleCommands(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	nodes := []*commandNode{
@@ -857,6 +939,8 @@ func TestDoList_MultipleCommands(t *testing.T) {
 // --- doList tests ---
 
 func TestDoList_SingleCommand(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	node := &commandNode{
@@ -874,6 +958,8 @@ func TestDoList_SingleCommand(t *testing.T) {
 }
 
 func TestEmptyExamples(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	examples := EmptyExamples()
@@ -883,6 +969,8 @@ func TestEmptyExamples(t *testing.T) {
 }
 
 func TestExecuteDefaultParallel_Error(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	env := &ExecuteEnv{args: []string{"cmd", "fail"}}
@@ -911,6 +999,8 @@ func TestExecuteDefaultParallel_Error(t *testing.T) {
 }
 
 func TestExecuteDefaultParallel_SkipsFlags(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	called := false
@@ -942,6 +1032,8 @@ func TestExecuteDefaultParallel_SkipsFlags(t *testing.T) {
 // --- executeDefaultParallel tests ---
 
 func TestExecuteDefaultParallel_Success(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	// Track execution order - should be concurrent
@@ -991,6 +1083,8 @@ func TestExecuteDefaultParallel_Success(t *testing.T) {
 }
 
 func TestExecuteDefault_EmptyRestError(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	// Test error path when rest is empty
@@ -1015,6 +1109,8 @@ func TestExecuteDefault_EmptyRestError(t *testing.T) {
 }
 
 func TestExecuteDefault_LoopError(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	failErr := errors.New("subcommand failed")
@@ -1044,6 +1140,8 @@ func TestExecuteDefault_LoopError(t *testing.T) {
 }
 
 func TestExecuteDefault_SuccessPath(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	// Test the successful empty rest path
@@ -1068,6 +1166,8 @@ func TestExecuteDefault_SuccessPath(t *testing.T) {
 }
 
 func TestExecuteDefault_UnknownCommand(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	// Test "Unknown command" path when no subcommand matches
@@ -1093,7 +1193,9 @@ func TestExecuteDefault_UnknownCommand(t *testing.T) {
 
 // --- executeEnv tests ---
 
-func TestExecuteEnv_ExitIsNoOp(_ *testing.T) {
+func TestExecuteEnv_ExitIsNoOp(t *testing.T) {
+	t.Parallel()
+
 	env := &ExecuteEnv{args: []string{"cmd"}}
 	// Exit should be a no-op and not panic
 	env.Exit(1)
@@ -1101,6 +1203,8 @@ func TestExecuteEnv_ExitIsNoOp(_ *testing.T) {
 }
 
 func TestExecuteMultiRootParallel_Error(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	env := &ExecuteEnv{args: []string{"cmd", "fail"}}
@@ -1124,6 +1228,8 @@ func TestExecuteMultiRootParallel_Error(t *testing.T) {
 }
 
 func TestExecuteMultiRootParallel_SkipsFlags(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	called := false
@@ -1150,6 +1256,8 @@ func TestExecuteMultiRootParallel_SkipsFlags(t *testing.T) {
 // --- executeMultiRootParallel tests ---
 
 func TestExecuteMultiRootParallel_Success(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	var mutex sync.Mutex
@@ -1193,6 +1301,8 @@ func TestExecuteMultiRootParallel_Success(t *testing.T) {
 }
 
 func TestExecuteMultiRootParallel_UnknownCommand(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	env := &ExecuteEnv{args: []string{"cmd", "nosuch"}}
@@ -1216,6 +1326,8 @@ func TestExecuteMultiRootParallel_UnknownCommand(t *testing.T) {
 }
 
 func TestExecuteWithParents_HelpOnly(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	// Test that HelpOnly prints help and exits
@@ -1239,6 +1351,8 @@ func TestExecuteWithParents_HelpOnly(t *testing.T) {
 }
 
 func TestExecuteWithParents_TimeoutError(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	// Invalid timeout should propagate error
@@ -1261,8 +1375,8 @@ func TestExecuteWithParents_TimeoutError(t *testing.T) {
 
 // --- executeWithWatch tests ---
 
+//nolint:paralleltest // Not parallel - modifies global fileWatch
 func TestExecuteWithWatch_CallbackInvoked(t *testing.T) {
-	// Not parallel - modifies global fileWatch
 	g := NewWithT(t)
 
 	origFileWatch := fileWatch
@@ -1298,6 +1412,8 @@ func TestExecuteWithWatch_CallbackInvoked(t *testing.T) {
 // --- ExitError tests ---
 
 func TestExitError_Error(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	err := ExitError{Code: 42}
@@ -1305,6 +1421,8 @@ func TestExitError_Error(t *testing.T) {
 }
 
 func TestExitError_Error_Zero(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	err := ExitError{Code: 0}
@@ -1312,6 +1430,8 @@ func TestExitError_Error_Zero(t *testing.T) {
 }
 
 func TestExpandRecursive(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	// Build a tree: root -> child1, child2; child1 -> grandchild
@@ -1370,6 +1490,8 @@ func TestExpandRecursive(t *testing.T) {
 }
 
 func TestExpectingFlagValue_DoubleDash(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	specs := map[string]completionFlagSpec{}
@@ -1379,6 +1501,8 @@ func TestExpectingFlagValue_DoubleDash(t *testing.T) {
 // --- expectingFlagValue tests ---
 
 func TestExpectingFlagValue_EmptyArgs(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	specs := map[string]completionFlagSpec{}
@@ -1386,6 +1510,8 @@ func TestExpectingFlagValue_EmptyArgs(t *testing.T) {
 }
 
 func TestExpectingFlagValue_FlagGroupAllBool(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	specs := map[string]completionFlagSpec{
@@ -1397,6 +1523,8 @@ func TestExpectingFlagValue_FlagGroupAllBool(t *testing.T) {
 }
 
 func TestExpectingFlagValue_FlagGroupLastTakesValue(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	specs := map[string]completionFlagSpec{
@@ -1408,6 +1536,8 @@ func TestExpectingFlagValue_FlagGroupLastTakesValue(t *testing.T) {
 }
 
 func TestExpectingFlagValue_FlagGroupMiddleTakesValue(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	specs := map[string]completionFlagSpec{
@@ -1419,6 +1549,8 @@ func TestExpectingFlagValue_FlagGroupMiddleTakesValue(t *testing.T) {
 }
 
 func TestExpectingFlagValue_FlagGroupUnknownFlag(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	specs := map[string]completionFlagSpec{
@@ -1429,6 +1561,8 @@ func TestExpectingFlagValue_FlagGroupUnknownFlag(t *testing.T) {
 }
 
 func TestExpectingFlagValue_LongFlagNeedsValue(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	specs := map[string]completionFlagSpec{
@@ -1438,6 +1572,8 @@ func TestExpectingFlagValue_LongFlagNeedsValue(t *testing.T) {
 }
 
 func TestExpectingFlagValue_LongFlagNoValue(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	specs := map[string]completionFlagSpec{
@@ -1447,6 +1583,8 @@ func TestExpectingFlagValue_LongFlagNoValue(t *testing.T) {
 }
 
 func TestExpectingFlagValue_LongFlagUnknown(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	specs := map[string]completionFlagSpec{}
@@ -1454,6 +1592,8 @@ func TestExpectingFlagValue_LongFlagUnknown(t *testing.T) {
 }
 
 func TestExpectingFlagValue_LongFlagWithEquals(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	specs := map[string]completionFlagSpec{
@@ -1463,6 +1603,8 @@ func TestExpectingFlagValue_LongFlagWithEquals(t *testing.T) {
 }
 
 func TestExpectingFlagValue_Positional(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	specs := map[string]completionFlagSpec{}
@@ -1470,6 +1612,8 @@ func TestExpectingFlagValue_Positional(t *testing.T) {
 }
 
 func TestExpectingFlagValue_ShortFlagNeedsValue(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	specs := map[string]completionFlagSpec{
@@ -1479,6 +1623,8 @@ func TestExpectingFlagValue_ShortFlagNeedsValue(t *testing.T) {
 }
 
 func TestExpectingFlagValue_ShortFlagNoValue(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	specs := map[string]completionFlagSpec{
@@ -1488,6 +1634,8 @@ func TestExpectingFlagValue_ShortFlagNoValue(t *testing.T) {
 }
 
 func TestExtractHelpFlag_LongFlag(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	found, remaining := extractHelpFlag([]string{"cmd", "--help", "arg1"})
@@ -1498,6 +1646,8 @@ func TestExtractHelpFlag_LongFlag(t *testing.T) {
 // --- extractHelpFlag tests ---
 
 func TestExtractHelpFlag_NotFound(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	found, remaining := extractHelpFlag([]string{"cmd", "arg1"})
@@ -1506,6 +1656,8 @@ func TestExtractHelpFlag_NotFound(t *testing.T) {
 }
 
 func TestExtractHelpFlag_ShortFlag(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	found, remaining := extractHelpFlag([]string{"cmd", "-h", "arg1"})
@@ -1514,6 +1666,8 @@ func TestExtractHelpFlag_ShortFlag(t *testing.T) {
 }
 
 func TestExtractTimeout_InvalidDuration(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	_, _, err := extractTimeout([]string{"cmd", "--timeout", "invalid"})
@@ -1522,6 +1676,8 @@ func TestExtractTimeout_InvalidDuration(t *testing.T) {
 }
 
 func TestExtractTimeout_InvalidDurationEquals(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	_, _, err := extractTimeout([]string{"cmd", "--timeout=bad"})
@@ -1530,6 +1686,8 @@ func TestExtractTimeout_InvalidDurationEquals(t *testing.T) {
 }
 
 func TestExtractTimeout_MissingValue(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	_, _, err := extractTimeout([]string{"cmd", "--timeout"})
@@ -1540,6 +1698,8 @@ func TestExtractTimeout_MissingValue(t *testing.T) {
 // --- extractTimeout tests ---
 
 func TestExtractTimeout_NoTimeout(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	timeout, remaining, err := extractTimeout([]string{"cmd", "arg1", "arg2"})
@@ -1549,6 +1709,8 @@ func TestExtractTimeout_NoTimeout(t *testing.T) {
 }
 
 func TestExtractTimeout_WithEquals(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	timeout, remaining, err := extractTimeout([]string{"cmd", "--timeout=5m", "arg1"})
@@ -1558,6 +1720,8 @@ func TestExtractTimeout_WithEquals(t *testing.T) {
 }
 
 func TestExtractTimeout_WithSeparateValue(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	timeout, remaining, err := extractTimeout([]string{"cmd", "--timeout", "10s", "arg1"})
@@ -1567,6 +1731,8 @@ func TestExtractTimeout_WithSeparateValue(t *testing.T) {
 }
 
 func TestFindMatchingSubcommands(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	// Build a parent node with subcommands
@@ -1601,6 +1767,8 @@ func TestFindMatchingSubcommands(t *testing.T) {
 }
 
 func TestFlagDefaultPlaceholder(t *testing.T) {
+	t.Parallel()
+
 	// Test type that hits default case (not string, int, or bool)
 	type DefaultFlagArgs struct {
 		Rate float64 `targ:"flag"`
@@ -1625,6 +1793,8 @@ func TestFlagDefaultPlaceholder(t *testing.T) {
 }
 
 func TestFlagEnumUsage(t *testing.T) {
+	t.Parallel()
+
 	type EnumFlagArgs struct {
 		Mode string `targ:"flag,enum=dev|prod|test"`
 	}
@@ -1648,6 +1818,8 @@ func TestFlagEnumUsage(t *testing.T) {
 }
 
 func TestFlagParsing_IntFlagEqualsFormat(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	var gotCount int
@@ -1667,6 +1839,8 @@ func TestFlagParsing_IntFlagEqualsFormat(t *testing.T) {
 }
 
 func TestFlagParsing_LongFlagEqualsFormat(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	var gotName string
@@ -1686,6 +1860,8 @@ func TestFlagParsing_LongFlagEqualsFormat(t *testing.T) {
 }
 
 func TestFlagParsing_ShortFlagEqualsFormat(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	var gotName string
@@ -1705,6 +1881,8 @@ func TestFlagParsing_ShortFlagEqualsFormat(t *testing.T) {
 }
 
 func TestFlagParsing_UnknownLongFlag(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	fn := func(_ FlagParseCmdArgs) {}
@@ -1722,6 +1900,8 @@ func TestFlagParsing_UnknownLongFlag(t *testing.T) {
 }
 
 func TestFlagParsing_UnknownShortFlag(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	fn := func(_ FlagParseCmdArgs) {}
@@ -1739,6 +1919,8 @@ func TestFlagParsing_UnknownShortFlag(t *testing.T) {
 }
 
 func TestFormatFlagUsageWrapped(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	item := flagHelp{
@@ -1752,12 +1934,16 @@ func TestFormatFlagUsageWrapped(t *testing.T) {
 }
 
 func TestFuncSourceFile_InvalidValue(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 	result := funcSourceFile(reflect.Value{})
 	g.Expect(result).To(Equal(""))
 }
 
 func TestFuncSourceFile_NilFunc(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	var f func()
@@ -1768,6 +1954,8 @@ func TestFuncSourceFile_NilFunc(t *testing.T) {
 }
 
 func TestFuncSourceFile_NotFunc(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 	v := reflect.ValueOf(42)
 	result := funcSourceFile(v)
@@ -1775,6 +1963,8 @@ func TestFuncSourceFile_NotFunc(t *testing.T) {
 }
 
 func TestFuncSourceFile_ValidFunc(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 	v := reflect.ValueOf(TestFuncSourceFile_ValidFunc)
 	result := funcSourceFile(v)
@@ -1782,6 +1972,8 @@ func TestFuncSourceFile_ValidFunc(t *testing.T) {
 }
 
 func TestHandleComplete_ReturnsErrorFromCompleteFn(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	env := &ExecuteEnv{args: []string{"cmd", "__complete", "sub"}}
@@ -1790,7 +1982,7 @@ func TestHandleComplete_ReturnsErrorFromCompleteFn(t *testing.T) {
 		env:        env,
 		roots:      []*commandNode{{Name: "test"}},
 		rest:       []string{"__complete", "sub"},
-		completeFn: func(_ []*commandNode, _ string) error { return completeErr },
+		completeFn: func(_ io.Writer, _ []*commandNode, _ string) error { return completeErr },
 	}
 
 	exec.handleComplete()
@@ -1798,6 +1990,8 @@ func TestHandleComplete_ReturnsErrorFromCompleteFn(t *testing.T) {
 }
 
 func TestHandleComplete_ShortRest(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	// When rest has only one element, doCompletion is not called
@@ -1812,6 +2006,8 @@ func TestHandleComplete_ShortRest(t *testing.T) {
 }
 
 func TestHandleHelpFlag_DisableHelp(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	node := &commandNode{Name: "test"}
@@ -1821,6 +2017,8 @@ func TestHandleHelpFlag_DisableHelp(t *testing.T) {
 }
 
 func TestHandleHelpFlag_HelpOnly(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	node := &commandNode{Name: "test"}
@@ -1830,6 +2028,8 @@ func TestHandleHelpFlag_HelpOnly(t *testing.T) {
 }
 
 func TestHandleHelpFlag_NoHelpFlag(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	node := &commandNode{Name: "test"}
@@ -1839,6 +2039,8 @@ func TestHandleHelpFlag_NoHelpFlag(t *testing.T) {
 }
 
 func TestHandleHelpFlag_WithHelpFlag(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	node := &commandNode{Name: "test", Description: "A test command"}
@@ -1853,6 +2055,8 @@ func TestHandleHelpFlag_WithHelpFlag(t *testing.T) {
 }
 
 func TestHandleList_ReturnsErrorFromListFn(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	env := &ExecuteEnv{args: []string{"cmd", "__list"}}
@@ -1878,6 +2082,8 @@ func TestHandleList_ReturnsErrorFromListFn(t *testing.T) {
 }
 
 func TestIsGlobPattern(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	g.Expect(isGlobPattern("*")).To(BeTrue())
@@ -1889,6 +2095,8 @@ func TestIsGlobPattern(t *testing.T) {
 // --- Glob pattern tests (whitebox) ---
 
 func TestIsGlobPatternCmd(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	g.Expect(isGlobPatternCmd("*")).To(BeTrue())
@@ -1900,6 +2108,8 @@ func TestIsGlobPatternCmd(t *testing.T) {
 }
 
 func TestIsShellVar(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	vars := []string{"namespace", "file"}
@@ -1922,6 +2132,8 @@ func TestIsShellVar(t *testing.T) {
 }
 
 func TestMatchesGlob(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	// Single star matches all
@@ -1954,6 +2166,8 @@ func TestMatchesGlob(t *testing.T) {
 }
 
 func TestMatchesGlobCmd(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	// Single star matches all
@@ -1990,6 +2204,8 @@ func TestMatchesGlobCmd(t *testing.T) {
 }
 
 func TestMissingPositionalError_Unit_WithName(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	// Direct unit test for when opts.Name is set
@@ -2004,6 +2220,8 @@ func TestMissingPositionalError_Unit_WithName(t *testing.T) {
 }
 
 func TestMissingPositionalError_Unit_WithoutName(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	// Direct unit test for when opts.Name is empty (uses field name)
@@ -2017,6 +2235,8 @@ func TestMissingPositionalError_Unit_WithoutName(t *testing.T) {
 }
 
 func TestMissingPositionalError_WithName(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	type RequiredPosArgs struct {
@@ -2039,6 +2259,8 @@ func TestMissingPositionalError_WithName(t *testing.T) {
 }
 
 func TestMissingPositionalError_WithoutName(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	type RequiredPosArgs struct {
@@ -2061,6 +2283,8 @@ func TestMissingPositionalError_WithoutName(t *testing.T) {
 }
 
 func TestNormalizeGitURL_HTTPS(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	url := normalizeGitURL("https://github.com/user/repo.git")
@@ -2068,6 +2292,8 @@ func TestNormalizeGitURL_HTTPS(t *testing.T) {
 }
 
 func TestNormalizeGitURL_NoGitSuffix(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	url := normalizeGitURL("https://github.com/user/repo")
@@ -2075,6 +2301,8 @@ func TestNormalizeGitURL_NoGitSuffix(t *testing.T) {
 }
 
 func TestNormalizeGitURL_SSH(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	url := normalizeGitURL("git@github.com:user/repo.git")
@@ -2082,6 +2310,8 @@ func TestNormalizeGitURL_SSH(t *testing.T) {
 }
 
 func TestParseFlagAdvancesVariadicPositional(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	// Test that when parsing a flag after a variadic positional has values,
@@ -2116,6 +2346,8 @@ func TestParseFlagAdvancesVariadicPositional(t *testing.T) {
 }
 
 func TestParseFunc_NotFuncType(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	// Pass a non-func reflect.Value to parseFunc
@@ -2126,6 +2358,8 @@ func TestParseFunc_NotFuncType(t *testing.T) {
 }
 
 func TestParseGitConfigOriginURL_NoFile(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	url := parseGitConfigOriginURL("/nonexistent/path/config")
@@ -2133,6 +2367,8 @@ func TestParseGitConfigOriginURL_NoFile(t *testing.T) {
 }
 
 func TestParseGitConfigOriginURL_NoOrigin(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	tmpDir := t.TempDir()
@@ -2150,6 +2386,8 @@ func TestParseGitConfigOriginURL_NoOrigin(t *testing.T) {
 }
 
 func TestParseGitConfigOriginURL_OriginFollowedByOtherSection(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	tmpDir := t.TempDir()
@@ -2167,6 +2405,8 @@ func TestParseGitConfigOriginURL_OriginFollowedByOtherSection(t *testing.T) {
 }
 
 func TestParseGitConfigOriginURL_OriginWithSSH(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	tmpDir := t.TempDir()
@@ -2184,6 +2424,8 @@ func TestParseGitConfigOriginURL_OriginWithSSH(t *testing.T) {
 // --- Parsing Edge Cases ---
 
 func TestParseNilTarget(t *testing.T) {
+	t.Parallel()
+
 	_, err := parseTarget(nil)
 	if err == nil {
 		t.Fatal("expected error for nil target")
@@ -2191,6 +2433,8 @@ func TestParseNilTarget(t *testing.T) {
 }
 
 func TestParseTarget_GroupLike(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	target1 := &mockTarget{
@@ -2222,6 +2466,8 @@ func TestParseTarget_GroupLike(t *testing.T) {
 }
 
 func TestParseTarget_GroupLike_Nested(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	innerTarget := &mockTarget{
@@ -2260,6 +2506,8 @@ func TestParseTarget_GroupLike_Nested(t *testing.T) {
 }
 
 func TestParseTarget_InvalidFunctionParam(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	// Function with non-context param
@@ -2269,6 +2517,8 @@ func TestParseTarget_InvalidFunctionParam(t *testing.T) {
 }
 
 func TestParseTarget_InvalidFunctionReturn(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	// Function returning non-error
@@ -2278,6 +2528,8 @@ func TestParseTarget_InvalidFunctionReturn(t *testing.T) {
 }
 
 func TestParseTarget_InvalidFunctionSignature(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	// Function with too many params
@@ -2287,6 +2539,8 @@ func TestParseTarget_InvalidFunctionSignature(t *testing.T) {
 }
 
 func TestParseTarget_TargetLike_InvalidFnType(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	target := &mockTarget{
@@ -2299,6 +2553,8 @@ func TestParseTarget_TargetLike_InvalidFnType(t *testing.T) {
 }
 
 func TestParseTarget_TargetLike_NilFn(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	target := &mockTarget{
@@ -2311,6 +2567,8 @@ func TestParseTarget_TargetLike_NilFn(t *testing.T) {
 }
 
 func TestParseTarget_TargetLike_StringCommand(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	target := &mockTarget{
@@ -2332,6 +2590,8 @@ func TestParseTarget_TargetLike_StringCommand(t *testing.T) {
 }
 
 func TestParseTarget_TargetLike_StringCommandNoName(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	target := &mockTarget{
@@ -2351,6 +2611,8 @@ func TestParseTarget_TargetLike_StringCommandNoName(t *testing.T) {
 }
 
 func TestParseTarget_TargetLike_StringCommandWithBraceVars(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	target := &mockTarget{
@@ -2371,6 +2633,8 @@ func TestParseTarget_TargetLike_StringCommandWithBraceVars(t *testing.T) {
 }
 
 func TestParseTarget_TargetLike_StringCommandWithVars(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	target := &mockTarget{
@@ -2393,6 +2657,8 @@ func TestParseTarget_TargetLike_StringCommandWithVars(t *testing.T) {
 }
 
 func TestParseTarget_TargetLike_WithFunction(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	called := false
@@ -2419,6 +2685,8 @@ func TestParseTarget_TargetLike_WithFunction(t *testing.T) {
 }
 
 func TestParseTarget_TargetLike_WithoutName(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	target := &mockTarget{
@@ -2440,6 +2708,8 @@ func TestParseTarget_TargetLike_WithoutName(t *testing.T) {
 }
 
 func TestParseTarget_TooManyReturns(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	// Function returning multiple values
@@ -2449,6 +2719,8 @@ func TestParseTarget_TooManyReturns(t *testing.T) {
 }
 
 func TestParseTargets_Error(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	env := &ExecuteEnv{args: []string{"cmd"}}
@@ -2464,6 +2736,8 @@ func TestParseTargets_Error(t *testing.T) {
 }
 
 func TestPlaceholderTagInUsage(t *testing.T) {
+	t.Parallel()
+
 	type PlaceholderCmdArgs struct {
 		File string `targ:"flag,short=f,placeholder=FILE"`
 		Out  string `targ:"positional,placeholder=DEST"`
@@ -2493,6 +2767,8 @@ func TestPlaceholderTagInUsage(t *testing.T) {
 }
 
 func TestPositionalEnumUsage(t *testing.T) {
+	t.Parallel()
+
 	type EnumPositionalArgs struct {
 		Mode string `targ:"positional,enum=dev|prod"`
 	}
@@ -2515,6 +2791,8 @@ func TestPositionalEnumUsage(t *testing.T) {
 }
 
 func TestPositionalIndex_BoolFlagNoConsume(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	node, err := parseTargetLike(&mockTarget{fn: func(_ posIdxArgs) {}, name: "test"})
@@ -2529,6 +2807,8 @@ func TestPositionalIndex_BoolFlagNoConsume(t *testing.T) {
 }
 
 func TestPositionalIndex_FlagGroup(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	node, err := parseTargetLike(&mockTarget{fn: func(_ posIdxArgs) {}, name: "test"})
@@ -2544,6 +2824,8 @@ func TestPositionalIndex_FlagGroup(t *testing.T) {
 }
 
 func TestPositionalIndex_LongFlagConsumeNext(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	node, err := parseTargetLike(&mockTarget{fn: func(_ posIdxArgs) {}, name: "test"})
@@ -2558,6 +2840,8 @@ func TestPositionalIndex_LongFlagConsumeNext(t *testing.T) {
 }
 
 func TestPositionalIndex_LongFlagWithEquals(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	node, err := parseTargetLike(&mockTarget{fn: func(_ posIdxArgs) {}, name: "test"})
@@ -2572,6 +2856,8 @@ func TestPositionalIndex_LongFlagWithEquals(t *testing.T) {
 }
 
 func TestPositionalIndex_NoArgs(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	node, err := parseTargetLike(&mockTarget{fn: func(_ posIdxArgs) {}, name: "test"})
@@ -2586,6 +2872,8 @@ func TestPositionalIndex_NoArgs(t *testing.T) {
 }
 
 func TestPositionalIndex_OnlyPositionals(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	node, err := parseTargetLike(&mockTarget{fn: func(_ posIdxArgs) {}, name: "test"})
@@ -2600,6 +2888,8 @@ func TestPositionalIndex_OnlyPositionals(t *testing.T) {
 }
 
 func TestPositionalIndex_ShortFlagConsumeNext(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	node, err := parseTargetLike(&mockTarget{fn: func(_ posIdxArgs) {}, name: "test"})
@@ -2614,6 +2904,8 @@ func TestPositionalIndex_ShortFlagConsumeNext(t *testing.T) {
 }
 
 func TestPositionalIndex_ShortFlagWithEquals(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	node, err := parseTargetLike(&mockTarget{fn: func(_ posIdxArgs) {}, name: "test"})
@@ -2628,6 +2920,8 @@ func TestPositionalIndex_ShortFlagWithEquals(t *testing.T) {
 }
 
 func TestPositionalIndex_SkipsDoubleDash(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	node, err := parseTargetLike(&mockTarget{fn: func(_ posIdxArgs) {}, name: "test"})
@@ -2642,6 +2936,8 @@ func TestPositionalIndex_SkipsDoubleDash(t *testing.T) {
 }
 
 func TestPositionalIndex_UnknownLongFlag(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	node, err := parseTargetLike(&mockTarget{fn: func(_ posIdxArgs) {}, name: "test"})
@@ -2657,6 +2953,8 @@ func TestPositionalIndex_UnknownLongFlag(t *testing.T) {
 }
 
 func TestPositionalIndex_VariadicFlag(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	node, err := parseTargetLike(&mockTarget{fn: func(_ posIdxArgs) {}, name: "test"})
@@ -2675,6 +2973,8 @@ func TestPositionalIndex_VariadicFlag(t *testing.T) {
 }
 
 func TestPositionalsComplete_AllFilled(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	specs := []positionalSpec{
@@ -2687,6 +2987,8 @@ func TestPositionalsComplete_AllFilled(t *testing.T) {
 }
 
 func TestPositionalsComplete_EmptySpecs(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	specs := []positionalSpec{}
@@ -2696,6 +2998,8 @@ func TestPositionalsComplete_EmptySpecs(t *testing.T) {
 }
 
 func TestPositionalsComplete_MissingRequired(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	specs := []positionalSpec{
@@ -2708,6 +3012,8 @@ func TestPositionalsComplete_MissingRequired(t *testing.T) {
 }
 
 func TestPositionalsComplete_OptionalNotFilled(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	specs := []positionalSpec{
@@ -2720,6 +3026,8 @@ func TestPositionalsComplete_OptionalNotFilled(t *testing.T) {
 }
 
 func TestPrependBuiltinExamples(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	custom := Example{Title: "Custom", Code: "custom code"}
@@ -2735,50 +3043,55 @@ func TestPrependBuiltinExamples(t *testing.T) {
 }
 
 func TestPrintCommandHelp_FlagWithPlaceholder(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	target := &mockTarget{fn: func(_ helpTestCmdWithPlaceholderArgs) {}, name: "test"}
 	node, err := parseTargetLike(target)
 	g.Expect(err).NotTo(HaveOccurred())
 
-	output := captureStdout(t, func() {
-		printCommandHelp(node, RunOptions{})
-	})
+	var buf bytes.Buffer
+	printCommandHelp(&buf, node, RunOptions{})
 
-	g.Expect(output).To(ContainSubstring("--output <file>"))
+	g.Expect(buf.String()).To(ContainSubstring("--output <file>"))
 }
 
 func TestPrintCommandHelp_FlagWithShortName(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	target := &mockTarget{fn: func(_ helpTestCmdWithShortArgs) {}, name: "test"}
 	node, err := parseTargetLike(target)
 	g.Expect(err).NotTo(HaveOccurred())
 
-	output := captureStdout(t, func() {
-		printCommandHelp(node, RunOptions{})
-	})
+	var buf bytes.Buffer
+	printCommandHelp(&buf, node, RunOptions{})
 
-	g.Expect(output).To(ContainSubstring("--verbose, -v"))
+	g.Expect(buf.String()).To(ContainSubstring("--verbose, -v"))
 }
 
 func TestPrintCommandHelp_FlagWithUsage(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	target := &mockTarget{fn: func(_ helpTestCmdWithUsageArgs) {}, name: "test"}
 	node, err := parseTargetLike(target)
 	g.Expect(err).NotTo(HaveOccurred())
 
-	output := captureStdout(t, func() {
-		printCommandHelp(node, RunOptions{})
-	})
+	var buf bytes.Buffer
+	printCommandHelp(&buf, node, RunOptions{})
 
-	g.Expect(output).To(ContainSubstring("Output format"))
+	g.Expect(buf.String()).To(ContainSubstring("Output format"))
 }
 
 // --- printCommandHelp tests ---
 
 func TestPrintCommandHelp_FunctionNode(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	node := &commandNode{
@@ -2787,16 +3100,17 @@ func TestPrintCommandHelp_FunctionNode(t *testing.T) {
 		Type:        nil, // Function node has no Type
 	}
 
-	output := captureStdout(t, func() {
-		printCommandHelp(node, RunOptions{})
-	})
+	var buf bytes.Buffer
+	printCommandHelp(&buf, node, RunOptions{})
 
-	g.Expect(output).To(ContainSubstring("Usage:"))
-	g.Expect(output).To(ContainSubstring("test-cmd"))
-	g.Expect(output).To(ContainSubstring("A test command"))
+	g.Expect(buf.String()).To(ContainSubstring("Usage:"))
+	g.Expect(buf.String()).To(ContainSubstring("test-cmd"))
+	g.Expect(buf.String()).To(ContainSubstring("A test command"))
 }
 
 func TestPrintCommandHelp_WithDescription(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	target := &mockTarget{fn: func() {}, name: "test", description: "A command with description"}
@@ -2807,29 +3121,31 @@ func TestPrintCommandHelp_WithDescription(t *testing.T) {
 		t.Fatal("parseTargetLike returned nil node")
 	}
 
-	output := captureStdout(t, func() {
-		printCommandHelp(node, RunOptions{})
-	})
+	var buf bytes.Buffer
+	printCommandHelp(&buf, node, RunOptions{})
 
-	g.Expect(output).To(ContainSubstring("A command with description"))
+	g.Expect(buf.String()).To(ContainSubstring("A command with description"))
 }
 
 func TestPrintCommandHelp_WithFlags(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	target := &mockTarget{fn: func(_ helpTestCmdArgs) {}, name: "test"}
 	node, err := parseTargetLike(target)
 	g.Expect(err).NotTo(HaveOccurred())
 
-	output := captureStdout(t, func() {
-		printCommandHelp(node, RunOptions{})
-	})
+	var buf bytes.Buffer
+	printCommandHelp(&buf, node, RunOptions{})
 
-	g.Expect(output).To(ContainSubstring("Usage:"))
-	g.Expect(output).To(ContainSubstring("--name"))
+	g.Expect(buf.String()).To(ContainSubstring("Usage:"))
+	g.Expect(buf.String()).To(ContainSubstring("--name"))
 }
 
 func TestPrintCommandHelp_WithSubcommands(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	target := &mockTarget{fn: func() {}, name: "test"}
@@ -2846,33 +3162,35 @@ func TestPrintCommandHelp_WithSubcommands(t *testing.T) {
 		"sub2": {Name: "sub2", Description: "Subcommand two"},
 	}
 
-	output := captureStdout(t, func() {
-		printCommandHelp(node, RunOptions{})
-	})
+	var buf bytes.Buffer
+	printCommandHelp(&buf, node, RunOptions{})
 
-	g.Expect(output).To(ContainSubstring("Subcommands:"))
-	g.Expect(output).To(ContainSubstring("sub1"))
-	g.Expect(output).To(ContainSubstring("sub2"))
+	g.Expect(buf.String()).To(ContainSubstring("Subcommands:"))
+	g.Expect(buf.String()).To(ContainSubstring("sub1"))
+	g.Expect(buf.String()).To(ContainSubstring("sub2"))
 }
 
 func TestPrintCommandSummary_NoSubcommands(t *testing.T) {
+	t.Parallel()
+
 	node := &commandNode{
 		Name:        "simple",
 		Description: "Simple command",
 	}
 
-	out := captureStdout(t, func() {
-		printCommandSummary(node, "  ")
-	})
+	var buf bytes.Buffer
+	printCommandSummary(&buf, node, "  ")
 
-	if !strings.Contains(out, "simple") {
-		t.Errorf("expected simple command, got: %s", out)
+	if !strings.Contains(buf.String(), "simple") {
+		t.Errorf("expected simple command, got: %s", buf.String())
 	}
 }
 
 // --- printCommandSummary tests ---
 
 func TestPrintCommandSummary_WithSubcommands(t *testing.T) {
+	t.Parallel()
+
 	// Create a command with nested subcommands
 	node := &commandNode{
 		Name:        "root",
@@ -2895,29 +3213,30 @@ func TestPrintCommandSummary_WithSubcommands(t *testing.T) {
 		},
 	}
 
-	out := captureStdout(t, func() {
-		printCommandSummary(node, "")
-	})
+	var buf bytes.Buffer
+	printCommandSummary(&buf, node, "")
 
 	// Verify output contains all commands
-	if !strings.Contains(out, "root") {
-		t.Errorf("expected root command, got: %s", out)
+	if !strings.Contains(buf.String(), "root") {
+		t.Errorf("expected root command, got: %s", buf.String())
 	}
 
-	if !strings.Contains(out, "sub1") {
-		t.Errorf("expected sub1 command, got: %s", out)
+	if !strings.Contains(buf.String(), "sub1") {
+		t.Errorf("expected sub1 command, got: %s", buf.String())
 	}
 
-	if !strings.Contains(out, "sub2") {
-		t.Errorf("expected sub2 command, got: %s", out)
+	if !strings.Contains(buf.String(), "sub2") {
+		t.Errorf("expected sub2 command, got: %s", buf.String())
 	}
 
-	if !strings.Contains(out, "nested") {
-		t.Errorf("expected nested command, got: %s", out)
+	if !strings.Contains(buf.String(), "nested") {
+		t.Errorf("expected nested command, got: %s", buf.String())
 	}
 }
 
 func TestPrintCompletion_EmptyShell(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	env := &ExecuteEnv{args: []string{"cmd"}}
@@ -2936,6 +3255,8 @@ func TestPrintCompletion_EmptyShell(t *testing.T) {
 }
 
 func TestPrintCompletion_UnsupportedShell(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	env := &ExecuteEnv{args: []string{"cmd"}}
@@ -2954,6 +3275,8 @@ func TestPrintCompletion_UnsupportedShell(t *testing.T) {
 }
 
 func TestPrintExamples_Custom(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	opts := RunOptions{
@@ -2962,81 +3285,88 @@ func TestPrintExamples_Custom(t *testing.T) {
 		},
 	}
 
-	output := captureStdout(t, func() {
-		printExamples(opts, true)
-	})
+	var buf bytes.Buffer
+	printExamples(&buf, opts, true)
 
-	g.Expect(output).To(ContainSubstring("Examples:"))
-	g.Expect(output).To(ContainSubstring("Run tests:"))
-	g.Expect(output).To(ContainSubstring("targ test"))
-	g.Expect(output).NotTo(ContainSubstring("Enable shell completion"))
+	g.Expect(buf.String()).To(ContainSubstring("Examples:"))
+	g.Expect(buf.String()).To(ContainSubstring("Run tests:"))
+	g.Expect(buf.String()).To(ContainSubstring("targ test"))
+	g.Expect(buf.String()).NotTo(ContainSubstring("Enable shell completion"))
 }
 
 func TestPrintExamples_Empty(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	opts := RunOptions{Examples: EmptyExamples()}
 
-	output := captureStdout(t, func() {
-		printExamples(opts, true)
-	})
+	var buf bytes.Buffer
+	printExamples(&buf, opts, true)
 
-	g.Expect(output).To(BeEmpty())
+	g.Expect(buf.String()).To(BeEmpty())
 }
 
 func TestPrintExamples_Nil(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	opts := RunOptions{Examples: nil}
 
-	output := captureStdout(t, func() {
-		printExamples(opts, true)
-	})
+	var buf bytes.Buffer
+	printExamples(&buf, opts, true)
 
-	g.Expect(output).To(ContainSubstring("Examples:"))
-	g.Expect(output).To(ContainSubstring("Enable shell completion"))
-	g.Expect(output).To(ContainSubstring("Run multiple"))
+	g.Expect(buf.String()).To(ContainSubstring("Examples:"))
+	g.Expect(buf.String()).To(ContainSubstring("Enable shell completion"))
+	g.Expect(buf.String()).To(ContainSubstring("Run multiple"))
 }
 
 func TestPrintExamples_NotRoot(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	opts := RunOptions{Examples: nil}
 
-	output := captureStdout(t, func() {
-		printExamples(opts, false)
-	})
+	var buf bytes.Buffer
+	printExamples(&buf, opts, false)
 
-	g.Expect(output).To(ContainSubstring("Examples:"))
-	g.Expect(output).NotTo(ContainSubstring("Enable shell completion"))
-	g.Expect(output).To(ContainSubstring("Run multiple"))
+	g.Expect(buf.String()).To(ContainSubstring("Examples:"))
+	g.Expect(buf.String()).NotTo(ContainSubstring("Enable shell completion"))
+	g.Expect(buf.String()).To(ContainSubstring("Run multiple"))
 }
 
 func TestPrintFlagWithWrappedEnum(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	// Short enum - should not wrap
-	output := captureStdout(t, func() {
-		printFlagWithWrappedEnum("--status {a|b|c}", "Status", "{a|b|c}", "  ")
-	})
-	g.Expect(output).To(ContainSubstring("--status {a|b|c}"))
-	g.Expect(output).To(ContainSubstring("Status"))
+	var buf bytes.Buffer
+	printFlagWithWrappedEnum(&buf, "--status {a|b|c}", "Status", "{a|b|c}", "  ")
+
+	g.Expect(buf.String()).To(ContainSubstring("--status {a|b|c}"))
+	g.Expect(buf.String()).To(ContainSubstring("Status"))
 }
 
 func TestPrintFlagWithWrappedEnum_LongEnum(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	longEnum := "{backlog|selected|in-progress|review|done|cancelled|blocked}"
-	output := captureStdout(t, func() {
-		printFlagWithWrappedEnum("--status "+longEnum, "Status", longEnum, "  ")
-	})
+	var buf bytes.Buffer
+	printFlagWithWrappedEnum(&buf, "--status "+longEnum, "Status", longEnum, "  ")
 
 	// Should wrap across multiple lines
-	g.Expect(output).To(ContainSubstring("backlog"))
-	g.Expect(output).To(ContainSubstring("blocked"))
+	g.Expect(buf.String()).To(ContainSubstring("backlog"))
+	g.Expect(buf.String()).To(ContainSubstring("blocked"))
 }
 
 func TestPrintFlagsIndented(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	flags := []flagHelp{
@@ -3044,38 +3374,41 @@ func TestPrintFlagsIndented(t *testing.T) {
 		{Name: "verbose", Placeholder: "[flag]"},
 	}
 
-	output := captureStdout(t, func() {
-		printFlagsIndented(flags, "  ")
-	})
+	var buf bytes.Buffer
+	printFlagsIndented(&buf, flags, "  ")
 
-	g.Expect(output).To(ContainSubstring("--output <string>"))
-	g.Expect(output).To(ContainSubstring("Output file"))
-	g.Expect(output).To(ContainSubstring("--verbose"))
+	g.Expect(buf.String()).To(ContainSubstring("--output <string>"))
+	g.Expect(buf.String()).To(ContainSubstring("Output file"))
+	g.Expect(buf.String()).To(ContainSubstring("--verbose"))
 }
 
 func TestPrintMoreInfo_WithMoreInfoText(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
-	output := captureStdout(t, func() {
-		printMoreInfo(RunOptions{MoreInfoText: "Custom info"})
-	})
+	var buf bytes.Buffer
+	printMoreInfo(&buf, RunOptions{MoreInfoText: "Custom info"})
 
-	g.Expect(output).To(ContainSubstring("More info:"))
-	g.Expect(output).To(ContainSubstring("Custom info"))
+	g.Expect(buf.String()).To(ContainSubstring("More info:"))
+	g.Expect(buf.String()).To(ContainSubstring("Custom info"))
 }
 
 func TestPrintMoreInfo_WithRepoURL(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
-	output := captureStdout(t, func() {
-		printMoreInfo(RunOptions{RepoURL: "https://example.com/repo"})
-	})
+	var buf bytes.Buffer
+	printMoreInfo(&buf, RunOptions{RepoURL: "https://example.com/repo"})
 
-	g.Expect(output).To(ContainSubstring("More info:"))
-	g.Expect(output).To(ContainSubstring("https://example.com/repo"))
+	g.Expect(buf.String()).To(ContainSubstring("More info:"))
+	g.Expect(buf.String()).To(ContainSubstring("https://example.com/repo"))
 }
 
 func TestPrintSubcommandList_NilSubcommand(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	subs := map[string]*commandNode{
@@ -3083,32 +3416,34 @@ func TestPrintSubcommandList_NilSubcommand(t *testing.T) {
 		"realcmd": {Name: "realcmd", Description: "Real command"},
 	}
 
-	output := captureStdout(t, func() {
-		printSubcommandList(subs, "  ")
-	})
+	var buf bytes.Buffer
+	printSubcommandList(&buf, subs, "  ")
 
 	// Should skip the nil entry and only show realcmd
-	g.Expect(output).To(ContainSubstring("realcmd"))
-	g.Expect(output).To(ContainSubstring("Real command"))
+	g.Expect(buf.String()).To(ContainSubstring("realcmd"))
+	g.Expect(buf.String()).To(ContainSubstring("Real command"))
 }
 
 func TestPrintSubcommandList_NoDescription(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	subs := map[string]*commandNode{
 		"nodesc": {Name: "nodesc"}, // No description
 	}
 
-	output := captureStdout(t, func() {
-		printSubcommandList(subs, "  ")
-	})
+	var buf bytes.Buffer
+	printSubcommandList(&buf, subs, "  ")
 
-	g.Expect(output).To(ContainSubstring("nodesc"))
+	g.Expect(buf.String()).To(ContainSubstring("nodesc"))
 }
 
 // --- printSubcommandList tests ---
 
 func TestPrintSubcommandList_WithDescriptions(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	subs := map[string]*commandNode{
@@ -3116,19 +3451,20 @@ func TestPrintSubcommandList_WithDescriptions(t *testing.T) {
 		"beta":  {Name: "beta", Description: "Beta command"},
 	}
 
-	output := captureStdout(t, func() {
-		printSubcommandList(subs, "  ")
-	})
+	var buf bytes.Buffer
+	printSubcommandList(&buf, subs, "  ")
 
-	g.Expect(output).To(ContainSubstring("alpha"))
-	g.Expect(output).To(ContainSubstring("Alpha command"))
-	g.Expect(output).To(ContainSubstring("beta"))
-	g.Expect(output).To(ContainSubstring("Beta command"))
+	g.Expect(buf.String()).To(ContainSubstring("alpha"))
+	g.Expect(buf.String()).To(ContainSubstring("Alpha command"))
+	g.Expect(buf.String()).To(ContainSubstring("beta"))
+	g.Expect(buf.String()).To(ContainSubstring("Beta command"))
 }
 
 // --- printUsage tests ---
 
 func TestPrintUsage_WithDescription(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	nodes := []*commandNode{
@@ -3141,18 +3477,19 @@ func TestPrintUsage_WithDescription(t *testing.T) {
 
 	opts := RunOptions{Description: "Top level description"}
 
-	output := captureStdout(t, func() {
-		printUsage(nodes, opts)
-	})
+	var buf bytes.Buffer
+	printUsage(&buf, nodes, opts)
 
-	g.Expect(output).To(ContainSubstring("Top level description"))
-	g.Expect(output).To(ContainSubstring("test"))
-	g.Expect(output).To(ContainSubstring("Test command"))
+	g.Expect(buf.String()).To(ContainSubstring("Top level description"))
+	g.Expect(buf.String()).To(ContainSubstring("test"))
+	g.Expect(buf.String()).To(ContainSubstring("Test command"))
 	// Commands grouped by source (path may be relative)
-	g.Expect(output).To(ContainSubstring("path.go]"))
+	g.Expect(buf.String()).To(ContainSubstring("path.go]"))
 }
 
 func TestPrintUsage_WithNestedSubcommands(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	nodes := []*commandNode{
@@ -3169,17 +3506,18 @@ func TestPrintUsage_WithNestedSubcommands(t *testing.T) {
 		},
 	}
 
-	output := captureStdout(t, func() {
-		printUsage(nodes, RunOptions{})
-	})
+	var buf bytes.Buffer
+	printUsage(&buf, nodes, RunOptions{})
 
-	g.Expect(output).To(ContainSubstring("parent"))
-	g.Expect(output).To(ContainSubstring("Parent command"))
+	g.Expect(buf.String()).To(ContainSubstring("parent"))
+	g.Expect(buf.String()).To(ContainSubstring("Parent command"))
 	// Commands grouped by source (path may be relative)
-	g.Expect(output).To(ContainSubstring("path.go]"))
+	g.Expect(buf.String()).To(ContainSubstring("path.go]"))
 }
 
 func TestRegisterFlagName_DuplicateName(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	spec := &flagSpec{name: "verbose", short: "v"}
@@ -3194,6 +3532,8 @@ func TestRegisterFlagName_DuplicateName(t *testing.T) {
 }
 
 func TestRegisterFlagName_DuplicateShort(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	spec := &flagSpec{name: "verbose", short: "v"}
@@ -3208,6 +3548,8 @@ func TestRegisterFlagName_DuplicateShort(t *testing.T) {
 }
 
 func TestRegisterFlagName_NoShort(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	spec := &flagSpec{name: "verbose", short: ""}
@@ -3222,6 +3564,8 @@ func TestRegisterFlagName_NoShort(t *testing.T) {
 // --- registerFlagName tests ---
 
 func TestRegisterFlagName_Success(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	spec := &flagSpec{name: "verbose", short: "v"}
@@ -3234,6 +3578,8 @@ func TestRegisterFlagName_Success(t *testing.T) {
 }
 
 func TestRelativeSourcePathWithGetwd_GetwdError(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	failingGetwd := func() (string, error) {
@@ -3245,12 +3591,16 @@ func TestRelativeSourcePathWithGetwd_GetwdError(t *testing.T) {
 }
 
 func TestRelativeSourcePath_Empty(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 	result := relativeSourcePath("")
 	g.Expect(result).To(Equal(""))
 }
 
 func TestRelativeSourcePath_SubPath(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 	cwd, _ := os.Getwd()
 	testPath := filepath.Join(cwd, "sub", "testinternalfile.go")
@@ -3259,6 +3609,8 @@ func TestRelativeSourcePath_SubPath(t *testing.T) {
 }
 
 func TestRelativeSourcePath_ValidPath(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 	cwd, _ := os.Getwd()
 	testPath := filepath.Join(cwd, "testinternalfile.go")
@@ -3267,6 +3619,8 @@ func TestRelativeSourcePath_ValidPath(t *testing.T) {
 }
 
 func TestRunShellWithVars_Substitution(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 	ctx := context.Background()
 
@@ -3287,6 +3641,8 @@ func TestRunShellWithVars_Substitution(t *testing.T) {
 // --- Additional RunWithEnv tests ---
 
 func TestRunWithEnv_CompleteCommand(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	target := &mockTarget{fn: func() {}, name: "simple-target"}
@@ -3301,6 +3657,8 @@ func TestRunWithEnv_CompleteCommand(t *testing.T) {
 }
 
 func TestRunWithEnv_CompletionFlag(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	target := &mockTarget{fn: func() {}, name: "simple-target"}
@@ -3316,6 +3674,8 @@ func TestRunWithEnv_CompletionFlag(t *testing.T) {
 }
 
 func TestRunWithEnv_CompletionFlagInvalidShell(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	target := &mockTarget{fn: func() {}, name: "simple-target"}
@@ -3328,6 +3688,8 @@ func TestRunWithEnv_CompletionFlagInvalidShell(t *testing.T) {
 }
 
 func TestRunWithEnv_DefaultModeExecutionError(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	// A command that returns an error
@@ -3341,6 +3703,8 @@ func TestRunWithEnv_DefaultModeExecutionError(t *testing.T) {
 }
 
 func TestRunWithEnv_DefaultModeUnknownCommand(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	target := &mockTarget{fn: func() {}, name: "simple-target"}
@@ -3351,6 +3715,8 @@ func TestRunWithEnv_DefaultModeUnknownCommand(t *testing.T) {
 }
 
 func TestRunWithEnv_ListCommand(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	target := &mockTarget{fn: func() {}, name: "simple-target"}
@@ -3364,6 +3730,8 @@ func TestRunWithEnv_ListCommand(t *testing.T) {
 }
 
 func TestRunWithEnv_NoCommands(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	env := &ExecuteEnv{args: []string{"cmd"}}
@@ -3373,6 +3741,8 @@ func TestRunWithEnv_NoCommands(t *testing.T) {
 }
 
 func TestRunWithEnv_ShellCommandTarget(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	// Shell command target without variables
@@ -3388,6 +3758,8 @@ func TestRunWithEnv_ShellCommandTarget(t *testing.T) {
 }
 
 func TestRunWithEnv_ShellCommandTarget_ExecutionError(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	// Shell command that will fail
@@ -3402,6 +3774,8 @@ func TestRunWithEnv_ShellCommandTarget_ExecutionError(t *testing.T) {
 }
 
 func TestRunWithEnv_ShellCommandTarget_Help(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	target := &mockTarget{
@@ -3410,17 +3784,17 @@ func TestRunWithEnv_ShellCommandTarget_Help(t *testing.T) {
 		description: "Greet someone",
 	}
 
-	output := captureStdout(t, func() {
-		env := &ExecuteEnv{args: []string{"cmd", "--help"}}
-		err := RunWithEnv(env, RunOptions{AllowDefault: true}, target)
-		g.Expect(err).ToNot(HaveOccurred())
-	})
+	env := &ExecuteEnv{args: []string{"cmd", "--help"}}
+	err := RunWithEnv(env, RunOptions{AllowDefault: true}, target)
+	g.Expect(err).ToNot(HaveOccurred())
 
-	g.Expect(output).To(ContainSubstring("greet"))
-	g.Expect(output).To(ContainSubstring("--name"))
+	g.Expect(env.Output()).To(ContainSubstring("greet"))
+	g.Expect(env.Output()).To(ContainSubstring("--name"))
 }
 
 func TestRunWithEnv_ShellCommandTarget_HelpOnly(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	target := &mockTarget{
@@ -3435,6 +3809,8 @@ func TestRunWithEnv_ShellCommandTarget_HelpOnly(t *testing.T) {
 }
 
 func TestRunWithEnv_ShellCommandTarget_MissingVar(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	target := &mockTarget{
@@ -3450,6 +3826,8 @@ func TestRunWithEnv_ShellCommandTarget_MissingVar(t *testing.T) {
 }
 
 func TestRunWithEnv_ShellCommandTarget_WithVar(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	// Shell command target with variables
@@ -3464,6 +3842,8 @@ func TestRunWithEnv_ShellCommandTarget_WithVar(t *testing.T) {
 }
 
 func TestRunWithEnv_TimeoutError(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	target := &mockTarget{fn: func() {}, name: "simple-target"}
@@ -3474,6 +3854,8 @@ func TestRunWithEnv_TimeoutError(t *testing.T) {
 }
 
 func TestRunWithEnv_UnknownCommand(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	target := &mockTarget{fn: func() {}, name: "simple-target"}
@@ -3484,6 +3866,8 @@ func TestRunWithEnv_UnknownCommand(t *testing.T) {
 }
 
 func TestShellVarFlagHelp(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	vars := []string{"namespace", "file", "name"}
@@ -3508,6 +3892,8 @@ func TestShellVarFlagHelp(t *testing.T) {
 // --- skipTargFlags tests ---
 
 func TestSkipTargFlags_EmptyArgs(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	result := skipTargFlags([]string{})
@@ -3515,6 +3901,8 @@ func TestSkipTargFlags_EmptyArgs(t *testing.T) {
 }
 
 func TestSkipTargFlags_NoTargFlags(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	result := skipTargFlags([]string{"build", "test", "--verbose"})
@@ -3522,6 +3910,8 @@ func TestSkipTargFlags_NoTargFlags(t *testing.T) {
 }
 
 func TestSkipTargFlags_WithCompletion(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	// --completion is exit-early, stops processing
@@ -3530,6 +3920,8 @@ func TestSkipTargFlags_WithCompletion(t *testing.T) {
 }
 
 func TestSkipTargFlags_WithCompletionEquals(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	// --completion=bash uses flag=value syntax
@@ -3538,6 +3930,8 @@ func TestSkipTargFlags_WithCompletionEquals(t *testing.T) {
 }
 
 func TestSkipTargFlags_WithHelp(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	// --help is boolean flag
@@ -3546,6 +3940,8 @@ func TestSkipTargFlags_WithHelp(t *testing.T) {
 }
 
 func TestSkipTargFlags_WithNoCache(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	// --no-cache is boolean flag
@@ -3554,6 +3950,8 @@ func TestSkipTargFlags_WithNoCache(t *testing.T) {
 }
 
 func TestSkipTargFlags_WithRemovedFlags(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	// --alias is no longer an exit-early flag (removed), so args pass through
@@ -3562,6 +3960,8 @@ func TestSkipTargFlags_WithRemovedFlags(t *testing.T) {
 }
 
 func TestSkipTargFlags_WithTimeout(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	// --timeout consumes next arg
@@ -3570,6 +3970,8 @@ func TestSkipTargFlags_WithTimeout(t *testing.T) {
 }
 
 func TestSkipTargFlags_WithTimeoutEquals(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	// --timeout=value syntax
@@ -3578,6 +3980,8 @@ func TestSkipTargFlags_WithTimeoutEquals(t *testing.T) {
 }
 
 func TestSliceFlagMissingValue(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	type SliceCmdArgs struct {
@@ -3600,6 +4004,8 @@ func TestSliceFlagMissingValue(t *testing.T) {
 }
 
 func TestSliceFlagParsing(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	type SliceCmdArgs struct {
@@ -3624,6 +4030,8 @@ func TestSliceFlagParsing(t *testing.T) {
 }
 
 func TestSliceFlagStopsAtDoubleDash(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	type SliceCmdArgs struct {
@@ -3660,6 +4068,8 @@ func TestSliceFlagStopsAtDoubleDash(t *testing.T) {
 }
 
 func TestSliceFlagStopsAtFlag(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	type SliceCmdArgs struct {
@@ -3692,6 +4102,8 @@ func TestSliceFlagStopsAtFlag(t *testing.T) {
 }
 
 func TestSortedKeys(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	m := map[string]*commandNode{
@@ -3707,21 +4119,25 @@ func TestSortedKeys(t *testing.T) {
 // --- suggestInstanceFlags tests ---
 
 func TestSuggestInstanceFlags_NilNode(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	seen := map[string]bool{}
 
-	err := suggestInstanceFlags(commandInstance{node: nil}, "--", seen)
+	err := suggestInstanceFlags(io.Discard, commandInstance{node: nil}, "--", seen)
 	g.Expect(err).ToNot(HaveOccurred())
 	g.Expect(seen).To(BeEmpty())
 }
 
 func TestSuggestInstanceFlags_NilType(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	seen := map[string]bool{}
 
-	err := suggestInstanceFlags(commandInstance{node: &commandNode{Type: nil}}, "--", seen)
+	err := suggestInstanceFlags(io.Discard, commandInstance{node: &commandNode{Type: nil}}, "--", seen)
 	g.Expect(err).ToNot(HaveOccurred())
 	g.Expect(seen).To(BeEmpty())
 }
@@ -3729,6 +4145,8 @@ func TestSuggestInstanceFlags_NilType(t *testing.T) {
 // --- tagOptionsForField tests ---
 
 func TestTagOptionsForField_EmptyTag(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	// Test field with no targ tag defaults to flag
@@ -3747,6 +4165,8 @@ func TestTagOptionsForField_EmptyTag(t *testing.T) {
 }
 
 func TestTagOptionsForField_EmptyTagWithOverride(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	// Test field with no targ tag but with TagOptions override
@@ -3763,6 +4183,8 @@ func TestTagOptionsForField_EmptyTagWithOverride(t *testing.T) {
 // --- tagOptionsInstance tests ---
 
 func TestTagOptionsInstance_NilNode(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	result := tagOptionsInstance(nil)
@@ -3770,6 +4192,8 @@ func TestTagOptionsInstance_NilNode(t *testing.T) {
 }
 
 func TestTagOptionsInstance_NoTypeNoValue(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	node := &commandNode{}
@@ -3779,6 +4203,8 @@ func TestTagOptionsInstance_NoTypeNoValue(t *testing.T) {
 }
 
 func TestTagOptionsInstance_TypeWithoutValue(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	type Args struct {
@@ -3794,6 +4220,8 @@ func TestTagOptionsInstance_TypeWithoutValue(t *testing.T) {
 }
 
 func TestTagOptionsInstance_ValidValue(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	type Args struct {
@@ -3811,6 +4239,8 @@ func TestTagOptionsInstance_ValidValue(t *testing.T) {
 // --- Usage Line Formatting ---
 
 func TestUsageLine_NoSubcommandWithRequiredPositional(t *testing.T) {
+	t.Parallel()
+
 	type MoveCmdArgs struct {
 		File   string `targ:"flag,short=f"`
 		Status string `targ:"flag,required,short=s"`
@@ -3848,6 +4278,8 @@ func TestUsageLine_NoSubcommandWithRequiredPositional(t *testing.T) {
 }
 
 func TestVariadicPositionalStopsAtDoubleDash(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	type VariadicPosCmdArgs struct {
@@ -3880,6 +4312,8 @@ func TestVariadicPositionalStopsAtDoubleDash(t *testing.T) {
 }
 
 func TestWriteWrappedUsage_EmptyParts(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	var buf strings.Builder
@@ -3888,6 +4322,8 @@ func TestWriteWrappedUsage_EmptyParts(t *testing.T) {
 }
 
 func TestWriteWrappedUsage_MultiplePartsNoWrap(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	var buf strings.Builder
@@ -3896,6 +4332,8 @@ func TestWriteWrappedUsage_MultiplePartsNoWrap(t *testing.T) {
 }
 
 func TestWriteWrappedUsage_SinglePart(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	var buf strings.Builder
@@ -3904,6 +4342,8 @@ func TestWriteWrappedUsage_SinglePart(t *testing.T) {
 }
 
 func TestWriteWrappedUsage_Wrapping(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	var buf strings.Builder

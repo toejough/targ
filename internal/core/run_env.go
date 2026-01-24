@@ -50,6 +50,12 @@ func (e *ExecuteEnv) Println(args ...any) {
 	fmt.Fprintln(&e.output, args...)
 }
 
+// Stdout returns a writer for stdout output.
+// For test environments, this returns the captured output buffer.
+func (e *ExecuteEnv) Stdout() io.Writer {
+	return &e.output
+}
+
 // SupportsSignals returns false for test environments.
 func (e *ExecuteEnv) SupportsSignals() bool {
 	return false
@@ -70,6 +76,9 @@ type RunEnv interface {
 	Printf(format string, args ...any)
 	Println(args ...any)
 	Exit(code int)
+	// Stdout returns a writer for stdout output (help text, usage, etc.).
+	// Production implementations return os.Stdout; test mocks return a buffer.
+	Stdout() io.Writer
 	// SupportsSignals returns true if signal handling should be enabled.
 	// Production implementations return true; test mocks return false.
 	SupportsSignals() bool
@@ -122,6 +131,9 @@ func ExecuteWithOptions(
 //
 //nolint:cyclop // Entry point orchestrating setup, flag extraction, and execution paths
 func RunWithEnv(env RunEnv, opts RunOptions, targets ...any) error {
+	// Set stdout for help output if not already set
+	opts.Stdout = env.Stdout()
+
 	exec := &runExecutor{
 		env:        env,
 		opts:       opts,
@@ -188,7 +200,7 @@ var (
 	errTimeoutRequiresDuration = errors.New("--timeout requires a duration value (e.g., 10m, 1h)")
 )
 
-type completeFunc func([]*commandNode, string) error
+type completeFunc func(io.Writer, []*commandNode, string) error
 
 type listCommandInfo struct {
 	Name        string `json:"name"`
@@ -372,7 +384,7 @@ func (e *runExecutor) executeMultiRoot() error {
 		matched := e.findMatchingRoot(name)
 		if matched == nil {
 			e.env.Printf("Unknown command: %s\n", name)
-			printUsage(e.roots, e.opts)
+			printUsage(e.env.Stdout(), e.roots, e.opts)
 
 			return ExitError{Code: 1}
 		}
@@ -422,7 +434,7 @@ func (e *runExecutor) executeMultiRootParallel() error {
 		matched := e.findMatchingRoot(arg)
 		if matched == nil {
 			e.env.Printf("Unknown command: %s\n", arg)
-			printUsage(e.roots, e.opts)
+			printUsage(e.env.Stdout(), e.roots, e.opts)
 
 			return ExitError{Code: 1}
 		}
@@ -499,7 +511,7 @@ func (e *runExecutor) findMatchingRootsGlob(pattern string) []*commandNode {
 // handleComplete handles the __complete hidden command.
 func (e *runExecutor) handleComplete() {
 	if len(e.rest) > 1 {
-		err := e.completeFn(e.roots, e.rest[1])
+		err := e.completeFn(os.Stdout, e.roots, e.rest[1])
 		if err != nil {
 			e.env.Println(err.Error())
 		}
@@ -542,9 +554,9 @@ func (e *runExecutor) handleGlobalHelp() bool {
 
 	// Show global help
 	if e.hasDefault {
-		printCommandHelp(e.roots[0], e.opts)
+		printCommandHelp(e.env.Stdout(), e.roots[0], e.opts)
 	} else {
-		printUsage(e.roots, e.opts)
+		printUsage(e.env.Stdout(), e.roots, e.opts)
 	}
 
 	return true
@@ -573,7 +585,7 @@ func (e *runExecutor) handleNoArgs() error {
 		return nil
 	}
 
-	printUsage(e.roots, e.opts)
+	printUsage(e.env.Stdout(), e.roots, e.opts)
 
 	return nil
 }
@@ -639,6 +651,7 @@ func (e *runExecutor) launchTarget(
 // parseTargets parses all targets into command nodes.
 func (e *runExecutor) parseTargets(targets []any) error {
 	e.roots = make([]*commandNode, 0, len(targets))
+	seenNames := make(map[string]bool)
 
 	for _, t := range targets {
 		node, err := parseTarget(t)
@@ -647,6 +660,13 @@ func (e *runExecutor) parseTargets(targets []any) error {
 			continue
 		}
 
+		// Check for duplicate names at the root level
+		if seenNames[node.Name] {
+			e.env.Printf("Error: duplicate target name %q\n", node.Name)
+			return ExitError{Code: 1}
+		}
+
+		seenNames[node.Name] = true
 		e.roots = append(e.roots, node)
 	}
 

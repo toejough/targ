@@ -1,8 +1,12 @@
 package targ_test
 
 import (
+	"strconv"
 	"strings"
 	"testing"
+
+	. "github.com/onsi/gomega"
+	"pgregory.net/rapid"
 
 	"github.com/toejough/targ"
 )
@@ -66,8 +70,7 @@ type ShortMixedFlagsArgs struct {
 	Name    string `targ:"flag,short=n"`
 }
 
-// TagOptionsOverrideArgs tests static tag attributes (replacing dynamic TagOptions method).
-// Instead of runtime override, we use static tag attributes.
+// TagOptionsOverrideArgs tests static tag attributes
 type TagOptionsOverrideArgs struct {
 	Mode string `targ:"flag,name=stage,short=s,enum=dev|prod"`
 }
@@ -84,67 +87,75 @@ func (tv *TextValue) UnmarshalText(text []byte) error {
 // --- Tests ---
 
 func TestCustomFlagName(t *testing.T) {
-	var gotUser string
+	t.Parallel()
 
-	target := targ.Targ(func(args CustomFlagNameArgs) {
-		gotUser = args.User
+	rapid.Check(t, func(rt *rapid.T) {
+		g := NewWithT(t)
+
+		user := rapid.StringMatching(`[A-Z][a-z]{2,10}`).Draw(rt, "user")
+
+		var gotUser string
+
+		target := targ.Targ(func(args CustomFlagNameArgs) {
+			gotUser = args.User
+		})
+
+		_, err := targ.Execute([]string{"app", "--user_name", user}, target)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(gotUser).To(Equal(user))
 	})
-
-	_, err := targ.Execute([]string{"app", "--user_name", "Bob"}, target)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if gotUser != "Bob" {
-		t.Errorf("expected User='Bob', got '%s'", gotUser)
-	}
 }
 
 func TestCustomTypes(t *testing.T) {
-	var (
-		gotName TextValue
-		gotNick SetterValue
-	)
+	t.Parallel()
 
-	target := targ.Targ(func(args CustomTypeFlagsArgs) {
-		gotName = args.Name
-		gotNick = args.Nick
+	rapid.Check(t, func(rt *rapid.T) {
+		g := NewWithT(t)
+
+		name := rapid.StringMatching(`[a-z]{3,10}`).Draw(rt, "name")
+		nick := rapid.StringMatching(`[a-z]{3,10}`).Draw(rt, "nick")
+
+		var (
+			gotName TextValue
+			gotNick SetterValue
+		)
+
+		target := targ.Targ(func(args CustomTypeFlagsArgs) {
+			gotName = args.Name
+			gotNick = args.Nick
+		})
+
+		_, err := targ.Execute([]string{"app", "--name", name, "--nick", nick}, target)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(gotName.Value).To(Equal(strings.ToUpper(name)))
+		g.Expect(gotNick.Value).To(Equal(nick + "!"))
 	})
-
-	_, err := targ.Execute([]string{"app", "--name", "alice", "--nick", "bob"}, target)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if gotName.Value != "ALICE" {
-		t.Fatalf("expected ALICE via UnmarshalText, got %q", gotName.Value)
-	}
-
-	if gotNick.Value != "bob!" {
-		t.Fatalf("expected bob! via Set, got %q", gotNick.Value)
-	}
 }
 
 func TestDefaultEnvFlags_EnvOverrides(t *testing.T) {
-	t.Setenv("TEST_DEFAULT_NAME_FLAG", "Bob")
+	rapid.Check(t, func(rt *rapid.T) {
+		g := NewWithT(t)
 
-	var gotName string
+		envValue := rapid.StringMatching(`[A-Z][a-z]{2,10}`).Draw(rt, "envValue")
+		t.Setenv("TEST_DEFAULT_NAME_FLAG", envValue)
 
-	target := targ.Targ(func(args DefaultEnvFlagsArgs) {
-		gotName = args.Name
+		var gotName string
+
+		target := targ.Targ(func(args DefaultEnvFlagsArgs) {
+			gotName = args.Name
+		})
+
+		_, err := targ.Execute([]string{"app"}, target)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(gotName).To(Equal(envValue))
 	})
-
-	_, err := targ.Execute([]string{"app"}, target)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if gotName != "Bob" {
-		t.Errorf("expected Name='Bob', got '%s'", gotName)
-	}
 }
 
 func TestDefaultFlags(t *testing.T) {
+	t.Parallel()
+
+	g := NewWithT(t)
+
 	var (
 		gotName    string
 		gotCount   int
@@ -158,141 +169,232 @@ func TestDefaultFlags(t *testing.T) {
 	})
 
 	_, err := targ.Execute([]string{"app"}, target)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(gotName).To(Equal("Alice"))
+	g.Expect(gotCount).To(Equal(42))
+	g.Expect(gotEnabled).To(BeTrue())
+}
 
-	if gotName != "Alice" {
-		t.Errorf("expected Name='Alice', got '%s'", gotName)
-	}
+func TestDefaultFlags_OverrideWithValues(t *testing.T) {
+	t.Parallel()
 
-	if gotCount != 42 {
-		t.Errorf("expected Count=42, got %d", gotCount)
-	}
+	rapid.Check(t, func(rt *rapid.T) {
+		g := NewWithT(t)
 
-	if !gotEnabled {
-		t.Error("expected Enabled=true")
-	}
+		name := rapid.StringMatching(`[A-Z][a-z]{2,10}`).Draw(rt, "name")
+		count := rapid.IntRange(0, 1000).Draw(rt, "count")
+		enabled := rapid.Bool().Draw(rt, "enabled")
+
+		var (
+			gotName    string
+			gotCount   int
+			gotEnabled bool
+		)
+
+		target := targ.Targ(func(args DefaultFlagsArgs) {
+			gotName = args.Name
+			gotCount = args.Count
+			gotEnabled = args.Enabled
+		})
+
+		args := []string{"app", "--name", name, "--count", strconv.Itoa(count)}
+		if enabled {
+			args = append(args, "--enabled")
+		} else {
+			args = append(args, "--enabled=false")
+		}
+
+		_, err := targ.Execute(args, target)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(gotName).To(Equal(name))
+		g.Expect(gotCount).To(Equal(count))
+		g.Expect(gotEnabled).To(Equal(enabled))
+	})
 }
 
 func TestEnvFlag(t *testing.T) {
-	t.Setenv("TEST_USER_FLAG", "EnvAlice")
+	rapid.Check(t, func(rt *rapid.T) {
+		g := NewWithT(t)
 
-	var gotUser string
+		envValue := rapid.StringMatching(`[A-Z][a-z]{2,10}`).Draw(rt, "envValue")
+		t.Setenv("TEST_USER_FLAG", envValue)
 
-	target := targ.Targ(func(args EnvFlagArgs) {
-		gotUser = args.User
+		var gotUser string
+
+		target := targ.Targ(func(args EnvFlagArgs) {
+			gotUser = args.User
+		})
+
+		_, err := targ.Execute([]string{"app"}, target)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(gotUser).To(Equal(envValue))
 	})
-
-	_, err := targ.Execute([]string{"app"}, target)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if gotUser != "EnvAlice" {
-		t.Errorf("expected User='EnvAlice', got '%s'", gotUser)
-	}
 }
 
 func TestLongFlagsRequireDoubleDash(t *testing.T) {
-	target := targ.Targ(func(_ ShortFlagsArgs) {})
+	t.Parallel()
 
-	_, err := targ.Execute([]string{"app", "-name", "Alice"}, target)
-	if err == nil {
-		t.Fatal("expected error for single-dash long flag")
-	}
-	// Note: Error may be wrapped in ExitError; we just verify an error occurred
+	rapid.Check(t, func(rt *rapid.T) {
+		g := NewWithT(t)
+
+		name := rapid.StringMatching(`[A-Z][a-z]{2,10}`).Draw(rt, "name")
+		target := targ.Targ(func(_ ShortFlagsArgs) {})
+
+		_, err := targ.Execute([]string{"app", "-name", name}, target)
+		g.Expect(err).To(HaveOccurred())
+	})
 }
 
 func TestRequiredFlag(t *testing.T) {
+	t.Parallel()
+
+	g := NewWithT(t)
+
 	target := targ.Targ(func(_ RequiredFlagArgs) {})
 
 	_, err := targ.Execute([]string{"app"}, target)
-	if err == nil {
-		t.Fatal("expected error for missing required flag")
-	}
+	g.Expect(err).To(HaveOccurred())
+}
+
+func TestRequiredFlag_Provided(t *testing.T) {
+	t.Parallel()
+
+	rapid.Check(t, func(rt *rapid.T) {
+		g := NewWithT(t)
+
+		id := rapid.StringMatching(`[a-z0-9]{5,20}`).Draw(rt, "id")
+
+		var gotID string
+
+		target := targ.Targ(func(args RequiredFlagArgs) {
+			gotID = args.ID
+		})
+
+		_, err := targ.Execute([]string{"app", "--id", id}, target)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(gotID).To(Equal(id))
+	})
 }
 
 func TestRequiredShortFlagErrorIncludesShort(t *testing.T) {
+	t.Parallel()
+
+	g := NewWithT(t)
+
 	target := targ.Targ(func(_ RequiredShortFlagArgs) {})
 
 	result, err := targ.Execute([]string{"app"}, target)
-	if err == nil {
-		t.Fatal("expected error for missing required flag")
-	}
-	// Error message should mention both --name and -n
-	if !strings.Contains(result.Output, "--name") || !strings.Contains(result.Output, "-n") {
-		t.Fatalf("expected error to mention --name and -n, got: %q", result.Output)
-	}
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(result.Output).To(ContainSubstring("--name"))
+	g.Expect(result.Output).To(ContainSubstring("-n"))
 }
 
 func TestShortFlagGroups(t *testing.T) {
-	var gotVerbose, gotForce bool
+	t.Parallel()
 
-	target := targ.Targ(func(args ShortBoolFlagsArgs) {
-		gotVerbose = args.Verbose
-		gotForce = args.Force
+	rapid.Check(t, func(rt *rapid.T) {
+		g := NewWithT(t)
+
+		// Randomly select which flags to set
+		setVerbose := rapid.Bool().Draw(rt, "setVerbose")
+		setForce := rapid.Bool().Draw(rt, "setForce")
+
+		var gotVerbose, gotForce bool
+
+		target := targ.Targ(func(args ShortBoolFlagsArgs) {
+			gotVerbose = args.Verbose
+			gotForce = args.Force
+		})
+
+		args := []string{"app"}
+		if setVerbose && setForce {
+			args = append(args, "-vf")
+		} else if setVerbose {
+			args = append(args, "-v")
+		} else if setForce {
+			args = append(args, "-f")
+		}
+
+		_, err := targ.Execute(args, target)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(gotVerbose).To(Equal(setVerbose))
+		g.Expect(gotForce).To(Equal(setForce))
 	})
-
-	_, err := targ.Execute([]string{"app", "-vf"}, target)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if !gotVerbose || !gotForce {
-		t.Fatalf("expected both flags set, got verbose=%v force=%v", gotVerbose, gotForce)
-	}
 }
 
 func TestShortFlagGroupsRejectValueFlags(t *testing.T) {
+	t.Parallel()
+
+	g := NewWithT(t)
+
 	target := targ.Targ(func(_ ShortMixedFlagsArgs) {})
 
 	_, err := targ.Execute([]string{"app", "-vn"}, target)
-	if err == nil {
-		t.Fatal("expected error for grouped short flag with value")
-	}
+	g.Expect(err).To(HaveOccurred())
 }
 
 func TestShortFlags(t *testing.T) {
-	var (
-		gotName string
-		gotAge  int
-	)
+	t.Parallel()
 
-	target := targ.Targ(func(args ShortFlagsArgs) {
-		gotName = args.Name
-		gotAge = args.Age
+	rapid.Check(t, func(rt *rapid.T) {
+		g := NewWithT(t)
+
+		name := rapid.StringMatching(`[A-Z][a-z]{2,10}`).Draw(rt, "name")
+		age := rapid.IntRange(0, 120).Draw(rt, "age")
+
+		var (
+			gotName string
+			gotAge  int
+		)
+
+		target := targ.Targ(func(args ShortFlagsArgs) {
+			gotName = args.Name
+			gotAge = args.Age
+		})
+
+		_, err := targ.Execute([]string{"app", "-n", name, "-a", strconv.Itoa(age)}, target)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(gotName).To(Equal(name))
+		g.Expect(gotAge).To(Equal(age))
 	})
-
-	_, err := targ.Execute([]string{"app", "-n", "Alice", "-a", "30"}, target)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if gotName != "Alice" {
-		t.Errorf("expected Name='Alice', got '%s'", gotName)
-	}
-
-	if gotAge != 30 {
-		t.Errorf("expected Age=30, got %d", gotAge)
-	}
 }
 
 func TestTagOptionsOverride(t *testing.T) {
-	// Note: This test now uses static tag attributes instead of a dynamic TagOptions method.
-	// The behavior is the same (--stage flag with short -s), just configured statically.
-	var gotMode string
+	t.Parallel()
 
-	target := targ.Targ(func(args TagOptionsOverrideArgs) {
-		gotMode = args.Mode
+	rapid.Check(t, func(rt *rapid.T) {
+		g := NewWithT(t)
+
+		mode := rapid.SampledFrom([]string{"dev", "prod"}).Draw(rt, "mode")
+
+		var gotMode string
+
+		target := targ.Targ(func(args TagOptionsOverrideArgs) {
+			gotMode = args.Mode
+		})
+
+		_, err := targ.Execute([]string{"app", "--stage", mode}, target)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(gotMode).To(Equal(mode))
 	})
+}
 
-	_, err := targ.Execute([]string{"app", "--stage", "alpha"}, target)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+func TestTagOptionsOverride_ShortFlag(t *testing.T) {
+	t.Parallel()
 
-	if gotMode != "alpha" {
-		t.Fatalf("expected mode=alpha, got %q", gotMode)
-	}
+	rapid.Check(t, func(rt *rapid.T) {
+		g := NewWithT(t)
+
+		mode := rapid.SampledFrom([]string{"dev", "prod"}).Draw(rt, "mode")
+
+		var gotMode string
+
+		target := targ.Targ(func(args TagOptionsOverrideArgs) {
+			gotMode = args.Mode
+		})
+
+		_, err := targ.Execute([]string{"app", "-s", mode}, target)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(gotMode).To(Equal(mode))
+	})
 }

@@ -1,5 +1,9 @@
 package core_test
 
+// LEGACY_TESTS: This file contains tests being evaluated for redundancy.
+// Property-based replacements are in *_properties_test.go files.
+// Do not add new tests here. See docs/test-migration.md for details.
+
 import (
 	"bytes"
 	"io"
@@ -35,6 +39,7 @@ type VariadicFlagCmdArgs struct {
 }
 
 func TestCompletion_BackslashInDoubleQuotes(t *testing.T) {
+	t.Parallel()
 	// Test backslash escape inside double quotes
 	target := core.Targ(func(_ EnumCmdArgs) {}).Name("enum-cmd")
 	out := captureCompletion(t, target, `app --mode "de\"`)
@@ -45,6 +50,8 @@ func TestCompletion_BackslashInDoubleQuotes(t *testing.T) {
 }
 
 func TestCompletion_CaretSuggestion(t *testing.T) {
+	t.Parallel()
+
 	flashOnly := core.Targ(func() {}).Name("flash-only")
 	firmware := core.Group("firmware", flashOnly)
 	discover := core.Targ(func() {}).Name("discover")
@@ -57,6 +64,8 @@ func TestCompletion_CaretSuggestion(t *testing.T) {
 }
 
 func TestCompletion_ChainedRootCommands(t *testing.T) {
+	t.Parallel()
+
 	flashOnly := core.Targ(func() {}).Name("flash-only")
 	firmware := core.Group("firmware", flashOnly)
 	discover := core.Targ(func() {}).Name("discover")
@@ -70,6 +79,7 @@ func TestCompletion_ChainedRootCommands(t *testing.T) {
 }
 
 func TestCompletion_EnumFlagFollowedByDash(t *testing.T) {
+	t.Parallel()
 	// Test case where after an enum flag, user is typing another flag (prefix starts with -)
 	// This should NOT suggest enum values since we're clearly typing a new flag
 	target := core.Targ(func(_ EnumCmdArgs) {}).Name("enum-cmd")
@@ -82,6 +92,7 @@ func TestCompletion_EnumFlagFollowedByDash(t *testing.T) {
 }
 
 func TestCompletion_EnumFlagFollowedByNonEnumArg(t *testing.T) {
+	t.Parallel()
 	// Test case where previous arg is not an enum flag (exercises final return nil)
 	target := core.Targ(func(_ EnumCmdArgs) {}).Name("enum-cmd")
 	out := captureCompletion(t, target, "app --mode dev notaflag ")
@@ -93,6 +104,7 @@ func TestCompletion_EnumFlagFollowedByNonEnumArg(t *testing.T) {
 }
 
 func TestCompletion_EscapedSpace(t *testing.T) {
+	t.Parallel()
 	// Test escaped space in argument
 	target := core.Targ(func(_ EnumCmdArgs) {}).Name("enum-cmd")
 	out := captureCompletion(t, target, `app --mode de\ `)
@@ -103,6 +115,8 @@ func TestCompletion_EscapedSpace(t *testing.T) {
 }
 
 func TestCompletion_FlagSuggestion(t *testing.T) {
+	t.Parallel()
+
 	target := core.Targ(func(_ EnumCmdArgs) {}).Name("enum-cmd")
 
 	out := captureCompletion(t, target, "app --")
@@ -112,6 +126,7 @@ func TestCompletion_FlagSuggestion(t *testing.T) {
 }
 
 func TestCompletion_MultiRootChainedRemaining(t *testing.T) {
+	t.Parallel()
 	// Test multi-root mode where remaining args DO match a root
 	// After firmware flash-only runs, "discover" matches a root so we chain to it
 	flashOnly := core.Targ(func() {}).Name("flash-only")
@@ -127,6 +142,7 @@ func TestCompletion_MultiRootChainedRemaining(t *testing.T) {
 }
 
 func TestCompletion_MultiRootUnknownRemaining(t *testing.T) {
+	t.Parallel()
 	// Test multi-root mode where remaining args don't match any root
 	// After firmware runs, "unknown" doesn't match any root so chain resolution stops
 	// But suggestions still happen for current context (flash-only's parent has subcommands)
@@ -149,6 +165,8 @@ func TestCompletion_MultiRootUnknownRemaining(t *testing.T) {
 }
 
 func TestCompletion_MultipleRootsAtRootLevel(t *testing.T) {
+	t.Parallel()
+
 	flashOnly := core.Targ(func() {}).Name("flash-only")
 	firmware := core.Group("firmware", flashOnly)
 	discover := core.Targ(func() {}).Name("discover")
@@ -161,6 +179,8 @@ func TestCompletion_MultipleRootsAtRootLevel(t *testing.T) {
 }
 
 func TestCompletion_MultipleRootsWithPrefix(t *testing.T) {
+	t.Parallel()
+
 	flashOnly := core.Targ(func() {}).Name("flash-only")
 	firmware := core.Group("firmware", flashOnly)
 	discover := core.Targ(func() {}).Name("discover")
@@ -173,6 +193,8 @@ func TestCompletion_MultipleRootsWithPrefix(t *testing.T) {
 }
 
 func TestCompletion_PartialRootMatchSuggestsMatchingRoots(t *testing.T) {
+	t.Parallel()
+
 	// "fir " (with trailing space) - doesn't match any root exactly but should suggest matching roots
 	flashOnly := core.Targ(func() {}).Name("flash-only")
 	firmware := core.Group("firmware", flashOnly)
@@ -188,6 +210,8 @@ func TestCompletion_PartialRootMatchSuggestsMatchingRoots(t *testing.T) {
 // Tests for tokenization edge cases
 
 func TestCompletion_QuotedArg(t *testing.T) {
+	t.Parallel()
+
 	// Test that quoted arguments are handled properly
 	target := core.Targ(func(_ EnumCmdArgs) {}).Name("enum-cmd")
 	out := captureCompletion(t, target, `app --mode "de`)
@@ -198,6 +222,8 @@ func TestCompletion_QuotedArg(t *testing.T) {
 }
 
 func TestCompletion_SingleQuotedArg(t *testing.T) {
+	t.Parallel()
+
 	// Test single quotes
 	target := core.Targ(func(_ EnumCmdArgs) {}).Name("enum-cmd")
 
@@ -208,6 +234,8 @@ func TestCompletion_SingleQuotedArg(t *testing.T) {
 }
 
 func TestCompletion_SingleRootAtRoot(t *testing.T) {
+	t.Parallel()
+
 	target := core.Targ(func(_ EnumCmdArgs) {}).Name("enum-cmd")
 
 	out := captureCompletion(t, target, "app ")
@@ -217,6 +245,8 @@ func TestCompletion_SingleRootAtRoot(t *testing.T) {
 }
 
 func TestCompletion_SingleRootWithRemaining(t *testing.T) {
+	t.Parallel()
+
 	// Test single root mode with subcommand followed by extra remaining args
 	// CompletionFirmwareRoot has FlashOnly subcommand; after that completes,
 	// "extra" triggers followRemaining in single-root mode
@@ -232,6 +262,8 @@ func TestCompletion_SingleRootWithRemaining(t *testing.T) {
 }
 
 func TestCompletion_SuggestsEnumValuesAfterFlag(t *testing.T) {
+	t.Parallel()
+
 	target := core.Targ(func(_ EnumCmdArgs) {}).Name("enum-cmd")
 
 	out := captureCompletion(t, target, "app --mode ")
@@ -241,6 +273,8 @@ func TestCompletion_SuggestsEnumValuesAfterFlag(t *testing.T) {
 }
 
 func TestCompletion_SuggestsEnumValuesAfterShortFlag(t *testing.T) {
+	t.Parallel()
+
 	target := core.Targ(func(_ EnumCmdArgs) {}).Name("enum-cmd")
 
 	out := captureCompletion(t, target, "app -m ")
@@ -250,6 +284,8 @@ func TestCompletion_SuggestsEnumValuesAfterShortFlag(t *testing.T) {
 }
 
 func TestCompletion_SuggestsPositionalValues(t *testing.T) {
+	t.Parallel()
+
 	// Simplified test - uses static enum instead of dynamic TagOptions
 	target := core.Targ(func(_ PositionalCompletionCmdArgs) {}).Name("pos-cmd")
 
@@ -261,6 +297,8 @@ func TestCompletion_SuggestsPositionalValues(t *testing.T) {
 }
 
 func TestCompletion_SuggestsRootsAfterCommand(t *testing.T) {
+	t.Parallel()
+
 	flashOnly := core.Targ(func() {}).Name("flash-only")
 	firmware := core.Group("firmware", flashOnly)
 	discover := core.Targ(func() {}).Name("discover")
@@ -273,6 +311,8 @@ func TestCompletion_SuggestsRootsAfterCommand(t *testing.T) {
 }
 
 func TestCompletion_TagOptionsOverride(t *testing.T) {
+	t.Parallel()
+
 	// Changed to use static enum (alpha|beta) since dynamic TagOptions is struct-only
 	target := core.Targ(func(_ EnumOverrideCmdArgs) {}).Name("enum-override-cmd")
 	out := captureCompletion(t, target, "app --mode ")
@@ -283,6 +323,8 @@ func TestCompletion_TagOptionsOverride(t *testing.T) {
 }
 
 func TestCompletion_UnknownRootPrefix(t *testing.T) {
+	t.Parallel()
+
 	flashOnly := core.Targ(func() {}).Name("flash-only")
 	firmware := core.Group("firmware", flashOnly)
 	discover := core.Targ(func() {}).Name("discover")
@@ -296,6 +338,8 @@ func TestCompletion_UnknownRootPrefix(t *testing.T) {
 }
 
 func TestCompletion_VariadicFlagSkipsMultipleValues(t *testing.T) {
+	t.Parallel()
+
 	target := core.Targ(func(_ VariadicFlagCmdArgs) {}).Name("variadic-cmd")
 	out := captureCompletion(t, target, "app --files a.txt b.txt ")
 	// Should suggest positional enum values after skipping variadic flag values
@@ -305,6 +349,8 @@ func TestCompletion_VariadicFlagSkipsMultipleValues(t *testing.T) {
 }
 
 func TestPrintCompletionScriptPlaceholders(t *testing.T) {
+	t.Parallel()
+
 	cases := []string{"bash", "zsh", "fish"}
 	for _, shell := range cases {
 		out := captureStdout(t, func() {
@@ -323,25 +369,24 @@ func TestPrintCompletionScriptPlaceholders(t *testing.T) {
 	}
 }
 
-// captureCompletion runs __complete with a single target and returns stdout.
+// captureCompletion runs completion with a single target and returns output.
 func captureCompletion(t *testing.T, target any, input string) string {
 	t.Helper()
 
 	return captureCompletionMulti(t, []any{target}, input)
 }
 
-// captureCompletionMulti runs __complete with multiple targets and returns stdout.
+// captureCompletionMulti runs completion with multiple targets and returns output.
 func captureCompletionMulti(t *testing.T, targets []any, input string) string {
 	t.Helper()
 
-	return captureStdout(t, func() {
-		args := []string{"app", "__complete", input}
+	var buf bytes.Buffer
+	err := core.DoCompletionTo(&buf, input, targets...)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
-		_, err := core.Execute(args, targets...)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-	})
+	return buf.String()
 }
 
 func captureStdout(t *testing.T, fn func()) string {

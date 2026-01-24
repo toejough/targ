@@ -1,6 +1,9 @@
 package core
 
-import "time"
+import (
+	"io"
+	"time"
+)
 
 // Exported constants.
 const (
@@ -54,6 +57,10 @@ type RunOptions struct {
 	// Overrides are runtime flags that override Target compile-time settings.
 	// Internal: populated by extracting --times, --watch, etc. from args.
 	Overrides RuntimeOverrides
+
+	// Stdout is the writer for help/usage output.
+	// Internal: set by the executor to the env's stdout.
+	Stdout io.Writer
 }
 
 // TagKind represents the type of a struct tag (flag, positional, subcommand).

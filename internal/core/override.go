@@ -291,6 +291,12 @@ func executeIteration(
 
 	err := fn()
 	if err == nil {
+		// Success - if retry is enabled, stop here (we succeeded)
+		// If retry is not enabled, continue to next iteration
+		if overrides.Retry {
+			return backoffDelay, false, nil
+		}
+
 		return backoffDelay, true, nil
 	}
 

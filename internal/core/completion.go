@@ -3,6 +3,7 @@ package core
 import (
 	"errors"
 	"fmt"
+	"io"
 	"reflect"
 	"strings"
 )
@@ -155,6 +156,7 @@ type completionFlagSpec struct {
 }
 
 type completionState struct {
+	w                   io.Writer
 	roots               []*commandNode
 	prefix              string
 	processedArgs       []string
@@ -269,21 +271,21 @@ func (s *completionState) resolveInitialRoot() bool {
 // suggestCommands suggests subcommands, siblings, and special tokens.
 func (s *completionState) suggestCommands() {
 	if s.singleRoot && s.atRoot {
-		printIfPrefix(s.currentNode.Name, s.prefix)
+		printIfPrefix(s.w, s.currentNode.Name, s.prefix)
 	}
 
 	for name := range s.currentNode.Subcommands {
-		printIfPrefix(name, s.prefix)
+		printIfPrefix(s.w, name, s.prefix)
 	}
 
 	if s.currentNode.Parent != nil {
 		for name := range s.currentNode.Parent.Subcommands {
-			printIfPrefix(name, s.prefix)
+			printIfPrefix(s.w, name, s.prefix)
 		}
 	}
 
 	if !s.atRoot {
-		printIfPrefix("^", s.prefix)
+		printIfPrefix(s.w, "^", s.prefix)
 	}
 }
 
@@ -320,7 +322,7 @@ func (s *completionState) suggestEnumValues() (bool, error) {
 	}
 
 	for _, value := range values {
-		printIfPrefix(value, s.prefix)
+		printIfPrefix(s.w, value, s.prefix)
 	}
 
 	return true, nil
@@ -332,13 +334,13 @@ func (s *completionState) suggestFlagsIfNeeded() error {
 		return nil
 	}
 
-	return suggestFlags(s.chain, s.prefix, s.atRoot)
+	return suggestFlags(s.w, s.chain, s.prefix, s.atRoot)
 }
 
 // suggestMatchingRoots suggests roots that match a partial prefix.
 func (s *completionState) suggestMatchingRoots(partial string) {
 	for _, r := range s.roots {
-		printIfPrefix(r.Name, partial)
+		printIfPrefix(s.w, r.Name, partial)
 	}
 }
 
@@ -363,7 +365,7 @@ func (s *completionState) suggestPositionalEnums() (bool, error) {
 	}
 
 	for value := range strings.SplitSeq(fields[posIndex].Opts.Enum, "|") {
-		printIfPrefix(value, s.prefix)
+		printIfPrefix(s.w, value, s.prefix)
 	}
 
 	return true, nil
@@ -393,15 +395,15 @@ func (s *completionState) suggestPositionalEnumsOrRoots() error {
 // suggestRootsAndFlags suggests all roots and targ flags at root level.
 func (s *completionState) suggestRootsAndFlags() {
 	for _, r := range s.roots {
-		printIfPrefix(r.Name, s.prefix)
+		printIfPrefix(s.w, r.Name, s.prefix)
 	}
 
 	for _, opt := range targGlobalFlags() {
-		printIfPrefix(opt, s.prefix)
+		printIfPrefix(s.w, opt, s.prefix)
 	}
 
 	for _, opt := range targRootOnlyFlags() {
-		printIfPrefix(opt, s.prefix)
+		printIfPrefix(s.w, opt, s.prefix)
 	}
 }
 
@@ -412,7 +414,7 @@ func (s *completionState) suggestRootsIfAllowed() {
 	}
 
 	for _, root := range s.roots {
-		printIfPrefix(root.Name, s.prefix)
+		printIfPrefix(s.w, root.Name, s.prefix)
 	}
 }
 
@@ -674,8 +676,8 @@ func completionParse(
 	return chain, result, err
 }
 
-func doCompletion(roots []*commandNode, commandLine string) error {
-	state, done := prepareCompletionState(roots, commandLine)
+func doCompletion(w io.Writer, roots []*commandNode, commandLine string) error {
+	state, done := prepareCompletionState(w, roots, commandLine)
 	if done || state == nil {
 		return nil
 	}
@@ -687,6 +689,23 @@ func doCompletion(roots []*commandNode, commandLine string) error {
 	state.resolveCommandChain()
 
 	return state.suggestCompletions()
+}
+
+// DoCompletionTo runs completion for the given targets and writes output to w.
+// This is useful for testing completion without capturing stdout.
+func DoCompletionTo(w io.Writer, commandLine string, targets ...any) error {
+	roots := make([]*commandNode, 0, len(targets))
+
+	for _, t := range targets {
+		node, err := parseTarget(t)
+		if err != nil {
+			return err
+		}
+
+		roots = append(roots, node)
+	}
+
+	return doCompletion(w, roots, commandLine)
 }
 
 func enumValuesForArg(
@@ -844,7 +863,7 @@ func positionalIndex(_ *commandNode, args []string, chain []commandInstance) (in
 }
 
 // prepareCompletionState initializes completion state from command line.
-func prepareCompletionState(roots []*commandNode, commandLine string) (*completionState, bool) {
+func prepareCompletionState(w io.Writer, roots []*commandNode, commandLine string) (*completionState, bool) {
 	parts, isNewArg := tokenizeCommandLine(commandLine)
 	if len(parts) == 0 {
 		return nil, true
@@ -856,6 +875,7 @@ func prepareCompletionState(roots []*commandNode, commandLine string) (*completi
 	processedArgs = skipTargFlags(processedArgs)
 
 	return &completionState{
+		w:                 w,
 		roots:             roots,
 		prefix:            prefix,
 		processedArgs:     processedArgs,
@@ -867,9 +887,9 @@ func prepareCompletionState(roots []*commandNode, commandLine string) (*completi
 }
 
 // printIfPrefix prints name if it has the given prefix.
-func printIfPrefix(name, prefix string) {
+func printIfPrefix(w io.Writer, name, prefix string) {
 	if strings.HasPrefix(name, prefix) {
-		fmt.Println(name)
+		_, _ = fmt.Fprintln(w, name)
 	}
 }
 
@@ -914,9 +934,9 @@ func skipTargFlags(args []string) []string {
 }
 
 // suggestCommandFlags suggests flags from command chain fields.
-func suggestCommandFlags(chain []commandInstance, prefix string, seen map[string]bool) error {
+func suggestCommandFlags(w io.Writer, chain []commandInstance, prefix string, seen map[string]bool) error {
 	for _, current := range chain {
-		err := suggestInstanceFlags(current, prefix, seen)
+		err := suggestInstanceFlags(w, current, prefix, seen)
 		if err != nil {
 			return err
 		}
@@ -927,6 +947,7 @@ func suggestCommandFlags(chain []commandInstance, prefix string, seen map[string
 
 // suggestFieldFlags suggests the long and short flags for a field.
 func suggestFieldFlags(
+	w io.Writer,
 	current commandInstance,
 	field reflect.StructField,
 	prefix string,
@@ -941,53 +962,53 @@ func suggestFieldFlags(
 		return nil
 	}
 
-	suggestFlag("--"+opts.Name, prefix, seen)
+	suggestFlag(w, "--"+opts.Name, prefix, seen)
 
 	if opts.Short != "" {
-		suggestFlag("-"+opts.Short, prefix, seen)
+		suggestFlag(w, "-"+opts.Short, prefix, seen)
 	}
 
 	return nil
 }
 
 // suggestFlag prints a single flag if it matches prefix and hasn't been seen.
-func suggestFlag(flag, prefix string, seen map[string]bool) {
+func suggestFlag(w io.Writer, flag, prefix string, seen map[string]bool) {
 	if strings.HasPrefix(flag, prefix) && !seen[flag] {
-		fmt.Println(flag)
+		_, _ = fmt.Fprintln(w, flag)
 		seen[flag] = true
 	}
 }
 
-func suggestFlags(chain []commandInstance, prefix string, atRoot bool) error {
+func suggestFlags(w io.Writer, chain []commandInstance, prefix string, atRoot bool) error {
 	if len(chain) == 0 {
 		return nil
 	}
 
 	seen := map[string]bool{}
 
-	err := suggestCommandFlags(chain, prefix, seen)
+	err := suggestCommandFlags(w, chain, prefix, seen)
 	if err != nil {
 		return err
 	}
 
-	suggestMatchingFlags(targGlobalFlags(), prefix, seen)
+	suggestMatchingFlags(w, targGlobalFlags(), prefix, seen)
 
 	if atRoot {
-		suggestMatchingFlags(targRootOnlyFlags(), prefix, seen)
+		suggestMatchingFlags(w, targRootOnlyFlags(), prefix, seen)
 	}
 
 	return nil
 }
 
 // suggestInstanceFlags suggests flags from a single command instance.
-func suggestInstanceFlags(current commandInstance, prefix string, seen map[string]bool) error {
+func suggestInstanceFlags(w io.Writer, current commandInstance, prefix string, seen map[string]bool) error {
 	if current.node == nil || current.node.Type == nil {
 		return nil
 	}
 
 	typ := current.node.Type
 	for i := range typ.NumField() {
-		err := suggestFieldFlags(current, typ.Field(i), prefix, seen)
+		err := suggestFieldFlags(w, current, typ.Field(i), prefix, seen)
 		if err != nil {
 			return err
 		}
@@ -997,9 +1018,9 @@ func suggestInstanceFlags(current commandInstance, prefix string, seen map[strin
 }
 
 // suggestMatchingFlags prints flags that match the prefix.
-func suggestMatchingFlags(flags []string, prefix string, seen map[string]bool) {
+func suggestMatchingFlags(w io.Writer, flags []string, prefix string, seen map[string]bool) {
 	for _, flag := range flags {
-		suggestFlag(flag, prefix, seen)
+		suggestFlag(w, flag, prefix, seen)
 	}
 }
 
