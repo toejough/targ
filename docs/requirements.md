@@ -240,13 +240,11 @@ Verified 2026-01-23.
 | Transform | ✅ | Users edit source (by design) |
 | Manage Dependencies | ✅ | Users edit source (by design) |
 | Sync (remote) | ✅ | `--sync` |
-| Inspect: Where | ⚠️ Gap | Source location not in `--help` |
+| Inspect: Where | ✅ | `Source: path:line` in `--help` |
 | Inspect: Tree | ✅ | Group shows hierarchy |
-| Inspect: Deps | ⚠️ Gap | Deps not shown in `--help` |
+| Inspect: Deps | ✅ | `Execution:` section in `--help` |
 | Shell Integration | ✅ | `--completion` for bash/zsh/fish |
 
 ### Gaps Summary
 
 1. **Glob patterns in paths** - `targ dev *` and `targ **` not supported
-2. **Inspect: Where** - Target `--help` doesn't show source file location
-3. **Inspect: Deps** - Target `--help` doesn't show configured dependencies/execution info

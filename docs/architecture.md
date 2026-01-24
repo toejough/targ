@@ -285,17 +285,6 @@ Calling the raw function (`Build(ctx)`) skips all execution config. Use `.Run()`
 
 Dependencies run exactly once per execution context. If multiple targets share a dep, it runs once.
 
-**Resetting deps for watch/repeat**: Call `targ.ResetDeps()` in your function to clear the dep cache, allowing deps to re-run on each watch or repeat iteration:
-
-```go
-func Dev(ctx context.Context) error {
-    targ.ResetDeps()  // deps will re-run each iteration
-    return targ.Deps(Build, Test, Lint)
-}
-```
-
-Without `ResetDeps()`, deps only run on the first iteration.
-
 ### Runtime Overrides
 
 Users can override execution settings via CLI flags:
@@ -741,7 +730,6 @@ Verified 2026-01-23.
 | `.Name()` | ✅ | `internal/core/target.go` |
 | `.Description()` | ✅ | `internal/core/target.go` |
 | `targ.Disabled` | ✅ | `internal/core/target.go` |
-| `targ.ResetDeps()` | ✅ | `internal/core/deps.go` |
 | `targ.Shell()` | ✅ | `internal/core/shell.go` |
 | `targ.WatchAndRun()` | N/A | Use `file.Watch()` directly |
 

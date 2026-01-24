@@ -232,6 +232,51 @@ Configure struct fields with `targ:"..."` tags:
 
 Combine with commas: `targ:"positional,required,enum=dev|prod"`
 
+### Map Args
+
+Use `map[K]V` fields for key=value syntax:
+
+```go
+type DeployArgs struct {
+    Labels map[string]string `targ:"flag,desc=Key-value labels"`
+    Ports  map[string]int    `targ:"flag,desc=Service ports"`
+}
+
+func deploy(args DeployArgs) error {
+    for k, v := range args.Labels {
+        fmt.Printf("Label: %s=%s\n", k, v)
+    }
+    return nil
+}
+```
+
+```bash
+targ deploy --labels env=prod --labels app=web --ports http=8080
+```
+
+### Embedded Structs
+
+Share common flags across targets by embedding structs:
+
+```go
+type CommonFlags struct {
+    Verbose bool   `targ:"flag,short=v"`
+    Output  string `targ:"flag,short=o,default=stdout"`
+}
+
+type BuildArgs struct {
+    CommonFlags          // Embedded - flags inherited
+    Package string `targ:"positional"`
+}
+
+type TestArgs struct {
+    CommonFlags          // Same flags available
+    Cover bool `targ:"flag"`
+}
+```
+
+Both targets get `-v/--verbose` and `-o/--output` flags.
+
 ## Groups
 
 Use `targ.Group` to organize targets into nested hierarchies:
@@ -346,7 +391,6 @@ React to file changes:
 ```go
 func watch(ctx context.Context) error {
     return targ.Watch(ctx, []string{"**/*.go"}, targ.WatchOptions{}, func(_ targ.ChangeSet) error {
-        targ.ResetDeps()  // clear dep cache so targets run again
         return targ.RunContext(ctx, "go", "test", "./...")
     })
 }
@@ -435,15 +479,11 @@ func build() error {
 ### CI Pipeline
 
 ```go
-func ci() error {
-    if err := targ.Deps(generate); err != nil {
-        return err
-    }
-    if err := targ.Deps(build, lint, targ.Parallel()); err != nil {
-        return err
-    }
-    return targ.Deps(test)
-}
+// Define CI as a deps-only target that runs everything
+var CI = targ.Targ().Name("ci").Deps(Generate, Build, Lint, Test)
+
+// Or with parallel execution for independent targets:
+var CI = targ.Targ().Name("ci").Deps(Generate, Build, Lint, Test, targ.DepModeParallel)
 ```
 
 ### Testing Commands
@@ -480,6 +520,20 @@ func init() {
 
 ```bash
 targ cat file1.txt file2.txt file3.txt
+```
+
+### Repeated Flags
+
+Use slice types to accept multiple values for the same flag:
+
+```go
+type BuildArgs struct {
+    Tags []string `targ:"flag,short=t,desc=Build tags"`
+}
+```
+
+```bash
+targ build -t integration -t linux  # Tags: ["integration", "linux"]
 ```
 
 ### Ordered Repeated Flags
@@ -539,6 +593,10 @@ targ filter -i "*.go" -e "vendor/*" -i "*.md"
 | `--keep`                    | Keep generated bootstrap file for inspection |
 | `--create NAME [CMD]`       | Create a new target (function or shell)      |
 | `--completion [bash\|zsh\|fish]` | Print shell completion script           |
+| `--sync PACKAGE`            | Import targets from a remote Go module       |
+| `--to-func NAME`            | Convert string target to function            |
+| `--to-string NAME`          | Convert function target to string command    |
+| `--source PATH`             | Specify targ file location                   |
 
 ### Quick Target Scaffolding
 
@@ -552,6 +610,30 @@ targ --create test --cache="**/*.go"   # with caching
 ```
 
 Kebab-case names are converted to PascalCase (`run-tests` → `RunTests`).
+
+### Remote Targets
+
+Import targets from other Go modules with `--sync`:
+
+```bash
+targ --sync github.com/company/shared-targets
+```
+
+This generates a targ file that imports and registers the remote module's exported targets:
+
+```go
+//go:build targ
+
+package main
+
+import "github.com/company/shared-targets"
+
+func init() {
+    targ.Register(targets.Build, targets.Lint, targets.Test)
+}
+```
+
+Re-running `--sync` updates the module version (like `go get -u`).
 
 ## Cache Management
 
