@@ -138,18 +138,19 @@ targ test ./cmd/... --cover
 Ready to ship? Remove the build tag and switch to main:
 
 ```go
-package main
+package main // Changed: package main instead of package dev
 
 import "github.com/toejough/targ"
 
-func main() {
+func main() { // Changed: main() with targ.Main instead of init() with targ.Register
     targ.Main(
         targ.Targ(build).Description("Compile the project"),
         targ.Targ(test).Description("Run tests"),
     )
 }
 
-// ... same function definitions as Stage 2
+// Unchanged: same BuildArgs, TestArgs structs with same targ tags
+// Unchanged: same build() and test() function implementations
 ```
 
 ```bash
@@ -158,25 +159,9 @@ go build -o mytool .
 ./mytool test --cover
 ```
 
-### Multi-Directory Layout
+## Execution Control
 
-In build tool mode, discovery is recursive. Commands are namespaced by earliest unique path:
-
-```text
-repo/
-  tools/
-    issues/
-      targets.go      # //go:build targ → targ issues <cmd>
-    deploy/
-      staging.go      # //go:build targ → targ deploy staging <cmd>
-      prod.go         # //go:build targ → targ deploy prod <cmd>
-```
-
-If only one tagged file exists, commands appear at the root (no namespace prefix).
-
-## Target Builder
-
-Configure targets with builder methods:
+Builder methods control how targets execute - caching, retries, timeouts, and file watching:
 
 ```go
 var Build = targ.Targ(build).
@@ -227,7 +212,7 @@ Combine with commas: `targ:"positional,required,enum=dev|prod"`
 
 ## Groups
 
-Use `targ.NewGroup` to organize targets into named groups:
+Use `targ.Group` to organize targets into named groups:
 
 ```go
 func init() {
@@ -243,7 +228,7 @@ func init() {
         fmt.Printf("%d\n", args.A*args.B)
     }).Name("multiply")
 
-    targ.Register(targ.NewGroup("math", add, multiply))
+    targ.Register(targ.Group("math", add, multiply))
 }
 ```
 

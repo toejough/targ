@@ -140,7 +140,7 @@ func TestRunWithEnv_FunctionReturnsError(t *testing.T) {
 func TestRunWithEnv_FunctionSubcommand(t *testing.T) {
 	called := false
 	helloTarget := core.Targ(func() { called = true }).Name("hello")
-	root := core.NewGroup("root", helloTarget)
+	root := core.Group("root", helloTarget)
 
 	_, err := core.Execute([]string{"cmd", "hello"}, root)
 	if err != nil {
@@ -438,7 +438,7 @@ func TestRunWithEnv_GlobalHelpWithArgsMultiRoot(t *testing.T) {
 
 func TestRunWithEnv_GroupUnknownSubcommand(t *testing.T) {
 	helloTarget := core.Targ(func() {}).Name("hello")
-	root := core.NewGroup("root", helloTarget)
+	root := core.Group("root", helloTarget)
 
 	// Call group with unknown subcommand - should error
 	_, err := core.Execute([]string{"cmd", "unknown"}, root)
@@ -449,7 +449,7 @@ func TestRunWithEnv_GroupUnknownSubcommand(t *testing.T) {
 
 func TestRunWithEnv_GroupWithNoSubcommand(t *testing.T) {
 	helloTarget := core.Targ(func() {}).Name("hello")
-	root := core.NewGroup("root", helloTarget)
+	root := core.Group("root", helloTarget)
 
 	// Call group with no subcommand - should show help (no error)
 	_, err := core.Execute([]string{"cmd"}, root)
@@ -699,16 +699,16 @@ func discoverTarget() *core.Target {
 	return core.Targ(func() { multiRootDiscoverCalls++ }).Name("discover")
 }
 
-func firmwareGroup() *core.Group {
-	return core.NewGroup("firmware", flashOnlyTarget())
+func firmwareGroup() *core.TargetGroup {
+	return core.Group("firmware", flashOnlyTarget())
 }
 
 func flashOnlyTarget() *core.Target {
 	return core.Targ(func() { multiRootFlashCalls++ }).Name("flash-only")
 }
 
-func multiSubRootGroup() *core.Group {
-	return core.NewGroup("multi-sub-root", oneTarget(), twoTarget())
+func multiSubRootGroup() *core.TargetGroup {
+	return core.Group("multi-sub-root", oneTarget(), twoTarget())
 }
 
 // Helper functions to create targets for tests

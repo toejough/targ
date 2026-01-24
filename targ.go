@@ -51,18 +51,6 @@ type ExecuteResult = core.ExecuteResult
 // ExitError represents a non-zero exit code from command execution.
 type ExitError = core.ExitError
 
-// Group represents a named collection of targets that can be run together.
-type Group = core.Group
-
-// NewGroup creates a named group containing the given members.
-// Members can be *Target or *Group (for nested hierarchies).
-//
-//	var lint = targ.NewGroup("lint", lintFast, lintFull)
-//	var dev = targ.NewGroup("dev", build, lint, test)
-func NewGroup(name string, members ...any) *Group {
-	return core.NewGroup(name, members...)
-}
-
 // Interleaved wraps a value to be parsed from interleaved positional arguments.
 type Interleaved[T any] = core.Interleaved[T]
 
@@ -77,6 +65,9 @@ type TagOptions = core.TagOptions
 
 // Target represents a build target that can be invoked from the CLI.
 type Target = core.Target
+
+// TargetGroup represents a named collection of targets that can be run together.
+type TargetGroup = core.TargetGroup
 
 // WatchOptions configures file watching behavior.
 type WatchOptions = internalfile.WatchOptions
@@ -158,6 +149,15 @@ func ExecuteWithOptions(
 	targets ...any,
 ) (ExecuteResult, error) {
 	return core.ExecuteWithOptions(args, opts, targets...)
+}
+
+// Group creates a named group containing the given members.
+// Members can be *Target or *Group (for nested hierarchies).
+//
+//	var lint = targ.Group("lint", lintFast, lintFull)
+//	var dev = targ.Group("dev", build, lint, test)
+func Group(name string, members ...any) *TargetGroup {
+	return core.Group(name, members...)
 }
 
 // IsWindows reports whether the current OS is Windows.

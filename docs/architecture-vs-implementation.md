@@ -149,8 +149,8 @@ var Dev = targ.Group("dev", format, build, Lint)
 ### Current Implementation
 
 ```go
-// Groups defined with targ.NewGroup
-var Math = targ.NewGroup("math", Add, Multiply)
+// Groups defined with targ.Group
+var Math = targ.Group("math", Add, Multiply)
 
 var Add = targ.Targ(add).Name("add")
 var Multiply = targ.Targ(multiply).Name("multiply")
@@ -162,7 +162,7 @@ var Multiply = targ.Targ(multiply).Name("multiply")
 
 | Feature             | Architecture              | Current                   | Status       |
 | ------------------- | ------------------------- | ------------------------- | ------------ |
-| Group definition    | `targ.Group("name", ...)` | `targ.NewGroup("name",..)`| IMPLEMENTED  |
+| Group definition    | `targ.Group("name", ...)` | `targ.Group("name",..)`| IMPLEMENTED  |
 | Group executability | Non-executable            | Non-executable            | IMPLEMENTED  |
 | Naming              | Explicit string           | Explicit string           | IMPLEMENTED  |
 | Nesting             | Via `*Group` members      | Via `*Group` members      | IMPLEMENTED  |

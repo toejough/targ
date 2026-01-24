@@ -145,8 +145,8 @@ package build
 import "github.com/toejough/targ"
 
 var DevLintSlow = targ.Targ("golangci-lint run").Name("slow")
-var DevLint = targ.NewGroup("lint", DevLintSlow)
-var Dev = targ.NewGroup("dev", DevLint)
+var DevLint = targ.Group("lint", DevLintSlow)
+var Dev = targ.Group("dev", DevLint)
 `
 
 	err := os.WriteFile(targFile, []byte(initial), 0o644)
@@ -177,13 +177,13 @@ var Dev = targ.NewGroup("dev", DevLint)
 	// DevLint group should now contain both targets
 	if !strings.Contains(
 		contentStr,
-		`var DevLint = targ.NewGroup("lint", DevLintSlow, DevLintFast)`,
+		`var DevLint = targ.Group("lint", DevLintSlow, DevLintFast)`,
 	) {
 		t.Errorf("expected DevLint group to contain both targets, got:\n%s", contentStr)
 	}
 
 	// Dev group should remain unchanged (still contains DevLint)
-	if !strings.Contains(contentStr, `var Dev = targ.NewGroup("dev", DevLint)`) {
+	if !strings.Contains(contentStr, `var Dev = targ.Group("dev", DevLint)`) {
 		t.Errorf("expected Dev group unchanged, got:\n%s", contentStr)
 	}
 
@@ -205,7 +205,7 @@ package build
 import "github.com/toejough/targ"
 
 var DevBuild = targ.Targ("go build").Name("build")
-var Dev = targ.NewGroup("dev", DevBuild)
+var Dev = targ.Group("dev", DevBuild)
 `
 
 	err := os.WriteFile(targFile, []byte(initial), 0o644)
@@ -234,12 +234,12 @@ var Dev = targ.NewGroup("dev", DevBuild)
 	}
 
 	// Should have new DevLint group (didn't exist before)
-	if !strings.Contains(contentStr, `var DevLint = targ.NewGroup("lint", DevLintFast)`) {
+	if !strings.Contains(contentStr, `var DevLint = targ.Group("lint", DevLintFast)`) {
 		t.Errorf("expected new DevLint group, got:\n%s", contentStr)
 	}
 
 	// Dev group should now contain both DevBuild and DevLint
-	if !strings.Contains(contentStr, `var Dev = targ.NewGroup("dev", DevBuild, DevLint)`) {
+	if !strings.Contains(contentStr, `var Dev = targ.Group("dev", DevBuild, DevLint)`) {
 		t.Errorf("expected Dev group to contain both members, got:\n%s", contentStr)
 	}
 }
@@ -335,11 +335,11 @@ func TestAddTargetToFileWithOptions_WithPath(t *testing.T) {
 	}
 
 	// Should have groups
-	if !strings.Contains(contentStr, `var DevLint = targ.NewGroup("lint", DevLintFast)`) {
+	if !strings.Contains(contentStr, `var DevLint = targ.Group("lint", DevLintFast)`) {
 		t.Errorf("expected DevLint group, got:\n%s", contentStr)
 	}
 
-	if !strings.Contains(contentStr, `var Dev = targ.NewGroup("dev", DevLint)`) {
+	if !strings.Contains(contentStr, `var Dev = targ.Group("dev", DevLint)`) {
 		t.Errorf("expected Dev group, got:\n%s", contentStr)
 	}
 }
@@ -548,24 +548,24 @@ var Build = targ.Targ("go build").Name("build")
 }
 
 func TestCreateGroupMemberPatch(t *testing.T) {
-	content := `var DevLint = targ.NewGroup("lint", DevLintSlow)`
+	content := `var DevLint = targ.Group("lint", DevLintSlow)`
 
 	patch := runner.CreateGroupMemberPatch(content, "DevLint", "DevLintFast")
 	if patch == nil {
 		t.Fatal("expected patch, got nil")
 	}
 
-	if patch.Old != `var DevLint = targ.NewGroup("lint", DevLintSlow)` {
+	if patch.Old != `var DevLint = targ.Group("lint", DevLintSlow)` {
 		t.Errorf("unexpected Old: %q", patch.Old)
 	}
 
-	if patch.New != `var DevLint = targ.NewGroup("lint", DevLintSlow, DevLintFast)` {
+	if patch.New != `var DevLint = targ.Group("lint", DevLintSlow, DevLintFast)` {
 		t.Errorf("unexpected New: %q", patch.New)
 	}
 }
 
 func TestCreateGroupMemberPatch_AlreadyExists(t *testing.T) {
-	content := `var DevLint = targ.NewGroup("lint", DevLintSlow, DevLintFast)`
+	content := `var DevLint = targ.Group("lint", DevLintSlow, DevLintFast)`
 
 	patch := runner.CreateGroupMemberPatch(content, "DevLint", "DevLintFast")
 	if patch != nil {

@@ -14,8 +14,8 @@ func TestGroup_AcceptsMixedMembers(t *testing.T) {
 	g := NewWithT(t)
 
 	target := targ.Targ(func() {})
-	inner := targ.NewGroup("inner", targ.Targ(func() {}))
-	outer := targ.NewGroup("outer", target, inner)
+	inner := targ.Group("inner", targ.Targ(func() {}))
+	outer := targ.Group("outer", target, inner)
 
 	g.Expect(outer.GetMembers()).To(HaveLen(2))
 }
@@ -24,8 +24,8 @@ func TestGroup_AcceptsNestedGroups(t *testing.T) {
 	g := NewWithT(t)
 
 	target := targ.Targ(func() {})
-	inner := targ.NewGroup("inner", target)
-	outer := targ.NewGroup("outer", inner)
+	inner := targ.Group("inner", target)
+	outer := targ.Group("outer", inner)
 
 	g.Expect(outer.GetMembers()).To(HaveLen(1))
 	g.Expect(outer.GetMembers()[0]).To(Equal(inner))
@@ -37,7 +37,7 @@ func TestGroup_AcceptsTargetMembers(t *testing.T) {
 	target1 := targ.Targ(func() {})
 	target2 := targ.Targ(func() {})
 
-	group := targ.NewGroup("test", target1, target2)
+	group := targ.Group("test", target1, target2)
 
 	g.Expect(group.GetMembers()).To(HaveLen(2))
 	g.Expect(group.GetMembers()[0]).To(Equal(target1))
@@ -50,7 +50,7 @@ func TestGroup_AcceptsValidName(t *testing.T) {
 
 		// Generate a valid group name (lowercase, starts with letter)
 		name := rapid.StringMatching(`[a-z][a-z0-9-]{0,10}`).Draw(rt, "name")
-		group := targ.NewGroup(name)
+		group := targ.Group(name)
 
 		g.Expect(group).NotTo(BeNil())
 		g.Expect(group.GetName()).To(Equal(name))
@@ -68,19 +68,19 @@ func TestGroup_DeepNesting(t *testing.T) {
 
 		for i := range depth {
 			name := fmt.Sprintf("g%d", i)
-			current = targ.NewGroup(name, current)
+			current = targ.Group(name, current)
 		}
 
 		// Verify we can traverse to the bottom
-		group, ok := current.(*targ.Group)
-		g.Expect(ok).To(BeTrue(), "expected *targ.Group")
+		group, ok := current.(*targ.TargetGroup)
+		g.Expect(ok).To(BeTrue(), "expected *targ.TargetGroup")
 
 		for range depth - 1 {
 			members := group.GetMembers()
 			g.Expect(members).To(HaveLen(1))
 
-			group, ok = members[0].(*targ.Group)
-			g.Expect(ok).To(BeTrue(), "expected *targ.Group")
+			group, ok = members[0].(*targ.TargetGroup)
+			g.Expect(ok).To(BeTrue(), "expected *targ.TargetGroup")
 		}
 
 		// Final level should have the target
@@ -95,7 +95,7 @@ func TestGroup_PanicsOnEmptyName(t *testing.T) {
 	g := NewWithT(t)
 
 	g.Expect(func() {
-		targ.NewGroup("")
+		targ.Group("")
 	}).To(Panic())
 }
 
@@ -103,15 +103,15 @@ func TestGroup_PanicsOnInvalidMemberType(t *testing.T) {
 	g := NewWithT(t)
 
 	g.Expect(func() {
-		targ.NewGroup("test", "not a target")
+		targ.Group("test", "not a target")
 	}).To(Panic())
 
 	g.Expect(func() {
-		targ.NewGroup("test", 42)
+		targ.Group("test", 42)
 	}).To(Panic())
 
 	g.Expect(func() {
-		targ.NewGroup("test", func() {}) // raw func, not *Target
+		targ.Group("test", func() {}) // raw func, not *Target
 	}).To(Panic())
 }
 
@@ -132,7 +132,7 @@ func TestGroup_PanicsOnInvalidName(t *testing.T) {
 			}
 
 			g.Expect(func() {
-				targ.NewGroup(name)
+				targ.Group(name)
 			}).To(Panic(), fmt.Sprintf("name %q should be invalid", name))
 		}
 	})

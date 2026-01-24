@@ -14,7 +14,7 @@ func main() {
 //nolint:gochecknoinits // init required for targ.Register pattern - targets must register before main runs
 func init() {
 	targ.Register(
-		targ.NewGroup("build",
+		targ.Group("build",
 			targ.Targ(buildDocker).Name("docker").Description("Build Docker image"),
 			targ.Targ(buildLinux).Name("linux").Description("Build Linux binary"),
 		),

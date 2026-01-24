@@ -310,11 +310,11 @@ func ConvertStringTargetToFunc(filePath, targetName string) (bool, error) {
 // CreateGroupMemberPatch creates a patch to add a new member to an existing group.
 // Returns nil if the member already exists in the group.
 func CreateGroupMemberPatch(content, groupVarName, newMember string) *ContentPatch {
-	// Find the group declaration: var GroupName = targ.NewGroup("name", member1, member2)
+	// Find the group declaration: var GroupName = targ.Group("name", member1, member2)
 	// We need to add newMember before the closing parenthesis
 
 	// Find the start of the group declaration
-	pattern := fmt.Sprintf("var %s = targ.NewGroup(", groupVarName)
+	pattern := fmt.Sprintf("var %s = targ.Group(", groupVarName)
 
 	startIdx := strings.Index(content, pattern)
 	if startIdx == -1 {
@@ -2505,7 +2505,7 @@ func generateGroupModifications(
 			continue
 		}
 
-		newCode.WriteString(fmt.Sprintf("var %s = targ.NewGroup(%q, %s)\n",
+		newCode.WriteString(fmt.Sprintf("var %s = targ.Group(%q, %s)\n",
 			groupVarName, groupName, childVarName))
 		childVarName = groupVarName
 	}

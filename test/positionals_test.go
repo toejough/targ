@@ -66,7 +66,7 @@ func TestEmbeddedFlags_SharedAcrossTargets(t *testing.T) {
 		gotName = args.Name
 	}).Name("child")
 
-	group := targ.NewGroup("parent", child)
+	group := targ.Group("parent", child)
 
 	_, err := targ.Execute([]string{"app", "child", "--verbose", "--name", "ok"}, group)
 	if err != nil {
@@ -87,7 +87,7 @@ func TestGroup_CustomNameRouting(t *testing.T) {
 
 	sub := targ.Targ(func() { called = "sub" }).Name("sub")
 	custom := targ.Targ(func() { called = "custom" }).Name("custom")
-	group := targ.NewGroup("parent", sub, custom)
+	group := targ.Group("parent", sub, custom)
 
 	_, err := targ.Execute([]string{"app", "custom"}, group)
 	if err != nil {
@@ -106,7 +106,7 @@ func TestGroup_SubcommandRouting(t *testing.T) {
 
 	sub := targ.Targ(func() { called = "sub" }).Name("sub")
 	custom := targ.Targ(func() { called = "custom" }).Name("custom")
-	group := targ.NewGroup("parent", sub, custom)
+	group := targ.Group("parent", sub, custom)
 
 	_, err := targ.Execute([]string{"app", "sub"}, group)
 	if err != nil {

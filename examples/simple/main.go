@@ -15,7 +15,7 @@ func main() {
 func init() {
 	targ.Register(
 		targ.Targ(greet).Name("greet"),
-		targ.NewGroup("math",
+		targ.Group("math",
 			targ.Targ(add).Name("add"),
 			targ.Targ(mathRun).Name("run"),
 		),

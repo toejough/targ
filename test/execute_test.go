@@ -161,7 +161,7 @@ func TestExecute_UnknownCommand(t *testing.T) {
 func TestGroup_AsNamedRoot(t *testing.T) {
 	called := false
 	sub := targ.Targ(func() { called = true }).Name("sub")
-	group := targ.NewGroup("grp", sub)
+	group := targ.Group("grp", sub)
 	other := targ.Targ(func() {}).Name("other")
 
 	// Group as one of multiple roots - need to specify group name
@@ -180,7 +180,7 @@ func TestGroup_MultipleMembers(t *testing.T) {
 
 	build := targ.Targ(func() { calledTarget = "build" }).Name("build")
 	test := targ.Targ(func() { calledTarget = "test" }).Name("test")
-	group := targ.NewGroup("dev", build, test)
+	group := targ.Group("dev", build, test)
 
 	// Single root group - go directly to member
 	_, err := targ.Execute([]string{"app", "test"}, group)
@@ -196,8 +196,8 @@ func TestGroup_MultipleMembers(t *testing.T) {
 func TestGroup_NestedRouting(t *testing.T) {
 	called := false
 	inner := targ.Targ(func() { called = true }).Name("inner")
-	innerGroup := targ.NewGroup("inner-grp", inner)
-	outerGroup := targ.NewGroup("outer", innerGroup)
+	innerGroup := targ.Group("inner-grp", inner)
+	outerGroup := targ.Group("outer", innerGroup)
 
 	// Single root (outer) - route through inner-grp to inner
 	_, err := targ.Execute([]string{"app", "inner-grp", "inner"}, outerGroup)
@@ -213,7 +213,7 @@ func TestGroup_NestedRouting(t *testing.T) {
 func TestGroup_RoutesToMembers(t *testing.T) {
 	called := false
 	sub := targ.Targ(func() { called = true }).Name("sub")
-	group := targ.NewGroup("grp", sub)
+	group := targ.Group("grp", sub)
 
 	// Group as single root (default) - go directly to member name
 	_, err := targ.Execute([]string{"app", "sub"}, group)

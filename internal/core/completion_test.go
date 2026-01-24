@@ -46,7 +46,7 @@ func TestCompletion_BackslashInDoubleQuotes(t *testing.T) {
 
 func TestCompletion_CaretSuggestion(t *testing.T) {
 	flashOnly := core.Targ(func() {}).Name("flash-only")
-	firmware := core.NewGroup("firmware", flashOnly)
+	firmware := core.Group("firmware", flashOnly)
 	discover := core.Targ(func() {}).Name("discover")
 
 	out := captureCompletionMulti(t, []any{firmware, discover},
@@ -58,7 +58,7 @@ func TestCompletion_CaretSuggestion(t *testing.T) {
 
 func TestCompletion_ChainedRootCommands(t *testing.T) {
 	flashOnly := core.Targ(func() {}).Name("flash-only")
-	firmware := core.NewGroup("firmware", flashOnly)
+	firmware := core.Group("firmware", flashOnly)
 	discover := core.Targ(func() {}).Name("discover")
 
 	out := captureCompletionMulti(t, []any{firmware, discover},
@@ -115,7 +115,7 @@ func TestCompletion_MultiRootChainedRemaining(t *testing.T) {
 	// Test multi-root mode where remaining args DO match a root
 	// After firmware flash-only runs, "discover" matches a root so we chain to it
 	flashOnly := core.Targ(func() {}).Name("flash-only")
-	firmware := core.NewGroup("firmware", flashOnly)
+	firmware := core.Group("firmware", flashOnly)
 	discover := core.Targ(func() {}).Name("discover")
 
 	out := captureCompletionMulti(t, []any{firmware, discover},
@@ -131,7 +131,7 @@ func TestCompletion_MultiRootUnknownRemaining(t *testing.T) {
 	// After firmware runs, "unknown" doesn't match any root so chain resolution stops
 	// But suggestions still happen for current context (flash-only's parent has subcommands)
 	flashOnly := core.Targ(func() {}).Name("flash-only")
-	firmware := core.NewGroup("firmware", flashOnly)
+	firmware := core.Group("firmware", flashOnly)
 	discover := core.Targ(func() {}).Name("discover")
 
 	out := captureCompletionMulti(t, []any{firmware, discover},
@@ -150,7 +150,7 @@ func TestCompletion_MultiRootUnknownRemaining(t *testing.T) {
 
 func TestCompletion_MultipleRootsAtRootLevel(t *testing.T) {
 	flashOnly := core.Targ(func() {}).Name("flash-only")
-	firmware := core.NewGroup("firmware", flashOnly)
+	firmware := core.Group("firmware", flashOnly)
 	discover := core.Targ(func() {}).Name("discover")
 
 	out := captureCompletionMulti(t, []any{firmware, discover},
@@ -162,7 +162,7 @@ func TestCompletion_MultipleRootsAtRootLevel(t *testing.T) {
 
 func TestCompletion_MultipleRootsWithPrefix(t *testing.T) {
 	flashOnly := core.Targ(func() {}).Name("flash-only")
-	firmware := core.NewGroup("firmware", flashOnly)
+	firmware := core.Group("firmware", flashOnly)
 	discover := core.Targ(func() {}).Name("discover")
 
 	out := captureCompletionMulti(t, []any{firmware, discover},
@@ -175,7 +175,7 @@ func TestCompletion_MultipleRootsWithPrefix(t *testing.T) {
 func TestCompletion_PartialRootMatchSuggestsMatchingRoots(t *testing.T) {
 	// "fir " (with trailing space) - doesn't match any root exactly but should suggest matching roots
 	flashOnly := core.Targ(func() {}).Name("flash-only")
-	firmware := core.NewGroup("firmware", flashOnly)
+	firmware := core.Group("firmware", flashOnly)
 	discover := core.Targ(func() {}).Name("discover")
 
 	out := captureCompletionMulti(t, []any{firmware, discover},
@@ -221,7 +221,7 @@ func TestCompletion_SingleRootWithRemaining(t *testing.T) {
 	// CompletionFirmwareRoot has FlashOnly subcommand; after that completes,
 	// "extra" triggers followRemaining in single-root mode
 	flashOnly := core.Targ(func() {}).Name("flash-only")
-	firmware := core.NewGroup("firmware", flashOnly)
+	firmware := core.Group("firmware", flashOnly)
 
 	out := captureCompletion(t, firmware, "app flash-only extra ")
 	// In single root mode with remaining args, followRemaining sets currentNode back to root
@@ -262,7 +262,7 @@ func TestCompletion_SuggestsPositionalValues(t *testing.T) {
 
 func TestCompletion_SuggestsRootsAfterCommand(t *testing.T) {
 	flashOnly := core.Targ(func() {}).Name("flash-only")
-	firmware := core.NewGroup("firmware", flashOnly)
+	firmware := core.Group("firmware", flashOnly)
 	discover := core.Targ(func() {}).Name("discover")
 
 	out := captureCompletionMulti(t, []any{firmware, discover},
@@ -284,7 +284,7 @@ func TestCompletion_TagOptionsOverride(t *testing.T) {
 
 func TestCompletion_UnknownRootPrefix(t *testing.T) {
 	flashOnly := core.Targ(func() {}).Name("flash-only")
-	firmware := core.NewGroup("firmware", flashOnly)
+	firmware := core.Group("firmware", flashOnly)
 	discover := core.Targ(func() {}).Name("discover")
 
 	out := captureCompletionMulti(t, []any{firmware, discover},
