@@ -94,10 +94,11 @@ func init() {
     )
 }
 
-// Struct fields become CLI flags. Tags control flag behavior:
-// - flag: explicitly mark as flag (default for struct fields)
+// Struct fields become CLI arguments. Tags control behavior:
+// - positional: ordered argument (not a --flag)
+// - flag: named --flag (default for struct fields)
 // - short=X: single-letter alias (-o instead of --output)
-// - default=X: value when flag not provided
+// - default=X: value when not provided
 // - desc=X: help text shown in --help
 type BuildArgs struct {
     Output  string `targ:"flag,short=o,default=myapp,desc=Output binary name"`
@@ -114,7 +115,8 @@ func build(args BuildArgs) error {
 }
 
 type TestArgs struct {
-    Cover bool `targ:"flag,desc=Enable coverage"`
+    Package string `targ:"positional,default=./...,desc=Package pattern to test"`
+    Cover   bool   `targ:"flag,desc=Enable coverage"`
 }
 
 func test(args TestArgs) error {
@@ -122,13 +124,13 @@ func test(args TestArgs) error {
     if args.Cover {
         cmdArgs = append(cmdArgs, "-cover")
     }
-    return targ.Run("go", append(cmdArgs, "./...")...)
+    return targ.Run("go", append(cmdArgs, args.Package)...)
 }
 ```
 
 ```bash
 targ build --output=myapp --verbose
-targ test --cover
+targ test ./cmd/... --cover
 ```
 
 ### Stage 3: Dedicated Binary
