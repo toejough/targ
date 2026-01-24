@@ -882,14 +882,14 @@ func deleteDeadcode(ctx context.Context) error {
 func findRedundantTests() error {
 	config := testredundancy.Config{
 		BaselineTests: []testredundancy.BaselineTestSpec{
-			{Package: "./impgen/run", TestPattern: "TestUATConsistency"},
-			{Package: "./UAT/core/...", TestPattern: ""},
-			{Package: "./UAT/variations/...", TestPattern: ""},
+			// Property-based tests form the baseline
+			{Package: "./test", TestPattern: "TestProperty_"},
+			{Package: "./internal/core", TestPattern: "TestProperty_"},
 		},
 		CoverageThreshold: 80.0,
 		PackageToAnalyze:  "./...",
-		// Only measure coverage of impgen and imptest packages, not test fixtures
-		CoveragePackages: "./impgen/...,./imptest/...",
+		// Measure coverage of internal packages
+		CoveragePackages: "./internal/...",
 	}
 
 	return testredundancy.Find(config)
