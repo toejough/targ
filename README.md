@@ -138,19 +138,19 @@ targ test ./cmd/... --cover
 Ready to ship? Remove the build tag and switch to main:
 
 ```go
-package main // Changed: package main instead of package dev
+// No build tag, package main - this is a regular Go binary now
+package main
 
 import "github.com/toejough/targ"
 
-func main() { // Changed: main() with targ.Main instead of init() with targ.Register
-    targ.Main(
+func main() {
+    targ.Main( // targ.Main replaces init() + targ.Register
         targ.Targ(build).Description("Compile the project"),
         targ.Targ(test).Description("Run tests"),
     )
 }
 
-// Unchanged: same BuildArgs, TestArgs structs with same targ tags
-// Unchanged: same build() and test() function implementations
+// ... same function definitions as Stage 2
 ```
 
 ```bash
