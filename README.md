@@ -218,11 +218,11 @@ Use `targ.Group` to organize targets into nested hierarchies:
 ```go
 targ.Register(
     targ.Group("dev",
-        targ.Targ("go mod tidy"),
+        targ.Targ("go mod tidy").Name("tidy"),
         targ.Targ(test).Cache("**/*.go").Timeout(5*time.Minute),
         targ.Group("lint",
-            targ.Targ("golangci-lint run --fast $path"),
-            targ.Targ("golangci-lint run $path").Name("full"),
+            targ.Targ("golangci-lint run --fast $path").Name("fast"),
+            targ.Targ("golangci-lint run $path"), // name defaults to "golangci-lint"
         ),
     ),
 )
@@ -231,8 +231,8 @@ targ.Register(
 ```bash
 targ dev tidy
 targ dev test
+targ dev lint fast --path=./...
 targ dev lint golangci-lint --path=./...
-targ dev lint full
 ```
 
 ## Function Signatures
