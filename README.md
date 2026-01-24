@@ -143,8 +143,9 @@ package main
 
 import "github.com/toejough/targ"
 
+// main() instead of init()
 func main() {
-    targ.Main( // targ.Main replaces init() + targ.Register
+    targ.Main( // replaces targ.Register
         targ.Targ(build).Description("Compile the project"),
         targ.Targ(test).Description("Run tests"),
     )
@@ -212,29 +213,26 @@ Combine with commas: `targ:"positional,required,enum=dev|prod"`
 
 ## Groups
 
-Use `targ.Group` to organize targets into named groups:
+Use `targ.Group` to organize targets into nested hierarchies:
 
 ```go
-func init() {
-    add := targ.Targ(func(args struct {
-        A, B int `targ:"positional"`
-    }) {
-        fmt.Printf("%d\n", args.A+args.B)
-    }).Name("add")
-
-    multiply := targ.Targ(func(args struct {
-        A, B int `targ:"positional"`
-    }) {
-        fmt.Printf("%d\n", args.A*args.B)
-    }).Name("multiply")
-
-    targ.Register(targ.Group("math", add, multiply))
-}
+targ.Register(
+    targ.Group("dev",
+        targ.Targ("go mod tidy"),
+        targ.Targ(test).Cache("**/*.go").Timeout(5*time.Minute),
+        targ.Group("lint",
+            targ.Targ("golangci-lint run --fast $path"),
+            targ.Targ("golangci-lint run $path").Name("full"),
+        ),
+    ),
+)
 ```
 
 ```bash
-targ math add 2 3      # 5
-targ math multiply 2 3 # 6
+targ dev tidy
+targ dev test
+targ dev lint golangci-lint --path=./...
+targ dev lint full
 ```
 
 ## Function Signatures
