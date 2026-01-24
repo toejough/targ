@@ -17,7 +17,7 @@ Build CLIs and run build targets with minimal configuration. Inspired by Mage, g
 | Run shell commands  | `targ.Run("go", "build")` or `targ.RunContext(ctx, ...)`  |
 | Skip unchanged work | `targ.Newer(inputs, outputs)` or `targ.Checksum(...)` |
 | Watch for changes   | `targ.Watch(ctx, patterns, opts, callback)`           |
-| Run deps once       | `targ.Deps(A, B, C)` or `.Deps(A, B)`                 |
+| Run deps first      | `.Deps(build, test)` on target                        |
 | Scaffold a target   | `targ --create build` or `targ --create tidy "go mod tidy"` |
 
 ## Installation
@@ -29,6 +29,29 @@ go install github.com/toejough/targ/cmd/targ@latest
 # Library (embed in your binary)
 go get github.com/toejough/targ
 ```
+
+## Design Principles
+
+### No Surprises
+
+Targ has three layers of configuration that could interact unexpectedly:
+
+1. **Target definition** - `.Cache()`, `.Watch()`, `.Deps()` on the target
+2. **CLI flags** - `--cache`, `--watch`, `--times`, etc.
+3. **Global defaults** - from the build tool itself
+
+To prevent confusion, **targ errors when configurations conflict** rather than silently picking one:
+
+```bash
+# Target has .Cache("**/*.go") defined
+$ targ build --cache="*.go"
+Error: --cache conflicts with target's cache configuration
+
+# To allow CLI override, use targ.Disabled in the target:
+var Build = targ.Targ(build).Cache(targ.Disabled)  // now --cache works
+```
+
+This applies to `--watch`, `--cache`, and `--deps`. If you want CLI control, explicitly opt-in with `targ.Disabled`. If you want code control, don't use CLI flags for that setting.
 
 ## From Build Targets to Dedicated CLI
 
