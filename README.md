@@ -156,17 +156,6 @@ go build -o mytool .
 ./mytool test --cover
 ```
 
-### Shell Command Targets
-
-For simple shell commands, pass a string instead of a function:
-
-```go
-targ.Register(
-    targ.Targ("go mod tidy").Name("tidy").Description("Tidy go.mod"),
-    targ.Targ("golangci-lint run ./...").Name("lint").Description("Run linter"),
-)
-```
-
 ### Multi-Directory Layout
 
 In build tool mode, discovery is recursive. Commands are namespaced by earliest unique path:
