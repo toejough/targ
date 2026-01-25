@@ -1488,6 +1488,44 @@ func TestPrintMoreInfo_WithMoreInfoText(t *testing.T) {
 
 // --- printSubcommandList tests ---
 
+func TestPrintSubcommandList_WithDescriptions(t *testing.T) {
+	t.Parallel()
+
+	g := NewWithT(t)
+
+	subs := map[string]*commandNode{
+		"build": {Name: "build", Description: "Build the project"},
+		"test":  {Name: "test", Description: "Run tests"},
+	}
+
+	var buf bytes.Buffer
+	printSubcommandList(&buf, subs, "  ")
+
+	g.Expect(buf.String()).To(ContainSubstring("build"))
+	g.Expect(buf.String()).To(ContainSubstring("Build the project"))
+	g.Expect(buf.String()).To(ContainSubstring("test"))
+	g.Expect(buf.String()).To(ContainSubstring("Run tests"))
+}
+
+func TestPrintSubcommandList_WithoutDescriptions(t *testing.T) {
+	t.Parallel()
+
+	g := NewWithT(t)
+
+	subs := map[string]*commandNode{
+		"build": {Name: "build"},
+		"test":  {Name: "test"},
+	}
+
+	var buf bytes.Buffer
+	printSubcommandList(&buf, subs, "  ")
+
+	g.Expect(buf.String()).To(ContainSubstring("build"))
+	g.Expect(buf.String()).To(ContainSubstring("test"))
+	// Should NOT have description format (with extra spacing)
+	g.Expect(buf.String()).NotTo(ContainSubstring("  build "))
+}
+
 // --- printUsage tests ---
 
 func TestPrintUsage_WithDescription(t *testing.T) {

@@ -41,6 +41,34 @@ func TestProperty_Backoff_IncreasesDelayBetweenRetries(t *testing.T) {
 	g.Expect(delays[2]).To(BeNumerically(">", delays[1]))
 }
 
+// Property: String targets execute shell commands via Run().
+func TestProperty_ShellCommand_ExecutesViaRun(t *testing.T) {
+	t.Parallel()
+
+	rapid.Check(t, func(rt *rapid.T) {
+		g := NewWithT(t)
+
+		// Generate a simple command that will succeed or fail
+		shouldFail := rapid.Bool().Draw(rt, "shouldFail")
+
+		var cmd string
+		if shouldFail {
+			cmd = "exit 1"
+		} else {
+			cmd = "true"
+		}
+
+		target := targ.Targ(cmd)
+
+		err := target.Run(context.Background())
+		if shouldFail {
+			g.Expect(err).To(HaveOccurred())
+		} else {
+			g.Expect(err).NotTo(HaveOccurred())
+		}
+	})
+}
+
 // Property: While condition stops execution when false
 func TestProperty_While_StopsWhenConditionFalse(t *testing.T) {
 	t.Parallel()

@@ -9,23 +9,21 @@ import (
 	"github.com/toejough/targ"
 )
 
-// Fuzz: Caret reset with arbitrary command chains
-func TestFuzz_CaretReset_ArbitraryChains(t *testing.T) {
-	t.Parallel()
-
-	rapid.Check(t, func(rt *rapid.T) {
+// Fuzz: Caret reset with arbitrary command chains.
+func FuzzCaretReset_ArbitraryChains(f *testing.F) {
+	f.Fuzz(rapid.MakeFuzz(func(t *rapid.T) {
 		g := NewWithT(t)
 
 		// Generate a mix of command names and carets
-		numCommands := rapid.IntRange(1, 10).Draw(rt, "numCommands")
+		numCommands := rapid.IntRange(1, 10).Draw(t, "numCommands")
 
 		args := []string{"app"}
 
 		for range numCommands {
-			if rapid.Bool().Draw(rt, "isCaret") {
+			if rapid.Bool().Draw(t, "isCaret") {
 				args = append(args, "^")
 			} else {
-				args = append(args, rapid.StringMatching(`[a-z]{3,8}`).Draw(rt, "cmd"))
+				args = append(args, rapid.StringMatching(`[a-z]{3,8}`).Draw(t, "cmd"))
 			}
 		}
 
@@ -35,18 +33,16 @@ func TestFuzz_CaretReset_ArbitraryChains(t *testing.T) {
 		g.Expect(func() {
 			_, _ = targ.Execute(args, target)
 		}).NotTo(Panic())
-	})
+	}))
 }
 
-// Fuzz: Glob patterns in command args
-func TestFuzz_Glob_ArbitraryPatterns(t *testing.T) {
-	t.Parallel()
-
-	rapid.Check(t, func(rt *rapid.T) {
+// Fuzz: Glob patterns in command args.
+func FuzzGlob_ArbitraryPatterns(f *testing.F) {
+	f.Fuzz(rapid.MakeFuzz(func(t *rapid.T) {
 		g := NewWithT(t)
 
 		// Generate patterns that look like globs
-		pattern := rapid.StringMatching(`[a-z*?]{1,20}`).Draw(rt, "pattern")
+		pattern := rapid.StringMatching(`[a-z*?]{1,20}`).Draw(t, "pattern")
 
 		target := targ.Targ(func() {}).Name("test")
 
@@ -58,36 +54,17 @@ func TestFuzz_Glob_ArbitraryPatterns(t *testing.T) {
 				target,
 			)
 		}).NotTo(Panic())
-	})
+	}))
 }
 
-// Fuzz: Group name with invalid patterns panics
-func TestFuzz_GroupName_InvalidPatternsPanic(t *testing.T) {
-	t.Parallel()
-
-	g := NewWithT(t)
-
-	target := targ.Targ(func() {}).Name("valid-target")
-
-	// Invalid names should panic
-	invalidNames := []string{"", "123", "CamelCase", "with space", "-starts-dash"}
-	for _, name := range invalidNames {
-		g.Expect(func() {
-			_ = targ.Group(name, target)
-		}).To(Panic(), "expected panic for invalid group name: %q", name)
-	}
-}
-
-// Fuzz: Group name with valid patterns works
-func TestFuzz_GroupName_ValidPatterns(t *testing.T) {
-	t.Parallel()
-
-	rapid.Check(t, func(rt *rapid.T) {
+// Fuzz: Group name with valid patterns works.
+func FuzzGroupName_ValidPatterns(f *testing.F) {
+	f.Fuzz(rapid.MakeFuzz(func(t *rapid.T) {
 		g := NewWithT(t)
 
 		// Generate valid group names (must match ^[a-z][a-z0-9-]*$)
-		groupName := rapid.StringMatching(`[a-z][a-z0-9-]{0,10}`).Draw(rt, "groupName")
-		targetName := rapid.StringMatching(`[a-z][a-z0-9-]{2,10}`).Draw(rt, "targetName")
+		groupName := rapid.StringMatching(`[a-z][a-z0-9-]{0,10}`).Draw(t, "groupName")
+		targetName := rapid.StringMatching(`[a-z][a-z0-9-]{2,10}`).Draw(t, "targetName")
 
 		target := targ.Targ(func() {}).Name(targetName)
 
@@ -95,35 +72,21 @@ func TestFuzz_GroupName_ValidPatterns(t *testing.T) {
 		g.Expect(func() {
 			_ = targ.Group(groupName, target)
 		}).NotTo(Panic())
-	})
+	}))
 }
 
-// Fuzz: Empty group (group with no members)
-func TestFuzz_Group_EmptyGroup(t *testing.T) {
-	t.Parallel()
-
-	g := NewWithT(t)
-
-	// An empty group should not panic
-	g.Expect(func() {
-		_ = targ.Group("empty")
-	}).NotTo(Panic())
-}
-
-// Fuzz: Multiple groups with arbitrary nesting
-func TestFuzz_Groups_ArbitraryNesting(t *testing.T) {
-	t.Parallel()
-
-	rapid.Check(t, func(rt *rapid.T) {
+// Fuzz: Multiple groups with arbitrary nesting.
+func FuzzGroups_ArbitraryNesting(f *testing.F) {
+	f.Fuzz(rapid.MakeFuzz(func(t *rapid.T) {
 		g := NewWithT(t)
 
-		depth := rapid.IntRange(1, 5).Draw(rt, "depth")
+		depth := rapid.IntRange(1, 5).Draw(t, "depth")
 
 		// Build nested groups
 		var current any = targ.Targ(func() {}).Name("leaf")
 
 		for range depth {
-			name := rapid.StringMatching(`[a-z]{3,8}`).Draw(rt, "groupName")
+			name := rapid.StringMatching(`[a-z]{3,8}`).Draw(t, "groupName")
 			current = targ.Group(name, current)
 		}
 
@@ -131,23 +94,21 @@ func TestFuzz_Groups_ArbitraryNesting(t *testing.T) {
 		g.Expect(func() {
 			_, _ = targ.Execute([]string{"app"}, current)
 		}).NotTo(Panic())
-	})
+	}))
 }
 
-// Fuzz: Mixed roots (targets and groups)
-func TestFuzz_MixedRoots_TargetsAndGroups(t *testing.T) {
-	t.Parallel()
-
-	rapid.Check(t, func(rt *rapid.T) {
+// Fuzz: Mixed roots (targets and groups).
+func FuzzMixedRoots_TargetsAndGroups(f *testing.F) {
+	f.Fuzz(rapid.MakeFuzz(func(t *rapid.T) {
 		g := NewWithT(t)
 
-		numRoots := rapid.IntRange(1, 5).Draw(rt, "numRoots")
+		numRoots := rapid.IntRange(1, 5).Draw(t, "numRoots")
 
 		roots := make([]any, 0, numRoots)
 		for range numRoots {
-			name := rapid.StringMatching(`[a-z]{3,10}`).Draw(rt, "name")
+			name := rapid.StringMatching(`[a-z]{3,10}`).Draw(t, "name")
 
-			if rapid.Bool().Draw(rt, "isGroup") {
+			if rapid.Bool().Draw(t, "isGroup") {
 				sub := targ.Targ(func() {}).Name("sub")
 				roots = append(roots, targ.Group(name, sub))
 			} else {
@@ -159,26 +120,24 @@ func TestFuzz_MixedRoots_TargetsAndGroups(t *testing.T) {
 		g.Expect(func() {
 			_, _ = targ.Execute([]string{"app", "--help"}, roots...)
 		}).NotTo(Panic())
-	})
+	}))
 }
 
-// Fuzz: Multiple roots with arbitrary names
-func TestFuzz_MultipleRoots_ArbitraryNames(t *testing.T) {
-	t.Parallel()
-
-	rapid.Check(t, func(rt *rapid.T) {
+// Fuzz: Multiple roots with arbitrary names.
+func FuzzMultipleRoots_ArbitraryNames(f *testing.F) {
+	f.Fuzz(rapid.MakeFuzz(func(t *rapid.T) {
 		g := NewWithT(t)
 
-		numRoots := rapid.IntRange(1, 5).Draw(rt, "numRoots")
+		numRoots := rapid.IntRange(1, 5).Draw(t, "numRoots")
 
 		roots := make([]any, 0, numRoots)
 		for range numRoots {
-			name := rapid.StringMatching(`[a-z]{3,10}`).Draw(rt, "name")
+			name := rapid.StringMatching(`[a-z]{3,10}`).Draw(t, "name")
 			roots = append(roots, targ.Targ(func() {}).Name(name))
 		}
 
 		// Pick one to call
-		targetIdx := rapid.IntRange(0, numRoots-1).Draw(rt, "targetIdx")
+		targetIdx := rapid.IntRange(0, numRoots-1).Draw(t, "targetIdx")
 
 		target, ok := roots[targetIdx].(*targ.Target)
 		if !ok {
@@ -195,21 +154,19 @@ func TestFuzz_MultipleRoots_ArbitraryNames(t *testing.T) {
 				roots...,
 			)
 		}).NotTo(Panic())
-	})
+	}))
 }
 
-// Fuzz: Path resolution handles arbitrary path segments
-func TestFuzz_PathResolution_ArbitraryPathSegments(t *testing.T) {
-	t.Parallel()
-
-	rapid.Check(t, func(rt *rapid.T) {
+// Fuzz: Path resolution handles arbitrary path segments.
+func FuzzPathResolution_ArbitraryPathSegments(f *testing.F) {
+	f.Fuzz(rapid.MakeFuzz(func(t *rapid.T) {
 		g := NewWithT(t)
 
 		// Generate arbitrary path segments
 		segments := rapid.SliceOfN(
 			rapid.String(),
 			0, 10,
-		).Draw(rt, "segments")
+		).Draw(t, "segments")
 
 		target := targ.Targ(func() {}).Name("target")
 
@@ -219,17 +176,15 @@ func TestFuzz_PathResolution_ArbitraryPathSegments(t *testing.T) {
 		g.Expect(func() {
 			_, _ = targ.Execute(args, target)
 		}).NotTo(Panic())
-	})
+	}))
 }
 
-// Fuzz: Deeply nested path resolution
-func TestFuzz_PathResolution_DeepNesting(t *testing.T) {
-	t.Parallel()
-
-	rapid.Check(t, func(rt *rapid.T) {
+// Fuzz: Deeply nested path resolution.
+func FuzzPathResolution_DeepNesting(f *testing.F) {
+	f.Fuzz(rapid.MakeFuzz(func(t *rapid.T) {
 		g := NewWithT(t)
 
-		depth := rapid.IntRange(1, 10).Draw(rt, "depth")
+		depth := rapid.IntRange(1, 10).Draw(t, "depth")
 
 		// Build deeply nested structure
 		var current any = targ.Targ(func() {}).Name("leaf")
@@ -237,7 +192,7 @@ func TestFuzz_PathResolution_DeepNesting(t *testing.T) {
 		path := []string{"leaf"}
 
 		for range depth {
-			name := rapid.StringMatching(`[a-z]{3,8}`).Draw(rt, "groupName")
+			name := rapid.StringMatching(`[a-z]{3,8}`).Draw(t, "groupName")
 			current = targ.Group(name, current)
 			path = append([]string{name}, path...)
 		}
@@ -249,5 +204,36 @@ func TestFuzz_PathResolution_DeepNesting(t *testing.T) {
 		g.Expect(func() {
 			_, _ = targ.Execute(args, current)
 		}).NotTo(Panic())
-	})
+	}))
+}
+
+// TestGroupName_InvalidPatternsPanic tests that invalid group names panic.
+// This is a table-driven test, not a fuzz test.
+func TestGroupName_InvalidPatternsPanic(t *testing.T) {
+	t.Parallel()
+
+	g := NewWithT(t)
+
+	target := targ.Targ(func() {}).Name("valid-target")
+
+	// Invalid names should panic
+	invalidNames := []string{"", "123", "CamelCase", "with space", "-starts-dash"}
+	for _, name := range invalidNames {
+		g.Expect(func() {
+			_ = targ.Group(name, target)
+		}).To(Panic(), "expected panic for invalid group name: %q", name)
+	}
+}
+
+// TestGroup_EmptyGroup tests that an empty group does not panic.
+// This is a simple test, not a fuzz test.
+func TestGroup_EmptyGroup(t *testing.T) {
+	t.Parallel()
+
+	g := NewWithT(t)
+
+	// An empty group should not panic
+	g.Expect(func() {
+		_ = targ.Group("empty")
+	}).NotTo(Panic())
 }

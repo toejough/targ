@@ -297,3 +297,20 @@ func TestProperty_StructTagParsing_SliceFieldsAccumulateRepeatedFlags(t *testing
 		g.Expect(got).To(Equal(values))
 	})
 }
+
+// Property: Slice flag with invalid value for element type returns error
+func TestProperty_StructTagParsing_SliceFlagInvalidValueReturnsError(t *testing.T) {
+	t.Parallel()
+
+	g := NewWithT(t)
+
+	type Args struct {
+		Counts []int `targ:"flag"`
+	}
+
+	target := targ.Targ(func(_ Args) {})
+
+	// Providing a non-integer value to an int slice should error
+	_, err := targ.Execute([]string{"app", "--counts", "not-a-number"}, target)
+	g.Expect(err).To(HaveOccurred())
+}

@@ -158,6 +158,17 @@ func TestCompletion_SuggestsRootsAfterCommand(t *testing.T) {
 	}
 }
 
+func TestCompletion_VariadicFlagAtEndWithNoValues(t *testing.T) {
+	t.Parallel()
+
+	target := core.Targ(func(_ VariadicFlagCmdArgs) {}).Name("variadic-cmd")
+	// When slice flag is at end with no values, should not error (allowIncomplete case)
+	out := captureCompletion(t, target, "app --files ")
+	// Should still suggest something (completions or flags)
+	// The key is that it doesn't error
+	_ = out // Just verify no panic/error occurred
+}
+
 func TestCompletion_VariadicFlagSkipsMultipleValues(t *testing.T) {
 	t.Parallel()
 
