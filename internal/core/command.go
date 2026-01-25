@@ -469,7 +469,7 @@ func buildUsageLine(node *commandNode) (string, error) {
 
 // buildUsageLineForPath builds a usage line with the given command path.
 //
-//nolint:unparam // binName is parameterized for testing and production flexibility
+
 func buildUsageLineForPath(node *commandNode, binName, fullPath string) string {
 	parts := buildUsagePartsForPath(node, binName, fullPath)
 	return strings.Join(parts, " ")
@@ -895,24 +895,7 @@ func executeFunctionWithParents(
 		return nil, err
 	}
 
-	// Run dependencies first (if Target with deps is available)
-	if node.Target != nil && len(node.Target.deps) > 0 {
-		if err = node.Target.runDeps(ctx); err != nil {
-			return nil, err
-		}
-	}
-
-	// Execute with runtime overrides (times, retry, watch, cache, etc.)
-	config := TargetConfig{
-		WatchPatterns: node.WatchPatterns,
-		CachePatterns: node.CachePatterns,
-		WatchDisabled: node.WatchDisabled,
-		CacheDisabled: node.CacheDisabled,
-	}
-
-	err = ExecuteWithOverrides(ctx, opts.Overrides, config, func() error {
-		return callFunctionWithArgs(ctx, node.Func, inst)
-	})
+	err = runTargetWithOverrides(ctx, node, inst, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -1296,6 +1279,15 @@ func getNodeSourceFile(node *commandNode) string {
 	return node.SourceFile
 }
 
+// getStdout returns the stdout writer from options, defaulting to os.Stdout.
+func getStdout(opts RunOptions) io.Writer {
+	if opts.Stdout != nil {
+		return opts.Stdout
+	}
+
+	return os.Stdout
+}
+
 // groupNodesBySource groups nodes by their source file, preserving order.
 func groupNodesBySource(nodes []*commandNode) []struct {
 	source string
@@ -1326,15 +1318,6 @@ func groupNodesBySource(nodes []*commandNode) []struct {
 	}
 
 	return groups
-}
-
-// getStdout returns the stdout writer from options, defaulting to os.Stdout.
-func getStdout(opts RunOptions) io.Writer {
-	if opts.Stdout != nil {
-		return opts.Stdout
-	}
-
-	return os.Stdout
 }
 
 // handleHelpFlag checks for --help flag and prints help if requested.
@@ -1992,7 +1975,7 @@ func printMoreInfo(w io.Writer, opts RunOptions) {
 
 // printSubcommandList prints subcommands with name and description only.
 //
-//nolint:unparam // indent kept for consistency with printSubcommandGrid
+
 func printSubcommandList(w io.Writer, subs map[string]*commandNode, indent string) {
 	names := sortedKeys(subs)
 	for _, name := range names {
@@ -2191,6 +2174,34 @@ func runShellWithVars(ctx context.Context, cmd string, vars map[string]string) e
 	}
 
 	return nil
+}
+
+// runTargetWithOverrides runs the target's dependencies and function with runtime overrides.
+func runTargetWithOverrides(
+	ctx context.Context,
+	node *commandNode,
+	inst reflect.Value,
+	opts RunOptions,
+) error {
+	// Run dependencies first (if Target with deps is available)
+	if node.Target != nil && len(node.Target.deps) > 0 {
+		err := node.Target.runDeps(ctx)
+		if err != nil {
+			return err
+		}
+	}
+
+	// Execute with runtime overrides (times, retry, watch, cache, etc.)
+	config := TargetConfig{
+		WatchPatterns: node.WatchPatterns,
+		CachePatterns: node.CachePatterns,
+		WatchDisabled: node.WatchDisabled,
+		CacheDisabled: node.CacheDisabled,
+	}
+
+	return ExecuteWithOverrides(ctx, opts.Overrides, config, func() error {
+		return callFunctionWithArgs(ctx, node.Func, inst)
+	})
 }
 
 // shellVarFlagHelp generates synthetic flag help for shell command variables.
@@ -2397,7 +2408,7 @@ func writeWrappedUsage(w io.Writer, prefix string, parts []string) {
 	indent := strings.Repeat(" ", len(prefix))
 
 	for i := 1; i < len(parts); i++ {
-		part := parts[i] //nolint:gosec // bounds checked by loop condition and empty check above
+		part := parts[i]
 		if len(currentLine)+1+len(part) <= usageLineWidth {
 			currentLine += " " + part
 		} else {

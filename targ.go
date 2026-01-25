@@ -54,6 +54,9 @@ type Interleaved[T any] = core.Interleaved[T]
 // RunOptions configures command execution behavior.
 type RunOptions = core.RunOptions
 
+// RuntimeOverrides are CLI flags that override compile-time Target settings.
+type RuntimeOverrides = core.RuntimeOverrides
+
 // TagKind represents the type of a struct tag (flag, positional, subcommand).
 type TagKind = core.TagKind
 

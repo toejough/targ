@@ -9,6 +9,28 @@ import (
 	"github.com/toejough/targ"
 )
 
+// Fuzz: Boolean flag parsing handles arbitrary strings
+func TestFuzz_BoolFlag_ArbitraryStrings(t *testing.T) {
+	t.Parallel()
+
+	rapid.Check(t, func(rt *rapid.T) {
+		g := NewWithT(t)
+
+		value := rapid.String().Draw(rt, "value")
+
+		type Args struct {
+			Verbose bool `targ:"flag"`
+		}
+
+		target := targ.Targ(func(_ Args) {})
+
+		// Should not panic - bool flags might accept or reject the value
+		g.Expect(func() {
+			_, _ = targ.Execute([]string{"app", "--verbose", value}, target)
+		}).NotTo(Panic())
+	})
+}
+
 // Fuzz: Execute handles arbitrary CLI args without panicking
 func TestFuzz_Execute_ArbitraryCLIArgs(t *testing.T) {
 	t.Parallel()
@@ -82,6 +104,28 @@ func TestFuzz_Execute_ArbitraryFlagValues(t *testing.T) {
 	})
 }
 
+// Fuzz: Integer parsing handles arbitrary strings
+func TestFuzz_IntFlag_ArbitraryStrings(t *testing.T) {
+	t.Parallel()
+
+	rapid.Check(t, func(rt *rapid.T) {
+		g := NewWithT(t)
+
+		value := rapid.String().Draw(rt, "value")
+
+		type Args struct {
+			Count int `targ:"flag"`
+		}
+
+		target := targ.Targ(func(_ Args) {})
+
+		// Should not panic
+		g.Expect(func() {
+			_, _ = targ.Execute([]string{"app", "--count", value}, target)
+		}).NotTo(Panic())
+	})
+}
+
 // Fuzz: Map flag parsing handles arbitrary key=value strings
 func TestFuzz_MapFlag_ArbitraryKeyValueStrings(t *testing.T) {
 	t.Parallel()
@@ -105,50 +149,6 @@ func TestFuzz_MapFlag_ArbitraryKeyValueStrings(t *testing.T) {
 	})
 }
 
-// Fuzz: Integer parsing handles arbitrary strings
-func TestFuzz_IntFlag_ArbitraryStrings(t *testing.T) {
-	t.Parallel()
-
-	rapid.Check(t, func(rt *rapid.T) {
-		g := NewWithT(t)
-
-		value := rapid.String().Draw(rt, "value")
-
-		type Args struct {
-			Count int `targ:"flag"`
-		}
-
-		target := targ.Targ(func(_ Args) {})
-
-		// Should not panic
-		g.Expect(func() {
-			_, _ = targ.Execute([]string{"app", "--count", value}, target)
-		}).NotTo(Panic())
-	})
-}
-
-// Fuzz: Boolean flag parsing handles arbitrary strings
-func TestFuzz_BoolFlag_ArbitraryStrings(t *testing.T) {
-	t.Parallel()
-
-	rapid.Check(t, func(rt *rapid.T) {
-		g := NewWithT(t)
-
-		value := rapid.String().Draw(rt, "value")
-
-		type Args struct {
-			Verbose bool `targ:"flag"`
-		}
-
-		target := targ.Targ(func(_ Args) {})
-
-		// Should not panic - bool flags might accept or reject the value
-		g.Expect(func() {
-			_, _ = targ.Execute([]string{"app", "--verbose", value}, target)
-		}).NotTo(Panic())
-	})
-}
-
 // Fuzz: Slice flag parsing handles arbitrary repeated values
 func TestFuzz_SliceFlag_ArbitraryValues(t *testing.T) {
 	t.Parallel()
@@ -164,7 +164,9 @@ func TestFuzz_SliceFlag_ArbitraryValues(t *testing.T) {
 
 		target := targ.Targ(func(_ Args) {})
 
-		args := []string{"app"}
+		args := make([]string, 0, 1+2*len(values))
+
+		args = append(args, "app")
 		for _, v := range values {
 			args = append(args, "--tags", v)
 		}

@@ -71,7 +71,7 @@ func init() {
 
 // Exported variables.
 var (
-	Check = targ.Targ(check).Description("Run all checks & fixes")
+	Check                = targ.Targ(check).Description("Run all checks & fixes")
 	CheckCoverage        = targ.Targ(checkCoverage).Description("Check function coverage")
 	CheckCoverageForFail = targ.Targ(checkCoverageForFail).Description("Check coverage (no test run)")
 	CheckForFail         = targ.Targ(checkForFail).Description("Run all checks (fail-fast)")

@@ -4,32 +4,44 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"reflect"
 	"strings"
 )
 
-// PrintCompletionScript prints a shell completion script for the given shell to stdout.
-func PrintCompletionScript(shell, binName string) error {
-	return PrintCompletionScriptTo(nil, shell, binName)
+// DoCompletionTo runs completion for the given targets and writes output to w.
+// This is useful for testing completion without capturing stdout.
+func DoCompletionTo(w io.Writer, commandLine string, targets ...any) error {
+	roots := make([]*commandNode, 0, len(targets))
+
+	for _, t := range targets {
+		node, err := parseTarget(t)
+		if err != nil {
+			return err
+		}
+
+		roots = append(roots, node)
+	}
+
+	return doCompletion(w, roots, commandLine)
 }
 
 // PrintCompletionScriptTo writes a shell completion script to the given writer.
-// If w is nil, writes to stdout.
 func PrintCompletionScriptTo(w io.Writer, shell, binName string) error {
-	if w == nil {
-		w = defaultStdout()
-	}
+	var err error
 
 	switch shell {
 	case "bash":
-		fmt.Fprintf(w, _bashCompletion, binName, binName, binName, binName)
+		_, err = fmt.Fprintf(w, _bashCompletion, binName, binName, binName, binName)
 	case zshShell:
-		fmt.Fprintf(w, _zshCompletion, binName, binName, binName, binName, binName)
+		_, err = fmt.Fprintf(w, _zshCompletion, binName, binName, binName, binName, binName)
 	case fishShell:
-		fmt.Fprintf(w, _fishCompletion, binName, binName, binName, binName)
+		_, err = fmt.Fprintf(w, _fishCompletion, binName, binName, binName, binName)
 	default:
 		return fmt.Errorf("%w: %s", errUnsupportedShell, shell)
+	}
+
+	if err != nil {
+		return fmt.Errorf("writing completion script: %w", err)
 	}
 
 	return nil
@@ -702,23 +714,6 @@ func doCompletion(w io.Writer, roots []*commandNode, commandLine string) error {
 	return state.suggestCompletions()
 }
 
-// DoCompletionTo runs completion for the given targets and writes output to w.
-// This is useful for testing completion without capturing stdout.
-func DoCompletionTo(w io.Writer, commandLine string, targets ...any) error {
-	roots := make([]*commandNode, 0, len(targets))
-
-	for _, t := range targets {
-		node, err := parseTarget(t)
-		if err != nil {
-			return err
-		}
-
-		roots = append(roots, node)
-	}
-
-	return doCompletion(w, roots, commandLine)
-}
-
 func enumValuesForArg(
 	chain []commandInstance,
 	args []string,
@@ -1106,9 +1101,4 @@ func tokenizeCommandLine(commandLine string) ([]string, bool) {
 	t.tokenize(commandLine)
 
 	return t.parts, t.isNewArg
-}
-
-// defaultStdout returns os.Stdout for production use.
-func defaultStdout() io.Writer {
-	return os.Stdout
 }

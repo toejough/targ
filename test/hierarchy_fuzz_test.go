@@ -9,87 +9,31 @@ import (
 	"github.com/toejough/targ"
 )
 
-// Fuzz: Path resolution handles arbitrary path segments
-func TestFuzz_PathResolution_ArbitraryPathSegments(t *testing.T) {
+// Fuzz: Caret reset with arbitrary command chains
+func TestFuzz_CaretReset_ArbitraryChains(t *testing.T) {
 	t.Parallel()
 
 	rapid.Check(t, func(rt *rapid.T) {
 		g := NewWithT(t)
 
-		// Generate arbitrary path segments
-		segments := rapid.SliceOfN(
-			rapid.String(),
-			0, 10,
-		).Draw(rt, "segments")
+		// Generate a mix of command names and carets
+		numCommands := rapid.IntRange(1, 10).Draw(rt, "numCommands")
 
-		target := targ.Targ(func() {}).Name("target")
+		args := []string{"app"}
 
-		args := append([]string{"app"}, segments...)
+		for range numCommands {
+			if rapid.Bool().Draw(rt, "isCaret") {
+				args = append(args, "^")
+			} else {
+				args = append(args, rapid.StringMatching(`[a-z]{3,8}`).Draw(rt, "cmd"))
+			}
+		}
+
+		target := targ.Targ(func() {}).Name("test")
 
 		// Should not panic
 		g.Expect(func() {
 			_, _ = targ.Execute(args, target)
-		}).NotTo(Panic())
-	})
-}
-
-// Fuzz: Group name with valid patterns works
-func TestFuzz_GroupName_ValidPatterns(t *testing.T) {
-	t.Parallel()
-
-	rapid.Check(t, func(rt *rapid.T) {
-		g := NewWithT(t)
-
-		// Generate valid group names (must match ^[a-z][a-z0-9-]*$)
-		groupName := rapid.StringMatching(`[a-z][a-z0-9-]{0,10}`).Draw(rt, "groupName")
-		targetName := rapid.StringMatching(`[a-z][a-z0-9-]{2,10}`).Draw(rt, "targetName")
-
-		target := targ.Targ(func() {}).Name(targetName)
-
-		// Should not panic with valid name
-		g.Expect(func() {
-			_ = targ.Group(groupName, target)
-		}).NotTo(Panic())
-	})
-}
-
-// Fuzz: Group name with invalid patterns panics
-func TestFuzz_GroupName_InvalidPatternsPanic(t *testing.T) {
-	t.Parallel()
-
-	g := NewWithT(t)
-
-	target := targ.Targ(func() {}).Name("valid-target")
-
-	// Invalid names should panic
-	invalidNames := []string{"", "123", "CamelCase", "with space", "-starts-dash"}
-	for _, name := range invalidNames {
-		g.Expect(func() {
-			_ = targ.Group(name, target)
-		}).To(Panic(), "expected panic for invalid group name: %q", name)
-	}
-}
-
-// Fuzz: Multiple groups with arbitrary nesting
-func TestFuzz_Groups_ArbitraryNesting(t *testing.T) {
-	t.Parallel()
-
-	rapid.Check(t, func(rt *rapid.T) {
-		g := NewWithT(t)
-
-		depth := rapid.IntRange(1, 5).Draw(rt, "depth")
-
-		// Build nested groups
-		var current any = targ.Targ(func() {}).Name("leaf")
-
-		for range depth {
-			name := rapid.StringMatching(`[a-z]{3,8}`).Draw(rt, "groupName")
-			current = targ.Group(name, current)
-		}
-
-		// Should not panic
-		g.Expect(func() {
-			_, _ = targ.Execute([]string{"app"}, current)
 		}).NotTo(Panic())
 	})
 }
@@ -117,61 +61,75 @@ func TestFuzz_Glob_ArbitraryPatterns(t *testing.T) {
 	})
 }
 
-// Fuzz: Multiple roots with arbitrary names
-func TestFuzz_MultipleRoots_ArbitraryNames(t *testing.T) {
+// Fuzz: Group name with invalid patterns panics
+func TestFuzz_GroupName_InvalidPatternsPanic(t *testing.T) {
+	t.Parallel()
+
+	g := NewWithT(t)
+
+	target := targ.Targ(func() {}).Name("valid-target")
+
+	// Invalid names should panic
+	invalidNames := []string{"", "123", "CamelCase", "with space", "-starts-dash"}
+	for _, name := range invalidNames {
+		g.Expect(func() {
+			_ = targ.Group(name, target)
+		}).To(Panic(), "expected panic for invalid group name: %q", name)
+	}
+}
+
+// Fuzz: Group name with valid patterns works
+func TestFuzz_GroupName_ValidPatterns(t *testing.T) {
 	t.Parallel()
 
 	rapid.Check(t, func(rt *rapid.T) {
 		g := NewWithT(t)
 
-		numRoots := rapid.IntRange(1, 5).Draw(rt, "numRoots")
+		// Generate valid group names (must match ^[a-z][a-z0-9-]*$)
+		groupName := rapid.StringMatching(`[a-z][a-z0-9-]{0,10}`).Draw(rt, "groupName")
+		targetName := rapid.StringMatching(`[a-z][a-z0-9-]{2,10}`).Draw(rt, "targetName")
 
-		roots := make([]any, 0, numRoots)
-		for range numRoots {
-			name := rapid.StringMatching(`[a-z]{3,10}`).Draw(rt, "name")
-			roots = append(roots, targ.Targ(func() {}).Name(name))
-		}
+		target := targ.Targ(func() {}).Name(targetName)
 
-		// Pick one to call
-		targetIdx := rapid.IntRange(0, numRoots-1).Draw(rt, "targetIdx")
-		targetName := roots[targetIdx].(*targ.Target).GetName()
-
-		// Should not panic (might error on duplicate names)
+		// Should not panic with valid name
 		g.Expect(func() {
-			_, _ = targ.ExecuteWithOptions(
-				[]string{"app", targetName},
-				targ.RunOptions{AllowDefault: false},
-				roots...,
-			)
+			_ = targ.Group(groupName, target)
 		}).NotTo(Panic())
 	})
 }
 
-// Fuzz: Caret reset with arbitrary command chains
-func TestFuzz_CaretReset_ArbitraryChains(t *testing.T) {
+// Fuzz: Empty group (group with no members)
+func TestFuzz_Group_EmptyGroup(t *testing.T) {
+	t.Parallel()
+
+	g := NewWithT(t)
+
+	// An empty group should not panic
+	g.Expect(func() {
+		_ = targ.Group("empty")
+	}).NotTo(Panic())
+}
+
+// Fuzz: Multiple groups with arbitrary nesting
+func TestFuzz_Groups_ArbitraryNesting(t *testing.T) {
 	t.Parallel()
 
 	rapid.Check(t, func(rt *rapid.T) {
 		g := NewWithT(t)
 
-		// Generate a mix of command names and carets
-		numCommands := rapid.IntRange(1, 10).Draw(rt, "numCommands")
+		depth := rapid.IntRange(1, 5).Draw(rt, "depth")
 
-		args := []string{"app"}
+		// Build nested groups
+		var current any = targ.Targ(func() {}).Name("leaf")
 
-		for range numCommands {
-			if rapid.Bool().Draw(rt, "isCaret") {
-				args = append(args, "^")
-			} else {
-				args = append(args, rapid.StringMatching(`[a-z]{3,8}`).Draw(rt, "cmd"))
-			}
+		for range depth {
+			name := rapid.StringMatching(`[a-z]{3,8}`).Draw(rt, "groupName")
+			current = targ.Group(name, current)
 		}
-
-		target := targ.Targ(func() {}).Name("test")
 
 		// Should not panic
 		g.Expect(func() {
-			_, _ = targ.Execute(args, target)
+			_, _ = targ.Execute([]string{"app"}, current)
 		}).NotTo(Panic())
 	})
 }
@@ -204,16 +162,64 @@ func TestFuzz_MixedRoots_TargetsAndGroups(t *testing.T) {
 	})
 }
 
-// Fuzz: Empty group (group with no members)
-func TestFuzz_Group_EmptyGroup(t *testing.T) {
+// Fuzz: Multiple roots with arbitrary names
+func TestFuzz_MultipleRoots_ArbitraryNames(t *testing.T) {
 	t.Parallel()
 
-	g := NewWithT(t)
+	rapid.Check(t, func(rt *rapid.T) {
+		g := NewWithT(t)
 
-	// An empty group should not panic
-	g.Expect(func() {
-		_ = targ.Group("empty")
-	}).NotTo(Panic())
+		numRoots := rapid.IntRange(1, 5).Draw(rt, "numRoots")
+
+		roots := make([]any, 0, numRoots)
+		for range numRoots {
+			name := rapid.StringMatching(`[a-z]{3,10}`).Draw(rt, "name")
+			roots = append(roots, targ.Targ(func() {}).Name(name))
+		}
+
+		// Pick one to call
+		targetIdx := rapid.IntRange(0, numRoots-1).Draw(rt, "targetIdx")
+
+		target, ok := roots[targetIdx].(*targ.Target)
+		if !ok {
+			return // Skip if not a Target (shouldn't happen but satisfies linter)
+		}
+
+		targetName := target.GetName()
+
+		// Should not panic (might error on duplicate names)
+		g.Expect(func() {
+			_, _ = targ.ExecuteWithOptions(
+				[]string{"app", targetName},
+				targ.RunOptions{AllowDefault: false},
+				roots...,
+			)
+		}).NotTo(Panic())
+	})
+}
+
+// Fuzz: Path resolution handles arbitrary path segments
+func TestFuzz_PathResolution_ArbitraryPathSegments(t *testing.T) {
+	t.Parallel()
+
+	rapid.Check(t, func(rt *rapid.T) {
+		g := NewWithT(t)
+
+		// Generate arbitrary path segments
+		segments := rapid.SliceOfN(
+			rapid.String(),
+			0, 10,
+		).Draw(rt, "segments")
+
+		target := targ.Targ(func() {}).Name("target")
+
+		args := append([]string{"app"}, segments...)
+
+		// Should not panic
+		g.Expect(func() {
+			_, _ = targ.Execute(args, target)
+		}).NotTo(Panic())
+	})
 }
 
 // Fuzz: Deeply nested path resolution

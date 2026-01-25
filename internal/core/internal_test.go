@@ -11,8 +11,11 @@ import (
 	"context"
 	"errors"
 	"io"
+	"os"
 	"reflect"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 
 	. "github.com/onsi/gomega"
@@ -100,6 +103,50 @@ func TestAppendBuiltinExamples(t *testing.T) {
 	g.Expect(examples[0].Title).To(Equal("Custom"))
 	g.Expect(examples[1].Title).To(Equal("Enable shell completion"))
 	g.Expect(examples[2].Title).To(ContainSubstring("Run multiple"))
+}
+
+func TestApplyDefaultsAndEnv_DefaultError(t *testing.T) {
+	t.Parallel()
+	g := NewWithT(t)
+
+	var count int
+
+	badDefault := "not-a-number"
+	specs := []*flagSpec{{
+		name:         "count",
+		defaultValue: &badDefault,
+		value:        reflect.ValueOf(&count).Elem(),
+	}}
+
+	err := applyDefaultsAndEnv(specs, nil)
+	g.Expect(err).To(HaveOccurred())
+
+	if err != nil {
+		g.Expect(err.Error()).To(ContainSubstring("invalid default for --count"))
+	}
+}
+
+func TestApplyDefaultsAndEnv_EnvVarError(t *testing.T) {
+	// Cannot use t.Parallel() with t.Setenv()
+	g := NewWithT(t)
+
+	// Set env var to unparseable value for int field
+	t.Setenv("TEST_COUNT_INVALID", "not-a-number")
+
+	var count int
+
+	specs := []*flagSpec{{
+		name:  "count",
+		env:   "TEST_COUNT_INVALID",
+		value: reflect.ValueOf(&count).Elem(),
+	}}
+
+	err := applyDefaultsAndEnv(specs, nil)
+	g.Expect(err).To(HaveOccurred())
+
+	if err != nil {
+		g.Expect(err.Error()).To(ContainSubstring("invalid value for env TEST_COUNT_INVALID"))
+	}
 }
 
 // --- applyTagOptionsOverride tests ---
@@ -618,8 +665,6 @@ func TestExecuteWithParents_TimeoutError(t *testing.T) {
 
 // --- executeWithWatch tests ---
 
-//nolint:paralleltest // Not parallel - modifies global fileWatch
-
 // --- ExitError tests ---
 
 func TestExitError_Error(t *testing.T) {
@@ -752,6 +797,28 @@ func TestExpectingFlagValue_ShortFlagNeedsValue(t *testing.T) {
 	g.Expect(expectingFlagValue([]string{"-n"}, specs)).To(BeTrue())
 }
 
+func TestFindMatchingRootsGlob_DoubleStarPattern(t *testing.T) {
+	t.Parallel()
+	g := NewWithT(t)
+
+	// Create a group with subcommands
+	sub := &commandNode{Name: "sub-a"}
+	group := &commandNode{
+		Name:        "group",
+		Subcommands: map[string]*commandNode{"sub-a": sub},
+	}
+
+	executor := &runExecutor{
+		roots: []*commandNode{group},
+	}
+
+	// ** pattern with suffix should include subcommands
+	// The suffix after ** should start with "/" for proper matching
+	matches := executor.findMatchingRootsGlob("**/sub*")
+	g.Expect(matches).To(HaveLen(1))
+	g.Expect(matches[0].Name).To(Equal("sub-a"))
+}
+
 // --- extractHelpFlag tests ---
 
 // --- extractTimeout tests ---
@@ -872,6 +939,43 @@ func TestFuncSourceFile_InvalidValue(t *testing.T) {
 	g.Expect(result).To(Equal(""))
 }
 
+func TestGetName_NilFunc(t *testing.T) {
+	t.Parallel()
+	g := NewWithT(t)
+
+	// Target with no name and nil function
+	target := &Target{}
+	g.Expect(target.GetName()).To(Equal(""))
+}
+
+func TestGetName_NonFuncValue(t *testing.T) {
+	t.Parallel()
+	g := NewWithT(t)
+
+	// Target with a non-function value (which shouldn't happen but tests the path)
+	target := &Target{fn: "not-a-function"}
+	g.Expect(target.GetName()).To(Equal(""))
+}
+
+func TestGetStdout_DefaultsToOsStdout(t *testing.T) {
+	t.Parallel()
+	g := NewWithT(t)
+
+	// When no Stdout is provided in options, getStdout returns os.Stdout
+	result := getStdout(RunOptions{})
+	g.Expect(result).To(BeIdenticalTo(os.Stdout))
+}
+
+func TestGetStdout_UsesProvidedWriter(t *testing.T) {
+	t.Parallel()
+	g := NewWithT(t)
+
+	// When Stdout is provided, getStdout returns it
+	buf := &bytes.Buffer{}
+	result := getStdout(RunOptions{Stdout: buf})
+	g.Expect(result).To(BeIdenticalTo(buf))
+}
+
 func TestHandleComplete_ReturnsErrorFromCompleteFn(t *testing.T) {
 	t.Parallel()
 
@@ -898,6 +1002,7 @@ func TestHandleHelpFlag_WithHelpFlag(t *testing.T) {
 	node := &commandNode{Name: "test", Description: "A test command"}
 
 	var buf bytes.Buffer
+
 	remaining, handled := handleHelpFlag(node, []string{"--help", "arg1"}, RunOptions{Stdout: &buf})
 	g.Expect(handled).To(BeTrue())
 	g.Expect(remaining).To(Equal([]string{"arg1"}))
@@ -931,8 +1036,6 @@ func TestHandleList_ReturnsErrorFromListFn(t *testing.T) {
 	g.Expect(env.Output()).To(ContainSubstring("list failed"))
 }
 
-// --- Glob pattern tests (whitebox) ---
-
 func TestIsShellVar(t *testing.T) {
 	t.Parallel()
 
@@ -955,6 +1058,69 @@ func TestIsShellVar(t *testing.T) {
 	// Empty vars
 	g.Expect(isShellVar("anything", nil)).To(BeFalse())
 	g.Expect(isShellVar("anything", []string{})).To(BeFalse())
+}
+
+func TestLaunchGlobTargets_MatchesTargets(t *testing.T) {
+	t.Parallel()
+
+	g := NewWithT(t)
+
+	var callCount int32
+
+	fn := reflect.ValueOf(func() { atomic.AddInt32(&callCount, 1) })
+
+	env := &ExecuteEnv{args: []string{"app"}}
+	exec := &runExecutor{
+		env:  env,
+		ctx:  context.Background(),
+		opts: RunOptions{},
+		roots: []*commandNode{
+			{Name: "test-a", Func: fn},
+			{Name: "test-b", Func: fn},
+			{Name: "build"},
+		},
+	}
+
+	var wg sync.WaitGroup
+
+	errCh := make(chan error, 10)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	err := exec.launchGlobTargets(ctx, "test-*", &wg, errCh, cancel)
+	g.Expect(err).NotTo(HaveOccurred())
+
+	// Wait for goroutines to complete
+	wg.Wait()
+
+	// Both test-* targets should have been called
+	g.Expect(atomic.LoadInt32(&callCount)).To(Equal(int32(2)))
+}
+
+// --- Glob pattern tests (whitebox) ---
+
+func TestLaunchGlobTargets_NoMatches(t *testing.T) {
+	t.Parallel()
+
+	g := NewWithT(t)
+
+	env := &ExecuteEnv{args: []string{"app"}}
+	exec := &runExecutor{
+		env:   env,
+		roots: []*commandNode{{Name: "build"}, {Name: "test"}},
+	}
+
+	var wg sync.WaitGroup
+
+	errCh := make(chan error, 10)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	err := exec.launchGlobTargets(ctx, "nonexistent-*", &wg, errCh, cancel)
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(env.Output()).To(ContainSubstring("No targets match pattern"))
 }
 
 func TestMatchesGlobCmd(t *testing.T) {
@@ -1220,6 +1386,30 @@ func TestPositionalsComplete_MissingRequired(t *testing.T) {
 	g.Expect(positionalsComplete(specs, counts)).To(BeFalse())
 }
 
+func TestPrepareParseContext_CollectFlagSpecsError(t *testing.T) {
+	t.Parallel()
+	g := NewWithT(t)
+
+	// TagOptionsErrorArgs has a TagOptions method that returns an error
+	var args TagOptionsErrorArgs
+
+	val := reflect.ValueOf(&args).Elem()
+
+	node := &commandNode{
+		Name: "test",
+		Type: reflect.TypeOf(args),
+	}
+
+	chain := []commandInstance{{
+		node:  node,
+		value: val,
+	}}
+
+	_, err := prepareParseContext(node, val, chain, nil, nil, false, false, nil)
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("tag options error"))
+}
+
 func TestPrependBuiltinExamples(t *testing.T) {
 	t.Parallel()
 
@@ -1245,7 +1435,10 @@ func TestPrintCommandHelp_FlagWithUsage(t *testing.T) {
 	target := &mockTarget{fn: func(_ helpTestCmdWithUsageArgs) {}, name: "test"}
 	node, err := parseTargetLike(target)
 	g.Expect(err).NotTo(HaveOccurred())
-	g.Expect(node).NotTo(BeNil())
+
+	if node == nil {
+		t.Fatal("node unexpectedly nil")
+	}
 
 	var buf bytes.Buffer
 	printCommandHelp(&buf, node, RunOptions{})
@@ -1392,6 +1585,7 @@ func TestPrintFlagWithWrappedEnum_LongEnum(t *testing.T) {
 	g := NewWithT(t)
 
 	longEnum := "{backlog|selected|in-progress|review|done|cancelled|blocked}"
+
 	var buf bytes.Buffer
 	printFlagWithWrappedEnum(&buf, "--status "+longEnum, "Status", longEnum, "  ")
 
@@ -1511,6 +1705,22 @@ func TestRunShellWithVars_Substitution(t *testing.T) {
 	g.Expect(err).ToNot(HaveOccurred())
 }
 
+func TestRunTargetWithOverrides_DepError(t *testing.T) {
+	t.Parallel()
+	g := NewWithT(t)
+
+	depErr := errors.New("dep failed")
+	failingDep := Targ(func() error { return depErr })
+
+	// Create a target with a failing dependency
+	target := Targ(func() {}).Deps(failingDep)
+
+	// Run via Execute which will trigger runTargetWithOverrides
+	// The error is wrapped as ExitError, so just check that an error occurred
+	_, err := Execute([]string{"app"}, target)
+	g.Expect(err).To(HaveOccurred())
+}
+
 // --- Additional RunWithEnv tests ---
 
 func TestRunWithEnv_CompleteCommand(t *testing.T) {
@@ -1604,6 +1814,35 @@ func TestRunWithEnv_ShellCommandTarget_WithVar(t *testing.T) {
 	env := &ExecuteEnv{args: []string{"cmd", "--name=world"}}
 	err := RunWithEnv(env, RunOptions{AllowDefault: true}, target)
 	g.Expect(err).ToNot(HaveOccurred())
+}
+
+func TestSetFieldWithPosition_CustomSetter(t *testing.T) {
+	t.Parallel()
+	g := NewWithT(t)
+
+	var target testTextUnmarshaler
+
+	val := reflect.ValueOf(&target).Elem()
+
+	pos := 0
+	err := setFieldWithPosition(val, "test-value", &pos)
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(target.value).To(Equal("unmarshaled:test-value"))
+	g.Expect(pos).To(Equal(1)) // Position should be incremented
+}
+
+func TestSetFieldWithPosition_CustomSetterNilPos(t *testing.T) {
+	t.Parallel()
+	g := NewWithT(t)
+
+	var target testTextUnmarshaler
+
+	val := reflect.ValueOf(&target).Elem()
+
+	// nil pos should still work, just not increment
+	err := setFieldWithPosition(val, "test-value", nil)
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(target.value).To(Equal("unmarshaled:test-value"))
 }
 
 // --- skipTargFlags tests ---
@@ -1776,35 +2015,9 @@ func TooManyReturnsFunc() (int, error) {
 	return 42, nil
 }
 
-// unexported constants.
-const (
-	bashShell = "bash"
-)
-
-type helpTestCmdArgs struct {
-	Name string `targ:"flag"`
-}
-
-type helpTestCmdWithPlaceholderArgs struct {
-	Output string `targ:"flag,placeholder=<file>"`
-}
-
-type helpTestCmdWithShortArgs struct {
-	Verbose bool `targ:"flag,short=v"`
-}
-
 type helpTestCmdWithUsageArgs struct {
 	Format string `targ:"flag,desc=Output format"`
 }
-
-type mockGroup struct {
-	name    string
-	members []any
-}
-
-func (m *mockGroup) GetMembers() []any { return m.members }
-
-func (m *mockGroup) GetName() string { return m.name }
 
 type mockTarget struct {
 	fn          any
@@ -1842,29 +2055,4 @@ type testTextUnmarshaler struct {
 func (t *testTextUnmarshaler) UnmarshalText(text []byte) error {
 	t.value = "unmarshaled:" + string(text)
 	return nil
-}
-
-// extractShellName extracts and validates the shell name from a path.
-// This is the testable core logic of DetectShell().
-func extractShellName(shell string) string {
-	shell = strings.TrimSpace(shell)
-	if shell == "" {
-		return ""
-	}
-
-	base := shell
-	if idx := strings.LastIndex(base, "/"); idx != -1 {
-		base = base[idx+1:]
-	}
-
-	if idx := strings.LastIndex(base, "\\"); idx != -1 {
-		base = base[idx+1:]
-	}
-
-	switch base {
-	case bashShell, zshShell, fishShell:
-		return base
-	default:
-		return ""
-	}
 }

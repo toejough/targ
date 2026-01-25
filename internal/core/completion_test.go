@@ -352,10 +352,12 @@ func TestPrintCompletionScriptPlaceholders(t *testing.T) {
 	cases := []string{"bash", "zsh", "fish"}
 	for _, shell := range cases {
 		var buf bytes.Buffer
+
 		err := core.PrintCompletionScriptTo(&buf, shell, "demo")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
+
 		out := buf.String()
 		if strings.Contains(out, "MISSING") {
 			t.Fatalf("unexpected placeholder output for %s: %s", shell, out)
@@ -379,6 +381,7 @@ func captureCompletionMulti(t *testing.T, targets []any, input string) string {
 	t.Helper()
 
 	var buf bytes.Buffer
+
 	err := core.DoCompletionTo(&buf, input, targets...)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)

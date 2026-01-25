@@ -8,6 +8,89 @@ import (
 	"github.com/toejough/targ"
 )
 
+// Property: Multiple targets can be executed in sequence
+func TestProperty_Execution_MultipleTargetsRunSequentially(t *testing.T) {
+	t.Parallel()
+
+	g := NewWithT(t)
+
+	order := make([]string, 0)
+
+	a := targ.Targ(func() { order = append(order, "a") }).Name("a")
+	b := targ.Targ(func() { order = append(order, "b") }).Name("b")
+
+	_, err := targ.Execute([]string{"app", "a", "b"}, a, b)
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(order).To(Equal([]string{"a", "b"}))
+}
+
+// Property: Glob patterns with no matches return error in parallel mode
+func TestProperty_Glob_NoMatchesReturnsError(t *testing.T) {
+	t.Parallel()
+
+	g := NewWithT(t)
+
+	build := targ.Targ(func() {}).Name("build")
+	test := targ.Targ(func() {}).Name("test")
+
+	// In parallel mode with multiple roots, glob with no matches should error
+	_, err := targ.ExecuteWithOptions(
+		[]string{"app", "nonexistent-*"},
+		targ.RunOptions{AllowDefault: false, Overrides: targ.RuntimeOverrides{Parallel: true}},
+		build, test,
+	)
+	g.Expect(err).To(HaveOccurred())
+}
+
+// Property: Glob patterns match multiple targets
+func TestProperty_Glob_PatternMatchesMultipleTargets(t *testing.T) {
+	t.Parallel()
+
+	g := NewWithT(t)
+
+	testACalls := 0
+	testBCalls := 0
+	buildCalls := 0
+
+	testA := targ.Targ(func() { testACalls++ }).Name("test-a")
+	testB := targ.Targ(func() { testBCalls++ }).Name("test-b")
+	build := targ.Targ(func() { buildCalls++ }).Name("build")
+
+	_, err := targ.ExecuteWithOptions(
+		[]string{"app", "test-*"},
+		targ.RunOptions{AllowDefault: false},
+		testA, testB, build,
+	)
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(testACalls).To(Equal(1))
+	g.Expect(testBCalls).To(Equal(1))
+	g.Expect(buildCalls).To(Equal(0))
+}
+
+// Property: Glob patterns work within groups
+func TestProperty_Glob_PatternMatchesSubcommands(t *testing.T) {
+	t.Parallel()
+
+	g := NewWithT(t)
+
+	testACalls := 0
+	testBCalls := 0
+	buildCalls := 0
+
+	testA := targ.Targ(func() { testACalls++ }).Name("test-a")
+	testB := targ.Targ(func() { testBCalls++ }).Name("test-b")
+	build := targ.Targ(func() { buildCalls++ }).Name("build")
+
+	group := targ.Group("dev", testA, testB, build)
+
+	// When group is the single root, args go directly to its subcommands
+	_, err := targ.Execute([]string{"app", "test-*"}, group)
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(testACalls).To(Equal(1))
+	g.Expect(testBCalls).To(Equal(1))
+	g.Expect(buildCalls).To(Equal(0))
+}
+
 // Property: Namespace nodes (groups) are not directly executable
 func TestProperty_Groups_NamespaceNodesAreNotExecutable(t *testing.T) {
 	t.Parallel()
@@ -48,45 +131,4 @@ func TestProperty_PathResolution_CaretResetsToRoot(t *testing.T) {
 	g.Expect(err).NotTo(HaveOccurred())
 	g.Expect(subCalled).To(Equal(1))
 	g.Expect(rootCalled).To(Equal(1))
-}
-
-// Property: Multiple targets can be executed in sequence
-func TestProperty_Execution_MultipleTargetsRunSequentially(t *testing.T) {
-	t.Parallel()
-
-	g := NewWithT(t)
-
-	order := make([]string, 0)
-
-	a := targ.Targ(func() { order = append(order, "a") }).Name("a")
-	b := targ.Targ(func() { order = append(order, "b") }).Name("b")
-
-	_, err := targ.Execute([]string{"app", "a", "b"}, a, b)
-	g.Expect(err).NotTo(HaveOccurred())
-	g.Expect(order).To(Equal([]string{"a", "b"}))
-}
-
-// Property: Glob patterns match multiple targets
-func TestProperty_Glob_PatternMatchesMultipleTargets(t *testing.T) {
-	t.Parallel()
-
-	g := NewWithT(t)
-
-	testACalls := 0
-	testBCalls := 0
-	buildCalls := 0
-
-	testA := targ.Targ(func() { testACalls++ }).Name("test-a")
-	testB := targ.Targ(func() { testBCalls++ }).Name("test-b")
-	build := targ.Targ(func() { buildCalls++ }).Name("build")
-
-	_, err := targ.ExecuteWithOptions(
-		[]string{"app", "test-*"},
-		targ.RunOptions{AllowDefault: false},
-		testA, testB, build,
-	)
-	g.Expect(err).NotTo(HaveOccurred())
-	g.Expect(testACalls).To(Equal(1))
-	g.Expect(testBCalls).To(Equal(1))
-	g.Expect(buildCalls).To(Equal(0))
 }

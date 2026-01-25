@@ -172,57 +172,14 @@ func TestRunWithEnv_HelpShowsExecutionInfo(t *testing.T) {
 
 // unexported variables.
 var (
-	buildCalls             int
-	defaultFuncCalled      bool
-	deployACalls           int
-	errFuncError           = errors.New("function error")
-	helloWorldCalled       bool
-	multiRootDiscoverCalls int
-	multiRootFlashCalls    int
-	multiSubOneCalls       int
-	multiSubTwoCalls       int
-	testACalls             int
-	testBCalls             int
+	defaultFuncCalled bool
+	errFuncError      = errors.New("function error")
+	helloWorldCalled  bool
+	testACalls        int
 )
-
-func buildTarget() *core.Target {
-	return core.Targ(func() { buildCalls++ }).Name("build")
-}
-
-func deployATarget() *core.Target {
-	return core.Targ(func() { deployACalls++ }).Name("deploy-a")
-}
-
-func discoverTarget() *core.Target {
-	return core.Targ(func() { multiRootDiscoverCalls++ }).Name("discover")
-}
-
-func firmwareGroup() *core.TargetGroup {
-	return core.Group("firmware", flashOnlyTarget())
-}
-
-func flashOnlyTarget() *core.Target {
-	return core.Targ(func() { multiRootFlashCalls++ }).Name("flash-only")
-}
-
-func multiSubRootGroup() *core.TargetGroup {
-	return core.Group("multi-sub-root", oneTarget(), twoTarget())
-}
 
 // Helper functions to create targets for tests
 
-func oneTarget() *core.Target {
-	return core.Targ(func() { multiSubOneCalls++ }).Name("one")
-}
-
 func testATarget() *core.Target {
 	return core.Targ(func() { testACalls++ }).Name("test-a")
-}
-
-func testBTarget() *core.Target {
-	return core.Targ(func() { testBCalls++ }).Name("test-b")
-}
-
-func twoTarget() *core.Target {
-	return core.Targ(func() { multiSubTwoCalls++ }).Name("two")
 }

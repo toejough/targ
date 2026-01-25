@@ -748,11 +748,6 @@ func collectCommands(node *commandNode, prefix string, commands *[]listCommandIn
 	}
 }
 
-// doList outputs JSON with command names and descriptions to stdout.
-func doList(roots []*commandNode) error {
-	return doListTo(os.Stdout, roots)
-}
-
 // doListTo outputs JSON with command names and descriptions to the given writer.
 func doListTo(w io.Writer, roots []*commandNode) error {
 	output := listOutput{
