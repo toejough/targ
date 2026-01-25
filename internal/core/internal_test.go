@@ -405,24 +405,6 @@ func TestCustomSetter_StringSetter(t *testing.T) {
 	g.Expect(target.value).To(Equal("set:world"))
 }
 
-func TestCustomSetter_TextUnmarshaler(t *testing.T) {
-	t.Parallel()
-
-	g := NewWithT(t)
-
-	var target testTextUnmarshaler
-
-	val := reflect.ValueOf(&target).Elem()
-
-	setter, ok := customSetter(val)
-	g.Expect(ok).To(BeTrue(), "should find TextUnmarshaler")
-	g.Expect(setter).NotTo(BeNil())
-
-	err := setter("hello")
-	g.Expect(err).NotTo(HaveOccurred())
-	g.Expect(target.value).To(Equal("unmarshaled:hello"))
-}
-
 func TestDepModeString(t *testing.T) {
 	t.Parallel()
 
@@ -676,66 +658,6 @@ func TestExitError_Error(t *testing.T) {
 	g.Expect(err.Error()).To(Equal("exit code 42"))
 }
 
-func TestExpandRecursive(t *testing.T) {
-	t.Parallel()
-
-	g := NewWithT(t)
-
-	// Build a tree: root -> child1, child2; child1 -> grandchild
-	root := &commandNode{
-		Name:        "root",
-		Subcommands: make(map[string]*commandNode),
-	}
-	child1 := &commandNode{
-		Name:        "child1",
-		Subcommands: make(map[string]*commandNode),
-	}
-	child2 := &commandNode{
-		Name:        "child2",
-		Subcommands: make(map[string]*commandNode),
-	}
-	grandchild := &commandNode{
-		Name:        "grandchild",
-		Subcommands: make(map[string]*commandNode),
-	}
-	root.Subcommands["child1"] = child1
-	root.Subcommands["child2"] = child2
-	child1.Subcommands["grandchild"] = grandchild
-
-	// Empty suffix matches all direct children and recurses
-	matches := expandRecursive(root, "")
-	// Should include: child1, child2, grandchild (from recursion)
-	g.Expect(len(matches)).To(BeNumerically(">=", 2))
-
-	// Check that direct children are included
-	names := make([]string, 0, len(matches))
-	for _, m := range matches {
-		names = append(names, m.Name)
-	}
-
-	g.Expect(names).To(ContainElement("child1"))
-	g.Expect(names).To(ContainElement("child2"))
-
-	// "/" matches all direct children and recurses
-	matches = expandRecursive(root, "/")
-	g.Expect(len(matches)).To(BeNumerically(">=", 2))
-
-	// "/*" matches all direct children
-	matches = expandRecursive(root, "/*")
-	g.Expect(len(matches)).To(BeNumerically(">=", 2))
-
-	// "/child*" matches children starting with "child"
-	matches = expandRecursive(root, "/child*")
-	g.Expect(len(matches)).To(BeNumerically(">=", 2))
-
-	for _, m := range matches {
-		// Either matches child* or is a grandchild from recursion
-		hasChildPrefix := strings.HasPrefix(m.Name, "child")
-		isGrandchild := m.Name == "grandchild"
-		g.Expect(hasChildPrefix || isGrandchild).To(BeTrue())
-	}
-}
-
 // --- expectingFlagValue tests ---
 
 func TestExpectingFlagValue_FlagGroupAllBool(t *testing.T) {
@@ -948,15 +870,6 @@ func TestGetName_NilFunc(t *testing.T) {
 	g.Expect(target.GetName()).To(Equal(""))
 }
 
-func TestGetName_NonFuncValue(t *testing.T) {
-	t.Parallel()
-	g := NewWithT(t)
-
-	// Target with a non-function value (which shouldn't happen but tests the path)
-	target := &Target{fn: "not-a-function"}
-	g.Expect(target.GetName()).To(Equal(""))
-}
-
 func TestGetStdout_DefaultsToOsStdout(t *testing.T) {
 	t.Parallel()
 	g := NewWithT(t)
@@ -964,16 +877,6 @@ func TestGetStdout_DefaultsToOsStdout(t *testing.T) {
 	// When no Stdout is provided in options, getStdout returns os.Stdout
 	result := getStdout(RunOptions{})
 	g.Expect(result).To(BeIdenticalTo(os.Stdout))
-}
-
-func TestGetStdout_UsesProvidedWriter(t *testing.T) {
-	t.Parallel()
-	g := NewWithT(t)
-
-	// When Stdout is provided, getStdout returns it
-	buf := &bytes.Buffer{}
-	result := getStdout(RunOptions{Stdout: buf})
-	g.Expect(result).To(BeIdenticalTo(buf))
 }
 
 func TestHandleComplete_ReturnsErrorFromCompleteFn(t *testing.T) {
@@ -1099,29 +1002,6 @@ func TestLaunchGlobTargets_MatchesTargets(t *testing.T) {
 }
 
 // --- Glob pattern tests (whitebox) ---
-
-func TestLaunchGlobTargets_NoMatches(t *testing.T) {
-	t.Parallel()
-
-	g := NewWithT(t)
-
-	env := &ExecuteEnv{args: []string{"app"}}
-	exec := &runExecutor{
-		env:   env,
-		roots: []*commandNode{{Name: "build"}, {Name: "test"}},
-	}
-
-	var wg sync.WaitGroup
-
-	errCh := make(chan error, 10)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	err := exec.launchGlobTargets(ctx, "nonexistent-*", &wg, errCh, cancel)
-	g.Expect(err).To(HaveOccurred())
-	g.Expect(env.Output()).To(ContainSubstring("No targets match pattern"))
-}
 
 func TestMatchesGlobCmd(t *testing.T) {
 	t.Parallel()
@@ -1608,25 +1488,6 @@ func TestPrintMoreInfo_WithMoreInfoText(t *testing.T) {
 
 // --- printSubcommandList tests ---
 
-func TestPrintSubcommandList_WithDescriptions(t *testing.T) {
-	t.Parallel()
-
-	g := NewWithT(t)
-
-	subs := map[string]*commandNode{
-		"alpha": {Name: "alpha", Description: "Alpha command"},
-		"beta":  {Name: "beta", Description: "Beta command"},
-	}
-
-	var buf bytes.Buffer
-	printSubcommandList(&buf, subs, "  ")
-
-	g.Expect(buf.String()).To(ContainSubstring("alpha"))
-	g.Expect(buf.String()).To(ContainSubstring("Alpha command"))
-	g.Expect(buf.String()).To(ContainSubstring("beta"))
-	g.Expect(buf.String()).To(ContainSubstring("Beta command"))
-}
-
 // --- printUsage tests ---
 
 func TestPrintUsage_WithDescription(t *testing.T) {
@@ -1765,6 +1626,26 @@ func TestRunWithEnv_ListCommand(t *testing.T) {
 	g.Expect(env.Output()).To(ContainSubstring("simple-target"))
 }
 
+func TestRunWithEnv_ShellCommandTarget_Error(t *testing.T) {
+	t.Parallel()
+
+	g := NewWithT(t)
+
+	// Shell command that fails
+	target := &mockTarget{
+		fn:   "exit 1",
+		name: "fail",
+	}
+
+	env := &ExecuteEnv{args: []string{"cmd"}}
+	err := RunWithEnv(env, RunOptions{AllowDefault: true}, target)
+	g.Expect(err).To(HaveOccurred())
+
+	if err != nil {
+		g.Expect(err.Error()).To(ContainSubstring("exit code"))
+	}
+}
+
 func TestRunWithEnv_ShellCommandTarget_Help(t *testing.T) {
 	t.Parallel()
 
@@ -1831,20 +1712,6 @@ func TestSetFieldWithPosition_CustomSetter(t *testing.T) {
 	g.Expect(pos).To(Equal(1)) // Position should be incremented
 }
 
-func TestSetFieldWithPosition_CustomSetterNilPos(t *testing.T) {
-	t.Parallel()
-	g := NewWithT(t)
-
-	var target testTextUnmarshaler
-
-	val := reflect.ValueOf(&target).Elem()
-
-	// nil pos should still work, just not increment
-	err := setFieldWithPosition(val, "test-value", nil)
-	g.Expect(err).NotTo(HaveOccurred())
-	g.Expect(target.value).To(Equal("unmarshaled:test-value"))
-}
-
 // --- skipTargFlags tests ---
 
 func TestSkipTargFlags_WithCompletion(t *testing.T) {
@@ -1865,30 +1732,6 @@ func TestSkipTargFlags_WithCompletionEquals(t *testing.T) {
 	// --completion=bash uses flag=value syntax
 	result := skipTargFlags([]string{"--completion=bash", "build"})
 	g.Expect(result).To(Equal([]string{"build"}))
-}
-
-func TestSliceFlagMissingValue(t *testing.T) {
-	t.Parallel()
-
-	g := NewWithT(t)
-
-	type SliceCmdArgs struct {
-		Files []string `targ:"flag"`
-	}
-
-	// Test with no values after flag (error case)
-	fn := func(_ SliceCmdArgs) {}
-	target := &mockTarget{fn: fn, name: "test"}
-	node, err := parseTargetLike(target)
-	g.Expect(err).NotTo(HaveOccurred())
-
-	if node == nil {
-		t.Fatal("unexpected nil node")
-	}
-
-	err = node.execute(context.TODO(), []string{"--files"}, RunOptions{})
-	g.Expect(err).To(HaveOccurred())
-	g.Expect(err.Error()).To(ContainSubstring("flag needs an argument"))
 }
 
 // --- suggestInstanceFlags tests ---

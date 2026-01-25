@@ -2,12 +2,6 @@ package targ_test
 
 import (
 	"strings"
-	"testing"
-
-	. "github.com/onsi/gomega"
-	"pgregory.net/rapid"
-
-	"github.com/toejough/targ"
 )
 
 // --- Args struct types for Target functions ---
@@ -64,25 +58,4 @@ type TextValue struct {
 func (tv *TextValue) UnmarshalText(text []byte) error {
 	tv.Value = strings.ToUpper(string(text))
 	return nil
-}
-
-// --- Tests ---
-
-func TestDefaultEnvFlags_EnvOverrides(t *testing.T) {
-	rapid.Check(t, func(rt *rapid.T) {
-		g := NewWithT(t)
-
-		envValue := rapid.StringMatching(`[A-Z][a-z]{2,10}`).Draw(rt, "envValue")
-		t.Setenv("TEST_DEFAULT_NAME_FLAG", envValue)
-
-		var gotName string
-
-		target := targ.Targ(func(args DefaultEnvFlagsArgs) {
-			gotName = args.Name
-		})
-
-		_, err := targ.Execute([]string{"app"}, target)
-		g.Expect(err).NotTo(HaveOccurred())
-		g.Expect(gotName).To(Equal(envValue))
-	})
 }

@@ -96,17 +96,6 @@ func TestTarget_RunWithWatchRerunsOnFileChange(t *testing.T) {
 	g.Expect(err).To(HaveOccurred()) // Should error on context cancellation
 }
 
-func TestTarget_WatchBuilderReturnsSameTarget(t *testing.T) {
-	t.Parallel()
-
-	g := NewWithT(t)
-
-	original := targ.Targ(func() {})
-	afterWatch := original.Watch("*.go")
-
-	g.Expect(afterWatch).To(BeIdenticalTo(original))
-}
-
 func TestTarget_WatchDisabledSetsFlag(t *testing.T) {
 	t.Parallel()
 

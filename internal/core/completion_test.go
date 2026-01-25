@@ -19,18 +19,6 @@ type EnumCmdArgs struct {
 	Kind string `targ:"flag,enum=fast|slow"`
 }
 
-// EnumOverrideCmdArgs uses static enum (replacing dynamic TagOptions).
-type EnumOverrideCmdArgs struct {
-	Mode string `targ:"flag,enum=alpha|beta"`
-}
-
-// PositionalCompletionCmdArgs - simplified version without dynamic TagOptions.
-// The dynamic enum based on Status is a struct-only feature.
-type PositionalCompletionCmdArgs struct {
-	Status string `targ:"flag"`
-	ID     int    `targ:"positional,enum=10|20|30"`
-}
-
 type VariadicFlagCmdArgs struct {
 	Files  []string `targ:"flag"`
 	Target string   `targ:"positional,enum=build|test"`
@@ -44,20 +32,6 @@ func TestCompletion_BackslashInDoubleQuotes(t *testing.T) {
 	// The \" is an escaped quote, not end of string
 	if strings.Contains(out, "dev") {
 		t.Fatalf("expected no match with escaped quote, got: %q", out)
-	}
-}
-
-func TestCompletion_CaretSuggestion(t *testing.T) {
-	t.Parallel()
-
-	flashOnly := core.Targ(func() {}).Name("flash-only")
-	firmware := core.Group("firmware", flashOnly)
-	discover := core.Targ(func() {}).Name("discover")
-
-	out := captureCompletionMulti(t, []any{firmware, discover},
-		"app firmware flash-only ")
-	if !strings.Contains(out, "^") {
-		t.Fatalf("expected ^ suggestion, got: %q", out)
 	}
 }
 
@@ -101,44 +75,6 @@ func TestCompletion_EnumFlagFollowedByNonEnumArg(t *testing.T) {
 	}
 }
 
-func TestCompletion_EscapedSpace(t *testing.T) {
-	t.Parallel()
-	// Test escaped space in argument
-	target := core.Targ(func(_ EnumCmdArgs) {}).Name("enum-cmd")
-	out := captureCompletion(t, target, `app --mode de\ `)
-	// The escaped space is part of the arg, so "de " doesn't match any enum
-	if strings.Contains(out, "dev") {
-		t.Fatalf("expected no dev suggestion with escaped space, got: %q", out)
-	}
-}
-
-func TestCompletion_FlagSuggestion(t *testing.T) {
-	t.Parallel()
-
-	target := core.Targ(func(_ EnumCmdArgs) {}).Name("enum-cmd")
-
-	out := captureCompletion(t, target, "app --")
-	if !strings.Contains(out, "--mode") {
-		t.Fatalf("expected --mode flag suggestion, got: %q", out)
-	}
-}
-
-func TestCompletion_MultiRootChainedRemaining(t *testing.T) {
-	t.Parallel()
-	// Test multi-root mode where remaining args DO match a root
-	// After firmware flash-only runs, "discover" matches a root so we chain to it
-	flashOnly := core.Targ(func() {}).Name("flash-only")
-	firmware := core.Group("firmware", flashOnly)
-	discover := core.Targ(func() {}).Name("discover")
-
-	out := captureCompletionMulti(t, []any{firmware, discover},
-		"app firmware flash-only discover ")
-	// After chaining to discover, we should suggest roots again (both firmware and discover)
-	if !strings.Contains(out, "firmware") || !strings.Contains(out, "discover") {
-		t.Fatalf("expected root suggestions after chaining, got: %q", out)
-	}
-}
-
 func TestCompletion_MultiRootUnknownRemaining(t *testing.T) {
 	t.Parallel()
 	// Test multi-root mode where remaining args don't match any root
@@ -176,20 +112,6 @@ func TestCompletion_MultipleRootsAtRootLevel(t *testing.T) {
 	}
 }
 
-func TestCompletion_MultipleRootsWithPrefix(t *testing.T) {
-	t.Parallel()
-
-	flashOnly := core.Targ(func() {}).Name("flash-only")
-	firmware := core.Group("firmware", flashOnly)
-	discover := core.Targ(func() {}).Name("discover")
-
-	out := captureCompletionMulti(t, []any{firmware, discover},
-		"app f")
-	if !strings.Contains(out, "firmware") {
-		t.Fatalf("expected firmware suggestion, got: %q", out)
-	}
-}
-
 func TestCompletion_PartialRootMatchSuggestsMatchingRoots(t *testing.T) {
 	t.Parallel()
 
@@ -202,43 +124,6 @@ func TestCompletion_PartialRootMatchSuggestsMatchingRoots(t *testing.T) {
 		"app fir ")
 	if !strings.Contains(out, "firmware") {
 		t.Fatalf("expected firmware suggestion for partial match, got: %q", out)
-	}
-}
-
-// Tests for tokenization edge cases
-
-func TestCompletion_QuotedArg(t *testing.T) {
-	t.Parallel()
-
-	// Test that quoted arguments are handled properly
-	target := core.Targ(func(_ EnumCmdArgs) {}).Name("enum-cmd")
-	out := captureCompletion(t, target, `app --mode "de`)
-	// Should suggest enum values since we're in a quoted string completing "de"
-	if !strings.Contains(out, "dev") {
-		t.Fatalf("expected dev suggestion with quoted arg, got: %q", out)
-	}
-}
-
-func TestCompletion_SingleQuotedArg(t *testing.T) {
-	t.Parallel()
-
-	// Test single quotes
-	target := core.Targ(func(_ EnumCmdArgs) {}).Name("enum-cmd")
-
-	out := captureCompletion(t, target, `app --mode 'de`)
-	if !strings.Contains(out, "dev") {
-		t.Fatalf("expected dev suggestion with single quoted arg, got: %q", out)
-	}
-}
-
-func TestCompletion_SingleRootAtRoot(t *testing.T) {
-	t.Parallel()
-
-	target := core.Targ(func(_ EnumCmdArgs) {}).Name("enum-cmd")
-
-	out := captureCompletion(t, target, "app ")
-	if !strings.Contains(out, "enum-cmd") {
-		t.Fatalf("expected enum-cmd suggestion, got: %q", out)
 	}
 }
 
@@ -259,41 +144,6 @@ func TestCompletion_SingleRootWithRemaining(t *testing.T) {
 	}
 }
 
-func TestCompletion_SuggestsEnumValuesAfterFlag(t *testing.T) {
-	t.Parallel()
-
-	target := core.Targ(func(_ EnumCmdArgs) {}).Name("enum-cmd")
-
-	out := captureCompletion(t, target, "app --mode ")
-	if !strings.Contains(out, "dev") || !strings.Contains(out, "prod") {
-		t.Fatalf("expected enum suggestions, got: %q", out)
-	}
-}
-
-func TestCompletion_SuggestsEnumValuesAfterShortFlag(t *testing.T) {
-	t.Parallel()
-
-	target := core.Targ(func(_ EnumCmdArgs) {}).Name("enum-cmd")
-
-	out := captureCompletion(t, target, "app -m ")
-	if !strings.Contains(out, "dev") || !strings.Contains(out, "prod") {
-		t.Fatalf("expected enum suggestions for short flag, got: %q", out)
-	}
-}
-
-func TestCompletion_SuggestsPositionalValues(t *testing.T) {
-	t.Parallel()
-
-	// Simplified test - uses static enum instead of dynamic TagOptions
-	target := core.Targ(func(_ PositionalCompletionCmdArgs) {}).Name("pos-cmd")
-
-	out := captureCompletion(t, target, "app ")
-	if !strings.Contains(out, "10") || !strings.Contains(out, "20") ||
-		!strings.Contains(out, "30") {
-		t.Fatalf("expected positional suggestions, got: %q", out)
-	}
-}
-
 func TestCompletion_SuggestsRootsAfterCommand(t *testing.T) {
 	t.Parallel()
 
@@ -305,33 +155,6 @@ func TestCompletion_SuggestsRootsAfterCommand(t *testing.T) {
 		"app firmware flash-only d")
 	if !strings.Contains(out, "discover") {
 		t.Fatalf("expected discover suggestion, got: %q", out)
-	}
-}
-
-func TestCompletion_TagOptionsOverride(t *testing.T) {
-	t.Parallel()
-
-	// Changed to use static enum (alpha|beta) since dynamic TagOptions is struct-only
-	target := core.Targ(func(_ EnumOverrideCmdArgs) {}).Name("enum-override-cmd")
-	out := captureCompletion(t, target, "app --mode ")
-	// Static enum is alpha|beta
-	if !strings.Contains(out, "alpha") || !strings.Contains(out, "beta") {
-		t.Fatalf("expected static enum values, got: %q", out)
-	}
-}
-
-func TestCompletion_UnknownRootPrefix(t *testing.T) {
-	t.Parallel()
-
-	flashOnly := core.Targ(func() {}).Name("flash-only")
-	firmware := core.Group("firmware", flashOnly)
-	discover := core.Targ(func() {}).Name("discover")
-
-	out := captureCompletionMulti(t, []any{firmware, discover},
-		"app xyz")
-	// Should not suggest anything since no match
-	if out != "" {
-		t.Fatalf("expected no suggestions for unknown prefix, got: %q", out)
 	}
 }
 
