@@ -4,3 +4,5 @@
 .crush/
 coverage.out
 .claude/settings.local.json
+.targ-cache/
+test/testdata/
