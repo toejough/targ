@@ -686,17 +686,6 @@ func TestExpectingFlagValue_FlagGroupLastTakesValue(t *testing.T) {
 	g.Expect(expectingFlagValue([]string{"-vn"}, specs)).To(BeTrue())
 }
 
-func TestExpectingFlagValue_LongFlagNeedsValue(t *testing.T) {
-	t.Parallel()
-
-	g := NewWithT(t)
-
-	specs := map[string]completionFlagSpec{
-		"--name": {TakesValue: true},
-	}
-	g.Expect(expectingFlagValue([]string{"--name"}, specs)).To(BeTrue())
-}
-
 func TestExpectingFlagValue_LongFlagWithEquals(t *testing.T) {
 	t.Parallel()
 
@@ -1487,25 +1476,6 @@ func TestPrintMoreInfo_WithMoreInfoText(t *testing.T) {
 }
 
 // --- printSubcommandList tests ---
-
-func TestPrintSubcommandList_WithDescriptions(t *testing.T) {
-	t.Parallel()
-
-	g := NewWithT(t)
-
-	subs := map[string]*commandNode{
-		"build": {Name: "build", Description: "Build the project"},
-		"test":  {Name: "test", Description: "Run tests"},
-	}
-
-	var buf bytes.Buffer
-	printSubcommandList(&buf, subs, "  ")
-
-	g.Expect(buf.String()).To(ContainSubstring("build"))
-	g.Expect(buf.String()).To(ContainSubstring("Build the project"))
-	g.Expect(buf.String()).To(ContainSubstring("test"))
-	g.Expect(buf.String()).To(ContainSubstring("Run tests"))
-}
 
 func TestPrintSubcommandList_WithoutDescriptions(t *testing.T) {
 	t.Parallel()

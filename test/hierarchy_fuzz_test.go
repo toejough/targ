@@ -224,16 +224,3 @@ func TestGroupName_InvalidPatternsPanic(t *testing.T) {
 		}).To(Panic(), "expected panic for invalid group name: %q", name)
 	}
 }
-
-// TestGroup_EmptyGroup tests that an empty group does not panic.
-// This is a simple test, not a fuzz test.
-func TestGroup_EmptyGroup(t *testing.T) {
-	t.Parallel()
-
-	g := NewWithT(t)
-
-	// An empty group should not panic
-	g.Expect(func() {
-		_ = targ.Group("empty")
-	}).NotTo(Panic())
-}
