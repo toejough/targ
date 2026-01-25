@@ -1116,6 +1116,50 @@ func TestParseFlagAdvancesVariadicPositional(t *testing.T) {
 	g.Expect(gotFlag).To(Equal("value"))
 }
 
+func TestParseSliceFlagValue_AllowIncomplete(t *testing.T) {
+	t.Parallel()
+
+	g := NewWithT(t)
+
+	type SliceFlagArgs struct {
+		Tags []string `targ:"flag"`
+	}
+
+	target := Targ(func(_ SliceFlagArgs) {}).Name("test")
+
+	// Completion with --tags at end (no value yet) should not error
+	var buf bytes.Buffer
+
+	err := DoCompletionTo(&buf, "app --tags ", target)
+	g.Expect(err).NotTo(HaveOccurred())
+}
+
+func TestParseSliceFlagValue_MissingValue(t *testing.T) {
+	t.Parallel()
+
+	g := NewWithT(t)
+
+	type SliceFlagArgs struct {
+		Tags []string `targ:"flag"`
+	}
+
+	target := &mockTarget{fn: func(_ SliceFlagArgs) {}, name: "test"}
+	node, err := parseTargetLike(target)
+	g.Expect(err).NotTo(HaveOccurred())
+
+	if node == nil {
+		t.Fatal("unexpected nil node")
+	}
+
+	// --tags at end with no value should error
+	err = node.execute(context.TODO(), []string{"--tags"}, RunOptions{})
+	g.Expect(err).To(HaveOccurred())
+
+	if err != nil {
+		g.Expect(err.Error()).To(ContainSubstring("tags"))
+	}
+}
+
 // --- Parsing Edge Cases ---
 
 func TestParseTarget_InvalidFunctionParam(t *testing.T) {

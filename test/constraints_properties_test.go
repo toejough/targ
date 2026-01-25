@@ -140,6 +140,23 @@ func TestProperty_Invariant_NilTargetPanics(t *testing.T) {
 	}).To(Panic())
 }
 
+// Property: Slice flag without value has clear error
+func TestProperty_Invariant_SliceFlagMissingValueHasClearError(t *testing.T) {
+	t.Parallel()
+
+	g := NewWithT(t)
+
+	type Args struct {
+		Tags []string `targ:"flag"`
+	}
+
+	target := targ.Targ(func(_ Args) {})
+
+	// --tags at end with no value
+	_, err := targ.Execute([]string{"app", "--tags"}, target)
+	g.Expect(err).To(HaveOccurred())
+}
+
 // Property: Unknown command has clear error
 func TestProperty_Invariant_UnknownCommandHasClearError(t *testing.T) {
 	t.Parallel()
