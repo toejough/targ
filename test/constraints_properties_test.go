@@ -11,7 +11,6 @@ import (
 	"github.com/toejough/targ"
 )
 
-//nolint:funlen // subtest container
 func TestProperty_Invariant(t *testing.T) {
 	t.Parallel()
 

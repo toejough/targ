@@ -8,8 +8,7 @@ import (
 	"github.com/toejough/targ"
 )
 
-//nolint:funlen // subtest container
-func TestProperty_Glob(t *testing.T) {
+func TestProperty_Hierarchy(t *testing.T) {
 	t.Parallel()
 
 	t.Run("ContainsMatchWorks", func(t *testing.T) {
@@ -124,52 +123,52 @@ func TestProperty_Glob(t *testing.T) {
 		g.Expect(unitCalls).To(Equal(1))
 		g.Expect(intCalls).To(Equal(0))
 	})
-}
 
-func TestProperty_Groups_NamespaceNodesAreNotExecutable(t *testing.T) {
-	t.Parallel()
-	g := NewWithT(t)
+	t.Run("NamespaceNodesAreNotExecutable", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
 
-	sub := targ.Targ(func() {}).Name("sub")
-	group := targ.Group("grp", sub)
+		sub := targ.Targ(func() {}).Name("sub")
+		group := targ.Group("grp", sub)
 
-	called := false
-	subWithTrack := targ.Targ(func() { called = true }).Name("sub")
-	groupWithTrack := targ.Group("grp", subWithTrack)
+		called := false
+		subWithTrack := targ.Targ(func() { called = true }).Name("sub")
+		groupWithTrack := targ.Group("grp", subWithTrack)
 
-	_, err := targ.Execute([]string{"app"}, groupWithTrack)
-	g.Expect(err).NotTo(HaveOccurred())
-	g.Expect(called).To(BeFalse())
+		_, err := targ.Execute([]string{"app"}, groupWithTrack)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(called).To(BeFalse())
 
-	_ = group
-}
+		_ = group
+	})
 
-func TestProperty_Help_NestedGroupsShowChainExample(t *testing.T) {
-	t.Parallel()
-	g := NewWithT(t)
+	t.Run("NestedGroupsShowChainExample", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
 
-	sub := targ.Targ(func() {}).Name("sub")
-	group := targ.Group("grp", sub)
-	other := targ.Targ(func() {}).Name("other")
+		sub := targ.Targ(func() {}).Name("sub")
+		group := targ.Group("grp", sub)
+		other := targ.Targ(func() {}).Name("other")
 
-	result, err := targ.Execute([]string{"app", "--help"}, group, other)
-	g.Expect(err).NotTo(HaveOccurred())
-	g.Expect(result.Output).To(ContainSubstring("grp"))
-	g.Expect(result.Output).To(ContainSubstring("other"))
-}
+		result, err := targ.Execute([]string{"app", "--help"}, group, other)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(result.Output).To(ContainSubstring("grp"))
+		g.Expect(result.Output).To(ContainSubstring("other"))
+	})
 
-func TestProperty_PathResolution_CaretResetsToRoot(t *testing.T) {
-	t.Parallel()
-	g := NewWithT(t)
+	t.Run("CaretResetsToRoot", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
 
-	subCalled := 0
-	rootCalled := 0
-	sub := targ.Targ(func() { subCalled++ }).Name("sub")
-	group := targ.Group("grp", sub)
-	rootTarget := targ.Targ(func() { rootCalled++ }).Name("root-target")
+		subCalled := 0
+		rootCalled := 0
+		sub := targ.Targ(func() { subCalled++ }).Name("sub")
+		group := targ.Group("grp", sub)
+		rootTarget := targ.Targ(func() { rootCalled++ }).Name("root-target")
 
-	_, err := targ.Execute([]string{"app", "grp", "sub", "^", "root-target"}, group, rootTarget)
-	g.Expect(err).NotTo(HaveOccurred())
-	g.Expect(subCalled).To(Equal(1))
-	g.Expect(rootCalled).To(Equal(1))
+		_, err := targ.Execute([]string{"app", "grp", "sub", "^", "root-target"}, group, rootTarget)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(subCalled).To(Equal(1))
+		g.Expect(rootCalled).To(Equal(1))
+	})
 }

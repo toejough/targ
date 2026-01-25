@@ -24,6 +24,7 @@ linters = [
 	'dogsled',
 	'dupl',
 	'err113',
+	'funlen',
 	'gochecknoglobals',
 	'goconst',
 	'gosec',
