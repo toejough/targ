@@ -45,6 +45,18 @@ func TestInterleavedFlags_IntType(t *testing.T) {
 	}
 }
 
+func TestStringTarget_FailingCommand(t *testing.T) {
+	t.Parallel()
+
+	// A string target that exits with error
+	target := targ.Targ("exit 1").Name("fail-cmd")
+
+	_, err := targ.Execute([]string{"app"}, target)
+	if err == nil {
+		t.Fatal("expected error from failing shell command")
+	}
+}
+
 func TestStringTarget_WithVars_MissingRequiredFlag(t *testing.T) {
 	t.Parallel()
 

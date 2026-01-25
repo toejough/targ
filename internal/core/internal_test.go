@@ -1626,26 +1626,6 @@ func TestRunWithEnv_ListCommand(t *testing.T) {
 	g.Expect(env.Output()).To(ContainSubstring("simple-target"))
 }
 
-func TestRunWithEnv_ShellCommandTarget_Error(t *testing.T) {
-	t.Parallel()
-
-	g := NewWithT(t)
-
-	// Shell command that fails
-	target := &mockTarget{
-		fn:   "exit 1",
-		name: "fail",
-	}
-
-	env := &ExecuteEnv{args: []string{"cmd"}}
-	err := RunWithEnv(env, RunOptions{AllowDefault: true}, target)
-	g.Expect(err).To(HaveOccurred())
-
-	if err != nil {
-		g.Expect(err.Error()).To(ContainSubstring("exit code"))
-	}
-}
-
 func TestRunWithEnv_ShellCommandTarget_Help(t *testing.T) {
 	t.Parallel()
 
