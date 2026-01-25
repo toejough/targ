@@ -258,4 +258,115 @@ func TestProperty_StructTagParsing(t *testing.T) {
 		_, err := targ.Execute([]string{"app", "--counts", "not-a-number"}, target)
 		g.Expect(err).To(HaveOccurred())
 	})
+
+	t.Run("InterleavedFlagsPreservePosition", func(t *testing.T) {
+		t.Parallel()
+		rapid.Check(t, func(t *rapid.T) {
+			g := NewWithT(t)
+			flagVal := rapid.StringMatching(`[a-z]{3,8}`).Draw(t, "flagVal")
+			posVal := rapid.StringMatching(`[a-z]{3,8}`).Draw(t, "posVal")
+
+			type Args struct {
+				Name string `targ:"flag"`
+				File string `targ:"positional"`
+			}
+
+			var got Args
+
+			target := targ.Targ(func(a Args) { got = a })
+
+			// Interleave: flag, positional, in mixed order
+			_, err := targ.Execute([]string{"app", "--name", flagVal, posVal}, target)
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(got.Name).To(Equal(flagVal))
+			g.Expect(got.File).To(Equal(posVal))
+
+			// Also test: positional first, then flag
+			var got2 Args
+			target2 := targ.Targ(func(a Args) { got2 = a })
+			_, err2 := targ.Execute([]string{"app", posVal, "--name", flagVal}, target2)
+			g.Expect(err2).NotTo(HaveOccurred())
+			g.Expect(got2.Name).To(Equal(flagVal))
+			g.Expect(got2.File).To(Equal(posVal))
+		})
+	})
+
+	t.Run("DefaultFlagValue", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		type Args struct {
+			Port int `targ:"flag,default=8080"`
+		}
+
+		var got int
+
+		target := targ.Targ(func(a Args) { got = a.Port })
+
+		// Execute without providing the flag - should use default
+		_, err := targ.Execute([]string{"app"}, target)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(got).To(Equal(8080))
+	})
+
+	t.Run("EqualsSyntaxWorks", func(t *testing.T) {
+		t.Parallel()
+		rapid.Check(t, func(t *rapid.T) {
+			g := NewWithT(t)
+			value := rapid.StringMatching(`[a-z0-9]{3,10}`).Draw(t, "value")
+
+			type Args struct {
+				Name string `targ:"flag"`
+			}
+
+			var got string
+
+			target := targ.Targ(func(a Args) { got = a.Name })
+
+			// Use equals syntax: --flag=value
+			_, err := targ.Execute([]string{"app", "--name=" + value}, target)
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(got).To(Equal(value))
+		})
+	})
+}
+
+// TestProperty_EnvVarBehavior tests environment variable fallback behavior.
+// This cannot be parallel because t.Setenv modifies process environment.
+func TestProperty_EnvVarBehavior(t *testing.T) {
+	t.Run("EnvVarFallback", func(t *testing.T) {
+		g := NewWithT(t)
+
+		type Args struct {
+			Host string `targ:"flag,env=TEST_HOST"`
+		}
+
+		var got string
+
+		target := targ.Targ(func(a Args) { got = a.Host })
+
+		t.Setenv("TEST_HOST", "localhost")
+
+		_, err := targ.Execute([]string{"app"}, target)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(got).To(Equal("localhost"))
+	})
+
+	t.Run("EnvVarOverriddenByFlag", func(t *testing.T) {
+		g := NewWithT(t)
+
+		type Args struct {
+			Host string `targ:"flag,env=TEST_HOST2"`
+		}
+
+		var got string
+
+		target := targ.Targ(func(a Args) { got = a.Host })
+
+		t.Setenv("TEST_HOST2", "from-env")
+
+		_, err := targ.Execute([]string{"app", "--host", "from-flag"}, target)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(got).To(Equal("from-flag"))
+	})
 }
