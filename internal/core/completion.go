@@ -4,19 +4,30 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"reflect"
 	"strings"
 )
 
-// PrintCompletionScript prints a shell completion script for the given shell.
+// PrintCompletionScript prints a shell completion script for the given shell to stdout.
 func PrintCompletionScript(shell, binName string) error {
+	return PrintCompletionScriptTo(nil, shell, binName)
+}
+
+// PrintCompletionScriptTo writes a shell completion script to the given writer.
+// If w is nil, writes to stdout.
+func PrintCompletionScriptTo(w io.Writer, shell, binName string) error {
+	if w == nil {
+		w = defaultStdout()
+	}
+
 	switch shell {
 	case "bash":
-		fmt.Printf(_bashCompletion, binName, binName, binName, binName)
+		fmt.Fprintf(w, _bashCompletion, binName, binName, binName, binName)
 	case zshShell:
-		fmt.Printf(_zshCompletion, binName, binName, binName, binName, binName)
+		fmt.Fprintf(w, _zshCompletion, binName, binName, binName, binName, binName)
 	case fishShell:
-		fmt.Printf(_fishCompletion, binName, binName, binName, binName)
+		fmt.Fprintf(w, _fishCompletion, binName, binName, binName, binName)
 	default:
 		return fmt.Errorf("%w: %s", errUnsupportedShell, shell)
 	}
@@ -863,7 +874,11 @@ func positionalIndex(_ *commandNode, args []string, chain []commandInstance) (in
 }
 
 // prepareCompletionState initializes completion state from command line.
-func prepareCompletionState(w io.Writer, roots []*commandNode, commandLine string) (*completionState, bool) {
+func prepareCompletionState(
+	w io.Writer,
+	roots []*commandNode,
+	commandLine string,
+) (*completionState, bool) {
 	parts, isNewArg := tokenizeCommandLine(commandLine)
 	if len(parts) == 0 {
 		return nil, true
@@ -934,7 +949,12 @@ func skipTargFlags(args []string) []string {
 }
 
 // suggestCommandFlags suggests flags from command chain fields.
-func suggestCommandFlags(w io.Writer, chain []commandInstance, prefix string, seen map[string]bool) error {
+func suggestCommandFlags(
+	w io.Writer,
+	chain []commandInstance,
+	prefix string,
+	seen map[string]bool,
+) error {
 	for _, current := range chain {
 		err := suggestInstanceFlags(w, current, prefix, seen)
 		if err != nil {
@@ -1001,7 +1021,12 @@ func suggestFlags(w io.Writer, chain []commandInstance, prefix string, atRoot bo
 }
 
 // suggestInstanceFlags suggests flags from a single command instance.
-func suggestInstanceFlags(w io.Writer, current commandInstance, prefix string, seen map[string]bool) error {
+func suggestInstanceFlags(
+	w io.Writer,
+	current commandInstance,
+	prefix string,
+	seen map[string]bool,
+) error {
 	if current.node == nil || current.node.Type == nil {
 		return nil
 	}
@@ -1081,4 +1106,9 @@ func tokenizeCommandLine(commandLine string) ([]string, bool) {
 	t.tokenize(commandLine)
 
 	return t.parts, t.isNewArg
+}
+
+// defaultStdout returns os.Stdout for production use.
+func defaultStdout() io.Writer {
+	return os.Stdout
 }

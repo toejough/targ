@@ -6,8 +6,6 @@ package core_test
 
 import (
 	"bytes"
-	"io"
-	"os"
 	"strings"
 	"testing"
 
@@ -353,12 +351,12 @@ func TestPrintCompletionScriptPlaceholders(t *testing.T) {
 
 	cases := []string{"bash", "zsh", "fish"}
 	for _, shell := range cases {
-		out := captureStdout(t, func() {
-			err := core.PrintCompletionScript(shell, "demo")
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-		})
+		var buf bytes.Buffer
+		err := core.PrintCompletionScriptTo(&buf, shell, "demo")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		out := buf.String()
 		if strings.Contains(out, "MISSING") {
 			t.Fatalf("unexpected placeholder output for %s: %s", shell, out)
 		}
@@ -385,35 +383,6 @@ func captureCompletionMulti(t *testing.T, targets []any, input string) string {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-
-	return buf.String()
-}
-
-func captureStdout(t *testing.T, fn func()) string {
-	t.Helper()
-
-	orig := os.Stdout
-
-	r, w, err := os.Pipe()
-	if err != nil {
-		t.Fatalf("unexpected pipe error: %v", err)
-	}
-
-	os.Stdout = w
-
-	fn()
-
-	_ = w.Close()
-	os.Stdout = orig
-
-	var buf bytes.Buffer
-
-	_, err = io.Copy(&buf, r)
-	if err != nil {
-		t.Fatalf("unexpected stdout copy error: %v", err)
-	}
-
-	_ = r.Close()
 
 	return buf.String()
 }

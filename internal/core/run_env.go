@@ -138,7 +138,7 @@ func RunWithEnv(env RunEnv, opts RunOptions, targets ...any) error {
 		env:        env,
 		opts:       opts,
 		args:       env.Args(),
-		listFn:     doList,
+		listFn:     doListTo,
 		completeFn: doCompletion,
 	}
 
@@ -207,7 +207,7 @@ type listCommandInfo struct {
 	Description string `json:"description"`
 }
 
-type listFunc func([]*commandNode) error
+type listFunc func(io.Writer, []*commandNode) error
 
 type listOutput struct {
 	Commands []listCommandInfo `json:"commands"`
@@ -511,7 +511,7 @@ func (e *runExecutor) findMatchingRootsGlob(pattern string) []*commandNode {
 // handleComplete handles the __complete hidden command.
 func (e *runExecutor) handleComplete() {
 	if len(e.rest) > 1 {
-		err := e.completeFn(os.Stdout, e.roots, e.rest[1])
+		err := e.completeFn(e.env.Stdout(), e.roots, e.rest[1])
 		if err != nil {
 			e.env.Println(err.Error())
 		}
@@ -564,7 +564,7 @@ func (e *runExecutor) handleGlobalHelp() bool {
 
 // handleList handles the __list hidden command.
 func (e *runExecutor) handleList() error {
-	err := e.listFn(e.roots)
+	err := e.listFn(e.env.Stdout(), e.roots)
 	if err != nil {
 		e.env.Printf("Error: %v\n", err)
 		return ExitError{Code: 1}
@@ -682,7 +682,7 @@ func (e *runExecutor) printCompletion(shell string) error {
 		return ExitError{Code: 1}
 	}
 
-	err := PrintCompletionScript(shell, binaryName())
+	err := PrintCompletionScriptTo(e.env.Stdout(), shell, binaryName())
 	if err != nil {
 		e.env.Printf("Error: %v\n", err)
 		return ExitError{Code: 1}
