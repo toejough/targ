@@ -128,6 +128,9 @@ type commandNode struct {
 	Retry           bool          // continue on failure
 	BackoffInitial  time.Duration // initial backoff delay
 	BackoffMultiply float64       // backoff multiplier
+
+	// Target reference for dep execution
+	Target *Target
 }
 
 // --- Execution ---
@@ -892,6 +895,13 @@ func executeFunctionWithParents(
 		return nil, err
 	}
 
+	// Run dependencies first (if Target with deps is available)
+	if node.Target != nil && len(node.Target.deps) > 0 {
+		if err = node.Target.runDeps(ctx); err != nil {
+			return nil, err
+		}
+	}
+
 	// Execute with runtime overrides (times, retry, watch, cache, etc.)
 	config := TargetConfig{
 		WatchPatterns: node.WatchPatterns,
@@ -1652,7 +1662,7 @@ func parseTargetLike(target TargetLike) (*commandNode, error) {
 		node.CacheDisabled = cacheDis
 	}
 
-	// Extract execution config if available (for help display)
+	// Extract execution config if available (for help display and dep execution)
 	if execTarget, ok := target.(TargetExecutionLike); ok {
 		deps := execTarget.GetDeps()
 		for _, d := range deps {
@@ -1664,6 +1674,11 @@ func parseTargetLike(target TargetLike) (*commandNode, error) {
 		node.Times = execTarget.GetTimes()
 		node.Retry = execTarget.GetRetry()
 		node.BackoffInitial, node.BackoffMultiply = execTarget.GetBackoff()
+	}
+
+	// Store Target reference for dep execution
+	if t, ok := target.(*Target); ok {
+		node.Target = t
 	}
 
 	return node, nil
@@ -2078,7 +2093,11 @@ func printValuesAndFormats(w io.Writer, opts RunOptions, isRoot bool) {
 		shell := detectCurrentShell()
 
 		_, _ = fmt.Fprintln(w, "\nValues:")
-		_, _ = fmt.Fprintf(w, "  shell: bash, zsh, fish (default: current shell (detected: %s))\n", shell)
+		_, _ = fmt.Fprintf(
+			w,
+			"  shell: bash, zsh, fish (default: current shell (detected: %s))\n",
+			shell,
+		)
 	}
 
 	// Formats section
@@ -2086,7 +2105,10 @@ func printValuesAndFormats(w io.Writer, opts RunOptions, isRoot bool) {
 		_, _ = fmt.Fprintln(w, "\nFormats:")
 
 		if !opts.DisableTimeout {
-			_, _ = fmt.Fprintln(w, "  duration: <int><unit> where unit is s (seconds), m (minutes), h (hours)")
+			_, _ = fmt.Fprintln(
+				w,
+				"  duration: <int><unit> where unit is s (seconds), m (minutes), h (hours)",
+			)
 		}
 	}
 }

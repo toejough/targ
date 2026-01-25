@@ -151,9 +151,24 @@ func (t *Target) GetDescription() string {
 	return t.description
 }
 
-// GetName returns the configured name, or empty if not set.
+// GetName returns the configured name, or derives it from the function name.
 func (t *Target) GetName() string {
-	return t.name
+	if t.name != "" {
+		return t.name
+	}
+
+	// Derive name from function
+	v := reflect.ValueOf(t.fn)
+	if v.Kind() != reflect.Func || v.IsNil() {
+		return ""
+	}
+
+	name := functionName(v)
+	if name == "" {
+		return ""
+	}
+
+	return camelToKebab(name)
 }
 
 // GetRetry returns whether retry is enabled.
