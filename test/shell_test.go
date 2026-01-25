@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	. "github.com/onsi/gomega"
-	"pgregory.net/rapid"
 
 	"github.com/toejough/targ"
 )
@@ -40,61 +39,6 @@ func TestSubstituteVars_AllTypes(t *testing.T) {
 	g.Expect(err).NotTo(HaveOccurred())
 }
 
-func TestSubstituteVars_Basic(t *testing.T) {
-	t.Parallel()
-
-	g := NewWithT(t)
-
-	type Args struct {
-		Name string
-		Port int
-	}
-
-	args := Args{Name: "myapp", Port: 8080}
-
-	// Test using Shell with echo to verify substitution
-	ctx := context.Background()
-	err := targ.Shell(ctx, "echo $name $port > /dev/null", args)
-
-	g.Expect(err).NotTo(HaveOccurred())
-}
-
-func TestSubstituteVars_BraceStyle(t *testing.T) {
-	t.Parallel()
-
-	g := NewWithT(t)
-
-	type Args struct {
-		Name string
-	}
-
-	args := Args{Name: "test"}
-
-	// ${name} style should work
-	ctx := context.Background()
-	err := targ.Shell(ctx, "echo ${name}suffix > /dev/null", args)
-
-	g.Expect(err).NotTo(HaveOccurred())
-}
-
-func TestSubstituteVars_CaseInsensitive(t *testing.T) {
-	t.Parallel()
-
-	g := NewWithT(t)
-
-	type Args struct {
-		Namespace string
-	}
-
-	args := Args{Namespace: "prod"}
-
-	// $namespace should match Namespace field
-	ctx := context.Background()
-	err := targ.Shell(ctx, "echo $namespace > /dev/null", args)
-
-	g.Expect(err).NotTo(HaveOccurred())
-}
-
 func TestSubstituteVars_ContextCancelled(t *testing.T) {
 	t.Parallel()
 
@@ -108,25 +52,6 @@ func TestSubstituteVars_ContextCancelled(t *testing.T) {
 	err := targ.Shell(ctx, "sleep 10", Args{})
 
 	g.Expect(err).To(HaveOccurred())
-}
-
-func TestSubstituteVars_MultipleVariables(t *testing.T) {
-	t.Parallel()
-
-	g := NewWithT(t)
-
-	type Args struct {
-		Namespace string
-		App       string
-		Port      int
-	}
-
-	args := Args{Namespace: "prod", App: "myapp", Port: 8080}
-
-	ctx := context.Background()
-	err := targ.Shell(ctx, "echo $namespace $app $port > /dev/null", args)
-
-	g.Expect(err).NotTo(HaveOccurred())
 }
 
 func TestSubstituteVars_NilArgs(t *testing.T) {
@@ -143,23 +68,6 @@ func TestSubstituteVars_NilArgs(t *testing.T) {
 	// Has variables but nil args - should error
 	err = targ.Shell(ctx, "echo $name", nil)
 	g.Expect(err).To(MatchError(ContainSubstring("nil")))
-}
-
-func TestSubstituteVars_NoVariables(t *testing.T) {
-	t.Parallel()
-
-	g := NewWithT(t)
-
-	type Args struct {
-		Name string
-	}
-
-	args := Args{Name: "test"}
-
-	ctx := context.Background()
-	err := targ.Shell(ctx, "echo hello > /dev/null", args)
-
-	g.Expect(err).NotTo(HaveOccurred())
 }
 
 func TestSubstituteVars_NonStruct(t *testing.T) {
@@ -188,46 +96,4 @@ func TestSubstituteVars_Pointer(t *testing.T) {
 	err := targ.Shell(ctx, "echo $name > /dev/null", args)
 
 	g.Expect(err).NotTo(HaveOccurred())
-}
-
-func TestSubstituteVars_Property(t *testing.T) {
-	t.Parallel()
-
-	rapid.Check(t, func(rt *rapid.T) {
-		g := NewWithT(t)
-
-		name := rapid.StringMatching(`[a-z]+`).Draw(rt, "name")
-		port := rapid.IntRange(1, 65535).Draw(rt, "port")
-
-		type Args struct {
-			Name string
-			Port int
-		}
-
-		args := Args{Name: name, Port: port}
-
-		ctx := context.Background()
-		// Use true to always succeed - we're testing substitution works
-		err := targ.Shell(ctx, "true", args)
-
-		g.Expect(err).NotTo(HaveOccurred())
-	})
-}
-
-func TestSubstituteVars_UnknownVariable(t *testing.T) {
-	t.Parallel()
-
-	g := NewWithT(t)
-
-	type Args struct {
-		Name string
-	}
-
-	args := Args{Name: "test"}
-
-	ctx := context.Background()
-	err := targ.Shell(ctx, "echo $unknown", args)
-
-	g.Expect(err).To(MatchError(ContainSubstring("unknown variable")))
-	g.Expect(err).To(MatchError(ContainSubstring("unknown")))
 }

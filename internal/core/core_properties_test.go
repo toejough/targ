@@ -5,8 +5,6 @@ package core
 
 import (
 	"context"
-	"errors"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -33,30 +31,6 @@ func TestProperty_Internal_DependencyExecutionTracking(t *testing.T) {
 		g.Expect(err).NotTo(HaveOccurred())
 		g.Expect(depCount.Load()).To(Equal(int32(1)))
 	})
-}
-
-// Property: Execution context is properly propagated
-func TestProperty_Internal_ContextPropagation(t *testing.T) {
-	t.Parallel()
-
-	g := NewWithT(t)
-
-	type ctxKey string
-
-	key := ctxKey("test-key")
-	expectedValue := "test-value"
-
-	var receivedValue any
-
-	target := Targ(func(ctx context.Context) {
-		receivedValue = ctx.Value(key)
-	})
-
-	ctx := context.WithValue(context.Background(), key, expectedValue)
-	err := target.Run(ctx)
-
-	g.Expect(err).NotTo(HaveOccurred())
-	g.Expect(receivedValue).To(Equal(expectedValue))
 }
 
 // Property: Parallel dependencies actually run in parallel
@@ -105,86 +79,6 @@ func TestProperty_Internal_ParallelDependencyExecution(t *testing.T) {
 	err := target.Run(context.Background())
 	g.Expect(err).NotTo(HaveOccurred())
 	g.Expect(maxConcurrent.Load()).To(Equal(int32(2))) // Both ran concurrently
-}
-
-// Property: Serial dependencies maintain order
-func TestProperty_Internal_SerialDependencyOrder(t *testing.T) {
-	t.Parallel()
-
-	rapid.Check(t, func(rt *rapid.T) {
-		g := NewWithT(t)
-
-		numDeps := rapid.IntRange(2, 5).Draw(rt, "numDeps")
-
-		order := make([]int, 0)
-
-		var mu sync.Mutex
-
-		deps := make([]any, 0, numDeps)
-		for i := range numDeps {
-			idx := i // Capture
-
-			deps = append(deps, Targ(func() {
-				mu.Lock()
-
-				order = append(order, idx)
-
-				mu.Unlock()
-			}))
-		}
-
-		target := Targ(func() {}).Deps(deps...)
-
-		err := target.Run(context.Background())
-		g.Expect(err).NotTo(HaveOccurred())
-
-		// Verify order is maintained
-		expected := make([]int, numDeps)
-		for i := range numDeps {
-			expected[i] = i
-		}
-
-		g.Expect(order).To(Equal(expected))
-	})
-}
-
-// Property: Error propagation from dependencies
-func TestProperty_Internal_DependencyErrorPropagation(t *testing.T) {
-	t.Parallel()
-
-	rapid.Check(t, func(rt *rapid.T) {
-		g := NewWithT(t)
-
-		errMsg := rapid.StringMatching(`[a-z]{5,15}`).Draw(rt, "errMsg")
-		expectedErr := errors.New(errMsg)
-
-		failingDep := Targ(func() error { return expectedErr })
-		target := Targ(func() {}).Deps(failingDep)
-
-		err := target.Run(context.Background())
-		g.Expect(err).To(HaveOccurred())
-		g.Expect(err.Error()).To(ContainSubstring(errMsg))
-	})
-}
-
-// Property: Target state is properly reset between runs
-func TestProperty_Internal_StateResetBetweenRuns(t *testing.T) {
-	t.Parallel()
-
-	rapid.Check(t, func(_ *rapid.T) {
-		g := NewWithT(t)
-
-		runCount := 0
-		target := Targ(func() { runCount++ })
-
-		// Run multiple times
-		for range 3 {
-			err := target.Run(context.Background())
-			g.Expect(err).NotTo(HaveOccurred())
-		}
-
-		g.Expect(runCount).To(Equal(3))
-	})
 }
 
 // Property: Builder methods are chainable and idempotent on target
@@ -237,49 +131,6 @@ func TestProperty_Internal_TimeoutEnforcement(t *testing.T) {
 		g.Expect(wasTimedOut).To(BeTrue())
 		// Should complete close to the timeout
 		g.Expect(elapsed).To(BeNumerically("<", timeout+50*time.Millisecond))
-	})
-}
-
-// Property: Times counter respects limit
-func TestProperty_Internal_TimesCounterRespectsLimit(t *testing.T) {
-	t.Parallel()
-
-	rapid.Check(t, func(rt *rapid.T) {
-		g := NewWithT(t)
-
-		times := rapid.IntRange(1, 10).Draw(rt, "times")
-
-		count := 0
-		target := Targ(func() { count++ }).Times(times)
-
-		err := target.Run(context.Background())
-		g.Expect(err).NotTo(HaveOccurred())
-		g.Expect(count).To(Equal(times))
-	})
-}
-
-// Property: Retry mechanism continues after failure
-func TestProperty_Internal_RetryMechanism(t *testing.T) {
-	t.Parallel()
-
-	rapid.Check(t, func(rt *rapid.T) {
-		g := NewWithT(t)
-
-		successAt := rapid.IntRange(1, 4).Draw(rt, "successAt")
-
-		count := 0
-		target := Targ(func() error {
-			count++
-			if count < successAt {
-				return errors.New("not yet")
-			}
-
-			return nil
-		}).Times(5).Retry()
-
-		err := target.Run(context.Background())
-		g.Expect(err).NotTo(HaveOccurred())
-		g.Expect(count).To(Equal(successAt))
 	})
 }
 

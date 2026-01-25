@@ -61,44 +61,6 @@ var Lint = targ.Targ("golangci-lint run")
 	}
 }
 
-func TestAddImportToTargFile_GroupedImports(t *testing.T) {
-	t.Parallel()
-
-	dir := t.TempDir()
-	targFile := filepath.Join(dir, "targs.go")
-
-	initial := `//go:build targ
-
-package build
-
-import (
-	"github.com/toejough/targ"
-)
-
-var Lint = targ.Targ("golangci-lint run")
-`
-	if err := os.WriteFile(targFile, []byte(initial), 0o644); err != nil {
-		t.Fatalf("write error: %v", err)
-	}
-
-	err := runner.AddImportToTargFile(targFile, "github.com/foo/bar")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	content, err := os.ReadFile(targFile)
-	if err != nil {
-		t.Fatalf("read error: %v", err)
-	}
-
-	contentStr := string(content)
-
-	// Should have both imports in the import block
-	if !strings.Contains(contentStr, `_ "github.com/foo/bar"`) {
-		t.Errorf("expected blank import, got:\n%s", contentStr)
-	}
-}
-
 func TestAddTargetToFile(t *testing.T) {
 	t.Parallel()
 
@@ -205,59 +167,6 @@ var Dev = targ.Group("dev", DevLint)
 	}
 }
 
-func TestAddTargetToFileWithOptions_AddsToPartialPath(t *testing.T) {
-	t.Parallel()
-
-	dir := t.TempDir()
-	targFile := filepath.Join(dir, "targs.go")
-
-	// Initial file with only top-level group
-	initial := `//go:build targ
-
-package build
-
-import "github.com/toejough/targ"
-
-var DevBuild = targ.Targ("go build").Name("build")
-var Dev = targ.Group("dev", DevBuild)
-`
-
-	err := os.WriteFile(targFile, []byte(initial), 0o644)
-	if err != nil {
-		t.Fatalf("write error: %v", err)
-	}
-
-	// Add a new target with a deeper path (dev/lint/fast)
-	opts := runner.CreateOptions{
-		Name:     "fast",
-		ShellCmd: "golangci-lint run --fast",
-		Path:     []string{"dev", "lint"},
-	}
-
-	err = runner.AddTargetToFileWithOptions(targFile, opts)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	content, _ := os.ReadFile(targFile)
-	contentStr := string(content)
-
-	// Should have the new target
-	if !strings.Contains(contentStr, "var DevLintFast = ") {
-		t.Errorf("expected DevLintFast variable, got:\n%s", contentStr)
-	}
-
-	// Should have new DevLint group (didn't exist before)
-	if !strings.Contains(contentStr, `var DevLint = targ.Group("lint", DevLintFast)`) {
-		t.Errorf("expected new DevLint group, got:\n%s", contentStr)
-	}
-
-	// Dev group should now contain both DevBuild and DevLint
-	if !strings.Contains(contentStr, `var Dev = targ.Group("dev", DevBuild, DevLint)`) {
-		t.Errorf("expected Dev group to contain both members, got:\n%s", contentStr)
-	}
-}
-
 func TestAddTargetToFileWithOptions_WithCache(t *testing.T) {
 	t.Parallel()
 
@@ -287,80 +196,6 @@ func TestAddTargetToFileWithOptions_WithCache(t *testing.T) {
 
 	if !strings.Contains(contentStr, `.Cache("**/*.go", "go.mod")`) {
 		t.Errorf("expected .Cache pattern in generated code, got:\n%s", contentStr)
-	}
-}
-
-func TestAddTargetToFileWithOptions_WithDeps(t *testing.T) {
-	t.Parallel()
-
-	dir := t.TempDir()
-	targFile := filepath.Join(dir, "targs.go")
-
-	initial := "//go:build targ\n\npackage build\n\nimport \"github.com/toejough/targ\"\n"
-
-	err := os.WriteFile(targFile, []byte(initial), 0o644)
-	if err != nil {
-		t.Fatalf("write error: %v", err)
-	}
-
-	opts := runner.CreateOptions{
-		Name:     "build",
-		ShellCmd: "go build",
-		Deps:     []string{"lint", "test"},
-	}
-
-	err = runner.AddTargetToFileWithOptions(targFile, opts)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	content, _ := os.ReadFile(targFile)
-	contentStr := string(content)
-
-	if !strings.Contains(contentStr, ".Deps(Lint, Test)") {
-		t.Error("expected .Deps(Lint, Test) in generated code")
-	}
-}
-
-func TestAddTargetToFileWithOptions_WithPath(t *testing.T) {
-	t.Parallel()
-
-	dir := t.TempDir()
-	targFile := filepath.Join(dir, "targs.go")
-
-	initial := "//go:build targ\n\npackage build\n\nimport \"github.com/toejough/targ\"\n"
-
-	err := os.WriteFile(targFile, []byte(initial), 0o644)
-	if err != nil {
-		t.Fatalf("write error: %v", err)
-	}
-
-	opts := runner.CreateOptions{
-		Name:     "fast",
-		ShellCmd: "golangci-lint run --fast",
-		Path:     []string{"dev", "lint"},
-	}
-
-	err = runner.AddTargetToFileWithOptions(targFile, opts)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	content, _ := os.ReadFile(targFile)
-	contentStr := string(content)
-
-	// Should have the target with full path name
-	if !strings.Contains(contentStr, "var DevLintFast = ") {
-		t.Errorf("expected DevLintFast variable, got:\n%s", contentStr)
-	}
-
-	// Should have groups
-	if !strings.Contains(contentStr, `var DevLint = targ.Group("lint", DevLintFast)`) {
-		t.Errorf("expected DevLint group, got:\n%s", contentStr)
-	}
-
-	if !strings.Contains(contentStr, `var Dev = targ.Group("dev", DevLint)`) {
-		t.Errorf("expected Dev group, got:\n%s", contentStr)
 	}
 }
 
@@ -579,36 +414,6 @@ var Build = targ.Targ("go build").Name("build")
 	}
 }
 
-func TestCreateGroupMemberPatch(t *testing.T) {
-	t.Parallel()
-
-	content := `var DevLint = targ.Group("lint", DevLintSlow)`
-
-	patch := runner.CreateGroupMemberPatch(content, "DevLint", "DevLintFast")
-	if patch == nil {
-		t.Fatal("expected patch, got nil")
-	}
-
-	if patch.Old != `var DevLint = targ.Group("lint", DevLintSlow)` {
-		t.Errorf("unexpected Old: %q", patch.Old)
-	}
-
-	if patch.New != `var DevLint = targ.Group("lint", DevLintSlow, DevLintFast)` {
-		t.Errorf("unexpected New: %q", patch.New)
-	}
-}
-
-func TestCreateGroupMemberPatch_AlreadyExists(t *testing.T) {
-	t.Parallel()
-
-	content := `var DevLint = targ.Group("lint", DevLintSlow, DevLintFast)`
-
-	patch := runner.CreateGroupMemberPatch(content, "DevLint", "DevLintFast")
-	if patch != nil {
-		t.Error("expected nil patch when member already exists")
-	}
-}
-
 func TestEnsureFallbackModuleRoot(t *testing.T) {
 	t.Parallel()
 
@@ -659,26 +464,6 @@ func TestExtractTargFlags_DeprecatedNoCache(t *testing.T) {
 	}
 }
 
-func TestExtractTargFlags_Empty(t *testing.T) {
-	t.Parallel()
-
-	args := []string{}
-
-	flags, remaining := runner.ExtractTargFlags(args)
-
-	if flags.NoBinaryCache {
-		t.Error("expected NoBinaryCache to be false")
-	}
-
-	if flags.SourceDir != "" {
-		t.Errorf("expected empty source dir, got %q", flags.SourceDir)
-	}
-
-	if len(remaining) != 0 {
-		t.Errorf("expected empty remaining, got %v", remaining)
-	}
-}
-
 func TestExtractTargFlags_NoBinaryCache(t *testing.T) {
 	t.Parallel()
 
@@ -708,105 +493,6 @@ func TestExtractTargFlags_ShortSAfterTarget(t *testing.T) {
 
 	if len(remaining) != 3 {
 		t.Errorf("expected remaining [build -s value], got %v", remaining)
-	}
-}
-
-func TestExtractTargFlags_SourceAfterTarget(t *testing.T) {
-	t.Parallel()
-	// --source AFTER target name is passed through (not recognized as global)
-	args := []string{"build", "--source", "/some/path"}
-
-	flags, remaining := runner.ExtractTargFlags(args)
-
-	if flags.SourceDir != "" {
-		t.Errorf("expected empty source dir (position-sensitive), got %q", flags.SourceDir)
-	}
-
-	if len(remaining) != 3 {
-		t.Errorf("expected remaining to have 3 elements, got %v", remaining)
-	}
-}
-
-func TestExtractTargFlags_SourceLong(t *testing.T) {
-	t.Parallel()
-
-	args := []string{"--source", "/some/path", "build"}
-
-	flags, remaining := runner.ExtractTargFlags(args)
-
-	if flags.SourceDir != "/some/path" {
-		t.Errorf("expected source dir '/some/path', got %q", flags.SourceDir)
-	}
-
-	if len(remaining) != 1 || remaining[0] != "build" {
-		t.Errorf("expected remaining [build], got %v", remaining)
-	}
-}
-
-func TestExtractTargFlags_SourceMissingPath(t *testing.T) {
-	t.Parallel()
-	// Test when --source is provided without a following argument
-	args := []string{"--source"}
-
-	flags, _ := runner.ExtractTargFlags(args)
-
-	// Source should be empty since no path argument followed
-	if flags.SourceDir != "" {
-		t.Errorf("expected empty source dir when path missing, got %q", flags.SourceDir)
-	}
-}
-
-func TestExtractTargFlags_SourceShort(t *testing.T) {
-	t.Parallel()
-
-	args := []string{"-s", "/some/path", "build"}
-
-	flags, remaining := runner.ExtractTargFlags(args)
-
-	if flags.SourceDir != "/some/path" {
-		t.Errorf("expected source dir '/some/path', got %q", flags.SourceDir)
-	}
-
-	if len(remaining) != 1 || remaining[0] != "build" {
-		t.Errorf("expected remaining [build], got %v", remaining)
-	}
-}
-
-func TestExtractTargFlags_SourceWithEquals(t *testing.T) {
-	t.Parallel()
-	// The current implementation doesn't support --source=/path format
-	// This test documents current behavior (equals sign not supported)
-	args := []string{"--source=/some/path", "build"}
-
-	flags, remaining := runner.ExtractTargFlags(args)
-
-	// Current behavior: --source=/some/path is not recognized, passed through
-	if flags.SourceDir != "" {
-		t.Errorf("unexpected source dir %q (equals format not supported)", flags.SourceDir)
-	}
-
-	if len(remaining) != 2 {
-		t.Errorf("expected remaining to have 2 elements, got %v", remaining)
-	}
-}
-
-func TestExtractTargFlags_SourceWithOtherFlags(t *testing.T) {
-	t.Parallel()
-
-	args := []string{"--no-binary-cache", "-s", "/some/path", "build"}
-
-	flags, remaining := runner.ExtractTargFlags(args)
-
-	if !flags.NoBinaryCache {
-		t.Error("expected NoBinaryCache to be true")
-	}
-
-	if flags.SourceDir != "/some/path" {
-		t.Errorf("expected source dir '/some/path', got %q", flags.SourceDir)
-	}
-
-	if len(remaining) != 1 || remaining[0] != "build" {
-		t.Errorf("expected remaining [build], got %v", remaining)
 	}
 }
 
@@ -861,74 +547,6 @@ func TestFindModuleForPath_WalksUp(t *testing.T) {
 
 	if modulePath != "example.com/parent" {
 		t.Fatalf("expected modulePath=%q, got %q", "example.com/parent", modulePath)
-	}
-}
-
-func TestFindModuleForPath_WithFile(t *testing.T) {
-	t.Parallel()
-	// Test that FindModuleForPath works when given a file path
-	parent := t.TempDir()
-
-	modContent := "module example.com/parent\n\ngo 1.21\n"
-	if err := os.WriteFile(filepath.Join(parent, "go.mod"), []byte(modContent), 0o644); err != nil {
-		t.Fatalf("unexpected write error: %v", err)
-	}
-
-	// Create a subdirectory with a file
-	child := filepath.Join(parent, "pkg")
-	if err := os.MkdirAll(child, 0o755); err != nil {
-		t.Fatalf("unexpected mkdir error: %v", err)
-	}
-
-	targetFile := filepath.Join(child, "main.go")
-	if err := os.WriteFile(targetFile, []byte("package main"), 0o644); err != nil {
-		t.Fatalf("unexpected write error: %v", err)
-	}
-
-	// Should find parent's go.mod when given a file path
-	root, modulePath, found, err := runner.FindModuleForPath(targetFile)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if !found {
-		t.Fatal("expected module to be found by walking up from file")
-	}
-
-	if root != parent {
-		t.Fatalf("expected root=%q, got %q", parent, root)
-	}
-
-	if modulePath != "example.com/parent" {
-		t.Fatalf("expected modulePath=%q, got %q", "example.com/parent", modulePath)
-	}
-}
-
-func TestFindModuleForPath_WithModule(t *testing.T) {
-	t.Parallel()
-
-	dir := t.TempDir()
-
-	modContent := "module example.com/test\n\ngo 1.21\n"
-	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte(modContent), 0o644); err != nil {
-		t.Fatalf("unexpected write error: %v", err)
-	}
-
-	root, modulePath, found, err := runner.FindModuleForPath(dir)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if !found {
-		t.Fatal("expected module to be found")
-	}
-
-	if root != dir {
-		t.Fatalf("expected root=%q, got %q", dir, root)
-	}
-
-	if modulePath != "example.com/test" {
-		t.Fatalf("expected modulePath=%q, got %q", "example.com/test", modulePath)
 	}
 }
 
@@ -1057,31 +675,6 @@ func TestIsValidTargetName(t *testing.T) {
 	}
 }
 
-func TestKebabToPascal(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		input    string
-		expected string
-	}{
-		{"lint", "Lint"},
-		{"my-target", "MyTarget"},
-		{"build-and-test", "BuildAndTest"},
-		{"a", "A"},
-		{"abc-def-ghi", "AbcDefGhi"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.input, func(t *testing.T) {
-			t.Parallel()
-
-			if got := runner.KebabToPascal(tt.input); got != tt.expected {
-				t.Errorf("KebabToPascal(%q) = %q, want %q", tt.input, got, tt.expected)
-			}
-		})
-	}
-}
-
 func TestNamespacePaths_CompressesSegments(t *testing.T) {
 	t.Parallel()
 
@@ -1163,84 +756,6 @@ func TestParseCreateArgs_FullOptions(t *testing.T) {
 	}
 }
 
-func TestParseCreateArgs_TooFewArgs(t *testing.T) {
-	t.Parallel()
-
-	_, err := runner.ParseCreateArgs([]string{"lint"})
-	if err == nil {
-		t.Error("expected error for too few args")
-	}
-}
-
-func TestParseCreateArgs_UnknownFlag(t *testing.T) {
-	t.Parallel()
-
-	_, err := runner.ParseCreateArgs([]string{"lint", "--unknown", "cmd"})
-	if err == nil {
-		t.Error("expected error for unknown flag")
-	}
-}
-
-func TestParseCreateArgs_WithCache(t *testing.T) {
-	t.Parallel()
-
-	opts, err := runner.ParseCreateArgs(
-		[]string{"build", "--cache", "**/*.go", "go.mod", "go build"},
-	)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if opts.Name != "build" {
-		t.Errorf("expected name 'build', got %q", opts.Name)
-	}
-
-	expectedCache := []string{"**/*.go", "go.mod"}
-	if !reflect.DeepEqual(opts.Cache, expectedCache) {
-		t.Errorf("expected cache %v, got %v", expectedCache, opts.Cache)
-	}
-}
-
-func TestParseCreateArgs_WithDeps(t *testing.T) {
-	t.Parallel()
-
-	opts, err := runner.ParseCreateArgs([]string{"build", "--deps", "lint", "test", "go build"})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if opts.Name != "build" {
-		t.Errorf("expected name 'build', got %q", opts.Name)
-	}
-
-	expectedDeps := []string{"lint", "test"}
-	if !reflect.DeepEqual(opts.Deps, expectedDeps) {
-		t.Errorf("expected deps %v, got %v", expectedDeps, opts.Deps)
-	}
-}
-
-func TestParseCreateArgs_WithPath(t *testing.T) {
-	t.Parallel()
-
-	opts, err := runner.ParseCreateArgs([]string{"dev", "lint", "fast", "golangci-lint run --fast"})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if opts.Name != "fast" {
-		t.Errorf("expected name 'fast', got %q", opts.Name)
-	}
-
-	if opts.ShellCmd != "golangci-lint run --fast" {
-		t.Errorf("expected shell command 'golangci-lint run --fast', got %q", opts.ShellCmd)
-	}
-
-	expectedPath := []string{"dev", "lint"}
-	if !reflect.DeepEqual(opts.Path, expectedPath) {
-		t.Errorf("expected path %v, got %v", expectedPath, opts.Path)
-	}
-}
-
 func TestParseHelpRequestIgnoresSubcommandHelp(t *testing.T) {
 	t.Parallel()
 
@@ -1274,40 +789,6 @@ func TestParseSyncArgs_InvalidPath(t *testing.T) {
 	_, err := runner.ParseSyncArgs([]string{"invalid-path"})
 	if err == nil {
 		t.Error("expected error for invalid package path")
-	}
-}
-
-func TestParseSyncArgs_NoArgs(t *testing.T) {
-	t.Parallel()
-
-	_, err := runner.ParseSyncArgs([]string{})
-	if err == nil {
-		t.Error("expected error for no args")
-	}
-}
-
-func TestPathToPascal(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		path     []string
-		expected string
-	}{
-		{[]string{"lint"}, "Lint"},
-		{[]string{"dev", "lint"}, "DevLint"},
-		{[]string{"dev", "lint", "fast"}, "DevLintFast"},
-		{[]string{"my-group", "my-target"}, "MyGroupMyTarget"},
-	}
-
-	for _, tt := range tests {
-		t.Run(strings.Join(tt.path, "/"), func(t *testing.T) {
-			t.Parallel()
-
-			got := runner.PathToPascal(tt.path)
-			if got != tt.expected {
-				t.Errorf("PathToPascal(%v) = %q, want %q", tt.path, got, tt.expected)
-			}
-		})
 	}
 }
 

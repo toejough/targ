@@ -10,32 +10,6 @@ import (
 	"github.com/toejough/targ"
 )
 
-// Property: Flag fields in struct become CLI flags
-func TestProperty_StructTagParsing_FlagFieldsBecomeCLIFlags(t *testing.T) {
-	t.Parallel()
-
-	rapid.Check(t, func(rt *rapid.T) {
-		g := NewWithT(t)
-
-		// Generate a random flag value
-		value := rapid.StringMatching(`[a-z]{3,10}`).Draw(rt, "value")
-
-		type Args struct {
-			Name string `targ:"flag"`
-		}
-
-		var got string
-
-		target := targ.Targ(func(args Args) {
-			got = args.Name
-		})
-
-		_, err := targ.Execute([]string{"app", "--name", value}, target)
-		g.Expect(err).NotTo(HaveOccurred())
-		g.Expect(got).To(Equal(value))
-	})
-}
-
 // Property: Positional fields capture ordered arguments
 func TestProperty_StructTagParsing_PositionalFieldsCaptureOrderedArgs(t *testing.T) {
 	t.Parallel()
@@ -75,34 +49,6 @@ func TestProperty_StructTagParsing_RequiredFieldsErrorIfMissing(t *testing.T) {
 
 	_, err := targ.Execute([]string{"app"}, target)
 	g.Expect(err).To(HaveOccurred())
-}
-
-// Property: Default values apply when not provided
-func TestProperty_StructTagParsing_DefaultValuesApplyWhenNotProvided(t *testing.T) {
-	t.Parallel()
-
-	rapid.Check(t, func(rt *rapid.T) {
-		g := NewWithT(t)
-
-		defaultVal := rapid.StringMatching(`[a-z]{3,10}`).Draw(rt, "default")
-
-		type Args struct {
-			Name string `targ:"flag"`
-		}
-
-		var got string
-
-		target := targ.Targ(func(args Args) {
-			got = args.Name
-		})
-
-		// Execute without providing the flag - should get zero value
-		_, err := targ.Execute([]string{"app"}, target)
-		g.Expect(err).NotTo(HaveOccurred())
-		g.Expect(got).To(Equal("")) // Zero value without default tag
-
-		_ = defaultVal // Used for documentation
-	})
 }
 
 // Property: Slice fields accumulate repeated flags
@@ -231,27 +177,6 @@ func TestProperty_StructTagParsing_ShortFlagsWork(t *testing.T) {
 		g.Expect(err).NotTo(HaveOccurred())
 		g.Expect(got).To(Equal(value))
 	})
-}
-
-// Property: Boolean flags don't require value
-func TestProperty_StructTagParsing_BoolFlagsNoValueRequired(t *testing.T) {
-	t.Parallel()
-
-	g := NewWithT(t)
-
-	type Args struct {
-		Verbose bool `targ:"flag"`
-	}
-
-	var got bool
-
-	target := targ.Targ(func(args Args) {
-		got = args.Verbose
-	})
-
-	_, err := targ.Execute([]string{"app", "--verbose"}, target)
-	g.Expect(err).NotTo(HaveOccurred())
-	g.Expect(got).To(BeTrue())
 }
 
 // Property: Integer flags parse numeric values

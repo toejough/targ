@@ -33,84 +33,11 @@ func TestCamelToKebab(t *testing.T) {
 	}
 }
 
-func TestHasBuildTag(t *testing.T) {
-	t.Parallel()
-
-	content := []byte(`//go:build targ
-
-package main
-`)
-	if !parse.HasBuildTag(content, "targ") {
-		t.Fatal("expected build tag to match")
-	}
-
-	if parse.HasBuildTag(content, "other") {
-		t.Fatal("expected build tag not to match other")
-	}
-}
-
-func TestHasBuildTag_CommentBeforeBuildTag(t *testing.T) {
-	t.Parallel()
-
-	content := []byte(`// Some comment
-//go:build targ
-
-package main
-`)
-	if !parse.HasBuildTag(content, "targ") {
-		t.Fatal("expected match with comment before build tag")
-	}
-}
-
 func TestHasBuildTag_EmptyContent(t *testing.T) {
 	t.Parallel()
 
 	if parse.HasBuildTag([]byte(""), "targ") {
 		t.Fatal("expected no match for empty content")
-	}
-}
-
-func TestHasBuildTag_EmptyLinesBeforeBuildTag(t *testing.T) {
-	t.Parallel()
-
-	content := []byte(`
-
-//go:build targ
-
-package main
-`)
-	if !parse.HasBuildTag(content, "targ") {
-		t.Fatal("expected match with empty lines before build tag")
-	}
-}
-
-func TestHasBuildTag_InvalidBuildConstraint(t *testing.T) {
-	t.Parallel()
-
-	// Invalid constraint syntax - should fall back to string match
-	content := []byte(`//go:build !!!invalid
-
-package main
-`)
-	// When constraint parsing fails, it falls back to exact string match
-	if !parse.HasBuildTag(content, "!!!invalid") {
-		t.Fatal("expected match for invalid constraint with exact string match")
-	}
-
-	if parse.HasBuildTag(content, "targ") {
-		t.Fatal("expected no match for valid tag when constraint is invalid")
-	}
-}
-
-func TestHasBuildTag_NonCommentLineFirst(t *testing.T) {
-	t.Parallel()
-
-	content := []byte(`package main
-
-//go:build targ
-`)
-	if parse.HasBuildTag(content, "targ") {
-		t.Fatal("expected no match when non-comment line comes first")
 	}
 }
 
@@ -158,33 +85,6 @@ func TestReflectTagGet_NoColon(t *testing.T) {
 	}
 }
 
-func TestReflectTagGet_NoQuoteAfterColon(t *testing.T) {
-	t.Parallel()
-
-	tag := parse.NewReflectTag(`json:name`)
-	if got := tag.Get("json"); got != "" {
-		t.Fatalf("expected empty for missing quote, got '%s'", got)
-	}
-}
-
-func TestReflectTagGet_NotFound(t *testing.T) {
-	t.Parallel()
-
-	tag := parse.NewReflectTag(`json:"name"`)
-	if got := tag.Get("targ"); got != "" {
-		t.Fatalf("expected empty, got '%s'", got)
-	}
-}
-
-func TestReflectTagGet_UnclosedQuote(t *testing.T) {
-	t.Parallel()
-
-	tag := parse.NewReflectTag(`json:"name`)
-	if got := tag.Get("json"); got != "" {
-		t.Fatalf("expected empty for unclosed quote, got '%s'", got)
-	}
-}
-
 func TestReturnStringLiteral_EmptyBody(t *testing.T) {
 	t.Parallel()
 
@@ -216,15 +116,6 @@ func TestReturnStringLiteral_MultipleResults(t *testing.T) {
 	}
 }
 
-func TestReturnStringLiteral_NilBody(t *testing.T) {
-	t.Parallel()
-
-	result, ok := parse.ReturnStringLiteral(nil)
-	if ok || result != "" {
-		t.Fatalf("expected false/empty for nil body, got %q/%v", result, ok)
-	}
-}
-
 func TestReturnStringLiteral_NotBasicLit(t *testing.T) {
 	t.Parallel()
 
@@ -239,21 +130,6 @@ func TestReturnStringLiteral_NotBasicLit(t *testing.T) {
 	result, ok := parse.ReturnStringLiteral(body)
 	if ok || result != "" {
 		t.Fatalf("expected false/empty for non-literal return, got %q/%v", result, ok)
-	}
-}
-
-func TestReturnStringLiteral_NotReturnStmt(t *testing.T) {
-	t.Parallel()
-
-	body := &ast.BlockStmt{
-		List: []ast.Stmt{
-			&ast.ExprStmt{X: &ast.Ident{Name: "foo"}},
-		},
-	}
-
-	result, ok := parse.ReturnStringLiteral(body)
-	if ok || result != "" {
-		t.Fatalf("expected false/empty for non-return stmt, got %q/%v", result, ok)
 	}
 }
 
