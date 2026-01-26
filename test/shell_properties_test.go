@@ -289,7 +289,7 @@ func TestProperty_ShellCommands(t *testing.T) {
 		g.Expect(result.Output).To(ContainSubstring("msg"))
 	})
 
-	t.Run("ShellCommandUnknownFlagReturnsError", func(t *testing.T) {
+	t.Run("ShellCommandUnknownLongFlagReturnsError", func(t *testing.T) {
 		t.Parallel()
 		g := NewWithT(t)
 
@@ -310,6 +310,29 @@ func TestProperty_ShellCommands(t *testing.T) {
 		// Unknown flags are errors for shell commands
 		g.Expect(err).To(HaveOccurred())
 		g.Expect(result.Output).To(ContainSubstring("unknown"))
+	})
+
+	t.Run("ShellCommandUnknownShortFlagReturnsError", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		// Mock runner that should never be called (error happens before execution)
+		mockRunner := func(_ context.Context, _ string) error {
+			t.Fatal("shell runner should not be called when unknown short flag present")
+			return nil
+		}
+
+		target := targ.Targ("mycommand $msg").Name("shell-cmd")
+
+		// Pass --msg (known) and -x (unknown short flag)
+		result, err := targ.ExecuteWithOptions(
+			[]string{"app", "--msg", "hello", "-x", "value"},
+			targ.RunOptions{ShellRunner: mockRunner, AllowDefault: true},
+			target,
+		)
+		// Unknown short flags are errors for shell commands
+		g.Expect(err).To(HaveOccurred())
+		g.Expect(result.Output).To(ContainSubstring("-x"))
 	})
 
 	t.Run("ShellCommandFailureReturnsError", func(t *testing.T) {

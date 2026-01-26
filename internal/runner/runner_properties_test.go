@@ -15,9 +15,6 @@ import (
 	"github.com/toejough/targ/internal/runner"
 )
 
-// Sentinel errors for mock implementations.
-var errInfoNotImplemented = errors.New("Info() not implemented in mock")
-
 // MemoryFileOps implements runner.FileOps using in-memory storage.
 type MemoryFileOps struct {
 	Files map[string][]byte
@@ -79,19 +76,6 @@ func (m *MemoryFileOps) Stat(name string) (fs.FileInfo, error) {
 
 	return nil, fs.ErrNotExist
 }
-
-// mockFileInfo implements fs.FileInfo for testing.
-type mockFileInfo struct {
-	name string
-	size int64
-}
-
-func (m *mockFileInfo) Name() string       { return m.name }
-func (m *mockFileInfo) Size() int64        { return m.size }
-func (m *mockFileInfo) Mode() fs.FileMode  { return 0o644 }
-func (m *mockFileInfo) ModTime() time.Time { return time.Time{} }
-func (m *mockFileInfo) IsDir() bool        { return false }
-func (m *mockFileInfo) Sys() any           { return nil }
 
 func (m *MemoryFileOps) WriteFile(name string, data []byte, _ fs.FileMode) error {
 	m.Files[name] = data
@@ -500,6 +484,11 @@ import (
 	})
 }
 
+// unexported variables.
+var (
+	errInfoNotImplemented = errors.New("Info() not implemented in mock")
+)
+
 type memDirEntry struct {
 	name  string
 	isDir bool
@@ -512,3 +501,21 @@ func (e memDirEntry) IsDir() bool { return e.isDir }
 func (e memDirEntry) Name() string { return e.name }
 
 func (e memDirEntry) Type() fs.FileMode { return 0 }
+
+// mockFileInfo implements fs.FileInfo for testing.
+type mockFileInfo struct {
+	name string
+	size int64
+}
+
+func (m *mockFileInfo) IsDir() bool { return false }
+
+func (m *mockFileInfo) ModTime() time.Time { return time.Time{} }
+
+func (m *mockFileInfo) Mode() fs.FileMode { return 0o644 }
+
+func (m *mockFileInfo) Name() string { return m.name }
+
+func (m *mockFileInfo) Size() int64 { return m.size }
+
+func (m *mockFileInfo) Sys() any { return nil }
