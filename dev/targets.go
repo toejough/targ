@@ -428,7 +428,6 @@ func checkSpecThinness(fset *token.FileSet, path string, tok token.Token, spec a
 }
 
 func checkThinAPI(ctx context.Context) error {
-	_ = ctx
 	fmt.Println("Checking public API is thin wrappers...")
 
 	// Find all non-internal, non-test Go files
@@ -437,6 +436,11 @@ func checkThinAPI(ctx context.Context) error {
 	err := filepath.WalkDir(".", func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
+		}
+
+		// Check for cancellation
+		if ctx.Err() != nil {
+			return ctx.Err()
 		}
 
 		// Skip directories we don't care about
@@ -496,6 +500,11 @@ func checkThinAPI(ctx context.Context) error {
 	var violations []thinViolation
 
 	for _, file := range files {
+		// Check for cancellation
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+
 		fileViolations, err := analyzeThinness(file)
 		if err != nil {
 			return fmt.Errorf("analyzing %s: %w", file, err)
@@ -1481,7 +1490,6 @@ func reorderDecls(ctx context.Context) error {
 }
 
 func reorderDeclsCheck(ctx context.Context) error {
-	_ = ctx // Reserved for future cancellation support
 	fmt.Println("Checking declaration order...")
 
 	files, err := globs(".", []string{".go"})
@@ -1493,6 +1501,11 @@ func reorderDeclsCheck(ctx context.Context) error {
 	filesProcessed := 0
 
 	for _, file := range files {
+		// Check for cancellation
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+
 		// Skip generated files by name pattern
 		if strings.Contains(file, "generated_") {
 			continue
