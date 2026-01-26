@@ -2,6 +2,7 @@ package core
 
 import (
 	"bufio"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -110,5 +111,10 @@ func ParseGitConfigOriginURLWithOpen(path string, open FileOpener) string {
 
 // osOpen wraps os.Open to match the FileOpener signature.
 func osOpen(path string) (io.ReadCloser, error) {
-	return os.Open(path) //nolint:gosec // path is .git/config, not user-controlled
+	f, err := os.Open(path) //nolint:gosec // path is .git/config, not user-controlled
+	if err != nil {
+		return nil, fmt.Errorf("opening %s: %w", path, err)
+	}
+
+	return f, nil
 }

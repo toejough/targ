@@ -1,3 +1,4 @@
+//nolint:maintidx // Test functions with many subtests have low maintainability index by design
 package targ_test
 
 import (
@@ -17,7 +18,7 @@ type TagOptionsWrongInputArgs struct {
 }
 
 func (a *TagOptionsWrongInputArgs) TagOptions(
-	x int,
+	_ int,
 	opts targ.TagOptions,
 ) (targ.TagOptions, error) {
 	return opts, nil
@@ -28,7 +29,7 @@ type TagOptionsWrongOutputArgs struct {
 	Name string `targ:"flag"`
 }
 
-func (a *TagOptionsWrongOutputArgs) TagOptions(fieldName string, opts targ.TagOptions) string {
+func (a *TagOptionsWrongOutputArgs) TagOptions(fieldName string, _ targ.TagOptions) string {
 	return fieldName
 }
 

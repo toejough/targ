@@ -92,7 +92,12 @@ func (osRunEnv) Getenv(key string) string {
 }
 
 func (osRunEnv) Getwd() (string, error) {
-	return os.Getwd()
+	dir, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("getting working directory: %w", err)
+	}
+
+	return dir, nil
 }
 
 func (osRunEnv) Printf(f string, a ...any) {

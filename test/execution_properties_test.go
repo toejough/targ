@@ -1,3 +1,8 @@
+// Package targ_test contains property-based tests for targ.
+// The test functions have many subtests which triggers maintidx warnings,
+// but this is the intended structure for property-based testing.
+//
+//nolint:maintidx // Test functions with many subtests have low maintainability index by design
 package targ_test
 
 import (
@@ -133,7 +138,7 @@ func TestProperty_Execution(t *testing.T) {
 
 		var received int
 
-		target := targ.Targ(func(ctx context.Context, x int) {
+		target := targ.Targ(func(_ context.Context, x int) {
 			received = x
 		})
 
@@ -148,7 +153,7 @@ func TestProperty_Execution(t *testing.T) {
 
 		var received int
 
-		target := targ.Targ(func(ctx context.Context, x int) {
+		target := targ.Targ(func(_ context.Context, x int) {
 			received = x
 		})
 
@@ -304,7 +309,7 @@ func TestProperty_Execution(t *testing.T) {
 		}()
 
 		// Wait for both deps to start
-		g.Eventually(func() int32 { return startedCount.Load() }).Should(Equal(int32(2)))
+		g.Eventually(startedCount.Load).Should(Equal(int32(2)))
 
 		// Both should be waiting (neither completed yet)
 		g.Expect(completedCount.Load()).To(Equal(int32(0)))
@@ -479,7 +484,7 @@ func TestProperty_Execution(t *testing.T) {
 		}()
 
 		// Wait for both deps to start
-		g.Eventually(func() int32 { return startedCount.Load() }).Should(Equal(int32(2)))
+		g.Eventually(startedCount.Load).Should(Equal(int32(2)))
 
 		// Both should be waiting (neither completed yet)
 		g.Expect(completedCount.Load()).To(Equal(int32(0)))
@@ -564,7 +569,7 @@ func TestProperty_Execution(t *testing.T) {
 		}()
 
 		// Wait for both to start - if they run in parallel, both will start
-		g.Eventually(func() int32 { return startedCount.Load() }).Should(Equal(int32(2)))
+		g.Eventually(startedCount.Load).Should(Equal(int32(2)))
 
 		// Both started, neither completed yet
 		g.Expect(completedCount.Load()).To(Equal(int32(0)))
@@ -612,7 +617,7 @@ func TestProperty_Execution(t *testing.T) {
 		}()
 
 		// Wait for both to start
-		g.Eventually(func() int32 { return startedCount.Load() }).Should(Equal(int32(2)))
+		g.Eventually(startedCount.Load).Should(Equal(int32(2)))
 
 		// Release both
 		close(parallelStart)
@@ -838,7 +843,7 @@ func TestProperty_Execution(t *testing.T) {
 		t.Parallel()
 		g := NewWithT(t)
 
-		target := targ.Targ(func(a TagOptionsArgs) {}).Name("cmd")
+		target := targ.Targ(func(_ TagOptionsArgs) {}).Name("cmd")
 
 		result, err := targ.Execute([]string{"app", "--help"}, target)
 		g.Expect(err).NotTo(HaveOccurred())
@@ -1073,26 +1078,23 @@ func TestProperty_Execution(t *testing.T) {
 	t.Run("CacheWithRunChecksFiles", func(t *testing.T) {
 		t.Parallel()
 
-		count := 0
 		// Use a pattern that matches real files (go.mod exists in repo root)
 		// The pattern needs to be relative to working directory
-		target := targ.Targ(func() { count++ }).Cache("../go.mod").CacheDir(t.TempDir())
+		target := targ.Targ(func() {}).Cache("../go.mod").CacheDir(t.TempDir())
 
 		// First run should execute (cache miss or fail gracefully)
 		// The main point is to exercise the cache path code
 		err := target.Run(context.Background())
 		// If it fails due to pattern issues, that's OK - we're testing the code path
 		_ = err
-		// Count may be 0 if pattern didn't match, 1 if it ran
 	})
 
 	t.Run("CacheWithCustomDir", func(t *testing.T) {
 		t.Parallel()
 		g := NewWithT(t)
 
-		count := 0
 		// Use a pattern that matches real files with custom cache dir
-		target := targ.Targ(func() { count++ }).Cache("../go.mod").CacheDir(t.TempDir())
+		target := targ.Targ(func() {}).Cache("../go.mod").CacheDir(t.TempDir())
 
 		// Run - may fail due to pattern issues, but exercises the code path
 		err := target.Run(context.Background())

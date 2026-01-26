@@ -22,7 +22,7 @@ func TestProperty_CommandHelp(t *testing.T) {
 			Name    string `targ:"flag,desc=The name to greet"`
 		}
 
-		target := targ.Targ(func(a Args) {}).Name("flagged").Description("Command with flags")
+		target := targ.Targ(func(_ Args) {}).Name("flagged").Description("Command with flags")
 
 		// With single target, --help without command name
 		result, err := targ.Execute(
@@ -44,7 +44,7 @@ func TestProperty_CommandHelp(t *testing.T) {
 			File string `targ:"positional"`
 		}
 
-		target := targ.Targ(func(a Args) {}).Name("usage-cmd")
+		target := targ.Targ(func(_ Args) {}).Name("usage-cmd")
 
 		// With single target, --help without command name
 		result, err := targ.Execute(
@@ -84,7 +84,7 @@ func TestProperty_CommandHelp(t *testing.T) {
 			Level string `targ:"flag,enum=debug|info|warn|error"`
 		}
 
-		target := targ.Targ(func(a Args) {}).Name("enum-cmd")
+		target := targ.Targ(func(_ Args) {}).Name("enum-cmd")
 
 		// With single target, --help without command name
 		result, err := targ.Execute(

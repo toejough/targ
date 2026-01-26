@@ -1,3 +1,4 @@
+//nolint:maintidx // Test functions with many subtests have low maintainability index by design
 package targ_test
 
 import (

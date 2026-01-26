@@ -21,7 +21,7 @@ func TestProperty_UsageLine(t *testing.T) {
 			Output string `targ:"positional"`
 		}
 
-		target := targ.Targ(func(a Args) {}).Name("convert")
+		target := targ.Targ(func(_ Args) {}).Name("convert")
 
 		result, err := targ.Execute([]string{"app", "--help"}, target)
 		g.Expect(err).NotTo(HaveOccurred())
@@ -39,7 +39,7 @@ func TestProperty_UsageLine(t *testing.T) {
 			Optional string `targ:"positional,optional"`
 		}
 
-		target := targ.Targ(func(a Args) {}).Name("cmd")
+		target := targ.Targ(func(_ Args) {}).Name("cmd")
 
 		result, err := targ.Execute([]string{"app", "--help"}, target)
 		g.Expect(err).NotTo(HaveOccurred())
@@ -56,7 +56,7 @@ func TestProperty_UsageLine(t *testing.T) {
 			Files []string `targ:"positional"`
 		}
 
-		target := targ.Targ(func(a Args) {}).Name("process")
+		target := targ.Targ(func(_ Args) {}).Name("process")
 
 		result, err := targ.Execute([]string{"app", "--help"}, target)
 		g.Expect(err).NotTo(HaveOccurred())
@@ -70,7 +70,7 @@ func TestProperty_UsageLine(t *testing.T) {
 
 		// Long enum (>40 chars) should wrap across multiple lines
 		type Args struct {
-			Format string `targ:"flag,enum=very-long-option-one|another-very-long-option|yet-another-long-option|final-long-option"`
+			Format string `targ:"flag,enum=long-option-one|another-long|yet-another|final-opt"`
 		}
 
 		target := targ.Targ(func(_ Args) {}).Name("export")
@@ -78,10 +78,10 @@ func TestProperty_UsageLine(t *testing.T) {
 		result, err := targ.Execute([]string{"app", "--help"}, target)
 		g.Expect(err).NotTo(HaveOccurred())
 		// All enum values should appear in help
-		g.Expect(result.Output).To(ContainSubstring("very-long-option-one"))
-		g.Expect(result.Output).To(ContainSubstring("another-very-long-option"))
-		g.Expect(result.Output).To(ContainSubstring("yet-another-long-option"))
-		g.Expect(result.Output).To(ContainSubstring("final-long-option"))
+		g.Expect(result.Output).To(ContainSubstring("long-option-one"))
+		g.Expect(result.Output).To(ContainSubstring("another-long"))
+		g.Expect(result.Output).To(ContainSubstring("yet-another"))
+		g.Expect(result.Output).To(ContainSubstring("final-opt"))
 	})
 
 	t.Run("ShortEnumValuesInlineInHelp", func(t *testing.T) {
@@ -147,7 +147,7 @@ func TestProperty_Validation(t *testing.T) {
 		g := NewWithT(t)
 
 		// Functions accepting context are valid
-		target := targ.Targ(func(ctx context.Context) error { return nil }).Name("ctx")
+		target := targ.Targ(func(_ context.Context) error { return nil }).Name("ctx")
 
 		_, err := targ.Execute([]string{"app"}, target)
 		g.Expect(err).NotTo(HaveOccurred())
@@ -183,7 +183,7 @@ func TestProperty_Validation(t *testing.T) {
 		// Raw function with 2 inputs should report validation error
 		result, _ := targ.Execute(
 			[]string{"app"},
-			func(ctx context.Context, extra string) {},
+			func(_ context.Context, _ string) {},
 		)
 		g.Expect(result.Output).To(ContainSubstring("must be niladic or accept context"))
 	})
@@ -195,7 +195,7 @@ func TestProperty_Validation(t *testing.T) {
 		// Raw function with non-context single input should report validation error
 		result, _ := targ.Execute(
 			[]string{"app"},
-			func(x int) {},
+			func(_ int) {},
 		)
 		g.Expect(result.Output).To(ContainSubstring("must accept context.Context"))
 	})

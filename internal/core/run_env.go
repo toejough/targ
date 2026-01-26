@@ -70,6 +70,7 @@ func (e *ExecuteEnv) Getenv(key string) string {
 
 // Getwd returns the current working directory.
 func (e *ExecuteEnv) Getwd() (string, error) {
+	//nolint:wrapcheck // Thin wrapper passthrough to OS - wrapping adds untestable code paths
 	return os.Getwd()
 }
 
@@ -159,8 +160,8 @@ func ExecuteWithOptions(
 }
 
 // RunWithEnv executes commands with a custom environment.
-//
-
+// It sets up output writers and environment functions from env,
+// then delegates to runWithEnvInternal for the actual execution logic.
 func RunWithEnv(env RunEnv, opts RunOptions, targets ...any) error {
 	// Set stdout, binary name, getenv, and getwd from environment (unless caller provided them)
 	opts.Stdout = env.Stdout()
@@ -563,6 +564,8 @@ func (e *runExecutor) handleGlobalHelp() bool {
 // handleList handles the __list hidden command.
 // Error handling is omitted because listFn only fails on write errors,
 // which are unrecoverable at this level anyway.
+//
+//nolint:unparam // Returns nil for interface consistency; errors unrecoverable at this level
 func (e *runExecutor) handleList() error {
 	_ = e.listFn(e.env.Stdout(), e.roots)
 	return nil
@@ -916,6 +919,8 @@ func matchesGlob(name, pattern string) bool {
 }
 
 // runWithEnvInternal contains the actual execution logic.
+//
+//nolint:cyclop // Sequential flow of distinct steps; splitting would obscure logic
 func runWithEnvInternal(exec *runExecutor, env RunEnv, opts RunOptions, targets ...any) error {
 	err := exec.setupContext()
 	if err != nil {

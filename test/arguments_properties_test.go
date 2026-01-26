@@ -1,3 +1,4 @@
+//nolint:maintidx // Test functions with many subtests have low maintainability index by design
 package targ_test
 
 import (
@@ -41,6 +42,8 @@ func HTTPHandler() {}
 
 // TestProperty_EnvVarBehavior tests environment variable fallback behavior.
 // This cannot be parallel because t.Setenv modifies process environment.
+//
+//nolint:tparallel // Cannot use t.Parallel with t.Setenv - it modifies process environment
 func TestProperty_EnvVarBehavior(t *testing.T) {
 	t.Run("EnvVarFallback", func(t *testing.T) {
 		g := NewWithT(t)

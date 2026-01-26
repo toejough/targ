@@ -42,7 +42,7 @@ type RunOptions struct {
 	// Context is an optional context for controlling execution.
 	// If nil, a background context is used. For testing watch functionality,
 	// pass a cancellable context.
-	Context context.Context
+	Context context.Context //nolint:containedctx // Intentional: user-provided option for control
 
 	// Description is shown at the top of help output (before Usage).
 	// Only shown for top-level --help, not when a specific command is requested.

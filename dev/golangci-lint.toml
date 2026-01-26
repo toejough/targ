@@ -95,6 +95,7 @@ ignore-names = [
 	'tt',
 	'fv',
 	'ft',
+	'mu',
 ]
 
 [linters.settings.unused]

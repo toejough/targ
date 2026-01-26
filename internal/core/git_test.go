@@ -80,7 +80,7 @@ func TestProperty_GitDetection(t *testing.T) {
 		failingGetwd := func() (string, error) {
 			return "", errors.New("getwd failed")
 		}
-		dummyOpen := func(path string) (io.ReadCloser, error) {
+		dummyOpen := func(_ string) (io.ReadCloser, error) {
 			return nil, errors.New("should not be called")
 		}
 
@@ -92,7 +92,7 @@ func TestProperty_GitDetection(t *testing.T) {
 		t.Parallel()
 		g := NewWithT(t)
 
-		failingOpen := func(path string) (io.ReadCloser, error) {
+		failingOpen := func(_ string) (io.ReadCloser, error) {
 			return nil, errors.New("file not found")
 		}
 
@@ -105,7 +105,7 @@ func TestProperty_GitDetection(t *testing.T) {
 		t.Parallel()
 		g := NewWithT(t)
 
-		failingOpen := func(path string) (io.ReadCloser, error) {
+		failingOpen := func(_ string) (io.ReadCloser, error) {
 			return nil, errors.New("file not found")
 		}
 
