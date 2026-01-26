@@ -1455,3 +1455,57 @@ TBD
 
 **Details**
 Fixed setupImport to always import target packages. The local optimization was wrong - bootstrap is always package main, so it must import packages to access their symbols.
+
+## local-12: Shell command executes before flag validation completes [FIXED]
+
+**Status**: closed
+**Created**: 2026-01-26
+
+### Description
+
+When a shell command target receives an unknown flag, the shell command still executes before the error is returned. Flags should be fully validated before any execution happens.
+
+### Reproduction
+
+```go
+target := targ.Targ("echo $msg").Name("echo")
+_, err := targ.Execute(
+    []string{"app", "--msg", "hello", "--unknown", "value"},
+    target,
+)
+// Error is returned, but "echo hello" has already executed and printed to stdout
+```
+
+### Expected Behavior
+
+Flag validation should complete before shell command execution. If there's an unknown flag, the command should not execute at all.
+
+### Actual Behavior
+
+The shell command executes (printing "hello" to stdout), then the unknown flag error is returned.
+
+## local-13: Shell tests execute real commands instead of using DI
+
+**Status**: open
+**Created**: 2026-01-26
+
+### Description
+
+Tests in `test/shell_properties_test.go` execute real shell commands (`true`, `exit 1`, etc.) on the system instead of using dependency injection. Property-based tests should mock shell execution.
+
+### Affected Tests
+
+The following tests actually execute shell commands:
+- `ShellCommandExecutesWithVariables` - runs `true $msg`
+- `ShellCommandSupportsLongFlags` - runs `true $greeting $name`
+- `ShellCommandSupportsEqualsFlags` - runs `true $msg`
+- `ShellCommandSupportsShortFlags` - runs `true $msg`
+- `ShellCommandUnknownFlagReturnsError` - runs `true $msg`
+- `ShellCommandFailureReturnsError` - runs `exit 1`
+
+### Solution
+
+The shell execution layer (`internal/sh`) should be injectable. Tests should:
+1. Verify the correct command string is constructed
+2. Verify environment variables are passed correctly
+3. Mock the exit code rather than running real commands

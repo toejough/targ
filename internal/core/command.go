@@ -863,6 +863,12 @@ func executeShellCommand(
 		return nil, err
 	}
 
+	// Check for unknown flags before execution
+	err = checkUnknownFlags(parsed.remaining)
+	if err != nil {
+		return nil, err
+	}
+
 	config := TargetConfig{
 		WatchPatterns: node.WatchPatterns,
 		CachePatterns: node.CachePatterns,
@@ -2201,6 +2207,30 @@ func validateShellVars(varValues map[string]string, requiredVars []string) error
 	for _, varName := range requiredVars {
 		if _, ok := varValues[varName]; !ok {
 			return fmt.Errorf("%w: --%s", errMissingRequiredFlag, varName)
+		}
+	}
+
+	return nil
+}
+
+// checkUnknownFlags validates that remaining args don't contain unrecognized flags.
+// This ensures flag validation happens before shell command execution.
+func checkUnknownFlags(remaining []string) error {
+	for _, arg := range remaining {
+		if after, ok := strings.CutPrefix(arg, "--"); ok {
+			flagName := after
+			if idx := strings.Index(flagName, "="); idx >= 0 {
+				flagName = flagName[:idx]
+			}
+
+			return fmt.Errorf("%w: --%s", errFlagNotDefined, flagName)
+		}
+
+		if strings.HasPrefix(arg, "-") && len(arg) > 1 && arg[1] != '-' {
+			// Short flag like -x or -x=value
+			flagName := arg[1:2] // First char after -
+
+			return fmt.Errorf("%w: -%s", errFlagNotDefined, flagName)
 		}
 	}
 

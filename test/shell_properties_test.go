@@ -260,8 +260,8 @@ func TestProperty_ShellCommands(t *testing.T) {
 		t.Parallel()
 		g := NewWithT(t)
 
-		// Shell command with $msg variable
-		target := targ.Targ("echo $msg").Name("echo")
+		// Shell command with $msg variable (use true instead of echo to avoid stdout output)
+		target := targ.Targ("true $msg").Name("shell-cmd")
 
 		// Pass --msg (known) and --unknown (not a shell variable)
 		_, err := targ.Execute(
