@@ -162,6 +162,11 @@ func (n *commandNode) executeWithParents(
 		return executeShellCommand(ctx, args, n, parents, visited, explicit, opts)
 	}
 
+	// Handle deps-only targets: no Func/ShellCommand but has Target with deps
+	if n.Target != nil {
+		return executeDepsOnlyTarget(ctx, args, n, opts)
+	}
+
 	// Handle groups: nodes with Subcommands but no Func
 	return executeGroupWithParents(ctx, args, n, parents, visited, opts)
 }
@@ -753,6 +758,29 @@ func detectTagKind(opts *TagOptions, tag, fieldName string) {
 		opts.Kind = TagKindPositional
 		opts.Name = fieldName
 	}
+}
+
+// executeDepsOnlyTarget handles targets that have no function but run dependencies.
+func executeDepsOnlyTarget(
+	ctx context.Context,
+	args []string,
+	node *commandNode,
+	opts RunOptions,
+) ([]string, error) {
+	// Skip execution in help-only mode
+	if opts.HelpOnly {
+		return args, nil
+	}
+
+	// Run dependencies
+	if len(node.Target.deps) > 0 {
+		err := node.Target.runDeps(ctx)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return args, nil
 }
 
 func executeFunctionWithParents(
@@ -1506,18 +1534,21 @@ func parseTarget(t any) (*commandNode, error) {
 // parseTargetLike creates a commandNode from a TargetLike (targ.Target).
 func parseTargetLike(target TargetLike) (*commandNode, error) {
 	fn := target.Fn()
-	if fn == nil {
-		return nil, errNilTarget
-	}
 
-	// Handle string (shell command) vs function
+	// Handle string (shell command), function, or deps-only (nil fn)
 	var node *commandNode
 
 	var err error
 
-	if cmd, ok := fn.(string); ok {
-		node = parseTargetLikeString(target, cmd)
-	} else {
+	switch v := fn.(type) {
+	case nil:
+		// Deps-only target - create node with just a name, no function
+		node = &commandNode{
+			Name: target.GetName(),
+		}
+	case string:
+		node = parseTargetLikeString(target, v)
+	default:
 		node, err = parseTargetLikeFunc(target, fn)
 		if err != nil {
 			return nil, err
@@ -2070,6 +2101,11 @@ func runTargetWithOverrides(
 		if err != nil {
 			return err
 		}
+	}
+
+	// Deps-only targets have no function to execute
+	if !node.Func.IsValid() {
+		return nil
 	}
 
 	// Execute with runtime overrides (times, retry, watch, cache, etc.)
