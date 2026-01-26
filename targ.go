@@ -168,14 +168,6 @@ func Match(patterns ...string) ([]string, error) {
 	return internalfile.Match(patterns...)
 }
 
-// Newer reports whether inputs are newer than outputs, or when outputs are empty,
-// whether the input match set or file modtimes changed since the last run.
-func Newer(inputs, outputs []string) (bool, error) {
-	return internalfile.Newer(inputs, outputs, func(patterns []string) ([]string, error) {
-		return Match(patterns...)
-	}, nil, nil)
-}
-
 // Output executes a command and returns combined output.
 func Output(name string, args ...string) (string, error) {
 	return internalsh.Output(nil, name, args...)
@@ -222,24 +214,6 @@ func RunV(name string, args ...string) error {
 }
 
 // --- Shell Execution ---
-
-// Shell executes a shell command with variable substitution from struct fields.
-// Variables are specified as $name in the command string and are replaced with
-// the corresponding field value from the args struct.
-//
-// Example:
-//
-//	type DeployArgs struct {
-//	    Namespace string
-//	    File      string
-//	}
-//	err := targ.Shell(ctx, "kubectl apply -n $namespace -f $file", args)
-//
-// Field names are matched case-insensitively (e.g., $namespace matches Namespace).
-// Unknown variables return an error.
-func Shell(ctx context.Context, cmd string, args any) error {
-	return core.Shell(ctx, cmd, args)
-}
 
 // --- Target and Group Creation ---
 
