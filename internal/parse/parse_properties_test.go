@@ -71,24 +71,27 @@ func TestProperty_Parsing(t *testing.T) {
 
 		t.Run("KnownConversions", func(t *testing.T) {
 			t.Parallel()
-			g := NewWithT(t)
+			rapid.Check(t, func(t *rapid.T) {
+				g := NewWithT(t)
 
-			cases := []struct {
-				input    string
-				expected string
-			}{
-				{"FooBar", "foo-bar"},
-				{"APIServer", "api-server"},
-				{"Build", "build"},
-				{"", ""},
-				{"HTTPSProxy", "https-proxy"},
-				{"XMLParser", "xml-parser"},
-			}
+				// Test known conversions with randomized selection
+				cases := []struct {
+					input    string
+					expected string
+				}{
+					{"FooBar", "foo-bar"},
+					{"APIServer", "api-server"},
+					{"Build", "build"},
+					{"", ""},
+					{"HTTPSProxy", "https-proxy"},
+					{"XMLParser", "xml-parser"},
+				}
 
-			for _, tc := range cases {
+				idx := rapid.IntRange(0, len(cases)-1).Draw(t, "caseIdx")
+				tc := cases[idx]
 				g.Expect(parse.CamelToKebab(tc.input)).To(Equal(tc.expected),
 					"CamelToKebab(%q)", tc.input)
-			}
+			})
 		})
 	})
 
@@ -125,46 +128,55 @@ func TestProperty_Parsing(t *testing.T) {
 
 		t.Run("EmptyContentReturnsFalse", func(t *testing.T) {
 			t.Parallel()
-			g := NewWithT(t)
-
-			g.Expect(parse.HasBuildTag([]byte(""), "targ")).To(BeFalse())
+			rapid.Check(t, func(t *rapid.T) {
+				g := NewWithT(t)
+				tag := rapid.StringMatching(`[a-z]{3,10}`).Draw(t, "tag")
+				g.Expect(parse.HasBuildTag([]byte(""), tag)).To(BeFalse())
+			})
 		})
 
 		t.Run("NoTagReturnsFalse", func(t *testing.T) {
 			t.Parallel()
-			g := NewWithT(t)
+			rapid.Check(t, func(t *rapid.T) {
+				g := NewWithT(t)
+				pkgName := rapid.StringMatching(`[a-z]{3,10}`).Draw(t, "pkgName")
+				tag := rapid.StringMatching(`[a-z]{3,10}`).Draw(t, "tag")
 
-			content := []byte("package foo\n\nfunc main() {}")
-			g.Expect(parse.HasBuildTag(content, "targ")).To(BeFalse())
+				content := []byte("package " + pkgName + "\n\nfunc main() {}")
+				g.Expect(parse.HasBuildTag(content, tag)).To(BeFalse())
+			})
 		})
 
 		t.Run("HandlesComplexBuildConstraints", func(t *testing.T) {
 			t.Parallel()
-			g := NewWithT(t)
+			rapid.Check(t, func(t *rapid.T) {
+				g := NewWithT(t)
+				pkgName := rapid.StringMatching(`[a-z]{3,10}`).Draw(t, "pkgName")
 
-			// Note: The current implementation has a limitation - it passes just
-			// the expression to constraint.Parse instead of the full line, causing
-			// parse failures for complex expressions. When parsing fails, it falls
-			// back to simple string equality (exprText == tag).
-			//
-			// For simple tags (most common targ use case), this works correctly.
-			// Complex constraints fall back to string matching behavior.
+				// Note: The current implementation has a limitation - it passes just
+				// the expression to constraint.Parse instead of the full line, causing
+				// parse failures for complex expressions. When parsing fails, it falls
+				// back to simple string equality (exprText == tag).
+				//
+				// For simple tags (most common targ use case), this works correctly.
+				// Complex constraints fall back to string matching behavior.
 
-			// Simple tag works correctly
-			content := []byte("//go:build targ\n\npackage foo")
-			g.Expect(parse.HasBuildTag(content, "targ")).To(BeTrue(),
-				"simple tag should match")
+				// Simple tag works correctly
+				content := []byte("//go:build targ\n\npackage " + pkgName)
+				g.Expect(parse.HasBuildTag(content, "targ")).To(BeTrue(),
+					"simple tag should match")
 
-			// Complex expressions fall back to string matching
-			// "targ && linux" != "targ", so this returns false
-			content = []byte("//go:build targ && linux\n\npackage foo")
-			g.Expect(parse.HasBuildTag(content, "targ")).To(BeFalse(),
-				"complex AND falls back to string match, which fails")
+				// Complex expressions fall back to string matching
+				// "targ && linux" != "targ", so this returns false
+				content = []byte("//go:build targ && linux\n\npackage " + pkgName)
+				g.Expect(parse.HasBuildTag(content, "targ")).To(BeFalse(),
+					"complex AND falls back to string match, which fails")
 
-			// "targ || windows" != "targ", so this returns false
-			content = []byte("//go:build targ || windows\n\npackage foo")
-			g.Expect(parse.HasBuildTag(content, "targ")).To(BeFalse(),
-				"complex OR falls back to string match, which fails")
+				// "targ || windows" != "targ", so this returns false
+				content = []byte("//go:build targ || windows\n\npackage " + pkgName)
+				g.Expect(parse.HasBuildTag(content, "targ")).To(BeFalse(),
+					"complex OR falls back to string match, which fails")
+			})
 		})
 	})
 
@@ -301,12 +313,12 @@ func TestProperty_Parsing(t *testing.T) {
 
 		t.Run("SkipsSpecialDirs", func(t *testing.T) {
 			t.Parallel()
-			g := NewWithT(t)
-
-			for _, dir := range []string{"vendor", "testdata", "internal"} {
+			rapid.Check(t, func(t *rapid.T) {
+				g := NewWithT(t)
+				dir := rapid.SampledFrom([]string{"vendor", "testdata", "internal"}).Draw(t, "dir")
 				g.Expect(parse.ShouldSkipDir(dir)).To(BeTrue(),
 					"should skip special dir %q", dir)
-			}
+			})
 		})
 
 		t.Run("DoesNotSkipRegularDirs", func(t *testing.T) {
@@ -362,24 +374,32 @@ func TestProperty_Parsing(t *testing.T) {
 
 		t.Run("HandlesMultipleKeys", func(t *testing.T) {
 			t.Parallel()
-			g := NewWithT(t)
+			rapid.Check(t, func(t *rapid.T) {
+				g := NewWithT(t)
+				val1 := rapid.StringMatching(`[a-z]{3,8}`).Draw(t, "val1")
+				val2 := rapid.StringMatching(`[a-z]{3,8}`).Draw(t, "val2")
 
-			tag := parse.NewReflectTag(`json:"name" targ:"flag"`)
-			g.Expect(tag.Get("json")).To(Equal("name"))
-			g.Expect(tag.Get("targ")).To(Equal("flag"))
+				tag := parse.NewReflectTag(`json:"` + val1 + `" targ:"` + val2 + `"`)
+				g.Expect(tag.Get("json")).To(Equal(val1))
+				g.Expect(tag.Get("targ")).To(Equal(val2))
+			})
 		})
 
 		t.Run("ReturnsEmptyForMalformedTags", func(t *testing.T) {
 			t.Parallel()
-			g := NewWithT(t)
+			rapid.Check(t, func(t *rapid.T) {
+				g := NewWithT(t)
+				key := rapid.StringMatching(`[a-z]{3,8}`).Draw(t, "key")
+				value := rapid.StringMatching(`[a-z]{3,8}`).Draw(t, "value")
 
-			// No colon
-			tag := parse.NewReflectTag(`json`)
-			g.Expect(tag.Get("json")).To(BeEmpty())
+				// No colon
+				tag := parse.NewReflectTag(key)
+				g.Expect(tag.Get(key)).To(BeEmpty())
 
-			// No quotes
-			tag = parse.NewReflectTag(`json:value`)
-			g.Expect(tag.Get("json")).To(BeEmpty())
+				// No quotes
+				tag = parse.NewReflectTag(key + ":" + value)
+				g.Expect(tag.Get(key)).To(BeEmpty())
+			})
 		})
 	})
 
@@ -411,58 +431,67 @@ func TestProperty_Parsing(t *testing.T) {
 
 		t.Run("ReturnsFalseForEmptyBody", func(t *testing.T) {
 			t.Parallel()
-			g := NewWithT(t)
-
-			body := &ast.BlockStmt{List: []ast.Stmt{}}
-			result, ok := parse.ReturnStringLiteral(body)
-			g.Expect(ok).To(BeFalse())
-			g.Expect(result).To(BeEmpty())
+			rapid.Check(t, func(t *rapid.T) {
+				g := NewWithT(t)
+				body := &ast.BlockStmt{List: []ast.Stmt{}}
+				result, ok := parse.ReturnStringLiteral(body)
+				g.Expect(ok).To(BeFalse())
+				g.Expect(result).To(BeEmpty())
+			})
 		})
 
 		t.Run("ReturnsFalseForNilBody", func(t *testing.T) {
 			t.Parallel()
-			g := NewWithT(t)
-
-			result, ok := parse.ReturnStringLiteral(nil)
-			g.Expect(ok).To(BeFalse())
-			g.Expect(result).To(BeEmpty())
+			rapid.Check(t, func(t *rapid.T) {
+				g := NewWithT(t)
+				result, ok := parse.ReturnStringLiteral(nil)
+				g.Expect(ok).To(BeFalse())
+				g.Expect(result).To(BeEmpty())
+			})
 		})
 
 		t.Run("ReturnsFalseForMultipleReturns", func(t *testing.T) {
 			t.Parallel()
-			g := NewWithT(t)
+			rapid.Check(t, func(t *rapid.T) {
+				g := NewWithT(t)
+				name1 := rapid.StringMatching(`[a-z]{1,8}`).Draw(t, "name1")
+				name2 := rapid.StringMatching(`[a-z]{1,8}`).Draw(t, "name2")
 
-			body := &ast.BlockStmt{
-				List: []ast.Stmt{
-					&ast.ReturnStmt{
-						Results: []ast.Expr{
-							&ast.Ident{Name: "a"},
-							&ast.Ident{Name: "b"},
+				body := &ast.BlockStmt{
+					List: []ast.Stmt{
+						&ast.ReturnStmt{
+							Results: []ast.Expr{
+								&ast.Ident{Name: name1},
+								&ast.Ident{Name: name2},
+							},
 						},
 					},
-				},
-			}
+				}
 
-			result, ok := parse.ReturnStringLiteral(body)
-			g.Expect(ok).To(BeFalse())
-			g.Expect(result).To(BeEmpty())
+				result, ok := parse.ReturnStringLiteral(body)
+				g.Expect(ok).To(BeFalse())
+				g.Expect(result).To(BeEmpty())
+			})
 		})
 
 		t.Run("ReturnsFalseForNonStringLiteral", func(t *testing.T) {
 			t.Parallel()
-			g := NewWithT(t)
+			rapid.Check(t, func(t *rapid.T) {
+				g := NewWithT(t)
+				varName := rapid.StringMatching(`[a-z]{3,10}`).Draw(t, "varName")
 
-			body := &ast.BlockStmt{
-				List: []ast.Stmt{
-					&ast.ReturnStmt{
-						Results: []ast.Expr{&ast.Ident{Name: "variable"}},
+				body := &ast.BlockStmt{
+					List: []ast.Stmt{
+						&ast.ReturnStmt{
+							Results: []ast.Expr{&ast.Ident{Name: varName}},
+						},
 					},
-				},
-			}
+				}
 
-			result, ok := parse.ReturnStringLiteral(body)
-			g.Expect(ok).To(BeFalse())
-			g.Expect(result).To(BeEmpty())
+				result, ok := parse.ReturnStringLiteral(body)
+				g.Expect(ok).To(BeFalse())
+				g.Expect(result).To(BeEmpty())
+			})
 		})
 	})
 
@@ -471,14 +500,16 @@ func TestProperty_Parsing(t *testing.T) {
 
 		t.Run("DetectsDefaultImport", func(t *testing.T) {
 			t.Parallel()
-			g := NewWithT(t)
+			rapid.Check(t, func(t *rapid.T) {
+				g := NewWithT(t)
 
-			imports := []*ast.ImportSpec{
-				{Path: &ast.BasicLit{Kind: token.STRING, Value: `"github.com/toejough/targ"`}},
-			}
+				imports := []*ast.ImportSpec{
+					{Path: &ast.BasicLit{Kind: token.STRING, Value: `"github.com/toejough/targ"`}},
+				}
 
-			aliases := parse.TargImportInfo(imports)
-			g.Expect(aliases).To(HaveKey("targ"))
+				aliases := parse.TargImportInfo(imports)
+				g.Expect(aliases).To(HaveKey("targ"))
+			})
 		})
 
 		t.Run("DetectsAliasedImport", func(t *testing.T) {
@@ -508,32 +539,42 @@ func TestProperty_Parsing(t *testing.T) {
 
 		t.Run("IgnoresBlankImport", func(t *testing.T) {
 			t.Parallel()
-			g := NewWithT(t)
+			rapid.Check(t, func(t *rapid.T) {
+				g := NewWithT(t)
 
-			imports := []*ast.ImportSpec{
-				{
-					Name: &ast.Ident{Name: "_"},
-					Path: &ast.BasicLit{Kind: token.STRING, Value: `"github.com/toejough/targ"`},
-				},
-			}
+				imports := []*ast.ImportSpec{
+					{
+						Name: &ast.Ident{Name: "_"},
+						Path: &ast.BasicLit{
+							Kind:  token.STRING,
+							Value: `"github.com/toejough/targ"`,
+						},
+					},
+				}
 
-			aliases := parse.TargImportInfo(imports)
-			g.Expect(aliases).To(BeEmpty())
+				aliases := parse.TargImportInfo(imports)
+				g.Expect(aliases).To(BeEmpty())
+			})
 		})
 
 		t.Run("IgnoresDotImport", func(t *testing.T) {
 			t.Parallel()
-			g := NewWithT(t)
+			rapid.Check(t, func(t *rapid.T) {
+				g := NewWithT(t)
 
-			imports := []*ast.ImportSpec{
-				{
-					Name: &ast.Ident{Name: "."},
-					Path: &ast.BasicLit{Kind: token.STRING, Value: `"github.com/toejough/targ"`},
-				},
-			}
+				imports := []*ast.ImportSpec{
+					{
+						Name: &ast.Ident{Name: "."},
+						Path: &ast.BasicLit{
+							Kind:  token.STRING,
+							Value: `"github.com/toejough/targ"`,
+						},
+					},
+				}
 
-			aliases := parse.TargImportInfo(imports)
-			g.Expect(aliases).To(BeEmpty())
+				aliases := parse.TargImportInfo(imports)
+				g.Expect(aliases).To(BeEmpty())
+			})
 		})
 
 		t.Run("IgnoresOtherPackages", func(t *testing.T) {

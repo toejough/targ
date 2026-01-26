@@ -53,38 +53,41 @@ var Build = targ.Targ(func() {})
 
 	t.Run("DetectsExplicitRegistration", func(t *testing.T) {
 		t.Parallel()
-		g := NewWithT(t)
+		rapid.Check(t, func(t *rapid.T) {
+			g := NewWithT(t)
+			varName := rapid.StringMatching(`[A-Z][a-z]{2,8}`).Draw(t, "varName")
 
-		srcWithRegister := `//go:build targ
+			srcWithRegister := `//go:build targ
 
 package build
 
 import "github.com/toejough/targ"
 
 func init() {
-	targ.Register(Build)
+	targ.Register(` + varName + `)
 }
 
-var Build = targ.Targ(func() {})
+var ` + varName + ` = targ.Targ(func() {})
 `
 
-		filesystem := &mockFileSystem{
-			files: map[string][]byte{
-				"test/targs.go": []byte(srcWithRegister),
-			},
-			dirs: map[string][]fs.DirEntry{
-				".":    {mockDirEntry{name: "test", isDir: true}},
-				"test": {mockDirEntry{name: "targs.go", isDir: false}},
-			},
-		}
+			filesystem := &mockFileSystem{
+				files: map[string][]byte{
+					"test/targs.go": []byte(srcWithRegister),
+				},
+				dirs: map[string][]fs.DirEntry{
+					".":    {mockDirEntry{name: "test", isDir: true}},
+					"test": {mockDirEntry{name: "targs.go", isDir: false}},
+				},
+			}
 
-		infos, err := discover.Discover(
-			filesystem,
-			discover.Options{StartDir: ".", BuildTag: "targ"},
-		)
-		g.Expect(err).NotTo(HaveOccurred())
-		g.Expect(infos).To(HaveLen(1))
-		g.Expect(infos[0].UsesExplicitRegistration).To(BeTrue())
+			infos, err := discover.Discover(
+				filesystem,
+				discover.Options{StartDir: ".", BuildTag: "targ"},
+			)
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(infos).To(HaveLen(1))
+			g.Expect(infos[0].UsesExplicitRegistration).To(BeTrue())
+		})
 	})
 
 	t.Run("DetectsAliasedImport", func(t *testing.T) {
@@ -128,9 +131,12 @@ var Build = ` + alias + `.Targ(func() {})
 
 	t.Run("NonRegisterCallNotDetected", func(t *testing.T) {
 		t.Parallel()
-		g := NewWithT(t)
+		rapid.Check(t, func(t *rapid.T) {
+			g := NewWithT(t)
+			msg := rapid.StringMatching(`[a-z]{3,10}`).Draw(t, "msg")
+			varName := rapid.StringMatching(`[A-Z][a-z]{2,8}`).Draw(t, "varName")
 
-		srcWithOtherInit := `//go:build targ
+			srcWithOtherInit := `//go:build targ
 
 package build
 
@@ -138,36 +144,39 @@ import "fmt"
 import "github.com/toejough/targ"
 
 func init() {
-	fmt.Println("hello")
+	fmt.Println("` + msg + `")
 }
 
-var Build = targ.Targ(func() {})
+var ` + varName + ` = targ.Targ(func() {})
 `
 
-		filesystem := &mockFileSystem{
-			files: map[string][]byte{
-				"test/targs.go": []byte(srcWithOtherInit),
-			},
-			dirs: map[string][]fs.DirEntry{
-				".":    {mockDirEntry{name: "test", isDir: true}},
-				"test": {mockDirEntry{name: "targs.go", isDir: false}},
-			},
-		}
+			filesystem := &mockFileSystem{
+				files: map[string][]byte{
+					"test/targs.go": []byte(srcWithOtherInit),
+				},
+				dirs: map[string][]fs.DirEntry{
+					".":    {mockDirEntry{name: "test", isDir: true}},
+					"test": {mockDirEntry{name: "targs.go", isDir: false}},
+				},
+			}
 
-		infos, err := discover.Discover(
-			filesystem,
-			discover.Options{StartDir: ".", BuildTag: "targ"},
-		)
-		g.Expect(err).NotTo(HaveOccurred())
-		g.Expect(infos).To(HaveLen(1))
-		g.Expect(infos[0].UsesExplicitRegistration).To(BeFalse())
+			infos, err := discover.Discover(
+				filesystem,
+				discover.Options{StartDir: ".", BuildTag: "targ"},
+			)
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(infos).To(HaveLen(1))
+			g.Expect(infos[0].UsesExplicitRegistration).To(BeFalse())
+		})
 	})
 
 	t.Run("RejectsMainFunction", func(t *testing.T) {
 		t.Parallel()
-		g := NewWithT(t)
+		rapid.Check(t, func(t *rapid.T) {
+			g := NewWithT(t)
+			varName := rapid.StringMatching(`[A-Z][a-z]{2,8}`).Draw(t, "varName")
 
-		srcWithMain := `//go:build targ
+			srcWithMain := `//go:build targ
 
 package main
 
@@ -175,24 +184,25 @@ import "github.com/toejough/targ"
 
 func main() {}
 
-var Build = targ.Targ(func() {})
+var ` + varName + ` = targ.Targ(func() {})
 `
 
-		filesystem := &mockFileSystem{
-			files: map[string][]byte{
-				"test/targs.go": []byte(srcWithMain),
-			},
-			dirs: map[string][]fs.DirEntry{
-				".":    {mockDirEntry{name: "test", isDir: true}},
-				"test": {mockDirEntry{name: "targs.go", isDir: false}},
-			},
-		}
+			filesystem := &mockFileSystem{
+				files: map[string][]byte{
+					"test/targs.go": []byte(srcWithMain),
+				},
+				dirs: map[string][]fs.DirEntry{
+					".":    {mockDirEntry{name: "test", isDir: true}},
+					"test": {mockDirEntry{name: "targs.go", isDir: false}},
+				},
+			}
 
-		_, err := discover.Discover(
-			filesystem,
-			discover.Options{StartDir: ".", BuildTag: "targ"},
-		)
-		g.Expect(err).To(MatchError(ContainSubstring("main()")))
+			_, err := discover.Discover(
+				filesystem,
+				discover.Options{StartDir: ".", BuildTag: "targ"},
+			)
+			g.Expect(err).To(MatchError(ContainSubstring("main()")))
+		})
 	})
 
 	t.Run("SkipsTestFiles", func(t *testing.T) {
@@ -267,18 +277,21 @@ var Build = targ.Targ(func() {})
 
 	t.Run("SkipsSpecialDirectories", func(t *testing.T) {
 		t.Parallel()
-		g := NewWithT(t)
+		rapid.Check(t, func(t *rapid.T) {
+			g := NewWithT(t)
+			varName := rapid.StringMatching(`[A-Z][a-z]{2,8}`).Draw(t, "varName")
+			specialDir := rapid.SampledFrom([]string{"vendor", "testdata", "internal", ".git"}).
+				Draw(t, "specialDir")
 
-		src := `//go:build targ
+			src := `//go:build targ
 
 package build
 
 import "github.com/toejough/targ"
 
-var Build = targ.Targ(func() {})
+var ` + varName + ` = targ.Targ(func() {})
 `
 
-		for _, specialDir := range []string{"vendor", "testdata", "internal", ".git"} {
 			filesystem := &mockFileSystem{
 				files: map[string][]byte{
 					filepath.Join(specialDir, "targs.go"): []byte(src),
@@ -295,41 +308,48 @@ var Build = targ.Targ(func() {})
 			)
 			g.Expect(err).NotTo(HaveOccurred())
 			g.Expect(infos).To(BeEmpty(), "special dir %q should be skipped", specialDir)
-		}
+		})
 	})
 
 	t.Run("FindsFilesRecursively", func(t *testing.T) {
 		t.Parallel()
-		g := NewWithT(t)
+		rapid.Check(t, func(t *rapid.T) {
+			g := NewWithT(t)
+			dir1 := rapid.StringMatching(`[a-z]{2,5}`).Draw(t, "dir1")
+			dir2 := rapid.StringMatching(`[a-z]{2,5}`).Draw(t, "dir2")
+			dir3 := rapid.StringMatching(`[a-z]{2,5}`).Draw(t, "dir3")
+			varName := rapid.StringMatching(`[A-Z][a-z]{2,8}`).Draw(t, "varName")
 
-		src := `//go:build targ
+			src := `//go:build targ
 
 package build
 
 import "github.com/toejough/targ"
 
-var Build = targ.Targ(func() {})
+var ` + varName + ` = targ.Targ(func() {})
 `
+			deepPath := dir1 + "/" + dir2 + "/" + dir3
 
-		filesystem := &mockFileSystem{
-			files: map[string][]byte{
-				"a/b/c/targs.go": []byte(src),
-			},
-			dirs: map[string][]fs.DirEntry{
-				".":     {mockDirEntry{name: "a", isDir: true}},
-				"a":     {mockDirEntry{name: "b", isDir: true}},
-				"a/b":   {mockDirEntry{name: "c", isDir: true}},
-				"a/b/c": {mockDirEntry{name: "targs.go", isDir: false}},
-			},
-		}
+			filesystem := &mockFileSystem{
+				files: map[string][]byte{
+					deepPath + "/targs.go": []byte(src),
+				},
+				dirs: map[string][]fs.DirEntry{
+					".":               {mockDirEntry{name: dir1, isDir: true}},
+					dir1:              {mockDirEntry{name: dir2, isDir: true}},
+					dir1 + "/" + dir2: {mockDirEntry{name: dir3, isDir: true}},
+					deepPath:          {mockDirEntry{name: "targs.go", isDir: false}},
+				},
+			}
 
-		infos, err := discover.Discover(
-			filesystem,
-			discover.Options{StartDir: ".", BuildTag: "targ"},
-		)
-		g.Expect(err).NotTo(HaveOccurred())
-		g.Expect(infos).To(HaveLen(1))
-		g.Expect(infos[0].Dir).To(Equal("a/b/c"))
+			infos, err := discover.Discover(
+				filesystem,
+				discover.Options{StartDir: ".", BuildTag: "targ"},
+			)
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(infos).To(HaveLen(1))
+			g.Expect(infos[0].Dir).To(Equal(deepPath))
+		})
 	})
 
 	t.Run("ExtractsPackageDoc", func(t *testing.T) {
@@ -371,228 +391,273 @@ var Build = targ.Targ(func() {})
 
 	t.Run("SortsFilesAlphabetically", func(t *testing.T) {
 		t.Parallel()
-		g := NewWithT(t)
+		rapid.Check(t, func(t *rapid.T) {
+			g := NewWithT(t)
+			varName := rapid.StringMatching(`[A-Z][a-z]{2,8}`).Draw(t, "varName")
+			file1 := "a" + rapid.StringMatching(`[a-z]{2,5}`).Draw(t, "file1")
+			file2 := "m" + rapid.StringMatching(`[a-z]{2,5}`).Draw(t, "file2")
+			file3 := "z" + rapid.StringMatching(`[a-z]{2,5}`).Draw(t, "file3")
 
-		src := `//go:build targ
+			src := `//go:build targ
 
 package build
 
 import "github.com/toejough/targ"
 
-var Build = targ.Targ(func() {})
+var ` + varName + ` = targ.Targ(func() {})
 `
 
-		filesystem := &mockFileSystem{
-			files: map[string][]byte{
-				"test/zebra.go":  []byte(src),
-				"test/alpha.go":  []byte(src),
-				"test/middle.go": []byte(src),
-			},
-			dirs: map[string][]fs.DirEntry{
-				".": {mockDirEntry{name: "test", isDir: true}},
-				"test": {
-					mockDirEntry{name: "zebra.go", isDir: false},
-					mockDirEntry{name: "alpha.go", isDir: false},
-					mockDirEntry{name: "middle.go", isDir: false},
+			filesystem := &mockFileSystem{
+				files: map[string][]byte{
+					"test/" + file3 + ".go": []byte(src),
+					"test/" + file1 + ".go": []byte(src),
+					"test/" + file2 + ".go": []byte(src),
 				},
-			},
-		}
+				dirs: map[string][]fs.DirEntry{
+					".": {mockDirEntry{name: "test", isDir: true}},
+					"test": {
+						mockDirEntry{name: file3 + ".go", isDir: false},
+						mockDirEntry{name: file1 + ".go", isDir: false},
+						mockDirEntry{name: file2 + ".go", isDir: false},
+					},
+				},
+			}
 
-		infos, err := discover.Discover(
-			filesystem,
-			discover.Options{StartDir: ".", BuildTag: "targ"},
-		)
-		g.Expect(err).NotTo(HaveOccurred())
-		g.Expect(infos).To(HaveLen(1))
-		g.Expect(infos[0].Files).To(HaveLen(3))
-		g.Expect(infos[0].Files[0].Base).To(Equal("alpha"))
-		g.Expect(infos[0].Files[1].Base).To(Equal("middle"))
-		g.Expect(infos[0].Files[2].Base).To(Equal("zebra"))
+			infos, err := discover.Discover(
+				filesystem,
+				discover.Options{StartDir: ".", BuildTag: "targ"},
+			)
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(infos).To(HaveLen(1))
+			g.Expect(infos[0].Files).To(HaveLen(3))
+			g.Expect(infos[0].Files[0].Base).To(Equal(file1))
+			g.Expect(infos[0].Files[1].Base).To(Equal(file2))
+			g.Expect(infos[0].Files[2].Base).To(Equal(file3))
+		})
 	})
 
 	t.Run("RejectsMultiplePackageNames", func(t *testing.T) {
 		t.Parallel()
-		g := NewWithT(t)
+		rapid.Check(t, func(t *rapid.T) {
+			g := NewWithT(t)
+			pkg1 := rapid.StringMatching(`[a-z]{3,8}`).Draw(t, "pkg1")
 
-		src1 := `//go:build targ
+			pkg2 := rapid.StringMatching(`[a-z]{3,8}`).Draw(t, "pkg2")
+			if pkg1 == pkg2 {
+				return
+			}
 
-package build
+			var1 := rapid.StringMatching(`[A-Z][a-z]{2,8}`).Draw(t, "var1")
+			var2 := rapid.StringMatching(`[A-Z][a-z]{2,8}`).Draw(t, "var2")
+
+			src1 := `//go:build targ
+
+package ` + pkg1 + `
 
 import "github.com/toejough/targ"
 
-var Build = targ.Targ(func() {})
+var ` + var1 + ` = targ.Targ(func() {})
 `
 
-		src2 := `//go:build targ
+			src2 := `//go:build targ
 
-package other
+package ` + pkg2 + `
 
 import "github.com/toejough/targ"
 
-var Other = targ.Targ(func() {})
+var ` + var2 + ` = targ.Targ(func() {})
 `
 
-		filesystem := &mockFileSystem{
-			files: map[string][]byte{
-				"test/build.go": []byte(src1),
-				"test/other.go": []byte(src2),
-			},
-			dirs: map[string][]fs.DirEntry{
-				".": {mockDirEntry{name: "test", isDir: true}},
-				"test": {
-					mockDirEntry{name: "build.go", isDir: false},
-					mockDirEntry{name: "other.go", isDir: false},
+			filesystem := &mockFileSystem{
+				files: map[string][]byte{
+					"test/build.go": []byte(src1),
+					"test/other.go": []byte(src2),
 				},
-			},
-		}
+				dirs: map[string][]fs.DirEntry{
+					".": {mockDirEntry{name: "test", isDir: true}},
+					"test": {
+						mockDirEntry{name: "build.go", isDir: false},
+						mockDirEntry{name: "other.go", isDir: false},
+					},
+				},
+			}
 
-		_, err := discover.Discover(
-			filesystem,
-			discover.Options{StartDir: ".", BuildTag: "targ"},
-		)
-		g.Expect(err).To(MatchError(ContainSubstring("multiple package names")))
+			_, err := discover.Discover(
+				filesystem,
+				discover.Options{StartDir: ".", BuildTag: "targ"},
+			)
+			g.Expect(err).To(MatchError(ContainSubstring("multiple package names")))
+		})
 	})
 
 	t.Run("TaggedFilesReturnsAllFiles", func(t *testing.T) {
 		t.Parallel()
-		g := NewWithT(t)
+		rapid.Check(t, func(t *rapid.T) {
+			g := NewWithT(t)
+			dir1 := rapid.StringMatching(`[a-z]{2,5}`).Draw(t, "dir1")
 
-		src := `//go:build targ
+			dir2 := rapid.StringMatching(`[a-z]{2,5}`).Draw(t, "dir2")
+			if dir1 == dir2 {
+				return
+			}
+
+			varName := rapid.StringMatching(`[A-Z][a-z]{2,8}`).Draw(t, "varName")
+
+			src := `//go:build targ
 
 package build
 
 import "github.com/toejough/targ"
 
-var Build = targ.Targ(func() {})
+var ` + varName + ` = targ.Targ(func() {})
 `
 
-		filesystem := &mockFileSystem{
-			files: map[string][]byte{
-				"a/targs.go": []byte(src),
-				"b/targs.go": []byte(src),
-			},
-			dirs: map[string][]fs.DirEntry{
-				".": {
-					mockDirEntry{name: "a", isDir: true},
-					mockDirEntry{name: "b", isDir: true},
+			filesystem := &mockFileSystem{
+				files: map[string][]byte{
+					dir1 + "/targs.go": []byte(src),
+					dir2 + "/targs.go": []byte(src),
 				},
-				"a": {mockDirEntry{name: "targs.go", isDir: false}},
-				"b": {mockDirEntry{name: "targs.go", isDir: false}},
-			},
-		}
+				dirs: map[string][]fs.DirEntry{
+					".": {
+						mockDirEntry{name: dir1, isDir: true},
+						mockDirEntry{name: dir2, isDir: true},
+					},
+					dir1: {mockDirEntry{name: "targs.go", isDir: false}},
+					dir2: {mockDirEntry{name: "targs.go", isDir: false}},
+				},
+			}
 
-		files, err := discover.TaggedFiles(
-			filesystem,
-			discover.Options{StartDir: ".", BuildTag: "targ"},
-		)
-		g.Expect(err).NotTo(HaveOccurred())
-		g.Expect(files).To(HaveLen(2))
+			files, err := discover.TaggedFiles(
+				filesystem,
+				discover.Options{StartDir: ".", BuildTag: "targ"},
+			)
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(files).To(HaveLen(2))
+		})
 	})
 
 	t.Run("UsesDefaultBuildTagWhenEmpty", func(t *testing.T) {
 		t.Parallel()
-		g := NewWithT(t)
+		rapid.Check(t, func(t *rapid.T) {
+			g := NewWithT(t)
+			varName := rapid.StringMatching(`[A-Z][a-z]{2,8}`).Draw(t, "varName")
+			dirName := rapid.StringMatching(`[a-z]{3,8}`).Draw(t, "dirName")
 
-		src := `//go:build targ
+			src := `//go:build targ
 
 package build
 
 import "github.com/toejough/targ"
 
-var Build = targ.Targ(func() {})
+var ` + varName + ` = targ.Targ(func() {})
 `
 
-		filesystem := &mockFileSystem{
-			files: map[string][]byte{
-				"test/targs.go": []byte(src),
-			},
-			dirs: map[string][]fs.DirEntry{
-				".":    {mockDirEntry{name: "test", isDir: true}},
-				"test": {mockDirEntry{name: "targs.go", isDir: false}},
-			},
-		}
+			filesystem := &mockFileSystem{
+				files: map[string][]byte{
+					dirName + "/targs.go": []byte(src),
+				},
+				dirs: map[string][]fs.DirEntry{
+					".":     {mockDirEntry{name: dirName, isDir: true}},
+					dirName: {mockDirEntry{name: "targs.go", isDir: false}},
+				},
+			}
 
-		infos, err := discover.Discover(
-			filesystem,
-			discover.Options{StartDir: ".", BuildTag: ""}, // Empty should default to "targ"
-		)
-		g.Expect(err).NotTo(HaveOccurred())
-		g.Expect(infos).To(HaveLen(1))
+			infos, err := discover.Discover(
+				filesystem,
+				discover.Options{StartDir: ".", BuildTag: ""}, // Empty should default to "targ"
+			)
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(infos).To(HaveLen(1))
+		})
 	})
 
 	t.Run("UsesDefaultStartDirWhenEmpty", func(t *testing.T) {
 		t.Parallel()
-		g := NewWithT(t)
+		rapid.Check(t, func(t *rapid.T) {
+			g := NewWithT(t)
+			varName := rapid.StringMatching(`[A-Z][a-z]{2,8}`).Draw(t, "varName")
+			dirName := rapid.StringMatching(`[a-z]{3,8}`).Draw(t, "dirName")
 
-		src := `//go:build targ
+			src := `//go:build targ
 
 package build
 
 import "github.com/toejough/targ"
 
-var Build = targ.Targ(func() {})
+var ` + varName + ` = targ.Targ(func() {})
 `
 
-		filesystem := &mockFileSystem{
-			files: map[string][]byte{
-				"test/targs.go": []byte(src),
-			},
-			dirs: map[string][]fs.DirEntry{
-				".":    {mockDirEntry{name: "test", isDir: true}},
-				"test": {mockDirEntry{name: "targs.go", isDir: false}},
-			},
-		}
+			filesystem := &mockFileSystem{
+				files: map[string][]byte{
+					dirName + "/targs.go": []byte(src),
+				},
+				dirs: map[string][]fs.DirEntry{
+					".":     {mockDirEntry{name: dirName, isDir: true}},
+					dirName: {mockDirEntry{name: "targs.go", isDir: false}},
+				},
+			}
 
-		infos, err := discover.Discover(
-			filesystem,
-			discover.Options{StartDir: "", BuildTag: "targ"}, // Empty should default to "."
-		)
-		g.Expect(err).NotTo(HaveOccurred())
-		g.Expect(infos).To(HaveLen(1))
+			infos, err := discover.Discover(
+				filesystem,
+				discover.Options{StartDir: "", BuildTag: "targ"}, // Empty should default to "."
+			)
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(infos).To(HaveLen(1))
+		})
 	})
 
 	t.Run("IgnoresFilesWithoutTag", func(t *testing.T) {
 		t.Parallel()
-		g := NewWithT(t)
+		rapid.Check(t, func(t *rapid.T) {
+			g := NewWithT(t)
+			var1 := rapid.StringMatching(`[A-Z][a-z]{2,8}`).Draw(t, "var1")
+			var2 := rapid.StringMatching(`[A-Z][a-z]{2,8}`).Draw(t, "var2")
+			taggedFile := rapid.StringMatching(`[a-z]{3,8}`).Draw(t, "taggedFile")
 
-		srcWithTag := `//go:build targ
+			untaggedFile := rapid.StringMatching(`[a-z]{3,8}`).Draw(t, "untaggedFile")
+			if taggedFile == untaggedFile {
+				return
+			}
+
+			srcWithTag := `//go:build targ
 
 package build
 
 import "github.com/toejough/targ"
 
-var Build = targ.Targ(func() {})
+var ` + var1 + ` = targ.Targ(func() {})
 `
 
-		srcWithoutTag := `package build
+			srcWithoutTag := `package build
 
 import "github.com/toejough/targ"
 
-var Other = targ.Targ(func() {})
+var ` + var2 + ` = targ.Targ(func() {})
 `
 
-		filesystem := &mockFileSystem{
-			files: map[string][]byte{
-				"test/tagged.go":   []byte(srcWithTag),
-				"test/untagged.go": []byte(srcWithoutTag),
-			},
-			dirs: map[string][]fs.DirEntry{
-				".": {mockDirEntry{name: "test", isDir: true}},
-				"test": {
-					mockDirEntry{name: "tagged.go", isDir: false},
-					mockDirEntry{name: "untagged.go", isDir: false},
+			filesystem := &mockFileSystem{
+				files: map[string][]byte{
+					"test/" + taggedFile + ".go":   []byte(srcWithTag),
+					"test/" + untaggedFile + ".go": []byte(srcWithoutTag),
 				},
-			},
-		}
+				dirs: map[string][]fs.DirEntry{
+					".": {mockDirEntry{name: "test", isDir: true}},
+					"test": {
+						mockDirEntry{name: taggedFile + ".go", isDir: false},
+						mockDirEntry{name: untaggedFile + ".go", isDir: false},
+					},
+				},
+			}
 
-		infos, err := discover.Discover(
-			filesystem,
-			discover.Options{StartDir: ".", BuildTag: "targ"},
-		)
-		g.Expect(err).NotTo(HaveOccurred())
-		g.Expect(infos).To(HaveLen(1))
-		g.Expect(infos[0].Files).To(HaveLen(1))
-		g.Expect(infos[0].Files[0].Base).To(Equal("tagged"))
+			infos, err := discover.Discover(
+				filesystem,
+				discover.Options{StartDir: ".", BuildTag: "targ"},
+			)
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(infos).To(HaveLen(1))
+			g.Expect(infos[0].Files).To(HaveLen(1))
+			g.Expect(infos[0].Files[0].Base).To(Equal(taggedFile))
+		})
 	})
 }
 

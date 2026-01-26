@@ -248,55 +248,68 @@ func TestProperty_CodeGeneration(t *testing.T) {
 	// Property: FindOrCreateTargFile finds existing file with build tag
 	t.Run("FindsExistingTargFile", func(t *testing.T) {
 		t.Parallel()
-		g := NewWithT(t)
+		rapid.Check(t, func(t *rapid.T) {
+			g := NewWithT(t)
+			dirName := rapid.StringMatching(`[a-z]{3,10}`).Draw(t, "dirName")
+			fileName := rapid.StringMatching(`[a-z]{3,10}`).Draw(t, "fileName") + ".go"
 
-		fileOps := NewMemoryFileOps()
-		fileOps.Files["testdir/build.go"] = []byte("//go:build targ\n\npackage build\n")
-		fileOps.Dirs["testdir"] = []fs.DirEntry{
-			memDirEntry{name: "build.go", isDir: false},
-		}
+			fileOps := NewMemoryFileOps()
+			filePath := filepath.Join(dirName, fileName)
+			fileOps.Files[filePath] = []byte("//go:build targ\n\npackage build\n")
+			fileOps.Dirs[dirName] = []fs.DirEntry{
+				memDirEntry{name: fileName, isDir: false},
+			}
 
-		path, err := runner.FindOrCreateTargFileWithFileOps(fileOps, "testdir")
-		g.Expect(err).NotTo(HaveOccurred())
-		g.Expect(path).To(Equal(filepath.Join("testdir", "build.go")))
+			path, err := runner.FindOrCreateTargFileWithFileOps(fileOps, dirName)
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(path).To(Equal(filePath))
+		})
 	})
 
 	// Property: FindOrCreateTargFile creates new file when none exists
 	t.Run("CreatesNewTargFile", func(t *testing.T) {
 		t.Parallel()
-		g := NewWithT(t)
+		rapid.Check(t, func(t *rapid.T) {
+			g := NewWithT(t)
+			dirName := rapid.StringMatching(`[a-z]{3,10}`).Draw(t, "dirName")
 
-		fileOps := NewMemoryFileOps()
-		fileOps.Dirs["testdir"] = []fs.DirEntry{} // Empty directory
+			fileOps := NewMemoryFileOps()
+			fileOps.Dirs[dirName] = []fs.DirEntry{} // Empty directory
 
-		path, err := runner.FindOrCreateTargFileWithFileOps(fileOps, "testdir")
-		g.Expect(err).NotTo(HaveOccurred())
-		g.Expect(path).To(Equal(filepath.Join("testdir", "targs.go")))
+			path, err := runner.FindOrCreateTargFileWithFileOps(fileOps, dirName)
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(path).To(Equal(filepath.Join(dirName, "targs.go")))
 
-		// New file should have build tag
-		content, ok := fileOps.Files[path]
-		g.Expect(ok).To(BeTrue())
-		g.Expect(string(content)).To(HavePrefix("//go:build targ"))
+			// New file should have build tag
+			content, ok := fileOps.Files[path]
+			g.Expect(ok).To(BeTrue())
+			g.Expect(string(content)).To(HavePrefix("//go:build targ"))
+		})
 	})
 
 	// Property: HasTargBuildTag correctly identifies files with the tag
 	t.Run("HasTargBuildTagDetectsTag", func(t *testing.T) {
 		t.Parallel()
-		g := NewWithT(t)
+		rapid.Check(t, func(t *rapid.T) {
+			g := NewWithT(t)
+			pkgName := rapid.StringMatching(`[a-z]{3,10}`).Draw(t, "pkgName")
 
-		fileOps := NewMemoryFileOps()
+			fileOps := NewMemoryFileOps()
 
-		// File with tag
-		fileOps.Files["with_tag.go"] = []byte("//go:build targ\n\npackage foo\n")
-		g.Expect(runner.HasTargBuildTagWithFileOps(fileOps, "with_tag.go")).To(BeTrue())
+			// File with tag
+			fileOps.Files["with_tag.go"] = []byte("//go:build targ\n\npackage " + pkgName + "\n")
+			g.Expect(runner.HasTargBuildTagWithFileOps(fileOps, "with_tag.go")).To(BeTrue())
 
-		// File without tag
-		fileOps.Files["without_tag.go"] = []byte("package foo\n")
-		g.Expect(runner.HasTargBuildTagWithFileOps(fileOps, "without_tag.go")).To(BeFalse())
+			// File without tag
+			fileOps.Files["without_tag.go"] = []byte("package " + pkgName + "\n")
+			g.Expect(runner.HasTargBuildTagWithFileOps(fileOps, "without_tag.go")).To(BeFalse())
 
-		// File with different tag
-		fileOps.Files["other_tag.go"] = []byte("//go:build integration\n\npackage foo\n")
-		g.Expect(runner.HasTargBuildTagWithFileOps(fileOps, "other_tag.go")).To(BeFalse())
+			// File with different tag
+			fileOps.Files["other_tag.go"] = []byte(
+				"//go:build integration\n\npackage " + pkgName + "\n",
+			)
+			g.Expect(runner.HasTargBuildTagWithFileOps(fileOps, "other_tag.go")).To(BeFalse())
+		})
 	})
 
 	// Property: AddImportToTargFile adds blank import correctly
@@ -334,34 +347,42 @@ var Lint = targ.Targ("golangci-lint run")
 	// Property: CheckImportExists correctly detects existing imports
 	t.Run("CheckImportExistsDetectsImport", func(t *testing.T) {
 		t.Parallel()
-		g := NewWithT(t)
+		rapid.Check(t, func(t *rapid.T) {
+			g := NewWithT(t)
+			existingPkg := rapid.StringMatching(`github\.com/[a-z]+/[a-z]+`).Draw(t, "existingPkg")
 
-		fileOps := NewMemoryFileOps()
-		fileOps.Files["targs.go"] = []byte(`//go:build targ
+			missingPkg := rapid.StringMatching(`github\.com/[a-z]+/[a-z]+`).Draw(t, "missingPkg")
+			if existingPkg == missingPkg {
+				return
+			}
+
+			fileOps := NewMemoryFileOps()
+			fileOps.Files["targs.go"] = []byte(`//go:build targ
 
 package build
 
 import (
 	"github.com/toejough/targ"
-	_ "github.com/foo/bar"
+	_ "` + existingPkg + `"
 )
 `)
 
-		exists, err := runner.CheckImportExistsWithFileOps(
-			fileOps,
-			"targs.go",
-			"github.com/foo/bar",
-		)
-		g.Expect(err).NotTo(HaveOccurred())
-		g.Expect(exists).To(BeTrue())
+			exists, err := runner.CheckImportExistsWithFileOps(
+				fileOps,
+				"targs.go",
+				existingPkg,
+			)
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(exists).To(BeTrue())
 
-		exists, err = runner.CheckImportExistsWithFileOps(
-			fileOps,
-			"targs.go",
-			"github.com/not/there",
-		)
-		g.Expect(err).NotTo(HaveOccurred())
-		g.Expect(exists).To(BeFalse())
+			exists, err = runner.CheckImportExistsWithFileOps(
+				fileOps,
+				"targs.go",
+				missingPkg,
+			)
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(exists).To(BeFalse())
+		})
 	})
 
 	// Property: KebabToPascal converts correctly
@@ -395,92 +416,121 @@ import (
 	// Property: ExtractTargFlags extracts flags correctly
 	t.Run("ExtractTargFlagsWorks", func(t *testing.T) {
 		t.Parallel()
-		g := NewWithT(t)
+		rapid.Check(t, func(t *rapid.T) {
+			g := NewWithT(t)
+			targetName := rapid.StringMatching(`[a-z]{3,10}`).Draw(t, "targetName")
 
-		// --no-binary-cache is extracted
-		flags, remaining := runner.ExtractTargFlags([]string{"--no-binary-cache", "build"})
-		g.Expect(flags.NoBinaryCache).To(BeTrue())
-		g.Expect(remaining).To(Equal([]string{"build"}))
+			// --no-binary-cache is extracted
+			flags, remaining := runner.ExtractTargFlags([]string{"--no-binary-cache", targetName})
+			g.Expect(flags.NoBinaryCache).To(BeTrue())
+			g.Expect(remaining).To(Equal([]string{targetName}))
 
-		// Deprecated --no-cache also works
-		flags, _ = runner.ExtractTargFlags([]string{"--no-cache", "build"})
-		g.Expect(flags.NoBinaryCache).To(BeTrue())
+			// Deprecated --no-cache also works
+			flags, _ = runner.ExtractTargFlags([]string{"--no-cache", targetName})
+			g.Expect(flags.NoBinaryCache).To(BeTrue())
 
-		// -s after target is not extracted
-		flags, remaining = runner.ExtractTargFlags([]string{"build", "-s", "value"})
-		g.Expect(flags.SourceDir).To(BeEmpty())
-		g.Expect(remaining).To(Equal([]string{"build", "-s", "value"}))
+			// -s after target is not extracted
+			value := rapid.StringMatching(`[a-z]{3,10}`).Draw(t, "value")
+			flags, remaining = runner.ExtractTargFlags([]string{targetName, "-s", value})
+			g.Expect(flags.SourceDir).To(BeEmpty())
+			g.Expect(remaining).To(Equal([]string{targetName, "-s", value}))
+		})
 	})
 
 	// Property: ParseCreateArgs parses valid arguments
 	t.Run("ParseCreateArgsWorks", func(t *testing.T) {
 		t.Parallel()
-		g := NewWithT(t)
+		rapid.Check(t, func(t *rapid.T) {
+			g := NewWithT(t)
+			targetName := rapid.StringMatching(`[a-z]{3,10}`).Draw(t, "targetName")
+			shellCmd := rapid.StringMatching(`[a-z]+ [a-z]+`).Draw(t, "shellCmd")
 
-		opts, err := runner.ParseCreateArgs([]string{"lint", "golangci-lint run"})
-		g.Expect(err).NotTo(HaveOccurred())
-		g.Expect(opts.Name).To(Equal("lint"))
-		g.Expect(opts.ShellCmd).To(Equal("golangci-lint run"))
+			opts, err := runner.ParseCreateArgs([]string{targetName, shellCmd})
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(opts.Name).To(Equal(targetName))
+			g.Expect(opts.ShellCmd).To(Equal(shellCmd))
 
-		// With path and options
-		opts, err = runner.ParseCreateArgs([]string{
-			"dev", "build",
-			"--deps", "lint", "test",
-			"--cache", "**/*.go",
-			"go build ./...",
+			// With path and options
+			pathPart := rapid.StringMatching(`[a-z]{3,8}`).Draw(t, "pathPart")
+			dep1 := rapid.StringMatching(`[a-z]{3,8}`).Draw(t, "dep1")
+			dep2 := rapid.StringMatching(`[a-z]{3,8}`).Draw(t, "dep2")
+			cachePattern := "**/*.go"
+
+			opts, err = runner.ParseCreateArgs([]string{
+				pathPart, targetName,
+				"--deps", dep1, dep2,
+				"--cache", cachePattern,
+				shellCmd,
+			})
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(opts.Name).To(Equal(targetName))
+			g.Expect(opts.Path).To(Equal([]string{pathPart}))
+			g.Expect(opts.Deps).To(Equal([]string{dep1, dep2}))
+			g.Expect(opts.Cache).To(Equal([]string{cachePattern}))
+			g.Expect(opts.ShellCmd).To(Equal(shellCmd))
 		})
-		g.Expect(err).NotTo(HaveOccurred())
-		g.Expect(opts.Name).To(Equal("build"))
-		g.Expect(opts.Path).To(Equal([]string{"dev"}))
-		g.Expect(opts.Deps).To(Equal([]string{"lint", "test"}))
-		g.Expect(opts.Cache).To(Equal([]string{"**/*.go"}))
-		g.Expect(opts.ShellCmd).To(Equal("go build ./..."))
 	})
 
 	// Property: ParseSyncArgs validates package paths
 	t.Run("ParseSyncArgsValidatesPath", func(t *testing.T) {
 		t.Parallel()
-		g := NewWithT(t)
+		rapid.Check(t, func(t *rapid.T) {
+			g := NewWithT(t)
+			user := rapid.StringMatching(`[a-z]{3,10}`).Draw(t, "user")
+			repo := rapid.StringMatching(`[a-z]{3,10}`).Draw(t, "repo")
+			validPath := "github.com/" + user + "/" + repo
 
-		opts, err := runner.ParseSyncArgs([]string{"github.com/foo/bar"})
-		g.Expect(err).NotTo(HaveOccurred())
-		g.Expect(opts.PackagePath).To(Equal("github.com/foo/bar"))
+			opts, err := runner.ParseSyncArgs([]string{validPath})
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(opts.PackagePath).To(Equal(validPath))
 
-		_, err = runner.ParseSyncArgs([]string{"invalid-path"})
-		g.Expect(err).To(HaveOccurred())
+			invalidPath := rapid.StringMatching(`[a-z]{3,10}`).Draw(t, "invalidPath")
+			_, err = runner.ParseSyncArgs([]string{invalidPath})
+			g.Expect(err).To(HaveOccurred())
+		})
 	})
 
 	// Property: ParseHelpRequest distinguishes top-level vs target help
 	t.Run("ParseHelpRequestDistinguishes", func(t *testing.T) {
 		t.Parallel()
-		g := NewWithT(t)
+		rapid.Check(t, func(t *rapid.T) {
+			g := NewWithT(t)
+			targetName := rapid.StringMatching(`[a-z]{3,10}`).Draw(t, "targetName")
 
-		help, target := runner.ParseHelpRequest([]string{"--help"})
-		g.Expect(help).To(BeTrue())
-		g.Expect(target).To(BeFalse())
+			help, target := runner.ParseHelpRequest([]string{"--help"})
+			g.Expect(help).To(BeTrue())
+			g.Expect(target).To(BeFalse())
 
-		help, target = runner.ParseHelpRequest([]string{"issues", "--help"})
-		g.Expect(help).To(BeTrue())
-		g.Expect(target).To(BeTrue())
+			help, target = runner.ParseHelpRequest([]string{targetName, "--help"})
+			g.Expect(help).To(BeTrue())
+			g.Expect(target).To(BeTrue())
+		})
 	})
 
 	// Property: NamespacePaths computes correct paths
 	t.Run("NamespacePathsComputes", func(t *testing.T) {
 		t.Parallel()
-		g := NewWithT(t)
+		rapid.Check(t, func(t *rapid.T) {
+			g := NewWithT(t)
+			rootDir := "/" + rapid.StringMatching(`[a-z]{3,8}`).Draw(t, "rootDir")
+			subDir1 := rapid.StringMatching(`[a-z]{3,8}`).Draw(t, "subDir1")
+			subDir2 := rapid.StringMatching(`[a-z]{3,8}`).Draw(t, "subDir2")
+			file1 := rapid.StringMatching(`[a-z]{3,8}`).Draw(t, "file1")
+			file2 := rapid.StringMatching(`[a-z]{3,8}`).Draw(t, "file2")
 
-		files := []string{
-			"/root/tools/issues/issues.go",
-			"/root/tools/other/foo.go",
-			"/root/tools/other/bar.go",
-		}
+			files := []string{
+				rootDir + "/tools/" + subDir1 + "/" + subDir1 + ".go",
+				rootDir + "/tools/" + subDir2 + "/" + file1 + ".go",
+				rootDir + "/tools/" + subDir2 + "/" + file2 + ".go",
+			}
 
-		paths, err := runner.NamespacePaths(files, "/root")
-		g.Expect(err).NotTo(HaveOccurred())
+			paths, err := runner.NamespacePaths(files, rootDir)
+			g.Expect(err).NotTo(HaveOccurred())
 
-		g.Expect(paths["/root/tools/issues/issues.go"]).To(Equal([]string{"issues"}))
-		g.Expect(paths["/root/tools/other/foo.go"]).To(Equal([]string{"other", "foo"}))
-		g.Expect(paths["/root/tools/other/bar.go"]).To(Equal([]string{"other", "bar"}))
+			g.Expect(paths[files[0]]).To(Equal([]string{subDir1}))
+			g.Expect(paths[files[1]]).To(Equal([]string{subDir2, file1}))
+			g.Expect(paths[files[2]]).To(Equal([]string{subDir2, file2}))
+		})
 	})
 }
 
