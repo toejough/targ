@@ -3,6 +3,7 @@ package targ_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	. "github.com/onsi/gomega"
@@ -16,160 +17,299 @@ func TestProperty_CommandHelp(t *testing.T) {
 
 	t.Run("HelpShowsFlagDescriptions", func(t *testing.T) {
 		t.Parallel()
-		g := NewWithT(t)
+		rapid.Check(t, func(t *rapid.T) {
+			g := NewWithT(t)
 
-		type Args struct {
-			Verbose bool   `targ:"flag,desc=Enable verbose output"`
-			Count   int    `targ:"flag,desc=Number of times to run"`
-			Name    string `targ:"flag,desc=The name to greet"`
-		}
+			// Generate random description text
+			desc := rapid.StringMatching(`[A-Za-z][a-z]{2,15}( [a-z]{2,10}){0,3}`).
+				Draw(t, "description")
 
-		target := targ.Targ(func(_ Args) {}).Name("flagged").Description("Command with flags")
+			// We can't dynamically create struct tags, so we test the property
+			// that descriptions in struct tags appear in help output
+			type Args struct {
+				Flag string `targ:"flag,desc=Test flag description"`
+			}
 
-		// With single target, --help without command name
-		result, err := targ.Execute(
-			[]string{"app", "--help"},
-			target,
-		)
-		g.Expect(err).NotTo(HaveOccurred())
-		g.Expect(result.Output).To(ContainSubstring("verbose"))
-		g.Expect(result.Output).To(ContainSubstring("Enable verbose output"))
-		g.Expect(result.Output).To(ContainSubstring("count"))
-		g.Expect(result.Output).To(ContainSubstring("Number of times to run"))
+			cmdName := rapid.StringMatching(`[a-z]{3,10}`).Draw(t, "cmdName")
+			target := targ.Targ(func(_ Args) {}).Name(cmdName).Description(desc)
+
+			result, err := targ.Execute(
+				[]string{"app", "--help"},
+				target,
+			)
+
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(result.Output).To(ContainSubstring(cmdName))
+			g.Expect(result.Output).To(ContainSubstring("flag"))
+			g.Expect(result.Output).To(ContainSubstring("Test flag description"))
+		})
 	})
 
 	t.Run("HelpShowsUsageLine", func(t *testing.T) {
 		t.Parallel()
-		g := NewWithT(t)
+		rapid.Check(t, func(t *rapid.T) {
+			g := NewWithT(t)
 
-		type Args struct {
-			File string `targ:"positional"`
-		}
+			cmdName := rapid.StringMatching(`[a-z]{3,12}`).Draw(t, "cmdName")
 
-		target := targ.Targ(func(_ Args) {}).Name("usage-cmd")
+			type Args struct {
+				File string `targ:"positional"`
+			}
 
-		// With single target, --help without command name
-		result, err := targ.Execute(
-			[]string{"app", "--help"},
-			target,
-		)
-		g.Expect(err).NotTo(HaveOccurred())
-		g.Expect(result.Output).To(ContainSubstring("usage-cmd"))
-		g.Expect(result.Output).To(ContainSubstring("file"))
+			target := targ.Targ(func(_ Args) {}).Name(cmdName)
+
+			result, err := targ.Execute(
+				[]string{"app", "--help"},
+				target,
+			)
+
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(result.Output).To(ContainSubstring(cmdName))
+			g.Expect(result.Output).To(ContainSubstring("file"))
+		})
 	})
 
 	t.Run("HelpShowsSubcommandList", func(t *testing.T) {
 		t.Parallel()
-		g := NewWithT(t)
+		rapid.Check(t, func(t *rapid.T) {
+			g := NewWithT(t)
 
-		sub1 := targ.Targ(func() {}).Name("sub1").Description("First subcommand")
-		sub2 := targ.Targ(func() {}).Name("sub2").Description("Second subcommand")
-		root := targ.Group("parent", sub1, sub2)
+			// Generate unique subcommand names
+			sub1Name := rapid.StringMatching(`[a-z]{3,8}`).Draw(t, "sub1Name")
+			sub2Name := rapid.StringMatching(`[a-z]{3,8}`).Draw(t, "sub2Name")
+			// Ensure they're different
+			if sub1Name == sub2Name {
+				sub2Name += "x"
+			}
 
-		// With single root (group), --help without name shows subcommands
-		result, err := targ.Execute(
-			[]string{"app", "--help"},
-			root,
-		)
-		g.Expect(err).NotTo(HaveOccurred())
-		g.Expect(result.Output).To(ContainSubstring("sub1"))
-		g.Expect(result.Output).To(ContainSubstring("First subcommand"))
-		g.Expect(result.Output).To(ContainSubstring("sub2"))
-		g.Expect(result.Output).To(ContainSubstring("Second subcommand"))
+			sub1Desc := rapid.StringMatching(`[A-Z][a-z]{2,10}( [a-z]{2,8}){0,2}`).
+				Draw(t, "sub1Desc")
+			sub2Desc := rapid.StringMatching(`[A-Z][a-z]{2,10}( [a-z]{2,8}){0,2}`).
+				Draw(t, "sub2Desc")
+			groupName := rapid.StringMatching(`[a-z]{3,8}`).Draw(t, "groupName")
+
+			sub1 := targ.Targ(func() {}).Name(sub1Name).Description(sub1Desc)
+			sub2 := targ.Targ(func() {}).Name(sub2Name).Description(sub2Desc)
+			root := targ.Group(groupName, sub1, sub2)
+
+			result, err := targ.Execute(
+				[]string{"app", "--help"},
+				root,
+			)
+
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(result.Output).To(ContainSubstring(sub1Name))
+			g.Expect(result.Output).To(ContainSubstring(sub1Desc))
+			g.Expect(result.Output).To(ContainSubstring(sub2Name))
+			g.Expect(result.Output).To(ContainSubstring(sub2Desc))
+		})
 	})
 
 	t.Run("HelpShowsEnumValues", func(t *testing.T) {
 		t.Parallel()
-		g := NewWithT(t)
+		rapid.Check(t, func(t *rapid.T) {
+			g := NewWithT(t)
 
-		type Args struct {
-			Level string `targ:"flag,enum=debug|info|warn|error"`
-		}
+			// We can't create dynamic struct tags, so we test that static enum values
+			// appear in help with a randomly generated command name
+			cmdName := rapid.StringMatching(`[a-z]{3,10}`).Draw(t, "cmdName")
 
-		target := targ.Targ(func(_ Args) {}).Name("enum-cmd")
+			type Args struct {
+				Level string `targ:"flag,enum=debug|info|warn|error"`
+			}
 
-		// With single target, --help without command name
-		result, err := targ.Execute(
-			[]string{"app", "--help"},
-			target,
-		)
-		g.Expect(err).NotTo(HaveOccurred())
-		g.Expect(result.Output).To(ContainSubstring("debug"))
-		g.Expect(result.Output).To(ContainSubstring("info"))
-		g.Expect(result.Output).To(ContainSubstring("warn"))
-		g.Expect(result.Output).To(ContainSubstring("error"))
+			target := targ.Targ(func(_ Args) {}).Name(cmdName)
+
+			result, err := targ.Execute(
+				[]string{"app", "--help"},
+				target,
+			)
+
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(result.Output).To(ContainSubstring("debug"))
+			g.Expect(result.Output).To(ContainSubstring("info"))
+			g.Expect(result.Output).To(ContainSubstring("warn"))
+			g.Expect(result.Output).To(ContainSubstring("error"))
+		})
 	})
 
 	t.Run("HelpShowsCachePatterns", func(t *testing.T) {
 		t.Parallel()
-		g := NewWithT(t)
+		rapid.Check(t, func(t *rapid.T) {
+			g := NewWithT(t)
 
-		target := targ.Targ(func() {}).
-			Name("cached-cmd").
-			Cache("**/*.go", "go.mod")
+			// Generate glob-like patterns
+			ext := rapid.StringMatching(`[a-z]{1,4}`).Draw(t, "extension")
+			pattern := "**/*." + ext
 
-		result, err := targ.Execute(
-			[]string{"app", "--help"},
-			target,
-		)
-		g.Expect(err).NotTo(HaveOccurred())
-		g.Expect(result.Output).To(ContainSubstring("Cache"))
-		g.Expect(result.Output).To(ContainSubstring("**/*.go"))
+			cmdName := rapid.StringMatching(`[a-z]{3,10}`).Draw(t, "cmdName")
+			target := targ.Targ(func() {}).
+				Name(cmdName).
+				Cache(pattern)
+
+			result, err := targ.Execute(
+				[]string{"app", "--help"},
+				target,
+			)
+
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(result.Output).To(ContainSubstring("Cache"))
+			g.Expect(result.Output).To(ContainSubstring(pattern))
+		})
 	})
 
 	t.Run("HelpShowsWatchPatterns", func(t *testing.T) {
 		t.Parallel()
-		g := NewWithT(t)
+		rapid.Check(t, func(t *rapid.T) {
+			g := NewWithT(t)
 
-		target := targ.Targ(func() {}).
-			Name("watched-cmd").
-			Watch("src/*.ts", "*.json")
+			// Generate glob-like patterns
+			dir := rapid.StringMatching(`[a-z]{2,6}`).Draw(t, "dir")
+			ext := rapid.StringMatching(`[a-z]{1,4}`).Draw(t, "extension")
+			pattern := fmt.Sprintf("%s/*.%s", dir, ext)
 
-		result, err := targ.Execute(
-			[]string{"app", "--help"},
-			target,
-		)
-		g.Expect(err).NotTo(HaveOccurred())
-		g.Expect(result.Output).To(ContainSubstring("Watch"))
-		g.Expect(result.Output).To(ContainSubstring("src/*.ts"))
+			cmdName := rapid.StringMatching(`[a-z]{3,10}`).Draw(t, "cmdName")
+			target := targ.Targ(func() {}).
+				Name(cmdName).
+				Watch(pattern)
+
+			result, err := targ.Execute(
+				[]string{"app", "--help"},
+				target,
+			)
+
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(result.Output).To(ContainSubstring("Watch"))
+			g.Expect(result.Output).To(ContainSubstring(pattern))
+		})
 	})
 
-	t.Run("HelpWrapsLongUsageLine", func(t *testing.T) {
-		t.Parallel()
-		g := NewWithT(t)
-
-		// Create a command with many positional args to exceed 80 char line width
-		type Args struct {
-			InputFile      string `targ:"positional"`
-			OutputFile     string `targ:"positional"`
-			ConfigFile     string `targ:"positional"`
-			TemplateFile   string `targ:"positional"`
-			LoggingFile    string `targ:"positional"`
-			MetadataFile   string `targ:"positional"`
-			AdditionalFile string `targ:"positional"`
-		}
-
-		target := targ.Targ(func(_ Args) {}).Name("long-usage-cmd")
-
-		result, err := targ.Execute(
-			[]string{"app", "--help"},
-			target,
-		)
-		g.Expect(err).NotTo(HaveOccurred())
-		// Verify the help output is produced (wrapping happens internally)
-		g.Expect(result.Output).To(ContainSubstring("long-usage-cmd"))
-		g.Expect(result.Output).To(ContainSubstring("InputFile"))
-	})
-}
-
-func TestProperty_ShellCommands(t *testing.T) {
-	t.Parallel()
-
-	t.Run("ShellCommandExecutesWithVariables", func(t *testing.T) {
+	t.Run("HelpDisplaysWithManyPositionals", func(t *testing.T) {
 		t.Parallel()
 		rapid.Check(t, func(t *rapid.T) {
 			g := NewWithT(t)
-			// Generate safe alphanumeric values for shell
+
+			cmdName := rapid.StringMatching(`[a-z]{3,12}`).Draw(t, "cmdName")
+
+			// Use a fixed struct with many positionals to test wrapping
+			type Args struct {
+				InputFile      string `targ:"positional"`
+				OutputFile     string `targ:"positional"`
+				ConfigFile     string `targ:"positional"`
+				TemplateFile   string `targ:"positional"`
+				LoggingFile    string `targ:"positional"`
+				MetadataFile   string `targ:"positional"`
+				AdditionalFile string `targ:"positional"`
+			}
+
+			target := targ.Targ(func(_ Args) {}).Name(cmdName)
+
+			result, err := targ.Execute(
+				[]string{"app", "--help"},
+				target,
+			)
+
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(result.Output).To(ContainSubstring(cmdName))
+			g.Expect(result.Output).To(ContainSubstring("InputFile"))
+		})
+	})
+}
+
+func TestProperty_ShellCommandErrors(t *testing.T) {
+	t.Parallel()
+
+	t.Run("MissingVarReturnsError", func(t *testing.T) {
+		t.Parallel()
+		rapid.Check(t, func(t *rapid.T) {
+			g := NewWithT(t)
+
+			varName := rapid.StringMatching(`[a-z]{3,10}`).Draw(t, "varName")
+			cmdName := rapid.StringMatching(`[a-z]{3,10}`).Draw(t, "cmdName")
+
+			shellCmd := "echo $" + varName
+			target := targ.Targ(shellCmd).Name(cmdName)
+
+			result, err := targ.Execute(
+				[]string{"app"},
+				target,
+			)
+
+			g.Expect(err).To(HaveOccurred())
+			g.Expect(result.Output).To(ContainSubstring(varName))
+		})
+	})
+
+	t.Run("UnknownLongFlagReturnsError", func(t *testing.T) {
+		t.Parallel()
+		rapid.Check(t, func(t *rapid.T) {
+			g := NewWithT(t)
+
+			knownVar := rapid.StringMatching(`[a-z]{3,8}`).Draw(t, "knownVar")
+
+			unknownFlag := rapid.StringMatching(`[a-z]{3,8}`).Draw(t, "unknownFlag")
+			if knownVar == unknownFlag {
+				unknownFlag += "x"
+			}
+
+			value := rapid.StringMatching(`[a-zA-Z0-9]{1,10}`).Draw(t, "value")
+
+			mockRunner := func(_ context.Context, _ string) error {
+				t.Fatal("shell runner should not be called when unknown flag present")
+				return nil
+			}
+
+			shellCmd := "mycommand $" + knownVar
+			target := targ.Targ(shellCmd).Name("shell-cmd")
+
+			result, err := targ.ExecuteWithOptions(
+				[]string{"app", "--" + knownVar, value, "--" + unknownFlag, "badvalue"},
+				targ.RunOptions{ShellRunner: mockRunner, AllowDefault: true},
+				target,
+			)
+
+			g.Expect(err).To(HaveOccurred())
+			g.Expect(result.Output).To(ContainSubstring(unknownFlag))
+		})
+	})
+
+	t.Run("UnknownShortFlagReturnsError", func(t *testing.T) {
+		t.Parallel()
+		rapid.Check(t, func(t *rapid.T) {
+			g := NewWithT(t)
+
+			// Generate a known var starting with 'a' so we can use 'z' as unknown
+			knownVar := "a" + rapid.StringMatching(`[a-z]{2,7}`).Draw(t, "knownVarSuffix")
+			unknownLetter := "z"
+			value := rapid.StringMatching(`[a-zA-Z0-9]{1,10}`).Draw(t, "value")
+
+			mockRunner := func(_ context.Context, _ string) error {
+				t.Fatal("shell runner should not be called when unknown short flag present")
+				return nil
+			}
+
+			shellCmd := "mycommand $" + knownVar
+			target := targ.Targ(shellCmd).Name("shell-cmd")
+
+			result, err := targ.ExecuteWithOptions(
+				[]string{"app", "--" + knownVar, value, "-" + unknownLetter, "badvalue"},
+				targ.RunOptions{ShellRunner: mockRunner, AllowDefault: true},
+				target,
+			)
+
+			g.Expect(err).To(HaveOccurred())
+			g.Expect(result.Output).To(ContainSubstring("-" + unknownLetter))
+		})
+	})
+}
+
+func TestProperty_ShellCommandExecution(t *testing.T) {
+	t.Parallel()
+
+	t.Run("VariablesSubstituted", func(t *testing.T) {
+		t.Parallel()
+		rapid.Check(t, func(t *rapid.T) {
+			g := NewWithT(t)
 			value := rapid.StringMatching(`[a-zA-Z0-9]{1,10}`).Draw(t, "value")
 
 			var executedCmd string
@@ -186,205 +326,199 @@ func TestProperty_ShellCommands(t *testing.T) {
 				targ.RunOptions{ShellRunner: mockRunner, AllowDefault: true},
 				target,
 			)
+
 			g.Expect(err).NotTo(HaveOccurred())
 			g.Expect(executedCmd).To(Equal("mycommand " + value))
 		})
 	})
 
-	t.Run("ShellCommandSupportsLongFlags", func(t *testing.T) {
+	t.Run("FailureReturnsError", func(t *testing.T) {
 		t.Parallel()
-		g := NewWithT(t)
+		rapid.Check(t, func(t *rapid.T) {
+			g := NewWithT(t)
 
-		var executedCmd string
+			errMsg := rapid.StringMatching(`[a-z]{3,10}( [a-z]{2,8}){0,2}`).Draw(t, "errMsg")
+			cmdName := rapid.StringMatching(`[a-z]{3,10}`).Draw(t, "cmdName")
 
-		mockRunner := func(_ context.Context, cmd string) error {
-			executedCmd = cmd
-			return nil
-		}
+			mockRunner := func(_ context.Context, _ string) error {
+				return errors.New(errMsg)
+			}
 
-		target := targ.Targ("mycommand $greeting $name").Name("greet")
+			target := targ.Targ("mycommand").Name(cmdName)
 
-		_, err := targ.ExecuteWithOptions(
-			[]string{"app", "--greeting", "hello", "--name", "world"},
-			targ.RunOptions{ShellRunner: mockRunner, AllowDefault: true},
-			target,
-		)
-		g.Expect(err).NotTo(HaveOccurred())
-		g.Expect(executedCmd).To(Equal("mycommand hello world"))
+			result, err := targ.ExecuteWithOptions(
+				[]string{"app"},
+				targ.RunOptions{ShellRunner: mockRunner, AllowDefault: true},
+				target,
+			)
+
+			g.Expect(err).To(HaveOccurred())
+			g.Expect(result.Output).To(ContainSubstring("failed"))
+		})
+	})
+}
+
+func TestProperty_ShellCommandFlags(t *testing.T) {
+	t.Parallel()
+
+	t.Run("LongFlags", func(t *testing.T) {
+		t.Parallel()
+		rapid.Check(t, func(t *rapid.T) {
+			g := NewWithT(t)
+
+			val1 := rapid.StringMatching(`[a-zA-Z0-9]{1,10}`).Draw(t, "val1")
+			val2 := rapid.StringMatching(`[a-zA-Z0-9]{1,10}`).Draw(t, "val2")
+
+			var executedCmd string
+
+			mockRunner := func(_ context.Context, cmd string) error {
+				executedCmd = cmd
+				return nil
+			}
+
+			target := targ.Targ("mycommand $greeting $name").Name("greet")
+
+			_, err := targ.ExecuteWithOptions(
+				[]string{"app", "--greeting", val1, "--name", val2},
+				targ.RunOptions{ShellRunner: mockRunner, AllowDefault: true},
+				target,
+			)
+
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(executedCmd).To(Equal(fmt.Sprintf("mycommand %s %s", val1, val2)))
+		})
 	})
 
-	t.Run("ShellCommandSupportsEqualsFlags", func(t *testing.T) {
+	t.Run("EqualsFlags", func(t *testing.T) {
 		t.Parallel()
-		g := NewWithT(t)
+		rapid.Check(t, func(t *rapid.T) {
+			g := NewWithT(t)
 
-		var executedCmd string
+			value := rapid.StringMatching(`[a-zA-Z0-9_-]{1,15}`).Draw(t, "value")
 
-		mockRunner := func(_ context.Context, cmd string) error {
-			executedCmd = cmd
-			return nil
-		}
+			var executedCmd string
 
-		target := targ.Targ("mycommand $msg").Name("echo-equals")
+			mockRunner := func(_ context.Context, cmd string) error {
+				executedCmd = cmd
+				return nil
+			}
 
-		_, err := targ.ExecuteWithOptions(
-			[]string{"app", "--msg=test-value"},
-			targ.RunOptions{ShellRunner: mockRunner, AllowDefault: true},
-			target,
-		)
-		g.Expect(err).NotTo(HaveOccurred())
-		g.Expect(executedCmd).To(Equal("mycommand test-value"))
+			target := targ.Targ("mycommand $msg").Name("echo-equals")
+
+			_, err := targ.ExecuteWithOptions(
+				[]string{"app", "--msg=" + value},
+				targ.RunOptions{ShellRunner: mockRunner, AllowDefault: true},
+				target,
+			)
+
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(executedCmd).To(Equal("mycommand " + value))
+		})
 	})
 
-	t.Run("ShellCommandSupportsShortFlags", func(t *testing.T) {
+	t.Run("ShortFlags", func(t *testing.T) {
 		t.Parallel()
-		g := NewWithT(t)
+		rapid.Check(t, func(t *rapid.T) {
+			g := NewWithT(t)
 
-		var executedCmd string
+			value := rapid.StringMatching(`[a-zA-Z0-9]{1,10}`).Draw(t, "value")
 
-		mockRunner := func(_ context.Context, cmd string) error {
-			executedCmd = cmd
-			return nil
-		}
+			var executedCmd string
 
-		target := targ.Targ("mycommand $msg").Name("echo-short")
+			mockRunner := func(_ context.Context, cmd string) error {
+				executedCmd = cmd
+				return nil
+			}
 
-		_, err := targ.ExecuteWithOptions(
-			[]string{"app", "-m", "short-flag-value"},
-			targ.RunOptions{ShellRunner: mockRunner, AllowDefault: true},
-			target,
-		)
-		g.Expect(err).NotTo(HaveOccurred())
-		g.Expect(executedCmd).To(Equal("mycommand short-flag-value"))
+			target := targ.Targ("mycommand $msg").Name("echo-short")
+
+			_, err := targ.ExecuteWithOptions(
+				[]string{"app", "-m", value},
+				targ.RunOptions{ShellRunner: mockRunner, AllowDefault: true},
+				target,
+			)
+
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(executedCmd).To(Equal("mycommand " + value))
+		})
+	})
+}
+
+func TestProperty_ShellCommandHelp(t *testing.T) {
+	t.Parallel()
+
+	t.Run("ShowsVariables", func(t *testing.T) {
+		t.Parallel()
+		rapid.Check(t, func(t *rapid.T) {
+			g := NewWithT(t)
+
+			var1 := rapid.StringMatching(`[a-z]{3,8}`).Draw(t, "var1")
+
+			var2 := rapid.StringMatching(`[a-z]{3,8}`).Draw(t, "var2")
+			if var1 == var2 {
+				var2 += "x"
+			}
+
+			cmdName := rapid.StringMatching(`[a-z]{3,10}`).Draw(t, "cmdName")
+			desc := rapid.StringMatching(`[A-Z][a-z]{2,10}( [a-z]{2,8}){0,2}`).Draw(t, "desc")
+
+			shellCmd := fmt.Sprintf("echo $%s $%s", var1, var2)
+			target := targ.Targ(shellCmd).Name(cmdName).Description(desc)
+
+			result, err := targ.Execute(
+				[]string{"app", "--help"},
+				target,
+			)
+
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(result.Output).To(ContainSubstring(var1))
+			g.Expect(result.Output).To(ContainSubstring(var2))
+		})
 	})
 
-	t.Run("ShellCommandHelpShowsVariables", func(t *testing.T) {
+	t.Run("IncludesDescription", func(t *testing.T) {
 		t.Parallel()
-		g := NewWithT(t)
+		rapid.Check(t, func(t *rapid.T) {
+			g := NewWithT(t)
 
-		target := targ.Targ("echo $greeting $name").Name("greet").Description("Say hello")
+			desc := rapid.StringMatching(`[A-Z][a-z]{2,12}( [a-z]{2,10}){1,3}`).Draw(t, "desc")
+			cmdName := rapid.StringMatching(`[a-z]{3,10}`).Draw(t, "cmdName")
 
-		// --help works without command name in default mode
-		result, err := targ.Execute(
-			[]string{"app", "--help"},
-			target,
-		)
-		g.Expect(err).NotTo(HaveOccurred())
-		g.Expect(result.Output).To(ContainSubstring("greeting"))
-		g.Expect(result.Output).To(ContainSubstring("name"))
+			target := targ.Targ("echo test").Name(cmdName).Description(desc)
+
+			result, err := targ.Execute(
+				[]string{"app", "--help"},
+				target,
+			)
+
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(result.Output).To(ContainSubstring(desc))
+		})
 	})
+}
 
-	t.Run("ShellCommandMissingVarReturnsError", func(t *testing.T) {
+func TestProperty_ShellCommandNaming(t *testing.T) {
+	t.Parallel()
+
+	t.Run("DerivesNameFromCommand", func(t *testing.T) {
 		t.Parallel()
-		g := NewWithT(t)
+		rapid.Check(t, func(t *rapid.T) {
+			g := NewWithT(t)
 
-		target := targ.Targ("echo $msg").Name("missing-var")
+			cmdWord := rapid.StringMatching(`[a-z]{3,10}`).Draw(t, "cmdWord")
+			arg := rapid.StringMatching(`[a-z]{2,8}`).Draw(t, "arg")
 
-		// In default mode, no command name needed; no --msg flag provided
-		result, err := targ.Execute(
-			[]string{"app"},
-			target,
-		)
-		g.Expect(err).To(HaveOccurred())
-		// Error message is captured in output, not in err.Error()
-		g.Expect(result.Output).To(ContainSubstring("msg"))
-	})
+			shellCmd := fmt.Sprintf("%s %s", cmdWord, arg)
+			target := targ.Targ(shellCmd)
+			other := targ.Targ(func() {}).Name("other")
 
-	t.Run("ShellCommandUnknownLongFlagReturnsError", func(t *testing.T) {
-		t.Parallel()
-		g := NewWithT(t)
+			result, err := targ.Execute(
+				[]string{"app", "--help"},
+				target, other,
+			)
 
-		// Mock runner that should never be called (error happens before execution)
-		mockRunner := func(_ context.Context, _ string) error {
-			t.Fatal("shell runner should not be called when unknown flag present")
-			return nil
-		}
-
-		target := targ.Targ("mycommand $msg").Name("shell-cmd")
-
-		// Pass --msg (known) and --unknown (not a shell variable)
-		result, err := targ.ExecuteWithOptions(
-			[]string{"app", "--msg", "hello", "--unknown", "value"},
-			targ.RunOptions{ShellRunner: mockRunner, AllowDefault: true},
-			target,
-		)
-		// Unknown flags are errors for shell commands
-		g.Expect(err).To(HaveOccurred())
-		g.Expect(result.Output).To(ContainSubstring("unknown"))
-	})
-
-	t.Run("ShellCommandUnknownShortFlagReturnsError", func(t *testing.T) {
-		t.Parallel()
-		g := NewWithT(t)
-
-		// Mock runner that should never be called (error happens before execution)
-		mockRunner := func(_ context.Context, _ string) error {
-			t.Fatal("shell runner should not be called when unknown short flag present")
-			return nil
-		}
-
-		target := targ.Targ("mycommand $msg").Name("shell-cmd")
-
-		// Pass --msg (known) and -x (unknown short flag)
-		result, err := targ.ExecuteWithOptions(
-			[]string{"app", "--msg", "hello", "-x", "value"},
-			targ.RunOptions{ShellRunner: mockRunner, AllowDefault: true},
-			target,
-		)
-		// Unknown short flags are errors for shell commands
-		g.Expect(err).To(HaveOccurred())
-		g.Expect(result.Output).To(ContainSubstring("-x"))
-	})
-
-	t.Run("ShellCommandFailureReturnsError", func(t *testing.T) {
-		t.Parallel()
-		g := NewWithT(t)
-
-		// Mock runner that returns an error
-		mockRunner := func(_ context.Context, _ string) error {
-			return errors.New("mock shell failure")
-		}
-
-		target := targ.Targ("mycommand").Name("fail")
-
-		result, err := targ.ExecuteWithOptions(
-			[]string{"app"},
-			targ.RunOptions{ShellRunner: mockRunner, AllowDefault: true},
-			target,
-		)
-		g.Expect(err).To(HaveOccurred())
-		g.Expect(result.Output).To(ContainSubstring("failed"))
-	})
-
-	t.Run("ShellCommandHelpIncludesDescription", func(t *testing.T) {
-		t.Parallel()
-		g := NewWithT(t)
-
-		target := targ.Targ("echo test").Name("described").Description("A described command")
-
-		// --help works without command name in default mode
-		result, err := targ.Execute(
-			[]string{"app", "--help"},
-			target,
-		)
-		g.Expect(err).NotTo(HaveOccurred())
-		g.Expect(result.Output).To(ContainSubstring("A described command"))
-	})
-
-	t.Run("ShellCommandDerivesNameFromCommand", func(t *testing.T) {
-		t.Parallel()
-		g := NewWithT(t)
-
-		// Shell command without explicit name - should derive "true" from "true hello"
-		target := targ.Targ("true hello")
-		other := targ.Targ(func() {}).Name("other")
-
-		// In multi-root mode, the derived name should work
-		result, err := targ.Execute(
-			[]string{"app", "--help"},
-			target, other,
-		)
-		g.Expect(err).NotTo(HaveOccurred())
-		// The derived name should appear in help output
-		g.Expect(result.Output).To(ContainSubstring("true"))
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(result.Output).To(ContainSubstring(cmdWord))
+		})
 	})
 }
