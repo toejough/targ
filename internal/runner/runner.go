@@ -64,10 +64,77 @@ type TargFlags struct {
 	SourceDir     string // Source directory for targ files
 }
 
+// FileOps abstracts file system operations for testing.
+type FileOps interface {
+	ReadFile(name string) ([]byte, error)
+	WriteFile(name string, data []byte, perm fs.FileMode) error
+	ReadDir(name string) ([]fs.DirEntry, error)
+	MkdirAll(path string, perm fs.FileMode) error
+	Stat(name string) (fs.FileInfo, error)
+}
+
+// OSFileOps implements FileOps using the real filesystem.
+type OSFileOps struct{}
+
+// ReadFile reads a file from the filesystem.
+func (OSFileOps) ReadFile(name string) ([]byte, error) {
+	//nolint:gosec // build tool reads user source files by design
+	data, err := os.ReadFile(name)
+	if err != nil {
+		return nil, fmt.Errorf("reading file %s: %w", name, err)
+	}
+
+	return data, nil
+}
+
+// WriteFile writes data to a file.
+func (OSFileOps) WriteFile(name string, data []byte, perm fs.FileMode) error {
+	err := os.WriteFile(name, data, perm)
+	if err != nil {
+		return fmt.Errorf("writing file %s: %w", name, err)
+	}
+
+	return nil
+}
+
+// ReadDir reads a directory.
+func (OSFileOps) ReadDir(name string) ([]fs.DirEntry, error) {
+	entries, err := os.ReadDir(name)
+	if err != nil {
+		return nil, fmt.Errorf("reading directory %s: %w", name, err)
+	}
+
+	return entries, nil
+}
+
+// MkdirAll creates a directory and all parents.
+func (OSFileOps) MkdirAll(path string, perm fs.FileMode) error {
+	err := os.MkdirAll(path, perm)
+	if err != nil {
+		return fmt.Errorf("creating directory %s: %w", path, err)
+	}
+
+	return nil
+}
+
+// Stat returns file info.
+func (OSFileOps) Stat(name string) (fs.FileInfo, error) {
+	info, err := os.Stat(name)
+	if err != nil {
+		return nil, err // Don't wrap - callers check os.IsNotExist
+	}
+
+	return info, nil
+}
+
 // AddImportToTargFile adds a blank import for the given package to the targ file.
 func AddImportToTargFile(path, packagePath string) error {
-	//nolint:gosec // build tool reads user source files by design
-	content, err := os.ReadFile(path)
+	return AddImportToTargFileWithFileOps(OSFileOps{}, path, packagePath)
+}
+
+// AddImportToTargFileWithFileOps adds a blank import using injected file operations.
+func AddImportToTargFileWithFileOps(fileOps FileOps, path, packagePath string) error {
+	content, err := fileOps.ReadFile(path)
 	if err != nil {
 		return fmt.Errorf("reading file: %w", err)
 	}
@@ -121,7 +188,7 @@ func AddImportToTargFile(path, packagePath string) error {
 		return fmt.Errorf("formatting file: %w", err)
 	}
 
-	err = os.WriteFile(path, buf.Bytes(), filePermissionsForCode)
+	err = fileOps.WriteFile(path, buf.Bytes(), filePermissionsForCode)
 	if err != nil {
 		return fmt.Errorf("writing file: %w", err)
 	}
@@ -139,8 +206,12 @@ func AddTargetToFile(path, name, shellCmd string) error {
 
 // AddTargetToFileWithOptions adds a target with full options to an existing targ file.
 func AddTargetToFileWithOptions(path string, opts CreateOptions) error {
-	//nolint:gosec // build tool reads user source files by design
-	content, err := os.ReadFile(path)
+	return AddTargetToFileWithFileOps(OSFileOps{}, path, opts)
+}
+
+// AddTargetToFileWithFileOps adds a target using injected file operations.
+func AddTargetToFileWithFileOps(fileOps FileOps, path string, opts CreateOptions) error {
+	content, err := fileOps.ReadFile(path)
 	if err != nil {
 		return fmt.Errorf("reading file: %w", err)
 	}
@@ -201,7 +272,7 @@ func AddTargetToFileWithOptions(path string, opts CreateOptions) error {
 	// Append new code
 	newContent := modifiedContent + code.String() + groupMods.newCode
 
-	err = os.WriteFile(path, []byte(newContent), filePermissionsForCode)
+	err = fileOps.WriteFile(path, []byte(newContent), filePermissionsForCode)
 	if err != nil {
 		return fmt.Errorf("writing file: %w", err)
 	}
@@ -211,8 +282,12 @@ func AddTargetToFileWithOptions(path string, opts CreateOptions) error {
 
 // CheckImportExists checks if a blank import for the given package already exists in the file.
 func CheckImportExists(path, packagePath string) (bool, error) {
-	//nolint:gosec // build tool reads user source files by design
-	content, err := os.ReadFile(path)
+	return CheckImportExistsWithFileOps(OSFileOps{}, path, packagePath)
+}
+
+// CheckImportExistsWithFileOps checks for an import using injected file operations.
+func CheckImportExistsWithFileOps(fileOps FileOps, path, packagePath string) (bool, error) {
+	content, err := fileOps.ReadFile(path)
 	if err != nil {
 		return false, fmt.Errorf("reading file: %w", err)
 	}
@@ -480,8 +555,13 @@ func FindModuleForPath(path string) (string, string, bool, error) {
 
 // FindOrCreateTargFile finds an existing targ file in the current directory or creates a new one.
 func FindOrCreateTargFile(startDir string) (string, error) {
+	return FindOrCreateTargFileWithFileOps(OSFileOps{}, startDir)
+}
+
+// FindOrCreateTargFileWithFileOps finds or creates a targ file using injected file operations.
+func FindOrCreateTargFileWithFileOps(fileOps FileOps, startDir string) (string, error) {
 	// Look for existing targ files in the current directory
-	entries, err := os.ReadDir(startDir)
+	entries, err := fileOps.ReadDir(startDir)
 	if err != nil {
 		return "", fmt.Errorf("reading directory: %w", err)
 	}
@@ -497,7 +577,7 @@ func FindOrCreateTargFile(startDir string) (string, error) {
 		}
 		// Check if it has the targ build tag
 		path := filepath.Join(startDir, name)
-		if HasTargBuildTag(path) {
+		if HasTargBuildTagWithFileOps(fileOps, path) {
 			return path, nil
 		}
 	}
@@ -523,7 +603,7 @@ import "github.com/toejough/targ"
 var _ = targ.Targ
 `, pkgName)
 
-	err = os.WriteFile(targFile, []byte(content), filePermissionsForCode)
+	err = fileOps.WriteFile(targFile, []byte(content), filePermissionsForCode)
 	if err != nil {
 		return "", fmt.Errorf("creating targ file: %w", err)
 	}
@@ -533,8 +613,12 @@ var _ = targ.Targ
 
 // HasTargBuildTag returns true if the file has the targ build tag.
 func HasTargBuildTag(path string) bool {
-	//nolint:gosec // build tool reads user source files by design
-	content, err := os.ReadFile(path)
+	return HasTargBuildTagWithFileOps(OSFileOps{}, path)
+}
+
+// HasTargBuildTagWithFileOps checks for the targ build tag using injected file operations.
+func HasTargBuildTagWithFileOps(fileOps FileOps, path string) bool {
+	content, err := fileOps.ReadFile(path)
 	if err != nil {
 		return false
 	}

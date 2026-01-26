@@ -207,20 +207,95 @@ func FuzzPathResolution_DeepNesting(f *testing.F) {
 	}))
 }
 
-// TestGroupName_InvalidPatternsPanic tests that invalid group names panic.
-// This is a table-driven test, not a fuzz test.
-func TestGroupName_InvalidPatternsPanic(t *testing.T) {
+// TestProperty_GroupNameValidation tests that group names must follow valid patterns.
+func TestProperty_GroupNameValidation(t *testing.T) {
 	t.Parallel()
 
-	g := NewWithT(t)
+	t.Run("EmptyNamePanics", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
 
-	target := targ.Targ(func() {}).Name("valid-target")
-
-	// Invalid names should panic
-	invalidNames := []string{"", "123", "CamelCase", "with space", "-starts-dash"}
-	for _, name := range invalidNames {
+		target := targ.Targ(func() {}).Name("valid-target")
 		g.Expect(func() {
-			_ = targ.Group(name, target)
-		}).To(Panic(), "expected panic for invalid group name: %q", name)
-	}
+			_ = targ.Group("", target)
+		}).To(Panic(), "expected panic for empty group name")
+	})
+
+	t.Run("NamesStartingWithDigitPanic", func(t *testing.T) {
+		t.Parallel()
+		rapid.Check(t, func(t *rapid.T) {
+			g := NewWithT(t)
+			// Generate names starting with a digit
+			digit := rapid.StringMatching(`[0-9]`).Draw(t, "digit")
+			suffix := rapid.StringMatching(`[a-z0-9-]{0,10}`).Draw(t, "suffix")
+			name := digit + suffix
+
+			target := targ.Targ(func() {}).Name("valid-target")
+			g.Expect(func() {
+				_ = targ.Group(name, target)
+			}).To(Panic(), "expected panic for name starting with digit: %q", name)
+		})
+	})
+
+	t.Run("NamesWithUppercasePanic", func(t *testing.T) {
+		t.Parallel()
+		rapid.Check(t, func(t *rapid.T) {
+			g := NewWithT(t)
+			// Generate names with at least one uppercase letter
+			prefix := rapid.StringMatching(`[a-z]{0,5}`).Draw(t, "prefix")
+			upper := rapid.StringMatching(`[A-Z]`).Draw(t, "upper")
+			suffix := rapid.StringMatching(`[a-z0-9-]{0,5}`).Draw(t, "suffix")
+			name := prefix + upper + suffix
+
+			target := targ.Targ(func() {}).Name("valid-target")
+			g.Expect(func() {
+				_ = targ.Group(name, target)
+			}).To(Panic(), "expected panic for name with uppercase: %q", name)
+		})
+	})
+
+	t.Run("NamesWithSpacesPanic", func(t *testing.T) {
+		t.Parallel()
+		rapid.Check(t, func(t *rapid.T) {
+			g := NewWithT(t)
+			// Generate names with spaces
+			part1 := rapid.StringMatching(`[a-z]{1,5}`).Draw(t, "part1")
+			part2 := rapid.StringMatching(`[a-z]{1,5}`).Draw(t, "part2")
+			name := part1 + " " + part2
+
+			target := targ.Targ(func() {}).Name("valid-target")
+			g.Expect(func() {
+				_ = targ.Group(name, target)
+			}).To(Panic(), "expected panic for name with space: %q", name)
+		})
+	})
+
+	t.Run("NamesStartingWithDashPanic", func(t *testing.T) {
+		t.Parallel()
+		rapid.Check(t, func(t *rapid.T) {
+			g := NewWithT(t)
+			// Generate names starting with dash
+			suffix := rapid.StringMatching(`[a-z0-9-]{0,10}`).Draw(t, "suffix")
+			name := "-" + suffix
+
+			target := targ.Targ(func() {}).Name("valid-target")
+			g.Expect(func() {
+				_ = targ.Group(name, target)
+			}).To(Panic(), "expected panic for name starting with dash: %q", name)
+		})
+	})
+
+	t.Run("ValidNamesDoNotPanic", func(t *testing.T) {
+		t.Parallel()
+		rapid.Check(t, func(t *rapid.T) {
+			g := NewWithT(t)
+			// Generate valid group names (must match ^[a-z][a-z0-9-]*$)
+			name := rapid.StringMatching(`[a-z][a-z0-9-]{0,10}`).Draw(t, "name")
+
+			target := targ.Targ(func() {}).Name("valid-target")
+			g.Expect(func() {
+				_ = targ.Group(name, target)
+			}).NotTo(Panic(), "should not panic for valid name: %q", name)
+		})
+	})
 }

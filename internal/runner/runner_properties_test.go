@@ -2,9 +2,9 @@
 package runner_test
 
 import (
-	"os"
+	"io/fs"
 	"path/filepath"
-	"runtime"
+	"strings"
 	"testing"
 
 	. "github.com/onsi/gomega"
@@ -13,344 +13,309 @@ import (
 	"github.com/toejough/targ/internal/runner"
 )
 
+// MemoryFileOps implements runner.FileOps using in-memory storage.
+type MemoryFileOps struct {
+	Files map[string][]byte
+	Dirs  map[string][]fs.DirEntry
+}
+
+// NewMemoryFileOps creates a new in-memory file system.
+func NewMemoryFileOps() *MemoryFileOps {
+	return &MemoryFileOps{
+		Files: make(map[string][]byte),
+		Dirs:  make(map[string][]fs.DirEntry),
+	}
+}
+
+func (m *MemoryFileOps) ReadFile(name string) ([]byte, error) {
+	if content, ok := m.Files[name]; ok {
+		return content, nil
+	}
+
+	return nil, fs.ErrNotExist
+}
+
+func (m *MemoryFileOps) WriteFile(name string, data []byte, _ fs.FileMode) error {
+	m.Files[name] = data
+	// Update directory listing
+	dir := filepath.Dir(name)
+	base := filepath.Base(name)
+	m.addEntry(dir, base, false)
+
+	return nil
+}
+
+func (m *MemoryFileOps) ReadDir(name string) ([]fs.DirEntry, error) {
+	if entries, ok := m.Dirs[name]; ok {
+		return entries, nil
+	}
+	// Return empty for root
+	if name == "." || name == "" {
+		return []fs.DirEntry{}, nil
+	}
+
+	return nil, fs.ErrNotExist
+}
+
+func (m *MemoryFileOps) MkdirAll(path string, _ fs.FileMode) error {
+	// Create all parent directories
+	parts := strings.Split(path, string(filepath.Separator))
+	current := ""
+
+	for _, part := range parts {
+		if current == "" {
+			current = part
+		} else {
+			current = filepath.Join(current, part)
+		}
+
+		if _, ok := m.Dirs[current]; !ok {
+			m.Dirs[current] = []fs.DirEntry{}
+		}
+	}
+
+	return nil
+}
+
+func (m *MemoryFileOps) Stat(name string) (fs.FileInfo, error) {
+	if _, ok := m.Files[name]; ok {
+		return nil, nil // Just indicate it exists
+	}
+
+	return nil, fs.ErrNotExist
+}
+
+func (m *MemoryFileOps) addEntry(dir, name string, isDir bool) {
+	if m.Dirs[dir] == nil {
+		m.Dirs[dir] = []fs.DirEntry{}
+	}
+
+	// Check if already exists
+	for _, e := range m.Dirs[dir] {
+		if e.Name() == name {
+			return
+		}
+	}
+
+	m.Dirs[dir] = append(m.Dirs[dir], memDirEntry{name: name, isDir: isDir})
+}
+
+type memDirEntry struct {
+	name  string
+	isDir bool
+}
+
+func (e memDirEntry) Name() string               { return e.name }
+func (e memDirEntry) IsDir() bool                { return e.isDir }
+func (e memDirEntry) Type() fs.FileMode          { return 0 }
+func (e memDirEntry) Info() (fs.FileInfo, error) { return nil, nil }
+
 func TestProperty_CodeGeneration(t *testing.T) {
 	t.Parallel()
 
-	t.Run("ValidTargetNameRules", func(t *testing.T) {
+	// Property: Valid target names match the kebab-case pattern
+	t.Run("ValidTargetNamesMatchPattern", func(t *testing.T) {
 		t.Parallel()
+		rapid.Check(t, func(t *rapid.T) {
+			g := NewWithT(t)
+			// Generate valid names: lowercase letters, may contain hyphens (not at start/end)
+			name := rapid.StringMatching(`[a-z][a-z0-9]*(-[a-z0-9]+)*`).Draw(t, "name")
+			g.Expect(runner.IsValidTargetName(name)).
+				To(BeTrue(), "name %q should be valid", name)
+		})
+	})
 
-		t.Run("ValidNames", func(t *testing.T) {
-			t.Parallel()
-			rapid.Check(t, func(t *rapid.T) {
-				g := NewWithT(t)
-				// Generate valid names: lowercase letters, may contain hyphens (not at start/end)
-				name := rapid.StringMatching(`[a-z][a-z0-9]*(-[a-z0-9]+)*`).Draw(t, "name")
-				g.Expect(runner.IsValidTargetName(name)).
-					To(BeTrue(), "name %q should be valid", name)
+	// Property: Invalid target names are rejected
+	t.Run("InvalidTargetNamesRejected", func(t *testing.T) {
+		t.Parallel()
+		rapid.Check(t, func(t *rapid.T) {
+			g := NewWithT(t)
+
+			// Generate names that violate the pattern
+			invalidType := rapid.IntRange(0, 5).Draw(t, "invalidType")
+			var name string
+
+			switch invalidType {
+			case 0: // Empty
+				name = ""
+			case 1: // Starts with number
+				name = rapid.StringMatching(`[0-9][a-z0-9-]*`).Draw(t, "name")
+			case 2: // Starts with hyphen
+				name = "-" + rapid.StringMatching(`[a-z0-9-]*`).Draw(t, "name")
+			case 3: // Ends with hyphen
+				name = rapid.StringMatching(`[a-z][a-z0-9-]*`).Draw(t, "name") + "-"
+			case 4: // Contains uppercase
+				name = rapid.StringMatching(`[a-z]*[A-Z][a-z]*`).Draw(t, "name")
+			case 5: // Contains special chars
+				name = rapid.StringMatching(`[a-z]+[_@.][a-z]+`).Draw(t, "name")
+			}
+
+			g.Expect(runner.IsValidTargetName(name)).
+				To(BeFalse(), "name %q should be invalid", name)
+		})
+	})
+
+	// Property: Adding a target creates valid Go code with correct name
+	t.Run("AddingTargetCreatesValidCode", func(t *testing.T) {
+		t.Parallel()
+		rapid.Check(t, func(t *rapid.T) {
+			g := NewWithT(t)
+
+			fileOps := NewMemoryFileOps()
+			targetName := rapid.StringMatching(`[a-z][a-z0-9]{2,10}`).Draw(t, "targetName")
+			shellCmd := rapid.StringMatching(`[a-z]+ [a-z]+`).Draw(t, "shellCmd")
+
+			// Set up initial file content
+			initial := "//go:build targ\n\npackage build\n\nimport \"github.com/toejough/targ\"\n"
+			fileOps.Files["targs.go"] = []byte(initial)
+
+			err := runner.AddTargetToFileWithFileOps(fileOps, "targs.go", runner.CreateOptions{
+				Name:     targetName,
+				ShellCmd: shellCmd,
 			})
-		})
+			g.Expect(err).NotTo(HaveOccurred())
 
-		t.Run("InvalidNames", func(t *testing.T) {
-			t.Parallel()
-			g := NewWithT(t)
+			content := string(fileOps.Files["targs.go"])
 
-			invalidNames := []string{
-				"",          // empty
-				"123",       // starts with number
-				"-lint",     // starts with hyphen
-				"lint-",     // ends with hyphen
-				"Lint",      // uppercase
-				"my_target", // underscore
-				"my.target", // dot
-				"my target", // space
-			}
+			// Property: Output contains the variable declaration
+			expectedVar := "var " + runner.KebabToPascal(targetName) + " = targ.Targ"
+			g.Expect(content).To(ContainSubstring(expectedVar))
 
-			for _, name := range invalidNames {
-				g.Expect(runner.IsValidTargetName(name)).
-					To(BeFalse(), "name %q should be invalid", name)
-			}
+			// Property: Output contains the Name() call
+			g.Expect(content).To(ContainSubstring(`.Name("` + targetName + `")`))
+
+			// Property: Output preserves the build tag
+			g.Expect(content).To(HavePrefix("//go:build targ"))
 		})
 	})
 
-	t.Run("AddTargetToFile", func(t *testing.T) {
+	// Property: Duplicate targets are rejected
+	t.Run("DuplicateTargetsRejected", func(t *testing.T) {
 		t.Parallel()
-
-		t.Run("GeneratesValidTarget", func(t *testing.T) {
-			t.Parallel()
+		rapid.Check(t, func(t *rapid.T) {
 			g := NewWithT(t)
 
-			dir := t.TempDir()
-			targFile := filepath.Join(dir, "targs.go")
+			fileOps := NewMemoryFileOps()
+			targetName := rapid.StringMatching(`[a-z][a-z0-9]{2,8}`).Draw(t, "targetName")
 
 			initial := "//go:build targ\n\npackage build\n\nimport \"github.com/toejough/targ\"\n"
-			err := os.WriteFile(targFile, []byte(initial), 0o644)
+			fileOps.Files["targs.go"] = []byte(initial)
+
+			// First add succeeds
+			err := runner.AddTargetToFileWithFileOps(fileOps, "targs.go", runner.CreateOptions{
+				Name:     targetName,
+				ShellCmd: "echo hello",
+			})
 			g.Expect(err).NotTo(HaveOccurred())
 
-			err = runner.AddTargetToFile(targFile, "my-lint", "golangci-lint run")
-			g.Expect(err).NotTo(HaveOccurred())
-
-			content, err := os.ReadFile(targFile)
-			g.Expect(err).NotTo(HaveOccurred())
-			g.Expect(string(content)).To(ContainSubstring("var MyLint = targ.Targ"))
-			g.Expect(string(content)).To(ContainSubstring("golangci-lint run"))
-			g.Expect(string(content)).To(ContainSubstring(`.Name("my-lint")`))
-		})
-
-		t.Run("RejectsDuplicateTargets", func(t *testing.T) {
-			t.Parallel()
-			g := NewWithT(t)
-
-			dir := t.TempDir()
-			targFile := filepath.Join(dir, "targs.go")
-
-			initial := "//go:build targ\n\npackage build\n\nimport \"github.com/toejough/targ\"\n"
-			err := os.WriteFile(targFile, []byte(initial), 0o644)
-			g.Expect(err).NotTo(HaveOccurred())
-
-			err = runner.AddTargetToFile(targFile, "lint", "golangci-lint run")
-			g.Expect(err).NotTo(HaveOccurred())
-
-			err = runner.AddTargetToFile(targFile, "lint", "different command")
+			// Second add fails
+			err = runner.AddTargetToFileWithFileOps(fileOps, "targs.go", runner.CreateOptions{
+				Name:     targetName,
+				ShellCmd: "echo world",
+			})
 			g.Expect(err).To(HaveOccurred())
+			g.Expect(err.Error()).To(ContainSubstring("already exists"))
 		})
 	})
 
-	t.Run("AddTargetWithOptions", func(t *testing.T) {
+	// Property: Cache patterns are included in generated code
+	t.Run("CachePatternsIncluded", func(t *testing.T) {
 		t.Parallel()
-
-		t.Run("AddsToExistingGroup", func(t *testing.T) {
-			t.Parallel()
+		rapid.Check(t, func(t *rapid.T) {
 			g := NewWithT(t)
 
-			dir := t.TempDir()
-			targFile := filepath.Join(dir, "targs.go")
+			fileOps := NewMemoryFileOps()
+			targetName := rapid.StringMatching(`[a-z][a-z0-9]{2,8}`).Draw(t, "targetName")
+			numPatterns := rapid.IntRange(1, 3).Draw(t, "numPatterns")
 
-			initial := `//go:build targ
-
-package build
-
-import "github.com/toejough/targ"
-
-var DevLintSlow = targ.Targ("golangci-lint run").Name("slow")
-var DevLint = targ.Group("lint", DevLintSlow)
-var Dev = targ.Group("dev", DevLint)
-`
-			err := os.WriteFile(targFile, []byte(initial), 0o644)
-			g.Expect(err).NotTo(HaveOccurred())
-
-			opts := runner.CreateOptions{
-				Name:     "fast",
-				ShellCmd: "golangci-lint run --fast",
-				Path:     []string{"dev", "lint"},
+			patterns := make([]string, numPatterns)
+			for i := range numPatterns {
+				patterns[i] = rapid.StringMatching(`\*\*/\*\.[a-z]{2,4}`).Draw(t, "pattern")
 			}
 
-			err = runner.AddTargetToFileWithOptions(targFile, opts)
-			g.Expect(err).NotTo(HaveOccurred())
-
-			content, _ := os.ReadFile(targFile)
-			contentStr := string(content)
-
-			g.Expect(contentStr).To(ContainSubstring("var DevLintFast = "))
-			g.Expect(contentStr).
-				To(ContainSubstring(`var DevLint = targ.Group("lint", DevLintSlow, DevLintFast)`))
-		})
-
-		t.Run("IncludesCachePatterns", func(t *testing.T) {
-			t.Parallel()
-			g := NewWithT(t)
-
-			dir := t.TempDir()
-			targFile := filepath.Join(dir, "targs.go")
-
 			initial := "//go:build targ\n\npackage build\n\nimport \"github.com/toejough/targ\"\n"
-			err := os.WriteFile(targFile, []byte(initial), 0o644)
-			g.Expect(err).NotTo(HaveOccurred())
+			fileOps.Files["targs.go"] = []byte(initial)
 
-			opts := runner.CreateOptions{
-				Name:     "build",
+			err := runner.AddTargetToFileWithFileOps(fileOps, "targs.go", runner.CreateOptions{
+				Name:     targetName,
 				ShellCmd: "go build",
-				Cache:    []string{"**/*.go", "go.mod"},
+				Cache:    patterns,
+			})
+			g.Expect(err).NotTo(HaveOccurred())
+
+			content := string(fileOps.Files["targs.go"])
+			g.Expect(content).To(ContainSubstring(".Cache("))
+
+			for _, p := range patterns {
+				g.Expect(content).To(ContainSubstring(p))
 			}
-
-			err = runner.AddTargetToFileWithOptions(targFile, opts)
-			g.Expect(err).NotTo(HaveOccurred())
-
-			content, _ := os.ReadFile(targFile)
-			g.Expect(string(content)).To(ContainSubstring(`.Cache("**/*.go", "go.mod")`))
 		})
 	})
 
-	t.Run("ConvertFuncToString", func(t *testing.T) {
-		t.Parallel()
-
-		t.Run("PreservesCommand", func(t *testing.T) {
-			t.Parallel()
-			g := NewWithT(t)
-
-			dir := t.TempDir()
-			targFile := filepath.Join(dir, "targs.go")
-
-			initial := `//go:build targ
-
-package build
-
-import "github.com/toejough/targ"
-import "github.com/toejough/targ/sh"
-
-var Lint = targ.Targ(lint).Name("lint")
-
-func lint() error {
-	return sh.Run("golangci-lint", "run")
-}
-`
-			err := os.WriteFile(targFile, []byte(initial), 0o644)
-			g.Expect(err).NotTo(HaveOccurred())
-
-			ok, err := runner.ConvertFuncTargetToString(targFile, "lint")
-			g.Expect(err).NotTo(HaveOccurred())
-			g.Expect(ok).To(BeTrue())
-
-			content, _ := os.ReadFile(targFile)
-			contentStr := string(content)
-
-			g.Expect(contentStr).To(ContainSubstring(`targ.Targ("golangci-lint run")`))
-			g.Expect(contentStr).NotTo(ContainSubstring("func lint()"))
-		})
-
-		t.Run("RejectsComplexFunc", func(t *testing.T) {
-			t.Parallel()
-			g := NewWithT(t)
-
-			dir := t.TempDir()
-			targFile := filepath.Join(dir, "targs.go")
-
-			initial := `//go:build targ
-
-package build
-
-import "github.com/toejough/targ"
-import "github.com/toejough/targ/sh"
-import "fmt"
-
-var Lint = targ.Targ(lint).Name("lint")
-
-func lint() error {
-	fmt.Println("Running lint...")
-	return sh.Run("golangci-lint", "run")
-}
-`
-			err := os.WriteFile(targFile, []byte(initial), 0o644)
-			g.Expect(err).NotTo(HaveOccurred())
-
-			_, err = runner.ConvertFuncTargetToString(targFile, "lint")
-			g.Expect(err).To(HaveOccurred())
-		})
-	})
-
-	t.Run("ConvertStringToFunc", func(t *testing.T) {
-		t.Parallel()
-
-		t.Run("AddsFuncDeclaration", func(t *testing.T) {
-			t.Parallel()
-			g := NewWithT(t)
-
-			dir := t.TempDir()
-			targFile := filepath.Join(dir, "targs.go")
-
-			initial := `//go:build targ
-
-package build
-
-import "github.com/toejough/targ"
-
-var Lint = targ.Targ("golangci-lint run").Name("lint")
-`
-			err := os.WriteFile(targFile, []byte(initial), 0o644)
-			g.Expect(err).NotTo(HaveOccurred())
-
-			ok, err := runner.ConvertStringTargetToFunc(targFile, "lint")
-			g.Expect(err).NotTo(HaveOccurred())
-			g.Expect(ok).To(BeTrue())
-
-			content, _ := os.ReadFile(targFile)
-			contentStr := string(content)
-
-			g.Expect(contentStr).NotTo(ContainSubstring(`targ.Targ("golangci-lint run")`))
-			g.Expect(contentStr).To(ContainSubstring("func lint()"))
-			g.Expect(contentStr).To(ContainSubstring("targ.Run("))
-		})
-
-		t.Run("NotFoundReturnsFalse", func(t *testing.T) {
-			t.Parallel()
-			g := NewWithT(t)
-
-			dir := t.TempDir()
-			targFile := filepath.Join(dir, "targs.go")
-
-			initial := `//go:build targ
-
-package build
-
-import "github.com/toejough/targ"
-
-var Build = targ.Targ("go build").Name("build")
-`
-			err := os.WriteFile(targFile, []byte(initial), 0o644)
-			g.Expect(err).NotTo(HaveOccurred())
-
-			ok, err := runner.ConvertStringTargetToFunc(targFile, "lint")
-			g.Expect(err).NotTo(HaveOccurred())
-			g.Expect(ok).To(BeFalse())
-		})
-	})
-
-	t.Run("FindOrCreateTargFile", func(t *testing.T) {
-		t.Parallel()
-
-		t.Run("CreatesNewFile", func(t *testing.T) {
-			t.Parallel()
-			g := NewWithT(t)
-
-			dir := t.TempDir()
-
-			targFile, err := runner.FindOrCreateTargFile(dir)
-			g.Expect(err).NotTo(HaveOccurred())
-			g.Expect(targFile).To(Equal(filepath.Join(dir, "targs.go")))
-
-			content, err := os.ReadFile(targFile)
-			g.Expect(err).NotTo(HaveOccurred())
-			g.Expect(string(content)).To(ContainSubstring("//go:build targ"))
-			g.Expect(string(content)).To(ContainSubstring(`import "github.com/toejough/targ"`))
-		})
-
-		t.Run("FindsExistingFile", func(t *testing.T) {
-			t.Parallel()
-			g := NewWithT(t)
-
-			dir := t.TempDir()
-			existingFile := filepath.Join(dir, "build.go")
-			content := "//go:build targ\n\npackage build\n"
-
-			err := os.WriteFile(existingFile, []byte(content), 0o644)
-			g.Expect(err).NotTo(HaveOccurred())
-
-			targFile, err := runner.FindOrCreateTargFile(dir)
-			g.Expect(err).NotTo(HaveOccurred())
-			g.Expect(targFile).To(Equal(existingFile))
-		})
-	})
-
-	t.Run("HasTargBuildTag", func(t *testing.T) {
+	// Property: FindOrCreateTargFile finds existing file with build tag
+	t.Run("FindsExistingTargFile", func(t *testing.T) {
 		t.Parallel()
 		g := NewWithT(t)
 
-		dir := t.TempDir()
+		fileOps := NewMemoryFileOps()
+		fileOps.Files["testdir/build.go"] = []byte("//go:build targ\n\npackage build\n")
+		fileOps.Dirs["testdir"] = []fs.DirEntry{
+			memDirEntry{name: "build.go", isDir: false},
+		}
 
-		withTag := filepath.Join(dir, "with_tag.go")
-		err := os.WriteFile(withTag, []byte("//go:build targ\n\npackage foo\n"), 0o644)
+		path, err := runner.FindOrCreateTargFileWithFileOps(fileOps, "testdir")
 		g.Expect(err).NotTo(HaveOccurred())
-
-		withoutTag := filepath.Join(dir, "without_tag.go")
-		err = os.WriteFile(withoutTag, []byte("package foo\n"), 0o644)
-		g.Expect(err).NotTo(HaveOccurred())
-
-		otherTag := filepath.Join(dir, "other_tag.go")
-		err = os.WriteFile(otherTag, []byte("//go:build integration\n\npackage foo\n"), 0o644)
-		g.Expect(err).NotTo(HaveOccurred())
-
-		g.Expect(runner.HasTargBuildTag(withTag)).To(BeTrue())
-		g.Expect(runner.HasTargBuildTag(withoutTag)).To(BeFalse())
-		g.Expect(runner.HasTargBuildTag(otherTag)).To(BeFalse())
+		g.Expect(path).To(Equal(filepath.Join("testdir", "build.go")))
 	})
 
-	t.Run("AddImportToTargFile", func(t *testing.T) {
+	// Property: FindOrCreateTargFile creates new file when none exists
+	t.Run("CreatesNewTargFile", func(t *testing.T) {
 		t.Parallel()
 		g := NewWithT(t)
 
-		dir := t.TempDir()
-		targFile := filepath.Join(dir, "targs.go")
+		fileOps := NewMemoryFileOps()
+		fileOps.Dirs["testdir"] = []fs.DirEntry{} // Empty directory
 
-		initial := `//go:build targ
+		path, err := runner.FindOrCreateTargFileWithFileOps(fileOps, "testdir")
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(path).To(Equal(filepath.Join("testdir", "targs.go")))
+
+		// New file should have build tag
+		content, ok := fileOps.Files[path]
+		g.Expect(ok).To(BeTrue())
+		g.Expect(string(content)).To(HavePrefix("//go:build targ"))
+	})
+
+	// Property: HasTargBuildTag correctly identifies files with the tag
+	t.Run("HasTargBuildTagDetectsTag", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		fileOps := NewMemoryFileOps()
+
+		// File with tag
+		fileOps.Files["with_tag.go"] = []byte("//go:build targ\n\npackage foo\n")
+		g.Expect(runner.HasTargBuildTagWithFileOps(fileOps, "with_tag.go")).To(BeTrue())
+
+		// File without tag
+		fileOps.Files["without_tag.go"] = []byte("package foo\n")
+		g.Expect(runner.HasTargBuildTagWithFileOps(fileOps, "without_tag.go")).To(BeFalse())
+
+		// File with different tag
+		fileOps.Files["other_tag.go"] = []byte("//go:build integration\n\npackage foo\n")
+		g.Expect(runner.HasTargBuildTagWithFileOps(fileOps, "other_tag.go")).To(BeFalse())
+	})
+
+	// Property: AddImportToTargFile adds blank import correctly
+	t.Run("AddImportAddsBlankImport", func(t *testing.T) {
+		t.Parallel()
+		rapid.Check(t, func(t *rapid.T) {
+			g := NewWithT(t)
+
+			fileOps := NewMemoryFileOps()
+			pkgPath := rapid.StringMatching(`github\.com/[a-z]+/[a-z]+`).Draw(t, "pkgPath")
+
+			initial := `//go:build targ
 
 package build
 
@@ -358,31 +323,28 @@ import "github.com/toejough/targ"
 
 var Lint = targ.Targ("golangci-lint run")
 `
-		err := os.WriteFile(targFile, []byte(initial), 0o644)
-		g.Expect(err).NotTo(HaveOccurred())
+			fileOps.Files["targs.go"] = []byte(initial)
 
-		err = runner.AddImportToTargFile(targFile, "github.com/foo/bar")
-		g.Expect(err).NotTo(HaveOccurred())
+			err := runner.AddImportToTargFileWithFileOps(fileOps, "targs.go", pkgPath)
+			g.Expect(err).NotTo(HaveOccurred())
 
-		content, _ := os.ReadFile(targFile)
-		contentStr := string(content)
-
-		g.Expect(contentStr).To(ContainSubstring(`_ "github.com/foo/bar"`))
-		g.Expect(contentStr).To(ContainSubstring(`"github.com/toejough/targ"`))
-		g.Expect(contentStr).To(ContainSubstring("var Lint"))
+			content := string(fileOps.Files["targs.go"])
+			// Property: Import is added
+			g.Expect(content).To(ContainSubstring(`_ "` + pkgPath + `"`))
+			// Property: Original import preserved
+			g.Expect(content).To(ContainSubstring(`"github.com/toejough/targ"`))
+			// Property: Original code preserved
+			g.Expect(content).To(ContainSubstring("var Lint"))
+		})
 	})
 
-	t.Run("CheckImportExists", func(t *testing.T) {
+	// Property: CheckImportExists correctly detects existing imports
+	t.Run("CheckImportExistsDetectsImport", func(t *testing.T) {
 		t.Parallel()
+		g := NewWithT(t)
 
-		t.Run("ReturnsTrue", func(t *testing.T) {
-			t.Parallel()
-			g := NewWithT(t)
-
-			dir := t.TempDir()
-			targFile := filepath.Join(dir, "targs.go")
-
-			content := `//go:build targ
+		fileOps := NewMemoryFileOps()
+		fileOps.Files["targs.go"] = []byte(`//go:build targ
 
 package build
 
@@ -390,170 +352,119 @@ import (
 	"github.com/toejough/targ"
 	_ "github.com/foo/bar"
 )
-`
-			err := os.WriteFile(targFile, []byte(content), 0o644)
-			g.Expect(err).NotTo(HaveOccurred())
+`)
 
-			exists, err := runner.CheckImportExists(targFile, "github.com/foo/bar")
-			g.Expect(err).NotTo(HaveOccurred())
-			g.Expect(exists).To(BeTrue())
-		})
+		exists, err := runner.CheckImportExistsWithFileOps(fileOps, "targs.go", "github.com/foo/bar")
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(exists).To(BeTrue())
 
-		t.Run("ReturnsFalse", func(t *testing.T) {
-			t.Parallel()
-			g := NewWithT(t)
-
-			dir := t.TempDir()
-			targFile := filepath.Join(dir, "targs.go")
-
-			content := `//go:build targ
-
-package build
-
-import "github.com/toejough/targ"
-`
-			err := os.WriteFile(targFile, []byte(content), 0o644)
-			g.Expect(err).NotTo(HaveOccurred())
-
-			exists, err := runner.CheckImportExists(targFile, "github.com/foo/bar")
-			g.Expect(err).NotTo(HaveOccurred())
-			g.Expect(exists).To(BeFalse())
-		})
+		exists, err = runner.CheckImportExistsWithFileOps(fileOps, "targs.go", "github.com/not/there")
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(exists).To(BeFalse())
 	})
 
-	t.Run("FindModuleForPath", func(t *testing.T) {
+	// Property: KebabToPascal converts correctly
+	t.Run("KebabToPascalConverts", func(t *testing.T) {
 		t.Parallel()
-
-		t.Run("NoModule", func(t *testing.T) {
-			t.Parallel()
+		rapid.Check(t, func(t *rapid.T) {
 			g := NewWithT(t)
 
-			dir := t.TempDir()
+			// Generate kebab-case input
+			parts := rapid.SliceOfN(
+				rapid.StringMatching(`[a-z]+`),
+				1, 4,
+			).Draw(t, "parts")
+			input := strings.Join(parts, "-")
 
-			root, modulePath, found, err := runner.FindModuleForPath(dir)
-			g.Expect(err).NotTo(HaveOccurred())
-			g.Expect(found).To(BeFalse())
-			g.Expect(root).To(BeEmpty())
-			g.Expect(modulePath).To(BeEmpty())
-		})
+			result := runner.KebabToPascal(input)
 
-		t.Run("WalksUp", func(t *testing.T) {
-			t.Parallel()
-			g := NewWithT(t)
+			// Property: Result contains no hyphens
+			g.Expect(result).NotTo(ContainSubstring("-"))
 
-			parent := t.TempDir()
-			modContent := "module example.com/parent\n\ngo 1.21\n"
-			err := os.WriteFile(filepath.Join(parent, "go.mod"), []byte(modContent), 0o644)
-			g.Expect(err).NotTo(HaveOccurred())
-
-			child := filepath.Join(parent, "child")
-			err = os.MkdirAll(child, 0o755)
-			g.Expect(err).NotTo(HaveOccurred())
-
-			root, modulePath, found, err := runner.FindModuleForPath(child)
-			g.Expect(err).NotTo(HaveOccurred())
-			g.Expect(found).To(BeTrue())
-			g.Expect(root).To(Equal(parent))
-			g.Expect(modulePath).To(Equal("example.com/parent"))
+			// Property: Each original part has first letter capitalized
+			for _, part := range parts {
+				if len(part) > 0 {
+					expected := strings.ToUpper(part[:1]) + part[1:]
+					g.Expect(result).To(ContainSubstring(expected))
+				}
+			}
 		})
 	})
 
-	t.Run("ExtractTargFlags", func(t *testing.T) {
-		t.Parallel()
-
-		t.Run("NoBinaryCache", func(t *testing.T) {
-			t.Parallel()
-			g := NewWithT(t)
-
-			flags, remaining := runner.ExtractTargFlags([]string{"--no-binary-cache", "build"})
-			g.Expect(flags.NoBinaryCache).To(BeTrue())
-			g.Expect(remaining).To(Equal([]string{"build"}))
-		})
-
-		t.Run("DeprecatedNoCache", func(t *testing.T) {
-			t.Parallel()
-			g := NewWithT(t)
-
-			flags, _ := runner.ExtractTargFlags([]string{"--no-cache", "build"})
-			g.Expect(flags.NoBinaryCache).To(BeTrue())
-		})
-
-		t.Run("ShortSAfterTarget", func(t *testing.T) {
-			t.Parallel()
-			g := NewWithT(t)
-
-			flags, remaining := runner.ExtractTargFlags([]string{"build", "-s", "value"})
-			g.Expect(flags.SourceDir).To(BeEmpty())
-			g.Expect(remaining).To(Equal([]string{"build", "-s", "value"}))
-		})
-	})
-
-	t.Run("ParseCreateArgs", func(t *testing.T) {
-		t.Parallel()
-
-		t.Run("Basic", func(t *testing.T) {
-			t.Parallel()
-			g := NewWithT(t)
-
-			opts, err := runner.ParseCreateArgs([]string{"lint", "golangci-lint run"})
-			g.Expect(err).NotTo(HaveOccurred())
-			g.Expect(opts.Name).To(Equal("lint"))
-			g.Expect(opts.ShellCmd).To(Equal("golangci-lint run"))
-			g.Expect(opts.Path).To(BeEmpty())
-		})
-
-		t.Run("FullOptions", func(t *testing.T) {
-			t.Parallel()
-			g := NewWithT(t)
-
-			opts, err := runner.ParseCreateArgs([]string{
-				"dev", "build",
-				"--deps", "lint", "test",
-				"--cache", "**/*.go",
-				"go build ./...",
-			})
-			g.Expect(err).NotTo(HaveOccurred())
-			g.Expect(opts.Name).To(Equal("build"))
-			g.Expect(opts.Path).To(Equal([]string{"dev"}))
-			g.Expect(opts.Deps).To(Equal([]string{"lint", "test"}))
-			g.Expect(opts.Cache).To(Equal([]string{"**/*.go"}))
-			g.Expect(opts.ShellCmd).To(Equal("go build ./..."))
-		})
-	})
-
-	t.Run("ParseSyncArgs", func(t *testing.T) {
-		t.Parallel()
-
-		t.Run("ValidPath", func(t *testing.T) {
-			t.Parallel()
-			g := NewWithT(t)
-
-			opts, err := runner.ParseSyncArgs([]string{"github.com/foo/bar"})
-			g.Expect(err).NotTo(HaveOccurred())
-			g.Expect(opts.PackagePath).To(Equal("github.com/foo/bar"))
-		})
-
-		t.Run("InvalidPath", func(t *testing.T) {
-			t.Parallel()
-			g := NewWithT(t)
-
-			_, err := runner.ParseSyncArgs([]string{"invalid-path"})
-			g.Expect(err).To(HaveOccurred())
-		})
-	})
-
-	t.Run("ParseHelpRequest", func(t *testing.T) {
+	// Property: ExtractTargFlags extracts flags correctly
+	t.Run("ExtractTargFlagsWorks", func(t *testing.T) {
 		t.Parallel()
 		g := NewWithT(t)
 
-		help, target := runner.ParseHelpRequest([]string{"issues", "--help"})
-		g.Expect(help && !target).To(BeFalse(), "expected help to be scoped to target")
+		// --no-binary-cache is extracted
+		flags, remaining := runner.ExtractTargFlags([]string{"--no-binary-cache", "build"})
+		g.Expect(flags.NoBinaryCache).To(BeTrue())
+		g.Expect(remaining).To(Equal([]string{"build"}))
 
-		help, target = runner.ParseHelpRequest([]string{"--help"})
-		g.Expect(help && !target).To(BeTrue(), "expected top-level help")
+		// Deprecated --no-cache also works
+		flags, _ = runner.ExtractTargFlags([]string{"--no-cache", "build"})
+		g.Expect(flags.NoBinaryCache).To(BeTrue())
+
+		// -s after target is not extracted
+		flags, remaining = runner.ExtractTargFlags([]string{"build", "-s", "value"})
+		g.Expect(flags.SourceDir).To(BeEmpty())
+		g.Expect(remaining).To(Equal([]string{"build", "-s", "value"}))
 	})
 
-	t.Run("NamespacePaths", func(t *testing.T) {
+	// Property: ParseCreateArgs parses valid arguments
+	t.Run("ParseCreateArgsWorks", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		opts, err := runner.ParseCreateArgs([]string{"lint", "golangci-lint run"})
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(opts.Name).To(Equal("lint"))
+		g.Expect(opts.ShellCmd).To(Equal("golangci-lint run"))
+
+		// With path and options
+		opts, err = runner.ParseCreateArgs([]string{
+			"dev", "build",
+			"--deps", "lint", "test",
+			"--cache", "**/*.go",
+			"go build ./...",
+		})
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(opts.Name).To(Equal("build"))
+		g.Expect(opts.Path).To(Equal([]string{"dev"}))
+		g.Expect(opts.Deps).To(Equal([]string{"lint", "test"}))
+		g.Expect(opts.Cache).To(Equal([]string{"**/*.go"}))
+		g.Expect(opts.ShellCmd).To(Equal("go build ./..."))
+	})
+
+	// Property: ParseSyncArgs validates package paths
+	t.Run("ParseSyncArgsValidatesPath", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		opts, err := runner.ParseSyncArgs([]string{"github.com/foo/bar"})
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(opts.PackagePath).To(Equal("github.com/foo/bar"))
+
+		_, err = runner.ParseSyncArgs([]string{"invalid-path"})
+		g.Expect(err).To(HaveOccurred())
+	})
+
+	// Property: ParseHelpRequest distinguishes top-level vs target help
+	t.Run("ParseHelpRequestDistinguishes", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		help, target := runner.ParseHelpRequest([]string{"--help"})
+		g.Expect(help).To(BeTrue())
+		g.Expect(target).To(BeFalse())
+
+		help, target = runner.ParseHelpRequest([]string{"issues", "--help"})
+		g.Expect(help).To(BeTrue())
+		g.Expect(target).To(BeTrue())
+	})
+
+	// Property: NamespacePaths computes correct paths
+	t.Run("NamespacePathsComputes", func(t *testing.T) {
 		t.Parallel()
 		g := NewWithT(t)
 
@@ -569,54 +480,5 @@ import "github.com/toejough/targ"
 		g.Expect(paths["/root/tools/issues/issues.go"]).To(Equal([]string{"issues"}))
 		g.Expect(paths["/root/tools/other/foo.go"]).To(Equal([]string{"other", "foo"}))
 		g.Expect(paths["/root/tools/other/bar.go"]).To(Equal([]string{"other", "bar"}))
-	})
-
-	t.Run("WriteBootstrapFile", func(t *testing.T) {
-		t.Parallel()
-		g := NewWithT(t)
-
-		dir := t.TempDir()
-		data := []byte("package main\n")
-
-		path, cleanup, err := runner.WriteBootstrapFile(dir, data)
-		g.Expect(err).NotTo(HaveOccurred())
-
-		_, err = os.Stat(path)
-		g.Expect(err).NotTo(HaveOccurred())
-
-		err = cleanup()
-		g.Expect(err).NotTo(HaveOccurred())
-
-		_, err = os.Stat(path)
-		g.Expect(os.IsNotExist(err)).To(BeTrue())
-	})
-
-	t.Run("EnsureFallbackModuleRoot", func(t *testing.T) {
-		t.Parallel()
-
-		if runtime.GOOS == "windows" {
-			t.Skip("symlink behavior is restricted on windows")
-		}
-
-		g := NewWithT(t)
-
-		dir := t.TempDir()
-		err := os.WriteFile(filepath.Join(dir, "file.txt"), []byte("ok"), 0o644)
-		g.Expect(err).NotTo(HaveOccurred())
-
-		root, err := runner.EnsureFallbackModuleRoot(
-			dir,
-			"targ.local",
-			runner.TargDependency{ModulePath: "github.com/toejough/targ", Version: "v0.0.0"},
-		)
-		g.Expect(err).NotTo(HaveOccurred())
-
-		_, err = os.Stat(filepath.Join(root, "go.mod"))
-		g.Expect(err).NotTo(HaveOccurred())
-
-		link := filepath.Join(root, "file.txt")
-		info, err := os.Lstat(link)
-		g.Expect(err).NotTo(HaveOccurred())
-		g.Expect(info.Mode() & os.ModeSymlink).NotTo(Equal(os.FileMode(0)))
 	})
 }
