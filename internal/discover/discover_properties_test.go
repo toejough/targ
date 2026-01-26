@@ -1,3 +1,4 @@
+//nolint:maintidx // Test functions with many subtests have low maintainability index by design
 package discover_test
 
 import (
@@ -595,9 +596,10 @@ var Other = targ.Targ(func() {})
 	})
 }
 
-// unexported test helpers.
-
-var errInfoNotImplemented = errors.New("Info() not implemented in mock")
+// unexported variables.
+var (
+	errInfoNotImplemented = errors.New("Info() not implemented in mock")
+)
 
 // mockDirEntry implements fs.DirEntry for testing.
 type mockDirEntry struct {

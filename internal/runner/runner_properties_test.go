@@ -1,17 +1,22 @@
-//nolint:maintidx // Test functions with many subtests have low maintainability index by design
+//nolint:maintidx,cyclop // Test functions with many subtests have high complexity by design
 package runner_test
 
 import (
+	"errors"
 	"io/fs"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	. "github.com/onsi/gomega"
 	"pgregory.net/rapid"
 
 	"github.com/toejough/targ/internal/runner"
 )
+
+// Sentinel errors for mock implementations.
+var errInfoNotImplemented = errors.New("Info() not implemented in mock")
 
 // MemoryFileOps implements runner.FileOps using in-memory storage.
 type MemoryFileOps struct {
@@ -25,36 +30,6 @@ func NewMemoryFileOps() *MemoryFileOps {
 		Files: make(map[string][]byte),
 		Dirs:  make(map[string][]fs.DirEntry),
 	}
-}
-
-func (m *MemoryFileOps) ReadFile(name string) ([]byte, error) {
-	if content, ok := m.Files[name]; ok {
-		return content, nil
-	}
-
-	return nil, fs.ErrNotExist
-}
-
-func (m *MemoryFileOps) WriteFile(name string, data []byte, _ fs.FileMode) error {
-	m.Files[name] = data
-	// Update directory listing
-	dir := filepath.Dir(name)
-	base := filepath.Base(name)
-	m.addEntry(dir, base, false)
-
-	return nil
-}
-
-func (m *MemoryFileOps) ReadDir(name string) ([]fs.DirEntry, error) {
-	if entries, ok := m.Dirs[name]; ok {
-		return entries, nil
-	}
-	// Return empty for root
-	if name == "." || name == "" {
-		return []fs.DirEntry{}, nil
-	}
-
-	return nil, fs.ErrNotExist
 }
 
 func (m *MemoryFileOps) MkdirAll(path string, _ fs.FileMode) error {
@@ -77,12 +52,55 @@ func (m *MemoryFileOps) MkdirAll(path string, _ fs.FileMode) error {
 	return nil
 }
 
-func (m *MemoryFileOps) Stat(name string) (fs.FileInfo, error) {
-	if _, ok := m.Files[name]; ok {
-		return nil, nil // Just indicate it exists
+func (m *MemoryFileOps) ReadDir(name string) ([]fs.DirEntry, error) {
+	if entries, ok := m.Dirs[name]; ok {
+		return entries, nil
+	}
+	// Return empty for root
+	if name == "." || name == "" {
+		return []fs.DirEntry{}, nil
 	}
 
 	return nil, fs.ErrNotExist
+}
+
+func (m *MemoryFileOps) ReadFile(name string) ([]byte, error) {
+	if content, ok := m.Files[name]; ok {
+		return content, nil
+	}
+
+	return nil, fs.ErrNotExist
+}
+
+func (m *MemoryFileOps) Stat(name string) (fs.FileInfo, error) {
+	if content, ok := m.Files[name]; ok {
+		return &mockFileInfo{name: filepath.Base(name), size: int64(len(content))}, nil
+	}
+
+	return nil, fs.ErrNotExist
+}
+
+// mockFileInfo implements fs.FileInfo for testing.
+type mockFileInfo struct {
+	name string
+	size int64
+}
+
+func (m *mockFileInfo) Name() string       { return m.name }
+func (m *mockFileInfo) Size() int64        { return m.size }
+func (m *mockFileInfo) Mode() fs.FileMode  { return 0o644 }
+func (m *mockFileInfo) ModTime() time.Time { return time.Time{} }
+func (m *mockFileInfo) IsDir() bool        { return false }
+func (m *mockFileInfo) Sys() any           { return nil }
+
+func (m *MemoryFileOps) WriteFile(name string, data []byte, _ fs.FileMode) error {
+	m.Files[name] = data
+	// Update directory listing
+	dir := filepath.Dir(name)
+	base := filepath.Base(name)
+	m.addEntry(dir, base, false)
+
+	return nil
 }
 
 func (m *MemoryFileOps) addEntry(dir, name string, isDir bool) {
@@ -99,16 +117,6 @@ func (m *MemoryFileOps) addEntry(dir, name string, isDir bool) {
 
 	m.Dirs[dir] = append(m.Dirs[dir], memDirEntry{name: name, isDir: isDir})
 }
-
-type memDirEntry struct {
-	name  string
-	isDir bool
-}
-
-func (e memDirEntry) Name() string               { return e.name }
-func (e memDirEntry) IsDir() bool                { return e.isDir }
-func (e memDirEntry) Type() fs.FileMode          { return 0 }
-func (e memDirEntry) Info() (fs.FileInfo, error) { return nil, nil }
 
 func TestProperty_CodeGeneration(t *testing.T) {
 	t.Parallel()
@@ -133,6 +141,7 @@ func TestProperty_CodeGeneration(t *testing.T) {
 
 			// Generate names that violate the pattern
 			invalidType := rapid.IntRange(0, 5).Draw(t, "invalidType")
+
 			var name string
 
 			switch invalidType {
@@ -354,11 +363,19 @@ import (
 )
 `)
 
-		exists, err := runner.CheckImportExistsWithFileOps(fileOps, "targs.go", "github.com/foo/bar")
+		exists, err := runner.CheckImportExistsWithFileOps(
+			fileOps,
+			"targs.go",
+			"github.com/foo/bar",
+		)
 		g.Expect(err).NotTo(HaveOccurred())
 		g.Expect(exists).To(BeTrue())
 
-		exists, err = runner.CheckImportExistsWithFileOps(fileOps, "targs.go", "github.com/not/there")
+		exists, err = runner.CheckImportExistsWithFileOps(
+			fileOps,
+			"targs.go",
+			"github.com/not/there",
+		)
 		g.Expect(err).NotTo(HaveOccurred())
 		g.Expect(exists).To(BeFalse())
 	})
@@ -482,3 +499,16 @@ import (
 		g.Expect(paths["/root/tools/other/bar.go"]).To(Equal([]string{"other", "bar"}))
 	})
 }
+
+type memDirEntry struct {
+	name  string
+	isDir bool
+}
+
+func (e memDirEntry) Info() (fs.FileInfo, error) { return nil, errInfoNotImplemented }
+
+func (e memDirEntry) IsDir() bool { return e.isDir }
+
+func (e memDirEntry) Name() string { return e.name }
+
+func (e memDirEntry) Type() fs.FileMode { return 0 }

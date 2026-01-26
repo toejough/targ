@@ -46,6 +46,69 @@ type CreateOptions struct {
 	Cache    []string // Cache patterns
 }
 
+// FileOps abstracts file system operations for testing.
+type FileOps interface {
+	ReadFile(name string) ([]byte, error)
+	WriteFile(name string, data []byte, perm fs.FileMode) error
+	ReadDir(name string) ([]fs.DirEntry, error)
+	MkdirAll(path string, perm fs.FileMode) error
+	Stat(name string) (fs.FileInfo, error)
+}
+
+// OSFileOps implements FileOps using the real filesystem.
+type OSFileOps struct{}
+
+// MkdirAll creates a directory and all parents.
+func (OSFileOps) MkdirAll(path string, perm fs.FileMode) error {
+	err := os.MkdirAll(path, perm)
+	if err != nil {
+		return fmt.Errorf("creating directory %s: %w", path, err)
+	}
+
+	return nil
+}
+
+// ReadDir reads a directory.
+func (OSFileOps) ReadDir(name string) ([]fs.DirEntry, error) {
+	entries, err := os.ReadDir(name)
+	if err != nil {
+		return nil, fmt.Errorf("reading directory %s: %w", name, err)
+	}
+
+	return entries, nil
+}
+
+// ReadFile reads a file from the filesystem.
+func (OSFileOps) ReadFile(name string) ([]byte, error) {
+	//nolint:gosec // build tool reads user source files by design
+	data, err := os.ReadFile(name)
+	if err != nil {
+		return nil, fmt.Errorf("reading file %s: %w", name, err)
+	}
+
+	return data, nil
+}
+
+// Stat returns file info.
+func (OSFileOps) Stat(name string) (fs.FileInfo, error) {
+	info, err := os.Stat(name)
+	if err != nil {
+		return nil, err //nolint:wrapcheck // Callers need unwrapped error for os.IsNotExist checks
+	}
+
+	return info, nil
+}
+
+// WriteFile writes data to a file.
+func (OSFileOps) WriteFile(name string, data []byte, perm fs.FileMode) error {
+	err := os.WriteFile(name, data, perm)
+	if err != nil {
+		return fmt.Errorf("writing file %s: %w", name, err)
+	}
+
+	return nil
+}
+
 // SyncOptions holds options for the --sync command.
 type SyncOptions struct {
 	PackagePath string // Module path to sync (e.g., "github.com/foo/bar")
@@ -62,69 +125,6 @@ type TargDependency struct {
 type TargFlags struct {
 	NoBinaryCache bool   // Disable binary caching
 	SourceDir     string // Source directory for targ files
-}
-
-// FileOps abstracts file system operations for testing.
-type FileOps interface {
-	ReadFile(name string) ([]byte, error)
-	WriteFile(name string, data []byte, perm fs.FileMode) error
-	ReadDir(name string) ([]fs.DirEntry, error)
-	MkdirAll(path string, perm fs.FileMode) error
-	Stat(name string) (fs.FileInfo, error)
-}
-
-// OSFileOps implements FileOps using the real filesystem.
-type OSFileOps struct{}
-
-// ReadFile reads a file from the filesystem.
-func (OSFileOps) ReadFile(name string) ([]byte, error) {
-	//nolint:gosec // build tool reads user source files by design
-	data, err := os.ReadFile(name)
-	if err != nil {
-		return nil, fmt.Errorf("reading file %s: %w", name, err)
-	}
-
-	return data, nil
-}
-
-// WriteFile writes data to a file.
-func (OSFileOps) WriteFile(name string, data []byte, perm fs.FileMode) error {
-	err := os.WriteFile(name, data, perm)
-	if err != nil {
-		return fmt.Errorf("writing file %s: %w", name, err)
-	}
-
-	return nil
-}
-
-// ReadDir reads a directory.
-func (OSFileOps) ReadDir(name string) ([]fs.DirEntry, error) {
-	entries, err := os.ReadDir(name)
-	if err != nil {
-		return nil, fmt.Errorf("reading directory %s: %w", name, err)
-	}
-
-	return entries, nil
-}
-
-// MkdirAll creates a directory and all parents.
-func (OSFileOps) MkdirAll(path string, perm fs.FileMode) error {
-	err := os.MkdirAll(path, perm)
-	if err != nil {
-		return fmt.Errorf("creating directory %s: %w", path, err)
-	}
-
-	return nil
-}
-
-// Stat returns file info.
-func (OSFileOps) Stat(name string) (fs.FileInfo, error) {
-	info, err := os.Stat(name)
-	if err != nil {
-		return nil, err // Don't wrap - callers check os.IsNotExist
-	}
-
-	return info, nil
 }
 
 // AddImportToTargFile adds a blank import for the given package to the targ file.
@@ -196,19 +196,6 @@ func AddImportToTargFileWithFileOps(fileOps FileOps, path, packagePath string) e
 	return nil
 }
 
-// AddTargetToFile adds a target variable to an existing targ file.
-func AddTargetToFile(path, name, shellCmd string) error {
-	return AddTargetToFileWithOptions(path, CreateOptions{
-		Name:     name,
-		ShellCmd: shellCmd,
-	})
-}
-
-// AddTargetToFileWithOptions adds a target with full options to an existing targ file.
-func AddTargetToFileWithOptions(path string, opts CreateOptions) error {
-	return AddTargetToFileWithFileOps(OSFileOps{}, path, opts)
-}
-
 // AddTargetToFileWithFileOps adds a target using injected file operations.
 func AddTargetToFileWithFileOps(fileOps FileOps, path string, opts CreateOptions) error {
 	content, err := fileOps.ReadFile(path)
@@ -278,6 +265,13 @@ func AddTargetToFileWithFileOps(fileOps FileOps, path string, opts CreateOptions
 	}
 
 	return nil
+}
+
+// AddTargetToFile adds a target variable to an existing targ file.
+
+// AddTargetToFileWithOptions adds a target with full options to an existing targ file.
+func AddTargetToFileWithOptions(path string, opts CreateOptions) error {
+	return AddTargetToFileWithFileOps(OSFileOps{}, path, opts)
 }
 
 // CheckImportExists checks if a blank import for the given package already exists in the file.

@@ -1,3 +1,4 @@
+//nolint:gocognit // Test functions with many subtests have high cognitive complexity by design
 package parse_test
 
 import (
@@ -110,10 +111,12 @@ func TestProperty_Parsing(t *testing.T) {
 			rapid.Check(t, func(t *rapid.T) {
 				g := NewWithT(t)
 				tag1 := rapid.StringMatching(`[a-z]{3,10}`).Draw(t, "tag1")
+
 				tag2 := rapid.StringMatching(`[a-z]{3,10}`).Draw(t, "tag2")
 				if tag1 == tag2 {
 					return // Skip if same
 				}
+
 				content := []byte("//go:build " + tag1 + "\n\npackage foo")
 
 				g.Expect(parse.HasBuildTag(content, tag2)).To(BeFalse())
@@ -175,7 +178,8 @@ func TestProperty_Parsing(t *testing.T) {
 				// Generate valid Go source file names
 				name := rapid.StringMatching(`[a-z][a-z0-9_]{0,20}\.go`).Draw(t, "name")
 				// Exclude test files and generated files
-				if strings.HasSuffix(name, "_test.go") || strings.HasPrefix(name, "generated_targ_") {
+				if strings.HasSuffix(name, "_test.go") ||
+					strings.HasPrefix(name, "generated_targ_") {
 					return
 				}
 
@@ -212,7 +216,8 @@ func TestProperty_Parsing(t *testing.T) {
 			t.Parallel()
 			rapid.Check(t, func(t *rapid.T) {
 				g := NewWithT(t)
-				ext := rapid.SampledFrom([]string{".txt", ".md", ".json", ".yaml", ".mod"}).Draw(t, "ext")
+				ext := rapid.SampledFrom([]string{".txt", ".md", ".json", ".yaml", ".mod"}).
+					Draw(t, "ext")
 				base := rapid.StringMatching(`[a-z][a-z0-9_]{0,20}`).Draw(t, "base")
 				name := base + ext
 
@@ -253,7 +258,8 @@ func TestProperty_Parsing(t *testing.T) {
 			t.Parallel()
 			rapid.Check(t, func(t *rapid.T) {
 				g := NewWithT(t)
-				ext := rapid.SampledFrom([]string{".txt", ".md", ".json", ".yaml", ".mod"}).Draw(t, "ext")
+				ext := rapid.SampledFrom([]string{".txt", ".md", ".json", ".yaml", ".mod"}).
+					Draw(t, "ext")
 				base := rapid.StringMatching(`[a-z][a-z0-9_]{0,20}`).Draw(t, "base")
 				name := base + ext
 
@@ -268,7 +274,8 @@ func TestProperty_Parsing(t *testing.T) {
 				g := NewWithT(t)
 				name := rapid.StringMatching(`[a-z][a-z0-9_]{0,20}\.go`).Draw(t, "name")
 				// Exclude test files and generated files
-				if strings.HasSuffix(name, "_test.go") || strings.HasPrefix(name, "generated_targ_") {
+				if strings.HasSuffix(name, "_test.go") ||
+					strings.HasPrefix(name, "generated_targ_") {
 					return
 				}
 
@@ -339,10 +346,12 @@ func TestProperty_Parsing(t *testing.T) {
 			rapid.Check(t, func(t *rapid.T) {
 				g := NewWithT(t)
 				key1 := rapid.StringMatching(`[a-z]{3,8}`).Draw(t, "key1")
+
 				key2 := rapid.StringMatching(`[a-z]{3,8}`).Draw(t, "key2")
 				if key1 == key2 {
 					return
 				}
+
 				value := rapid.StringMatching(`[a-z0-9]{1,10}`).Draw(t, "value")
 				tagStr := key1 + `:"` + value + `"`
 
@@ -485,7 +494,10 @@ func TestProperty_Parsing(t *testing.T) {
 				imports := []*ast.ImportSpec{
 					{
 						Name: &ast.Ident{Name: alias},
-						Path: &ast.BasicLit{Kind: token.STRING, Value: `"github.com/toejough/targ"`},
+						Path: &ast.BasicLit{
+							Kind:  token.STRING,
+							Value: `"github.com/toejough/targ"`,
+						},
 					},
 				}
 
