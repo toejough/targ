@@ -1609,13 +1609,18 @@ func test(ctx context.Context) error {
 	fmt.Println("Running unit tests...")
 	// Generate runs as dep before this function
 
-	// Use -count=1 to disable caching so coverage is regenerated
+	// Clear stale coverage and test cache
+	os.Remove("coverage.out")
+
+	if err := targ.RunContext(ctx, "go", "clean", "-testcache"); err != nil {
+		return fmt.Errorf("failed to clean test cache: %w", err)
+	}
+
 	err := targ.RunContext(ctx,
 		"go",
 		"test",
 		"-timeout=2m",
 		"-race",
-		"-count=1",
 		"-coverprofile=coverage.out",
 		"-coverpkg=./...",
 		"-cover",
@@ -1656,6 +1661,9 @@ func test(ctx context.Context) error {
 func testForFail(ctx context.Context) error {
 	fmt.Println("Running unit tests for overall pass/fail...")
 	// Generate runs as dep before this function
+
+	// Clear stale coverage to avoid misleading results if tests fail
+	os.Remove("coverage.out")
 
 	return targ.RunContext(ctx,
 		"go",
