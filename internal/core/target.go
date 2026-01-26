@@ -364,7 +364,11 @@ func (t *Target) runDeps(ctx context.Context) error {
 }
 
 // runDepsParallel executes all dependencies concurrently.
+// On first error, cancels remaining deps and returns immediately.
 func (t *Target) runDepsParallel(ctx context.Context) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
 	errs := make(chan error, len(t.deps))
 
 	for _, dep := range t.deps {
@@ -379,6 +383,8 @@ func (t *Target) runDepsParallel(ctx context.Context) error {
 		err := <-errs
 		if err != nil && firstErr == nil {
 			firstErr = err
+
+			cancel() // Cancel remaining deps on first error
 		}
 	}
 

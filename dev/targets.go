@@ -31,6 +31,8 @@ func init() {
 	// Set dependencies (must be done after all targets are defined)
 	Check.Deps(DeleteDeadcode, Fmt, Tidy, Modernize, CheckNils, CheckCoverage, ReorderDecls, Lint, CheckThinAPI)
 	CheckCoverage.Deps(Test)
+	CheckCoverageForFail.Deps(TestForFail)
+	CheckForFail.Deps(CheckCoverageForFail, ReorderDeclsCheck, LintFast, LintForFail, Deadcode, CheckThinAPI, CheckNilsForFail, targ.DepModeParallel)
 	CheckNils.Deps(CheckNilsFix, CheckNilsForFail)
 	Mutate.Deps(CheckForFail)
 	Test.Deps(Generate)
@@ -305,60 +307,11 @@ func checkCoverageForFail(ctx context.Context) error {
 	return nil
 }
 
-func checkForFail(ctx context.Context) error {
-	fmt.Println("Checking...")
-
-	// Run all checks in parallel
-	var wg sync.WaitGroup
-
-	errCh := make(chan error, 7)
-
-	targets := []*targ.Target{
-		ReorderDeclsCheck,
-		LintFast,
-		LintForFail,
-		Deadcode,
-		CheckThinAPI,
-		CheckNilsForFail,
-	}
-
-	for _, t := range targets {
-		wg.Add(1)
-
-		go func(target *targ.Target) {
-			defer wg.Done()
-
-			if err := target.Run(ctx); err != nil {
-				errCh <- err
-			}
-		}(t)
-	}
-
-	// TestForFail -> CheckCoverageForFail (serial within parallel)
-	wg.Add(1)
-
-	go func() {
-		defer wg.Done()
-
-		if err := TestForFail.Run(ctx); err != nil {
-			errCh <- err
-			return
-		}
-
-		if err := CheckCoverageForFail.Run(ctx); err != nil {
-			errCh <- err
-		}
-	}()
-
-	wg.Wait()
-	close(errCh)
-
-	// Return first error if any
-	for err := range errCh {
-		return err
-	}
-
-	return nil
+func checkForFail() {
+	// Deps handle all parallel execution:
+	// - CheckCoverageForFail (which depends on TestForFail)
+	// - ReorderDeclsCheck, LintFast, LintForFail, Deadcode, CheckThinAPI, CheckNilsForFail
+	fmt.Println("All checks passed!")
 }
 
 // Helper Functions
@@ -1703,7 +1656,7 @@ func testForFail(ctx context.Context) error {
 		"-buildvcs=false",
 		"-timeout=30s",
 		"-coverprofile=coverage.out",
-		"-coverpkg=./impgen/...,./imptest/...",
+		"-coverpkg=./,./internal/...",
 		"./...",
 		"-failfast",
 	)
