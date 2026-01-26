@@ -1,0 +1,49 @@
+# 2026/01/26 08:48:06.078353 [TestProperty_Discovery/DetectsAliasedImport] [rapid] draw alias: "go"
+# 2026/01/26 08:48:06.078910 [TestProperty_Discovery/DetectsAliasedImport] 
+# Unexpected error:
+#     <*fmt.wrapError | 0xc0007fe4e0>: 
+#     parsing file test/targs.go: test/targs.go:5:8: missing import path (and 2 more errors)
+#     {
+#         msg: "parsing file test/targs.go: test/targs.go:5:8: missing import path (and 2 more errors)",
+#         err: <scanner.ErrorList | len:3, cap:4>[
+#             {
+#                 Pos: {
+#                     Filename: "test/targs.go",
+#                     Offset: 39,
+#                     Line: 5,
+#                     Column: 8,
+#                 },
+#                 Msg: "missing import path",
+#             },
+#             {
+#                 Pos: {
+#                     Filename: "test/targs.go",
+#                     Offset: 87,
+#                     Line: 8,
+#                     Column: 4,
+#                 },
+#                 Msg: "expected operand, found '.'",
+#             },
+#             {
+#                 Pos: {
+#                     Filename: "test/targs.go",
+#                     Offset: 107,
+#                     Line: 11,
+#                     Column: 1,
+#                 },
+#                 Msg: "expected ';', found 'var'",
+#             },
+#         ],
+#     }
+# occurred
+# 
+v0.4.8#14899920626942634968
+0x29f33100d3813
+0x0
+0x8435d846706fc
+0x6
+0xcd724ddd9eff
+0x0
+0xeaeb52d87cd90
+0xe
+0x7c0e25913ab0d

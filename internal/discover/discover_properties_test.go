@@ -94,7 +94,8 @@ var ` + varName + ` = targ.Targ(func() {})
 		t.Parallel()
 		rapid.Check(t, func(t *rapid.T) {
 			g := NewWithT(t)
-			alias := rapid.StringMatching(`[a-z]{2,8}`).Draw(t, "alias")
+			// Use prefix 'x' to avoid Go keywords like "go", "if", "for"
+			alias := "x" + rapid.StringMatching(`[a-z]{1,7}`).Draw(t, "alias")
 
 			srcWithAlias := `//go:build targ
 
