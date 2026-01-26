@@ -441,9 +441,10 @@ var ` + varName + ` = targ.Targ(func() {})
 		t.Parallel()
 		rapid.Check(t, func(t *rapid.T) {
 			g := NewWithT(t)
-			pkg1 := rapid.StringMatching(`[a-z]{3,8}`).Draw(t, "pkg1")
+			// Prefix with 'x' to avoid Go keywords like "map", "func", "type", etc.
+			pkg1 := "x" + rapid.StringMatching(`[a-z]{3,8}`).Draw(t, "pkg1")
 
-			pkg2 := rapid.StringMatching(`[a-z]{3,8}`).Draw(t, "pkg2")
+			pkg2 := "x" + rapid.StringMatching(`[a-z]{3,8}`).Draw(t, "pkg2")
 			if pkg1 == pkg2 {
 				return
 			}
