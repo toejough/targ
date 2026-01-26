@@ -216,6 +216,7 @@ func TestProperty_GroupNameValidation(t *testing.T) {
 		g := NewWithT(t)
 
 		target := targ.Targ(func() {}).Name("valid-target")
+
 		g.Expect(func() {
 			_ = targ.Group("", target)
 		}).To(Panic(), "expected panic for empty group name")
@@ -231,6 +232,7 @@ func TestProperty_GroupNameValidation(t *testing.T) {
 			name := digit + suffix
 
 			target := targ.Targ(func() {}).Name("valid-target")
+
 			g.Expect(func() {
 				_ = targ.Group(name, target)
 			}).To(Panic(), "expected panic for name starting with digit: %q", name)
@@ -248,6 +250,7 @@ func TestProperty_GroupNameValidation(t *testing.T) {
 			name := prefix + upper + suffix
 
 			target := targ.Targ(func() {}).Name("valid-target")
+
 			g.Expect(func() {
 				_ = targ.Group(name, target)
 			}).To(Panic(), "expected panic for name with uppercase: %q", name)
@@ -264,6 +267,7 @@ func TestProperty_GroupNameValidation(t *testing.T) {
 			name := part1 + " " + part2
 
 			target := targ.Targ(func() {}).Name("valid-target")
+
 			g.Expect(func() {
 				_ = targ.Group(name, target)
 			}).To(Panic(), "expected panic for name with space: %q", name)
@@ -279,6 +283,7 @@ func TestProperty_GroupNameValidation(t *testing.T) {
 			name := "-" + suffix
 
 			target := targ.Targ(func() {}).Name("valid-target")
+
 			g.Expect(func() {
 				_ = targ.Group(name, target)
 			}).To(Panic(), "expected panic for name starting with dash: %q", name)
@@ -293,6 +298,7 @@ func TestProperty_GroupNameValidation(t *testing.T) {
 			name := rapid.StringMatching(`[a-z][a-z0-9-]{0,10}`).Draw(t, "name")
 
 			target := targ.Targ(func() {}).Name("valid-target")
+
 			g.Expect(func() {
 				_ = targ.Group(name, target)
 			}).NotTo(Panic(), "should not panic for valid name: %q", name)

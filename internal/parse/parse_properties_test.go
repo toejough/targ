@@ -1,4 +1,4 @@
-//nolint:gocognit // Test functions with many subtests have high cognitive complexity by design
+//nolint:gocognit,cyclop,maintidx // Test functions with many subtests have high complexity by design
 package parse_test
 
 import (
