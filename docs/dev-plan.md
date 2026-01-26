@@ -653,6 +653,14 @@ Stop and talk through if:
 
 **All tests are property-based** using rapid/imptest/gomega. No separate "unit tests" - everything is expressed as properties that must hold.
 
+**Dependency Injection (DI) is mandatory** for all side-effectful operations:
+
+- Side-effectful code (os.Getenv, os.Getwd, file I/O, shell execution, time, etc.) must ONLY be used in the top-level thin shell layer where real dependencies are supplied
+- Internal functions must receive dependencies through parameters or interfaces
+- This makes all code paths testable with imptest mocks
+- Defensive code branches are NOT acceptable excuses for low coverage - with proper DI, all branches can be exercised through tests
+- Functions like `detectCurrentShell` and `detectRepoURLWithGetwd` that currently use OS primitives directly are violations of this principle and must be refactored
+
 **Fuzz testing** at boundaries where unbounded input is possible:
 
 - CLI argument parsing (user input)

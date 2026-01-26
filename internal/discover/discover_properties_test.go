@@ -88,7 +88,9 @@ var Build = targ.Targ(func() {})
 }
 
 // unexported variables.
-var errInfoNotImplemented = errors.New("Info() not implemented in mock")
+var (
+	errInfoNotImplemented = errors.New("Info() not implemented in mock")
+)
 
 // mockDirEntry implements fs.DirEntry for testing.
 type mockDirEntry struct {
@@ -97,9 +99,12 @@ type mockDirEntry struct {
 }
 
 func (m mockDirEntry) Info() (fs.FileInfo, error) { return nil, errInfoNotImplemented }
-func (m mockDirEntry) IsDir() bool                { return m.isDir }
-func (m mockDirEntry) Name() string               { return m.name }
-func (m mockDirEntry) Type() fs.FileMode          { return 0 }
+
+func (m mockDirEntry) IsDir() bool { return m.isDir }
+
+func (m mockDirEntry) Name() string { return m.name }
+
+func (m mockDirEntry) Type() fs.FileMode { return 0 }
 
 // mockFileSystem is a simple in-memory file system for testing.
 type mockFileSystem struct {
