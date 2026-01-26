@@ -877,7 +877,7 @@ func executeShellCommand(
 	}
 
 	err = ExecuteWithOverrides(ctx, opts.Overrides, config, func() error {
-		return runShellWithVars(ctx, node.ShellCommand, parsed.varValues)
+		return runShellWithVars(ctx, node.ShellCommand, parsed.varValues, opts.ShellRunner)
 	})
 	if err != nil {
 		return nil, err
@@ -1996,7 +1996,13 @@ func resolvePlaceholder(opts TagOptions, kind reflect.Kind) string {
 }
 
 // runShellWithVars substitutes variables and executes a shell command.
-func runShellWithVars(ctx context.Context, cmd string, vars map[string]string) error {
+// If runner is nil, uses the default sh -c execution.
+func runShellWithVars(
+	ctx context.Context,
+	cmd string,
+	vars map[string]string,
+	runner func(ctx context.Context, cmd string) error,
+) error {
 	// Substitute $var and ${var} patterns
 	substituted := shellVarPattern.ReplaceAllStringFunc(cmd, func(match string) string {
 		submatch := shellVarPattern.FindStringSubmatch(match)
@@ -2012,8 +2018,14 @@ func runShellWithVars(ctx context.Context, cmd string, vars map[string]string) e
 		return match
 	})
 
-	// Execute via sh -c
-	err := internalsh.RunContextWithIO(ctx, nil, "sh", []string{"-c", substituted})
+	// Execute via injected runner or default sh -c
+	var err error
+	if runner != nil {
+		err = runner(ctx, substituted)
+	} else {
+		err = internalsh.RunContextWithIO(ctx, nil, "sh", []string{"-c", substituted})
+	}
+
 	if err != nil {
 		return fmt.Errorf("shell command failed: %w", err)
 	}

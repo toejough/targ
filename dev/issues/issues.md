@@ -1484,9 +1484,9 @@ Flag validation should complete before shell command execution. If there's an un
 
 The shell command executes (printing "hello" to stdout), then the unknown flag error is returned.
 
-## local-13: Shell tests execute real commands instead of using DI
+## local-13: Shell tests execute real commands instead of using DI [FIXED]
 
-**Status**: open
+**Status**: closed
 **Created**: 2026-01-26
 
 ### Description

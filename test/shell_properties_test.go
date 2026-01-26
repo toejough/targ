@@ -1,6 +1,8 @@
 package targ_test
 
 import (
+	"context"
+	"errors"
 	"testing"
 
 	. "github.com/onsi/gomega"
@@ -170,15 +172,22 @@ func TestProperty_ShellCommands(t *testing.T) {
 			// Generate safe alphanumeric values for shell
 			value := rapid.StringMatching(`[a-zA-Z0-9]{1,10}`).Draw(t, "value")
 
-			// Use true which always succeeds - we're testing that shell vars work
-			// With single target (default mode), don't include command name in args
-			target := targ.Targ("true $msg").Name("shell-test")
+			var executedCmd string
 
-			_, err := targ.Execute(
+			mockRunner := func(_ context.Context, cmd string) error {
+				executedCmd = cmd
+				return nil
+			}
+
+			target := targ.Targ("mycommand $msg").Name("shell-test")
+
+			_, err := targ.ExecuteWithOptions(
 				[]string{"app", "--msg", value},
+				targ.RunOptions{ShellRunner: mockRunner, AllowDefault: true},
 				target,
 			)
 			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(executedCmd).To(Equal("mycommand " + value))
 		})
 	})
 
@@ -186,42 +195,66 @@ func TestProperty_ShellCommands(t *testing.T) {
 		t.Parallel()
 		g := NewWithT(t)
 
-		// With single target (default mode), don't include command name in args
-		target := targ.Targ("true $greeting $name").Name("greet")
+		var executedCmd string
 
-		_, err := targ.Execute(
+		mockRunner := func(_ context.Context, cmd string) error {
+			executedCmd = cmd
+			return nil
+		}
+
+		target := targ.Targ("mycommand $greeting $name").Name("greet")
+
+		_, err := targ.ExecuteWithOptions(
 			[]string{"app", "--greeting", "hello", "--name", "world"},
+			targ.RunOptions{ShellRunner: mockRunner, AllowDefault: true},
 			target,
 		)
 		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(executedCmd).To(Equal("mycommand hello world"))
 	})
 
 	t.Run("ShellCommandSupportsEqualsFlags", func(t *testing.T) {
 		t.Parallel()
 		g := NewWithT(t)
 
-		// With single target (default mode), don't include command name in args
-		target := targ.Targ("true $msg").Name("echo-equals")
+		var executedCmd string
 
-		_, err := targ.Execute(
+		mockRunner := func(_ context.Context, cmd string) error {
+			executedCmd = cmd
+			return nil
+		}
+
+		target := targ.Targ("mycommand $msg").Name("echo-equals")
+
+		_, err := targ.ExecuteWithOptions(
 			[]string{"app", "--msg=test-value"},
+			targ.RunOptions{ShellRunner: mockRunner, AllowDefault: true},
 			target,
 		)
 		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(executedCmd).To(Equal("mycommand test-value"))
 	})
 
 	t.Run("ShellCommandSupportsShortFlags", func(t *testing.T) {
 		t.Parallel()
 		g := NewWithT(t)
 
-		// With single target (default mode), don't include command name in args
-		target := targ.Targ("true $msg").Name("echo-short")
+		var executedCmd string
 
-		_, err := targ.Execute(
+		mockRunner := func(_ context.Context, cmd string) error {
+			executedCmd = cmd
+			return nil
+		}
+
+		target := targ.Targ("mycommand $msg").Name("echo-short")
+
+		_, err := targ.ExecuteWithOptions(
 			[]string{"app", "-m", "short-flag-value"},
+			targ.RunOptions{ShellRunner: mockRunner, AllowDefault: true},
 			target,
 		)
 		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(executedCmd).To(Equal("mycommand short-flag-value"))
 	})
 
 	t.Run("ShellCommandHelpShowsVariables", func(t *testing.T) {
@@ -260,26 +293,41 @@ func TestProperty_ShellCommands(t *testing.T) {
 		t.Parallel()
 		g := NewWithT(t)
 
-		// Shell command with $msg variable (use true instead of echo to avoid stdout output)
-		target := targ.Targ("true $msg").Name("shell-cmd")
+		// Mock runner that should never be called (error happens before execution)
+		mockRunner := func(_ context.Context, _ string) error {
+			t.Fatal("shell runner should not be called when unknown flag present")
+			return nil
+		}
+
+		target := targ.Targ("mycommand $msg").Name("shell-cmd")
 
 		// Pass --msg (known) and --unknown (not a shell variable)
-		_, err := targ.Execute(
+		result, err := targ.ExecuteWithOptions(
 			[]string{"app", "--msg", "hello", "--unknown", "value"},
+			targ.RunOptions{ShellRunner: mockRunner, AllowDefault: true},
 			target,
 		)
 		// Unknown flags are errors for shell commands
 		g.Expect(err).To(HaveOccurred())
+		g.Expect(result.Output).To(ContainSubstring("unknown"))
 	})
 
 	t.Run("ShellCommandFailureReturnsError", func(t *testing.T) {
 		t.Parallel()
 		g := NewWithT(t)
 
-		// Shell command that exits with error
-		target := targ.Targ("exit 1").Name("fail")
+		// Mock runner that returns an error
+		mockRunner := func(_ context.Context, _ string) error {
+			return errors.New("mock shell failure")
+		}
 
-		result, err := targ.Execute([]string{"app"}, target)
+		target := targ.Targ("mycommand").Name("fail")
+
+		result, err := targ.ExecuteWithOptions(
+			[]string{"app"},
+			targ.RunOptions{ShellRunner: mockRunner, AllowDefault: true},
+			target,
+		)
 		g.Expect(err).To(HaveOccurred())
 		g.Expect(result.Output).To(ContainSubstring("failed"))
 	})

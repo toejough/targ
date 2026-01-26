@@ -85,6 +85,10 @@ type RunOptions struct {
 	// Getwd is the working directory lookup function.
 	// Internal: set by runExecutor from env.Getwd. If nil, functions use os.Getwd.
 	Getwd func() (string, error)
+
+	// ShellRunner executes shell commands. If nil, uses the default sh -c execution.
+	// For testing, inject a mock to verify command construction without executing.
+	ShellRunner func(ctx context.Context, cmd string) error
 }
 
 // TagKind represents the type of a struct tag (flag, positional, subcommand).
