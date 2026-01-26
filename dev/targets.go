@@ -885,6 +885,9 @@ func findRedundantTests() error {
 			// Property-based tests form the baseline
 			{Package: "./test", TestPattern: "TestProperty_"},
 			{Package: "./internal/core", TestPattern: "TestProperty_"},
+			{Package: "./internal/runner", TestPattern: "TestProperty_"},
+			{Package: "./internal/discover", TestPattern: "TestProperty_"},
+			{Package: "./internal/parse", TestPattern: "TestProperty_"},
 		},
 		CoverageThreshold: 80.0,
 		PackageToAnalyze:  "./...",
