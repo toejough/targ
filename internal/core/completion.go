@@ -8,23 +8,6 @@ import (
 	"strings"
 )
 
-// DoCompletionTo runs completion for the given targets and writes output to w.
-// This is useful for testing completion without capturing stdout.
-func DoCompletionTo(w io.Writer, commandLine string, targets ...any) error {
-	roots := make([]*commandNode, 0, len(targets))
-
-	for _, t := range targets {
-		node, err := parseTarget(t)
-		if err != nil {
-			return err
-		}
-
-		roots = append(roots, node)
-	}
-
-	return doCompletion(w, roots, commandLine)
-}
-
 // PrintCompletionScriptTo writes a shell completion script to the given writer.
 func PrintCompletionScriptTo(w io.Writer, shell, binName string) error {
 	var err error
@@ -78,6 +61,7 @@ _%s_completion() {
 }
 compdef _%s_completion %s
 `
+	bashShell          = "bash"
 	fishShell          = "fish"
 	singleShortFlagLen = 2
 	zshShell           = "zsh"
@@ -204,26 +188,18 @@ func (s *completionState) findRootByName(name string) *commandNode {
 	return nil
 }
 
-// followRemaining handles remaining args after parsing.
+// followRemaining handles remaining args after parsing in multi-root mode.
+// In single-root mode, remaining args would cause a parse error, not reach this path.
 func (s *completionState) followRemaining(result parseResult) bool {
-	if !s.singleRoot {
-		nextRoot := findCompletionRoot(s.roots, result.remaining[0])
-		if nextRoot == nil {
-			return false
-		}
-
-		s.currentNode = nextRoot
-		s.processedArgs = result.remaining[1:]
-		s.explicit = true
-		s.atRoot = false
-
-		return true
+	nextRoot := findCompletionRoot(s.roots, result.remaining[0])
+	if nextRoot == nil {
+		return false
 	}
 
-	s.currentNode = s.roots[0]
-	s.processedArgs = result.remaining
-	s.explicit = false
-	s.atRoot = true
+	s.currentNode = nextRoot
+	s.processedArgs = result.remaining[1:]
+	s.explicit = true
+	s.atRoot = false
 
 	return true
 }
@@ -241,6 +217,12 @@ func (s *completionState) resolveCommandChain() {
 	for {
 		nextChain, result, err := completionParse(s.currentNode, s.processedArgs, s.explicit)
 		if err != nil {
+			// For completion, we still want the chain even if parsing partially failed.
+			// This handles cases like grouped short flags with a value-taking flag at the end (-vao).
+			if errors.Is(err, errShortFlagGroupNotBool) && len(nextChain) > 0 {
+				s.chain = nextChain
+			}
+
 			return
 		}
 
@@ -621,16 +603,6 @@ func collectInstanceEnums(current commandInstance, enumByFlag map[string][]strin
 	return nil
 }
 
-func completionChain(node *commandNode, args []string) ([]commandInstance, error) {
-	if node == nil {
-		return nil, nil
-	}
-
-	chain, _, err := completionParse(node, args, true)
-
-	return chain, err
-}
-
 func completionFlagSpecs(chain []commandInstance) (map[string]completionFlagSpec, error) {
 	specs := map[string]completionFlagSpec{}
 
@@ -738,6 +710,14 @@ func enumValuesForArg(
 		return values, true, nil
 	}
 
+	// Handle grouped short flags like -vao where -o takes a value
+	if isGroupedShortFlag(previous) {
+		lastFlag := extractLastShortFlag(previous)
+		if values, ok := enumByFlag[lastFlag]; ok {
+			return values, true, nil
+		}
+	}
+
 	return nil, false, nil
 }
 
@@ -798,6 +778,18 @@ func expectingShortFlagValue(flag string, specs map[string]completionFlagSpec) b
 	return expectingGroupedShortFlagValue(flag, specs)
 }
 
+// extractLastShortFlag extracts the last short flag from a grouped flag like -abc -> -c.
+func extractLastShortFlag(arg string) string {
+	group := strings.TrimPrefix(arg, "-")
+	if len(group) == 0 {
+		return arg
+	}
+	// Get the last rune as a string
+	runes := []rune(group)
+
+	return "-" + string(runes[len(runes)-1])
+}
+
 // extractPrefixAndArgs separates the current prefix from processed args.
 func extractPrefixAndArgs(parts []string, isNewArg bool) (string, []string) {
 	if !isNewArg && len(parts) > 0 {
@@ -825,6 +817,14 @@ func hasFlagValuePrefix(arg string, flags map[string]bool) bool {
 	}
 
 	return false
+}
+
+// isGroupedShortFlag checks if arg is a grouped short flag like -abc (not --long or -x).
+func isGroupedShortFlag(arg string) bool {
+	return strings.HasPrefix(arg, "-") &&
+		!strings.HasPrefix(arg, "--") &&
+		len(arg) > singleShortFlagLen &&
+		!strings.Contains(arg, "=")
 }
 
 func isWhitespace(ch byte) bool {
@@ -908,7 +908,6 @@ func printIfPrefix(w io.Writer, name, prefix string) {
 func skipTargFlags(args []string) []string {
 	result := make([]string, 0, len(args))
 
-	exitEarly := targExitEarlyFlags()
 	flagsWithValues := targFlagsWithValues()
 	booleanFlags := targBooleanFlags()
 
@@ -917,11 +916,6 @@ func skipTargFlags(args []string) []string {
 		if skip {
 			skip = false
 			continue
-		}
-		// Exit-early flags consume all remaining args
-		// NOTE: --init, --alias, --move have been removed; exitEarly is currently empty
-		if exitEarly[arg] {
-			break
 		}
 		// Flags that take a value - skip flag and next arg
 		if flagsWithValues[arg] {
@@ -1053,13 +1047,6 @@ func targBooleanFlags() map[string]bool {
 		"-h":                true,
 		"--retry":           true,
 	}
-}
-
-// targExitEarlyFlags returns flags that cause targ to exit without running commands.
-// Everything after these flags is consumed by them.
-// NOTE: --init, --alias, --move have been removed; use --create instead.
-func targExitEarlyFlags() map[string]bool {
-	return map[string]bool{}
 }
 
 // targFlagsWithValues returns flags that consume the next argument as a value.

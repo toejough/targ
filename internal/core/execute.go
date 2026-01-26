@@ -1,10 +1,10 @@
 package core
 
 import (
-	"errors"
 	"fmt"
 	"io"
 	"os"
+	"strings"
 )
 
 // ExecuteRegistered runs the registered targets using os.Args and exits on error.
@@ -39,18 +39,11 @@ func RegisterTarget(targets ...any) {
 }
 
 // RunWithOptions executes the CLI using os.Args and exits on error.
+// Exit is handled by RunWithEnv via the environment interface.
 func RunWithOptions(opts RunOptions, targets ...any) {
 	env := osRunEnv{}
-
-	err := RunWithEnv(env, opts, targets...)
-	if err != nil {
-		var exitErr ExitError
-		if errors.As(err, &exitErr) {
-			env.Exit(exitErr.Code)
-		} else {
-			env.Exit(1)
-		}
-	}
+	_ = RunWithEnv(env, opts, targets...)
+	// Exit is called by RunWithEnv via env.Exit()
 }
 
 // SetRegistry replaces the global registry (for testing).
@@ -69,8 +62,37 @@ func (osRunEnv) Args() []string {
 	return os.Args
 }
 
+func (osRunEnv) BinaryName() string {
+	if name := os.Getenv("TARG_BIN_NAME"); name != "" {
+		return name
+	}
+
+	if len(os.Args) == 0 {
+		return "targ"
+	}
+
+	name := os.Args[0]
+	if idx := strings.LastIndex(name, "/"); idx != -1 {
+		name = name[idx+1:]
+	}
+
+	if idx := strings.LastIndex(name, "\\"); idx != -1 {
+		name = name[idx+1:]
+	}
+
+	return name
+}
+
 func (osRunEnv) Exit(code int) {
 	os.Exit(code)
+}
+
+func (osRunEnv) Getenv(key string) string {
+	return os.Getenv(key)
+}
+
+func (osRunEnv) Getwd() (string, error) {
+	return os.Getwd()
 }
 
 func (osRunEnv) Printf(f string, a ...any) {

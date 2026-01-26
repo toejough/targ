@@ -154,19 +154,6 @@ func (n *commandNode) executeWithParents(
 		_, _ = fmt.Fprintln(w)
 	}
 
-	if remaining, done := handleHelpFlag(n, args, opts); done {
-		return remaining, nil
-	}
-
-	ctx, args, cancel, err := applyTimeout(ctx, args, opts)
-	if err != nil {
-		return nil, err
-	}
-
-	if cancel != nil {
-		defer cancel()
-	}
-
 	if n.Func.IsValid() {
 		return executeFunctionWithParents(ctx, args, n, parents, visited, explicit, opts)
 	}
@@ -176,12 +163,7 @@ func (n *commandNode) executeWithParents(
 	}
 
 	// Handle groups: nodes with Subcommands but no Func
-	if len(n.Subcommands) > 0 {
-		return executeGroupWithParents(ctx, args, n, parents, visited, opts)
-	}
-
-	// Struct commands are no longer supported
-	return nil, errStructNotSupported
+	return executeGroupWithParents(ctx, args, n, parents, visited, opts)
 }
 
 type flagHelp struct {
@@ -356,52 +338,7 @@ func applyTagPart(opts *TagOptions, p string) {
 	}
 }
 
-// applyTimeout extracts timeout from args and creates context with deadline.
-func applyTimeout(
-	ctx context.Context,
-	args []string,
-	opts RunOptions,
-) (context.Context, []string, context.CancelFunc, error) {
-	if opts.DisableTimeout {
-		return ctx, args, nil, nil
-	}
-
-	timeout, remaining, err := extractTimeout(args)
-	if err != nil {
-		return ctx, args, nil, err
-	}
-
-	if timeout <= 0 {
-		return ctx, remaining, nil, nil
-	}
-
-	newCtx, cancel := context.WithTimeout(ctx, timeout)
-
-	return newCtx, remaining, cancel, nil
-}
-
 // --- Help output ---
-
-func binaryName() string {
-	if name := os.Getenv("TARG_BIN_NAME"); name != "" {
-		return name
-	}
-
-	if len(os.Args) == 0 {
-		return "targ"
-	}
-
-	name := os.Args[0]
-	if idx := strings.LastIndex(name, "/"); idx != -1 {
-		name = name[idx+1:]
-	}
-
-	if idx := strings.LastIndex(name, "\\"); idx != -1 {
-		name = name[idx+1:]
-	}
-
-	return name
-}
 
 // buildCommandPath builds the full command path from root to this node.
 
@@ -458,23 +395,6 @@ func buildShortToLongMap(vars []string) map[string]string {
 	return result
 }
 
-func buildUsageLine(node *commandNode) (string, error) {
-	parts, err := buildUsageParts(node)
-	if err != nil {
-		return "", err
-	}
-
-	return strings.Join(parts, " "), nil
-}
-
-// buildUsageLineForPath builds a usage line with the given command path.
-//
-
-func buildUsageLineForPath(node *commandNode, binName, fullPath string) string {
-	parts := buildUsagePartsForPath(node, binName, fullPath)
-	return strings.Join(parts, " ")
-}
-
 // buildUsageParts builds the usage parts for a command.
 func buildUsageParts(node *commandNode) ([]string, error) {
 	parts := []string{node.Name}
@@ -515,53 +435,10 @@ func buildUsageParts(node *commandNode) ([]string, error) {
 	return parts, nil
 }
 
-// buildUsagePartsForPath builds usage parts with the given command path.
-func buildUsagePartsForPath(node *commandNode, binName, fullPath string) []string {
-	parts := []string{binName, fullPath}
-
-	flags, err := collectFlagHelp(node)
-	if err == nil {
-		for _, item := range flags {
-			flagStr := formatFlagUsageWrapped(item)
-			if item.Required {
-				parts = append(parts, flagStr)
-			} else {
-				parts = append(parts, "["+flagStr+"]")
-			}
-		}
-	}
-
-	if len(node.Subcommands) > 0 {
-		parts = append(parts, "[subcommand]")
-	}
-
-	positionals, err := collectPositionalHelp(node)
-	if err == nil {
-		for _, item := range positionals {
-			name := item.Name
-			if item.Placeholder != "" {
-				name = item.Placeholder
-			}
-
-			if name == "" {
-				name = "ARG"
-			}
-
-			if item.Required {
-				parts = append(parts, name)
-			} else {
-				parts = append(parts, "["+name+"]")
-			}
-		}
-	}
-
-	return parts
-}
-
-// builtinExamplesForNodes returns examples using actual command names.
-func builtinExamplesForNodes(nodes []*commandNode) []Example {
+// builtinExamplesForNodesWithGetenv returns examples using injected getenv.
+func builtinExamplesForNodesWithGetenv(getenv func(string) string, nodes []*commandNode) []Example {
 	return []Example{
-		completionExample(),
+		completionExampleWithGetenv(getenv),
 		chainExample(nodes),
 	}
 }
@@ -810,8 +687,14 @@ func collectPositionalHelp(node *commandNode) ([]positionalHelp, error) {
 }
 
 // completionExample returns a shell-specific completion setup example.
+// Uses os.Getenv - call this only from exported API functions.
 func completionExample() Example {
-	shell := detectCurrentShell()
+	return completionExampleWithGetenv(os.Getenv)
+}
+
+// completionExampleWithGetenv returns a shell-specific completion setup example using injected getenv.
+func completionExampleWithGetenv(getenv func(string) string) Example {
+	shell := detectCurrentShell(getenv)
 
 	var code string
 
@@ -830,11 +713,12 @@ func completionExample() Example {
 	}
 }
 
-// detectCurrentShell returns the name of the current shell.
-func detectCurrentShell() string {
-	shell := os.Getenv("SHELL")
+// detectCurrentShell returns the name of the current shell using the provided getenv function.
+// Defaults to "bash" if SHELL is not set, since bash syntax is the fallback.
+func detectCurrentShell(getenv func(string) string) string {
+	shell := getenv("SHELL")
 	if shell == "" {
-		return "unknown"
+		return bashShell
 	}
 
 	return filepath.Base(shell)
@@ -1225,30 +1109,10 @@ func formatFlagUsage(item flagHelp) string {
 	return name
 }
 
-// formatFlagUsageWrapped formats a flag for use in usage line.
-func formatFlagUsageWrapped(item flagHelp) string {
-	name := "--" + item.Name
-	if item.Short != "" {
-		name = fmt.Sprintf("--%s, -%s", item.Name, item.Short)
-	}
-
-	if item.Placeholder != "" && item.Placeholder != "[flag]" {
-		name = fmt.Sprintf("%s %s", name, item.Placeholder)
-	}
-
-	return name
-}
-
+// funcSourceFile returns the source file path for a function.
+// Callers must ensure v is a valid, non-nil function value.
 func funcSourceFile(v reflect.Value) string {
-	if !v.IsValid() || v.Kind() != reflect.Func || v.IsNil() {
-		return ""
-	}
-
 	fn := runtime.FuncForPC(v.Pointer())
-	if fn == nil {
-		return ""
-	}
-
 	file, _ := fn.FileLine(v.Pointer())
 
 	return file
@@ -1279,17 +1143,14 @@ func getNodeSourceFile(node *commandNode) string {
 	return node.SourceFile
 }
 
-// getStdout returns the stdout writer from options, defaulting to os.Stdout.
+// getStdout returns the stdout writer from options.
+// Callers must ensure opts.Stdout is set (RunWithEnv sets it from env.Stdout()).
 func getStdout(opts RunOptions) io.Writer {
-	if opts.Stdout != nil {
-		return opts.Stdout
-	}
-
-	return os.Stdout
+	return opts.Stdout
 }
 
 // groupNodesBySource groups nodes by their source file, preserving order.
-func groupNodesBySource(nodes []*commandNode) []struct {
+func groupNodesBySource(nodes []*commandNode, opts RunOptions) []struct {
 	source string
 	nodes  []*commandNode
 } {
@@ -1300,8 +1161,10 @@ func groupNodesBySource(nodes []*commandNode) []struct {
 	}, 0, len(nodes))
 	sourceIndex := make(map[string]int)
 
+	getwd := optsGetwd(opts)
+
 	for _, node := range nodes {
-		source := relativeSourcePath(getNodeSourceFile(node))
+		source := relativeSourcePathWithGetwd(getNodeSourceFile(node), getwd)
 		if source == "" {
 			source = "(unknown)"
 		}
@@ -1318,22 +1181,6 @@ func groupNodesBySource(nodes []*commandNode) []struct {
 	}
 
 	return groups
-}
-
-// handleHelpFlag checks for --help flag and prints help if requested.
-func handleHelpFlag(n *commandNode, args []string, opts RunOptions) ([]string, bool) {
-	if opts.DisableHelp || opts.HelpOnly {
-		return nil, false
-	}
-
-	helpRequested, remaining := extractHelpFlag(args)
-	if !helpRequested {
-		return nil, false
-	}
-
-	printCommandHelp(getStdout(opts), n, opts)
-
-	return remaining, true
 }
 
 func isContextType(t reflect.Type) bool {
@@ -1431,6 +1278,17 @@ func nodeInstance(node *commandNode) reflect.Value {
 	}
 
 	return reflect.New(node.Type).Elem()
+}
+
+// optsGetenv returns the getenv function from options.
+// Callers must ensure opts.Getenv is set (RunWithEnv sets it from env.Getenv).
+func optsGetenv(opts RunOptions) func(string) string {
+	return opts.Getenv
+}
+
+// optsGetwd returns the Getwd function from opts.
+func optsGetwd(opts RunOptions) func() (string, error) {
+	return opts.Getwd
 }
 
 func parseFunc(v reflect.Value) (*commandNode, error) {
@@ -1759,14 +1617,18 @@ func positionalName(item positionalHelp) string {
 }
 
 func printCommandHelp(w io.Writer, node *commandNode, opts RunOptions) {
-	binName := binaryName()
+	binName := opts.BinaryName
 
 	// Description first (consistent with top-level)
 	printDescription(w, node.Description)
 
 	// Source location (for build tool targets)
 	if node.SourceFile != "" {
-		_, _ = fmt.Fprintf(w, "Source: %s\n\n", relativeSourcePath(node.SourceFile))
+		_, _ = fmt.Fprintf(
+			w,
+			"Source: %s\n\n",
+			relativeSourcePathWithGetwd(node.SourceFile, optsGetwd(opts)),
+		)
 	}
 
 	// Shell command (for shell targets)
@@ -1815,26 +1677,6 @@ func printCommandHelp(w io.Writer, node *commandNode, opts RunOptions) {
 	printMoreInfo(w, opts)
 }
 
-func printCommandSummary(w io.Writer, node *commandNode, indent string) {
-	_, _ = fmt.Fprintf(w, "%s%-20s %s\n", indent, node.Name, node.Description)
-
-	// Recursively print subcommands
-	// Sort subcommands by name for consistent output
-	subcommandNames := make([]string, 0, len(node.Subcommands))
-	for name := range node.Subcommands {
-		subcommandNames = append(subcommandNames, name)
-	}
-
-	sort.Strings(subcommandNames)
-
-	for _, name := range subcommandNames {
-		sub := node.Subcommands[name]
-		if sub != nil {
-			printCommandSummary(w, sub, indent+"  ")
-		}
-	}
-}
-
 func printDescription(w io.Writer, desc string) {
 	if desc != "" {
 		_, _ = fmt.Fprintln(w, desc)
@@ -1858,11 +1700,15 @@ func printExampleList(w io.Writer, examples []Example) {
 func printExamples(w io.Writer, opts RunOptions, isRoot bool) {
 	examples := opts.Examples
 	if examples == nil {
+		getenv := optsGetenv(opts)
 		if isRoot {
-			examples = BuiltinExamples()
+			examples = []Example{
+				completionExampleWithGetenv(getenv),
+				chainExample(nil),
+			}
 		} else {
 			// At subcommand level, only show chaining example
-			examples = []Example{BuiltinExamples()[1]}
+			examples = []Example{chainExample(nil)}
 		}
 	}
 
@@ -1872,7 +1718,7 @@ func printExamples(w io.Writer, opts RunOptions, isRoot bool) {
 func printExamplesForNodes(w io.Writer, opts RunOptions, nodes []*commandNode) {
 	examples := opts.Examples
 	if examples == nil {
-		examples = builtinExamplesForNodes(nodes)
+		examples = builtinExamplesForNodesWithGetenv(optsGetenv(opts), nodes)
 	}
 
 	printExampleList(w, examples)
@@ -2034,7 +1880,7 @@ func printTopLevelCommand(w io.Writer, node *commandNode, width int) {
 }
 
 func printUsage(w io.Writer, nodes []*commandNode, opts RunOptions) {
-	binName := binaryName()
+	binName := opts.BinaryName
 
 	// Description first (consistent with command-level)
 	if opts.Description != "" {
@@ -2051,7 +1897,7 @@ func printUsage(w io.Writer, nodes []*commandNode, opts RunOptions) {
 	// Commands grouped by source
 	_, _ = fmt.Fprintln(w, "\nCommands:")
 
-	groups := groupNodesBySource(nodes)
+	groups := groupNodesBySource(nodes, opts)
 	for i, group := range groups {
 		if i > 0 {
 			_, _ = fmt.Fprintln(w)
@@ -2073,7 +1919,7 @@ func printUsage(w io.Writer, nodes []*commandNode, opts RunOptions) {
 func printValuesAndFormats(w io.Writer, opts RunOptions, isRoot bool) {
 	// Values section (only if completion is shown)
 	if isRoot && !opts.DisableCompletion {
-		shell := detectCurrentShell()
+		shell := detectCurrentShell(optsGetenv(opts))
 
 		_, _ = fmt.Fprintln(w, "\nValues:")
 		_, _ = fmt.Fprintf(
@@ -2103,12 +1949,7 @@ func printWrappedUsage(w io.Writer, prefix string, parts []string) {
 	writeWrappedUsage(w, prefix, parts)
 }
 
-// relativeSourcePath returns a relative path if possible, otherwise the absolute path.
-func relativeSourcePath(absPath string) string {
-	return relativeSourcePathWithGetwd(absPath, os.Getwd)
-}
-
-// relativeSourcePathWithGetwd is a testable version that accepts a working directory getter.
+// relativeSourcePathWithGetwd returns a relative path if possible, otherwise the absolute path.
 func relativeSourcePathWithGetwd(absPath string, getwd func() (string, error)) string {
 	if absPath == "" {
 		return ""
@@ -2124,8 +1965,6 @@ func relativeSourcePathWithGetwd(absPath string, getwd func() (string, error)) s
 		return absPath
 	}
 
-	// If the relative path starts with "..", it might be cleaner to show absolute
-	// But for now, always prefer relative
 	return relPath
 }
 
@@ -2291,19 +2130,8 @@ func tagOptionsForField(inst reflect.Value, field reflect.StructField) (TagOptio
 }
 
 func tagOptionsInstance(node *commandNode) reflect.Value {
-	if node == nil {
-		return reflect.Value{}
-	}
-
-	if node.Value.IsValid() {
-		return node.Value
-	}
-
-	if node.Type != nil {
-		return reflect.New(node.Type).Elem()
-	}
-
-	return reflect.Value{}
+	// Callers have already checked node.Type != nil before calling this function.
+	return reflect.New(node.Type).Elem()
 }
 
 func tagOptionsMethod(inst reflect.Value) reflect.Value {

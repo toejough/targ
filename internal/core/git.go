@@ -2,24 +2,28 @@ package core
 
 import (
 	"bufio"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 )
+
+// FileOpener is a function that opens a file for reading.
+type FileOpener func(path string) (io.ReadCloser, error)
 
 // DetectRepoURL attempts to find the repository URL by parsing .git/config.
 // It walks up from the current directory looking for a .git directory,
 // then parses the config file for the remote "origin" URL.
 // Returns empty string if not found.
 func DetectRepoURL() string {
-	return detectRepoURLWithGetwd(os.Getwd)
+	return DetectRepoURLWithDeps(os.Getwd, osOpen)
 }
 
-// detectRepoURLFromDir walks up from dir looking for .git/config.
-func detectRepoURLFromDir(dir string) string {
+// DetectRepoURLFromDirWithOpen walks up from dir looking for .git/config using injected opener.
+func DetectRepoURLFromDirWithOpen(dir string, open FileOpener) string {
 	for {
 		gitConfig := filepath.Join(dir, ".git", "config")
-		if url := parseGitConfigOriginURL(gitConfig); url != "" {
+		if url := ParseGitConfigOriginURLWithOpen(gitConfig, open); url != "" {
 			return url
 		}
 
@@ -32,18 +36,18 @@ func detectRepoURLFromDir(dir string) string {
 	}
 }
 
-// detectRepoURLWithGetwd is a testable version that accepts a working directory getter.
-func detectRepoURLWithGetwd(getwd func() (string, error)) string {
+// DetectRepoURLWithDeps is a testable version that accepts injected dependencies.
+func DetectRepoURLWithDeps(getwd func() (string, error), open FileOpener) string {
 	dir, err := getwd()
 	if err != nil {
 		return ""
 	}
 
-	return detectRepoURLFromDir(dir)
+	return DetectRepoURLFromDirWithOpen(dir, open)
 }
 
-// normalizeGitURL converts git@host:path to https://host/path format.
-func normalizeGitURL(url string) string {
+// NormalizeGitURL converts git@host:path to https://host/path format.
+func NormalizeGitURL(url string) string {
 	// Handle SSH format: git@github.com:user/repo.git
 	if after, ok := strings.CutPrefix(url, "git@"); ok {
 		url = after
@@ -57,16 +61,10 @@ func normalizeGitURL(url string) string {
 	return url
 }
 
-// parseGitConfigOriginURL reads a git config file and extracts the origin remote URL.
-func parseGitConfigOriginURL(path string) string {
-	f, err := os.Open(path) //nolint:gosec // path is .git/config, not user-controlled
-	if err != nil {
-		return ""
-	}
-
-	defer func() { _ = f.Close() }()
-
-	scanner := bufio.NewScanner(f)
+// ParseGitConfigContent extracts the origin remote URL from git config content.
+// This is a pure function that operates on an io.Reader.
+func ParseGitConfigContent(r io.Reader) string {
+	scanner := bufio.NewScanner(r)
 	inOrigin := false
 
 	for scanner.Scan() {
@@ -90,10 +88,27 @@ func parseGitConfigOriginURL(path string) string {
 
 			parts := strings.SplitN(line, "=", keyValueParts)
 			if len(parts) == keyValueParts {
-				return normalizeGitURL(strings.TrimSpace(parts[1]))
+				return NormalizeGitURL(strings.TrimSpace(parts[1]))
 			}
 		}
 	}
 
 	return ""
+}
+
+// ParseGitConfigOriginURLWithOpen reads a git config file using injected opener.
+func ParseGitConfigOriginURLWithOpen(path string, open FileOpener) string {
+	f, err := open(path)
+	if err != nil {
+		return ""
+	}
+
+	defer func() { _ = f.Close() }()
+
+	return ParseGitConfigContent(f)
+}
+
+// osOpen wraps os.Open to match the FileOpener signature.
+func osOpen(path string) (io.ReadCloser, error) {
+	return os.Open(path) //nolint:gosec // path is .git/config, not user-controlled
 }

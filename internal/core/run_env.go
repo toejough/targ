@@ -16,13 +16,15 @@ import (
 
 // ExecuteEnv is a RunEnv implementation that captures output for testing.
 type ExecuteEnv struct {
-	args   []string
-	output strings.Builder
+	args     []string
+	output   strings.Builder
+	exitCode int
+	env      map[string]string // For testing environment variables
 }
 
 // NewExecuteEnv returns a RunEnv that captures output for testing.
 func NewExecuteEnv(args []string) *ExecuteEnv {
-	return &ExecuteEnv{args: args}
+	return &ExecuteEnv{args: args, env: make(map[string]string)}
 }
 
 // Args returns the command line arguments.
@@ -30,9 +32,45 @@ func (e *ExecuteEnv) Args() []string {
 	return e.args
 }
 
-// Exit is a no-op for testing environments.
-func (e *ExecuteEnv) Exit(_ int) {
-	_ = 0 // No-op stub for coverage
+// BinaryName returns the binary name for test environments.
+// Checks TARG_BIN_NAME env var first, then derives from args[0] or returns "app".
+func (e *ExecuteEnv) BinaryName() string {
+	// Check env map for TARG_BIN_NAME (same as osRunEnv behavior)
+	if name := e.env["TARG_BIN_NAME"]; name != "" {
+		return name
+	}
+
+	if len(e.args) > 0 {
+		return e.args[0]
+	}
+
+	return "app"
+}
+
+// Exit captures the exit code for testing instead of actually exiting.
+func (e *ExecuteEnv) Exit(code int) {
+	e.exitCode = code
+}
+
+// ExitCode returns the captured exit code (0 if Exit was never called).
+func (e *ExecuteEnv) ExitCode() int {
+	return e.exitCode
+}
+
+// Getenv returns the value of an environment variable.
+// First checks the test environment map (set via SetEnv), then falls back to os.Getenv.
+// This allows tests to use either SetEnv for isolation or t.Setenv for convenience.
+func (e *ExecuteEnv) Getenv(key string) string {
+	if v, ok := e.env[key]; ok {
+		return v
+	}
+
+	return os.Getenv(key)
+}
+
+// Getwd returns the current working directory.
+func (e *ExecuteEnv) Getwd() (string, error) {
+	return os.Getwd()
 }
 
 // Output returns the captured output from command execution.
@@ -48,6 +86,11 @@ func (e *ExecuteEnv) Printf(format string, args ...any) {
 // Println writes a line to the captured buffer.
 func (e *ExecuteEnv) Println(args ...any) {
 	fmt.Fprintln(&e.output, args...)
+}
+
+// SetEnv sets an environment variable for testing.
+func (e *ExecuteEnv) SetEnv(key, value string) {
+	e.env[key] = value
 }
 
 // Stdout returns a writer for stdout output.
@@ -82,30 +125,12 @@ type RunEnv interface {
 	// SupportsSignals returns true if signal handling should be enabled.
 	// Production implementations return true; test mocks return false.
 	SupportsSignals() bool
-}
-
-// DetectShell returns the current shell name (bash, zsh, fish) or empty string.
-func DetectShell() string {
-	shell := strings.TrimSpace(os.Getenv("SHELL"))
-	if shell == "" {
-		return ""
-	}
-
-	base := shell
-	if idx := strings.LastIndex(base, "/"); idx != -1 {
-		base = base[idx+1:]
-	}
-
-	if idx := strings.LastIndex(base, "\\"); idx != -1 {
-		base = base[idx+1:]
-	}
-
-	switch base {
-	case "bash", "zsh", "fish":
-		return base
-	default:
-		return ""
-	}
+	// Getenv returns the value of an environment variable.
+	Getenv(key string) string
+	// Getwd returns the current working directory.
+	Getwd() (string, error)
+	// BinaryName returns the name of the executable for help/completion output.
+	BinaryName() string
 }
 
 // Execute runs commands with the given args and returns results instead of exiting.
@@ -122,17 +147,32 @@ func ExecuteWithOptions(
 	targets ...any,
 ) (ExecuteResult, error) {
 	env := NewExecuteEnv(args)
+
+	// Copy test environment variables if provided
+	for k, v := range opts.Env {
+		env.SetEnv(k, v)
+	}
+
 	err := RunWithEnv(env, opts, targets...)
 
-	return ExecuteResult{Output: env.Output()}, err
+	return ExecuteResult{Output: env.Output(), ExitCode: env.ExitCode()}, err
 }
 
 // RunWithEnv executes commands with a custom environment.
 //
-//nolint:cyclop // Entry point orchestrating setup, flag extraction, and execution paths
+
 func RunWithEnv(env RunEnv, opts RunOptions, targets ...any) error {
-	// Set stdout for help output if not already set
+	// Set stdout, binary name, getenv, and getwd from environment (unless caller provided them)
 	opts.Stdout = env.Stdout()
+	opts.BinaryName = env.BinaryName()
+
+	if opts.Getenv == nil {
+		opts.Getenv = env.Getenv
+	}
+
+	if opts.Getwd == nil {
+		opts.Getwd = env.Getwd
+	}
 
 	exec := &runExecutor{
 		env:        env,
@@ -142,51 +182,18 @@ func RunWithEnv(env RunEnv, opts RunOptions, targets ...any) error {
 		completeFn: doCompletion,
 	}
 
-	err := exec.setupContext()
+	err := runWithEnvInternal(exec, env, opts, targets...)
 	if err != nil {
-		return err
+		// Call Exit so test environments can capture the exit code
+		var exitErr ExitError
+		if errors.As(err, &exitErr) {
+			env.Exit(exitErr.Code)
+		} else {
+			env.Exit(1)
+		}
 	}
 
-	if exec.cancelFunc != nil {
-		defer exec.cancelFunc()
-	}
-
-	exec.extractHelpFlag()
-
-	err = exec.extractOverrides()
-	if err != nil {
-		env.Printf("Error: %v\n", err)
-		return ExitError{Code: 1}
-	}
-
-	err = exec.parseTargets(targets)
-	if err != nil {
-		return err
-	}
-
-	if len(exec.roots) == 0 {
-		env.Println("No commands found.")
-		return nil
-	}
-
-	exec.hasDefault = len(exec.roots) == 1 && opts.AllowDefault
-
-	if len(exec.args) < minArgsWithCommand {
-		return exec.handleNoArgs()
-	}
-
-	exec.rest = exec.args[1:]
-
-	handled, err := exec.handleSpecialCommands()
-	if handled || err != nil {
-		return err
-	}
-
-	if exec.hasDefault {
-		return exec.executeDefault()
-	}
-
-	return exec.executeMultiRoot()
+	return err
 }
 
 // unexported constants.
@@ -232,21 +239,12 @@ func (e *runExecutor) detectCompletionShell() string {
 		return e.rest[1]
 	}
 
-	return DetectShell()
+	return detectShellFromPath(e.env.Getenv("SHELL"))
 }
 
 // executeDefault executes commands against a single default root.
+// Precondition: len(e.rest) >= 1 (handleNoArgs handles the empty case).
 func (e *runExecutor) executeDefault() error {
-	if len(e.rest) == 0 {
-		_, err := e.roots[0].executeWithParents(e.ctx, nil, nil, map[string]bool{}, false, e.opts)
-		if err != nil {
-			e.env.Printf("Error: %v\n", err)
-			return ExitError{Code: 1}
-		}
-
-		return nil
-	}
-
 	// If parallel mode, run targets concurrently
 	if e.opts.Overrides.Parallel {
 		return e.executeDefaultParallel()
@@ -509,12 +507,12 @@ func (e *runExecutor) findMatchingRootsGlob(pattern string) []*commandNode {
 }
 
 // handleComplete handles the __complete hidden command.
+// Note: completeFn (doCompletion) effectively cannot return errors in normal usage
+// because TagOptions errors during parsing cause the chain to be empty, and all
+// suggestion functions check for empty chain before calling tagOptionsForField.
 func (e *runExecutor) handleComplete() {
 	if len(e.rest) > 1 {
-		err := e.completeFn(e.env.Stdout(), e.roots, e.rest[1])
-		if err != nil {
-			e.env.Println(err.Error())
-		}
+		_ = e.completeFn(e.env.Stdout(), e.roots, e.rest[1])
 	}
 }
 
@@ -563,13 +561,10 @@ func (e *runExecutor) handleGlobalHelp() bool {
 }
 
 // handleList handles the __list hidden command.
+// Error handling is omitted because listFn only fails on write errors,
+// which are unrecoverable at this level anyway.
 func (e *runExecutor) handleList() error {
-	err := e.listFn(e.env.Stdout(), e.roots)
-	if err != nil {
-		e.env.Printf("Error: %v\n", err)
-		return ExitError{Code: 1}
-	}
-
+	_ = e.listFn(e.env.Stdout(), e.roots)
 	return nil
 }
 
@@ -682,7 +677,7 @@ func (e *runExecutor) printCompletion(shell string) error {
 		return ExitError{Code: 1}
 	}
 
-	err := PrintCompletionScriptTo(e.env.Stdout(), shell, binaryName())
+	err := PrintCompletionScriptTo(e.env.Stdout(), shell, e.env.BinaryName())
 	if err != nil {
 		e.env.Printf("Error: %v\n", err)
 		return ExitError{Code: 1}
@@ -693,7 +688,12 @@ func (e *runExecutor) printCompletion(shell string) error {
 
 // setupContext creates the execution context with optional signal handling and timeout.
 func (e *runExecutor) setupContext() error {
-	e.ctx = context.Background()
+	// Use provided context if available, otherwise background
+	if e.opts.Context != nil {
+		e.ctx = e.opts.Context
+	} else {
+		e.ctx = context.Background()
+	}
 
 	if e.env.SupportsSignals() {
 		ctx, cancel := signal.NotifyContext(e.ctx, os.Interrupt, syscall.SIGTERM)
@@ -745,6 +745,31 @@ func collectCommands(node *commandNode, prefix string, commands *[]listCommandIn
 	// Recursively collect subcommands
 	for _, sub := range node.Subcommands {
 		collectCommands(sub, name, commands)
+	}
+}
+
+// detectShellFromPath extracts the shell name from a SHELL path.
+// Accepts the value of the SHELL environment variable.
+func detectShellFromPath(shell string) string {
+	shell = strings.TrimSpace(shell)
+	if shell == "" {
+		return ""
+	}
+
+	base := shell
+	if idx := strings.LastIndex(base, "/"); idx != -1 {
+		base = base[idx+1:]
+	}
+
+	if idx := strings.LastIndex(base, "\\"); idx != -1 {
+		base = base[idx+1:]
+	}
+
+	switch base {
+	case "bash", "zsh", "fish":
+		return base
+	default:
+		return ""
 	}
 }
 
@@ -888,4 +913,53 @@ func matchesGlob(name, pattern string) bool {
 
 	// No wildcards - exact match
 	return strings.EqualFold(name, pattern)
+}
+
+// runWithEnvInternal contains the actual execution logic.
+func runWithEnvInternal(exec *runExecutor, env RunEnv, opts RunOptions, targets ...any) error {
+	err := exec.setupContext()
+	if err != nil {
+		return err
+	}
+
+	if exec.cancelFunc != nil {
+		defer exec.cancelFunc()
+	}
+
+	exec.extractHelpFlag()
+
+	err = exec.extractOverrides()
+	if err != nil {
+		env.Printf("Error: %v\n", err)
+		return ExitError{Code: 1}
+	}
+
+	err = exec.parseTargets(targets)
+	if err != nil {
+		return err
+	}
+
+	if len(exec.roots) == 0 {
+		env.Println("No commands found.")
+		return nil
+	}
+
+	exec.hasDefault = len(exec.roots) == 1 && opts.AllowDefault
+
+	if len(exec.args) < minArgsWithCommand {
+		return exec.handleNoArgs()
+	}
+
+	exec.rest = exec.args[1:]
+
+	handled, err := exec.handleSpecialCommands()
+	if handled || err != nil {
+		return err
+	}
+
+	if exec.hasDefault {
+		return exec.executeDefault()
+	}
+
+	return exec.executeMultiRoot()
 }

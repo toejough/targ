@@ -26,14 +26,11 @@ const (
 
 // String returns the string representation of the dependency mode.
 func (m DepMode) String() string {
-	switch m {
-	case DepModeSerial:
-		return depModeSerialStr
-	case DepModeParallel:
+	if m == DepModeParallel {
 		return depModeParallelStr
-	default:
-		return depModeSerialStr
 	}
+
+	return depModeSerialStr
 }
 
 // Target represents a build target that can be invoked from the CLI.

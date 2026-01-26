@@ -1,6 +1,7 @@
 package core
 
 import (
+	"context"
 	"io"
 	"time"
 )
@@ -20,7 +21,8 @@ type Example struct {
 
 // ExecuteResult contains the result of executing a command.
 type ExecuteResult struct {
-	Output string
+	Output   string
+	ExitCode int
 }
 
 // Interleaved wraps a value to be parsed from interleaved positional arguments.
@@ -36,6 +38,11 @@ type RunOptions struct {
 	DisableTimeout    bool
 	DisableCompletion bool
 	HelpOnly          bool // Internal: set when --help is detected, skips execution
+
+	// Context is an optional context for controlling execution.
+	// If nil, a background context is used. For testing watch functionality,
+	// pass a cancellable context.
+	Context context.Context
 
 	// Description is shown at the top of help output (before Usage).
 	// Only shown for top-level --help, not when a specific command is requested.
@@ -61,6 +68,23 @@ type RunOptions struct {
 	// Stdout is the writer for help/usage output.
 	// Internal: set by the executor to the env's stdout.
 	Stdout io.Writer
+
+	// BinaryName is the executable name for help/completion output.
+	// Internal: set by the executor from env.BinaryName().
+	BinaryName string
+
+	// Env provides environment variable values for testing.
+	// When set, these values are used instead of os.Getenv for shell detection, etc.
+	// This allows tests to verify environment-dependent behavior without modifying real env.
+	Env map[string]string
+
+	// Getenv is the environment variable lookup function.
+	// Internal: set by runExecutor from env.Getenv. If nil, functions use os.Getenv.
+	Getenv func(string) string
+
+	// Getwd is the working directory lookup function.
+	// Internal: set by runExecutor from env.Getwd. If nil, functions use os.Getwd.
+	Getwd func() (string, error)
 }
 
 // TagKind represents the type of a struct tag (flag, positional, subcommand).
