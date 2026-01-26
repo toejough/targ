@@ -938,16 +938,10 @@ func fuzz() error {
 	return nil
 }
 
-func generate() error {
+func generate(ctx context.Context) error {
 	fmt.Println("Generating...")
 
-	// Run go generate with modified PATH
-	cmd := exec.Command("go", "generate", "./...")
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	return cmd.Run()
+	return targ.RunContext(ctx, "go", "generate", "./...")
 }
 
 func globs(dir string, ext []string) ([]string, error) {
