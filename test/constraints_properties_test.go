@@ -141,6 +141,16 @@ func TestProperty_Invariant(t *testing.T) {
 		g.Expect(func() { targ.Targ(nil) }).To(Panic())
 	})
 
+	t.Run("NilInTargetListLogsError", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		// Passing nil directly to Execute (not wrapped in targ.Targ)
+		// logs an error and skips the target
+		result, _ := targ.Execute([]string{"app"}, nil)
+		g.Expect(result.Output).To(ContainSubstring("nil target"))
+	})
+
 	t.Run("UnknownCommandHasClearError", func(t *testing.T) {
 		t.Parallel()
 		g := NewWithT(t)

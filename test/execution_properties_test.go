@@ -1197,4 +1197,181 @@ func TestProperty_Execution(t *testing.T) {
 		g.Expect(err).To(HaveOccurred())
 		g.Expect(execCount).To(Equal(1)) // Executed once before cancel
 	})
+
+	// Deps-only targets - targets with no function that just run dependencies
+	t.Run("DepsOnlyTargetRunsDependencies", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		aRan := false
+		bRan := false
+
+		a := targ.Targ(func() { aRan = true }).Name("a")
+		b := targ.Targ(func() { bRan = true }).Name("b")
+		all := targ.Targ().Name("all").Deps(a, b)
+
+		_, err := targ.Execute([]string{"app", "all"}, a, b, all)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(aRan).To(BeTrue())
+		g.Expect(bRan).To(BeTrue())
+	})
+
+	t.Run("DepsOnlyTargetErrorPropagates", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		dep := targ.Targ(func() error {
+			return errors.New("dep failed in deps-only")
+		}).Name("dep")
+
+		all := targ.Targ().Name("all").Deps(dep)
+
+		result, err := targ.Execute([]string{"app", "all"}, dep, all)
+		g.Expect(err).To(HaveOccurred())
+		g.Expect(result.Output).To(ContainSubstring("dep failed in deps-only"))
+	})
+
+	t.Run("DepsOnlyTargetHelpShowsDeps", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		depRan := false
+
+		dep := targ.Targ(func() { depRan = true }).Name("dep")
+		all := targ.Targ().Name("all").Deps(dep)
+
+		// Help should not run the deps
+		result, err := targ.Execute([]string{"app", "all", "--help"}, dep, all)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(depRan).To(BeFalse())
+		g.Expect(result.Output).To(ContainSubstring("all"))
+	})
+
+	t.Run("DepsOnlyTargetNoDepsSucceeds", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		// A deps-only target with no deps should still succeed
+		// Use a second target so it's not default mode (need to specify command name)
+		empty := targ.Targ().Name("empty")
+		other := targ.Targ(func() {}).Name("other")
+
+		_, err := targ.Execute([]string{"app", "empty"}, empty, other)
+		g.Expect(err).NotTo(HaveOccurred())
+	})
+
+	// Error propagation tests - verify errors bubble up through CLI path
+	t.Run("DependencyErrorPropagatesViaCLI", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		depErr := errors.New("dependency failed via CLI")
+		mainCalled := false
+
+		dep := targ.Targ(func() error {
+			return depErr
+		}).Name("dep")
+
+		main := targ.Targ(func() {
+			mainCalled = true
+		}).Name("main").Deps(dep)
+
+		// Execute via CLI path (not .Run()) to exercise runTargetWithOverrides
+		result, err := targ.Execute([]string{"app", "main"}, main, dep)
+		g.Expect(err).To(HaveOccurred())
+		g.Expect(result.Output).To(ContainSubstring("dependency failed via CLI"))
+		g.Expect(mainCalled).To(BeFalse())
+	})
+
+	t.Run("TargetExecutionErrorPropagatesViaCLI", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		execErr := errors.New("execution failed via CLI")
+
+		target := targ.Targ(func() error {
+			return execErr
+		}).Name("failing")
+
+		// Single target runs as default - no subcommand needed
+		result, err := targ.Execute([]string{"app"}, target)
+		g.Expect(err).To(HaveOccurred())
+		g.Expect(result.Output).To(ContainSubstring("execution failed via CLI"))
+	})
+
+	t.Run("RequiredFlagMissingPropagatesViaCLI", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		type Args struct {
+			Name string `targ:"flag,required"`
+		}
+
+		called := false
+		target := targ.Targ(func(_ Args) {
+			called = true
+		}).Name("cmd")
+
+		// Single target runs as default - no subcommand needed
+		result, err := targ.Execute([]string{"app"}, target)
+		g.Expect(err).To(HaveOccurred())
+		g.Expect(result.Output).To(ContainSubstring("required"))
+		g.Expect(called).To(BeFalse())
+	})
+
+	t.Run("ParallelDepsFirstErrorPropagates", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		dep1Err := errors.New("dep1 failed")
+
+		dep1 := targ.Targ(func() error {
+			return dep1Err
+		}).Name("dep1")
+
+		dep2 := targ.Targ(func() error {
+			time.Sleep(50 * time.Millisecond) // Delay to ensure dep1 fails first
+			return errors.New("dep2 failed")
+		}).Name("dep2")
+
+		mainCalled := false
+		main := targ.Targ(func() {
+			mainCalled = true
+		}).Name("main").Deps(dep1, dep2, targ.DepModeParallel)
+
+		result, err := targ.Execute([]string{"app", "main"}, main, dep1, dep2)
+		g.Expect(err).To(HaveOccurred())
+		g.Expect(result.Output).To(ContainSubstring("dep1 failed"))
+		g.Expect(mainCalled).To(BeFalse())
+	})
+
+	t.Run("SerialDepsStopOnFirstError", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		dep1Called := false
+		dep2Called := false
+
+		dep1 := targ.Targ(func() error {
+			dep1Called = true
+			return errors.New("dep1 serial failed")
+		}).Name("dep1")
+
+		dep2 := targ.Targ(func() error {
+			dep2Called = true
+			return nil
+		}).Name("dep2")
+
+		mainCalled := false
+		main := targ.Targ(func() {
+			mainCalled = true
+		}).Name("main").Deps(dep1, dep2) // Serial by default
+
+		result, err := targ.Execute([]string{"app", "main"}, main, dep1, dep2)
+		g.Expect(err).To(HaveOccurred())
+		g.Expect(result.Output).To(ContainSubstring("dep1 serial failed"))
+		g.Expect(dep1Called).To(BeTrue())
+		g.Expect(dep2Called).To(BeFalse()) // Should not run after dep1 fails
+		g.Expect(mainCalled).To(BeFalse())
+	})
 }

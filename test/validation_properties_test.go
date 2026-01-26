@@ -237,4 +237,27 @@ func TestProperty_Validation(t *testing.T) {
 		g.Expect(err).NotTo(HaveOccurred())
 		g.Expect(executed).To(BeTrue())
 	})
+
+	// Tests for Target-wrapped functions with validation errors
+	t.Run("TargetWrongReturnTypeReportsError", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		// Target with function returning non-error type
+		target := targ.Targ(func() int { return 42 }).Name("bad-return")
+
+		result, _ := targ.Execute([]string{"app", "bad-return"}, target)
+		g.Expect(result.Output).To(ContainSubstring("must return only error"))
+	})
+
+	t.Run("TargetMultipleReturnsReportsError", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		// Target with function returning multiple values
+		target := targ.Targ(func() (int, error) { return 0, nil }).Name("multi-return")
+
+		result, _ := targ.Execute([]string{"app", "multi-return"}, target)
+		g.Expect(result.Output).To(ContainSubstring("must return only error"))
+	})
 }
