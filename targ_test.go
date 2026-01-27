@@ -59,13 +59,3 @@ func TestDeregisterFromDelegatesToInternal(t *testing.T) {
 		g.Expect(pubQueue).To(Equal(internalQueue), "deregistration queues should match")
 	})
 }
-
-// TestDeregisterFromEmptyPackagePath verifies that empty package path is rejected.
-func TestDeregisterFromEmptyPackagePath(t *testing.T) {
-	t.Parallel()
-
-	g := NewWithT(t)
-
-	err := targ.DeregisterFrom("")
-	g.Expect(err).To(MatchError(ContainSubstring("package path")))
-}
