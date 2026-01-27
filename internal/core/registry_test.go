@@ -1,6 +1,8 @@
+//nolint:testpackage // Testing unexported applyDeregistrations function
 package core
 
 import (
+	"errors"
 	"testing"
 
 	. "github.com/onsi/gomega"
@@ -21,6 +23,7 @@ func TestProperty_DeregisteredPackageFullyRemoved(t *testing.T) {
 
 		// Generate registry with targets from deregistered package
 		numTargets := rapid.IntRange(1, 10).Draw(t, "numTargets")
+
 		registry := make([]any, numTargets)
 		for i := range numTargets {
 			target := Targ(func() {})
@@ -32,7 +35,7 @@ func TestProperty_DeregisteredPackageFullyRemoved(t *testing.T) {
 		result, err := applyDeregistrations(registry, []string{deregPkg})
 
 		// Should succeed
-		g.Expect(err).To(BeNil(), "deregistering package with targets should succeed")
+		g.Expect(err).ToNot(HaveOccurred(), "deregistering package with targets should succeed")
 
 		// Result should be empty - all targets removed
 		g.Expect(result).To(BeEmpty(),
@@ -40,103 +43,24 @@ func TestProperty_DeregisteredPackageFullyRemoved(t *testing.T) {
 	})
 }
 
-// TestProperty_OtherPackagesUntouched verifies that targets from non-deregistered
-// packages are preserved exactly.
-func TestProperty_OtherPackagesUntouched(t *testing.T) {
+// TestProperty_DeregistrationErrorMessage verifies the error message format.
+func TestProperty_DeregistrationErrorMessage(t *testing.T) {
 	t.Parallel()
 
 	rapid.Check(t, func(t *rapid.T) {
 		g := NewWithT(t)
 
-		// Generate two different package paths
-		deregPkg := rapid.StringMatching(`[a-z]+\.[a-z]+/[a-z][a-z0-9-]*/[a-z][a-z0-9-]*`).
-			Draw(t, "deregPkg")
-		otherPkg := rapid.StringMatching(`[a-z]+\.[a-z]+/[a-z][a-z0-9-]*/[a-z][a-z0-9-]*`).
-			Filter(func(s string) bool { return s != deregPkg }).
-			Draw(t, "otherPkg")
+		// Generate package path
+		pkg := rapid.StringMatching(`[a-z]+\.[a-z]+/[a-z][a-z0-9-]*/[a-z][a-z0-9-]*`).
+			Draw(t, "pkg")
 
-		// Generate registry with mixed packages
-		numDeregTargets := rapid.IntRange(1, 5).Draw(t, "numDeregTargets")
-		numOtherTargets := rapid.IntRange(1, 5).Draw(t, "numOtherTargets")
+		// Create error
+		err := &DeregistrationError{PackagePath: pkg}
 
-		registry := make([]any, 0, numDeregTargets+numOtherTargets)
-		expectedOther := make([]*Target, 0, numOtherTargets)
-
-		// Add targets from deregistered package
-		for range numDeregTargets {
-			target := Targ(func() {})
-			target.sourcePkg = deregPkg
-			registry = append(registry, target)
-		}
-
-		// Add targets from other package
-		for range numOtherTargets {
-			target := Targ(func() {})
-			target.sourcePkg = otherPkg
-			registry = append(registry, target)
-			expectedOther = append(expectedOther, target)
-		}
-
-		// Apply deregistration
-		result, err := applyDeregistrations(registry, []string{deregPkg})
-
-		// Should succeed
-		g.Expect(err).To(BeNil(), "deregistering package should succeed")
-
-		// Result should contain only targets from other package
-		g.Expect(result).To(HaveLen(numOtherTargets),
-			"should preserve all targets from non-deregistered packages")
-
-		// Verify the exact targets are preserved
-		for i, item := range result {
-			target, ok := item.(*Target)
-			g.Expect(ok).To(BeTrue(), "result should contain Target pointers")
-			g.Expect(target).To(BeIdenticalTo(expectedOther[i]),
-				"should preserve exact target instances")
-			g.Expect(target.sourcePkg).To(Equal(otherPkg),
-				"preserved targets should have correct source package")
-		}
-	})
-}
-
-// TestProperty_UnknownPackageErrors verifies that deregistering a package with no
-// targets in the registry returns an error.
-func TestProperty_UnknownPackageErrors(t *testing.T) {
-	t.Parallel()
-
-	rapid.Check(t, func(t *rapid.T) {
-		g := NewWithT(t)
-
-		// Generate two different package paths
-		existingPkg := rapid.StringMatching(`[a-z]+\.[a-z]+/[a-z][a-z0-9-]*/[a-z][a-z0-9-]*`).
-			Draw(t, "existingPkg")
-		unknownPkg := rapid.StringMatching(`[a-z]+\.[a-z]+/[a-z][a-z0-9-]*/[a-z][a-z0-9-]*`).
-			Filter(func(s string) bool { return s != existingPkg }).
-			Draw(t, "unknownPkg")
-
-		// Create registry with targets from existing package
-		numTargets := rapid.IntRange(1, 5).Draw(t, "numTargets")
-		registry := make([]any, numTargets)
-		for i := range numTargets {
-			target := Targ(func() {})
-			target.sourcePkg = existingPkg
-			registry[i] = target
-		}
-
-		// Try to deregister unknown package
-		_, err := applyDeregistrations(registry, []string{unknownPkg})
-
-		// Should return DeregistrationError
-		g.Expect(err).ToNot(BeNil(), "deregistering unknown package should error")
-
-		var deregErr *DeregistrationError
-		g.Expect(err).To(BeAssignableToTypeOf(deregErr),
-			"error should be *DeregistrationError")
-
-		deregErr, ok := err.(*DeregistrationError)
-		g.Expect(ok).To(BeTrue(), "error should be *DeregistrationError")
-		g.Expect(deregErr.PackagePath).To(Equal(unknownPkg),
-			"error should contain the unknown package path")
+		// Verify error message format
+		expectedMsg := `targ: DeregisterFrom("` + pkg + `"): no targets registered from this package`
+		g.Expect(err.Error()).To(Equal(expectedMsg),
+			"error message should match expected format")
 	})
 }
 
@@ -154,6 +78,7 @@ func TestProperty_EmptyDeregistrationsNoOp(t *testing.T) {
 
 		// Generate registry with targets
 		numTargets := rapid.IntRange(0, 10).Draw(t, "numTargets")
+
 		registry := make([]any, numTargets)
 		for i := range numTargets {
 			target := Targ(func() {})
@@ -165,7 +90,7 @@ func TestProperty_EmptyDeregistrationsNoOp(t *testing.T) {
 		result, err := applyDeregistrations(registry, []string{})
 
 		// Should succeed
-		g.Expect(err).To(BeNil(), "empty deregistrations should succeed")
+		g.Expect(err).ToNot(HaveOccurred(), "empty deregistrations should succeed")
 
 		// Result should be identical to input
 		g.Expect(result).To(HaveLen(len(registry)),
@@ -225,7 +150,7 @@ func TestProperty_MultiplePackagesDeregistered(t *testing.T) {
 		result, err := applyDeregistrations(registry, []string{pkg1, pkg2})
 
 		// Should succeed
-		g.Expect(err).To(BeNil(), "deregistering multiple packages should succeed")
+		g.Expect(err).ToNot(HaveOccurred(), "deregistering multiple packages should succeed")
 
 		// Result should contain only pkg3 targets
 		g.Expect(result).To(HaveLen(numPerPkg),
@@ -280,7 +205,7 @@ func TestProperty_NonTargetItemsPreserved(t *testing.T) {
 		result, err := applyDeregistrations(registry, []string{pkg})
 
 		// Should succeed
-		g.Expect(err).To(BeNil(), "deregistration should succeed")
+		g.Expect(err).ToNot(HaveOccurred(), "deregistration should succeed")
 
 		// Result should contain only non-Target items
 		g.Expect(result).To(HaveLen(numOther),
@@ -293,5 +218,107 @@ func TestProperty_NonTargetItemsPreserved(t *testing.T) {
 			g.Expect(str).To(Equal(expectedOther[i]),
 				"should preserve exact non-Target values")
 		}
+	})
+}
+
+// TestProperty_OtherPackagesUntouched verifies that targets from non-deregistered
+// packages are preserved exactly.
+func TestProperty_OtherPackagesUntouched(t *testing.T) {
+	t.Parallel()
+
+	rapid.Check(t, func(t *rapid.T) {
+		g := NewWithT(t)
+
+		// Generate two different package paths
+		deregPkg := rapid.StringMatching(`[a-z]+\.[a-z]+/[a-z][a-z0-9-]*/[a-z][a-z0-9-]*`).
+			Draw(t, "deregPkg")
+		otherPkg := rapid.StringMatching(`[a-z]+\.[a-z]+/[a-z][a-z0-9-]*/[a-z][a-z0-9-]*`).
+			Filter(func(s string) bool { return s != deregPkg }).
+			Draw(t, "otherPkg")
+
+		// Generate registry with mixed packages
+		numDeregTargets := rapid.IntRange(1, 5).Draw(t, "numDeregTargets")
+		numOtherTargets := rapid.IntRange(1, 5).Draw(t, "numOtherTargets")
+
+		registry := make([]any, 0, numDeregTargets+numOtherTargets)
+		expectedOther := make([]*Target, 0, numOtherTargets)
+
+		// Add targets from deregistered package
+		for range numDeregTargets {
+			target := Targ(func() {})
+			target.sourcePkg = deregPkg
+			registry = append(registry, target)
+		}
+
+		// Add targets from other package
+		for range numOtherTargets {
+			target := Targ(func() {})
+			target.sourcePkg = otherPkg
+			registry = append(registry, target)
+			expectedOther = append(expectedOther, target)
+		}
+
+		// Apply deregistration
+		result, err := applyDeregistrations(registry, []string{deregPkg})
+
+		// Should succeed
+		g.Expect(err).ToNot(HaveOccurred(), "deregistering package should succeed")
+
+		// Result should contain only targets from other package
+		g.Expect(result).To(HaveLen(numOtherTargets),
+			"should preserve all targets from non-deregistered packages")
+
+		// Verify the exact targets are preserved
+		for i, item := range result {
+			target, ok := item.(*Target)
+			g.Expect(ok).To(BeTrue(), "result should contain Target pointers")
+			g.Expect(target).To(BeIdenticalTo(expectedOther[i]),
+				"should preserve exact target instances")
+			g.Expect(target.sourcePkg).To(Equal(otherPkg),
+				"preserved targets should have correct source package")
+		}
+	})
+}
+
+// TestProperty_UnknownPackageErrors verifies that deregistering a package with no
+// targets in the registry returns an error.
+func TestProperty_UnknownPackageErrors(t *testing.T) {
+	t.Parallel()
+
+	rapid.Check(t, func(t *rapid.T) {
+		g := NewWithT(t)
+
+		// Generate two different package paths
+		existingPkg := rapid.StringMatching(`[a-z]+\.[a-z]+/[a-z][a-z0-9-]*/[a-z][a-z0-9-]*`).
+			Draw(t, "existingPkg")
+		unknownPkg := rapid.StringMatching(`[a-z]+\.[a-z]+/[a-z][a-z0-9-]*/[a-z][a-z0-9-]*`).
+			Filter(func(s string) bool { return s != existingPkg }).
+			Draw(t, "unknownPkg")
+
+		// Create registry with targets from existing package
+		numTargets := rapid.IntRange(1, 5).Draw(t, "numTargets")
+
+		registry := make([]any, numTargets)
+		for i := range numTargets {
+			target := Targ(func() {})
+			target.sourcePkg = existingPkg
+			registry[i] = target
+		}
+
+		// Try to deregister unknown package
+		_, err := applyDeregistrations(registry, []string{unknownPkg})
+
+		// Should return DeregistrationError
+		g.Expect(err).To(HaveOccurred(), "deregistering unknown package should error")
+
+		var deregErr *DeregistrationError
+		g.Expect(err).To(BeAssignableToTypeOf(deregErr),
+			"error should be *DeregistrationError")
+
+		deregErr = &DeregistrationError{}
+		ok := errors.As(err, &deregErr)
+		g.Expect(ok).To(BeTrue(), "error should be *DeregistrationError")
+		g.Expect(deregErr.PackagePath).To(Equal(unknownPkg),
+			"error should contain the unknown package path")
 	})
 }
