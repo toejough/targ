@@ -109,3 +109,34 @@ func TestProperty_ExtractPackagePath(t *testing.T) {
 		})
 	})
 }
+
+func TestProperty_CallerPackagePath(t *testing.T) {
+	t.Parallel()
+
+	t.Run("CallerFromThisPackageReturnsThisPackage", func(t *testing.T) {
+		t.Parallel()
+		rapid.Check(t, func(t *rapid.T) {
+			g := NewWithT(t)
+
+			// Depth 1 means immediate caller - which is this test function
+			result, err := callerPackagePath(1)
+
+			g.Expect(err).ToNot(HaveOccurred(), "callerPackagePath should not error with valid depth")
+			g.Expect(result).To(ContainSubstring("github.com/toejough/targ/internal/core"),
+				"caller package path should contain this package's path")
+		})
+	})
+
+	t.Run("InvalidDepthReturnsError", func(t *testing.T) {
+		t.Parallel()
+		rapid.Check(t, func(t *rapid.T) {
+			g := NewWithT(t)
+
+			// Very large depth should fail - no stack that deep
+			_, err := callerPackagePath(99999)
+
+			g.Expect(err).To(HaveOccurred(),
+				"callerPackagePath with invalid depth should return error")
+		})
+	})
+}
