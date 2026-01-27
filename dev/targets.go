@@ -1671,9 +1671,9 @@ func testForFail(ctx context.Context) error {
 	fmt.Println("Running unit tests for overall pass/fail...")
 	// Generate runs as dep before this function
 
-	// Clear stale coverage and test cache
-	os.Remove("coverage.out")
-
+	// Clear test cache to avoid stale results.
+	// Note: don't remove coverage.out here — go test -coverprofile overwrites it,
+	// and removing it races with parallel deps that walk the directory tree.
 	if err := targ.RunContext(ctx, "go", "clean", "-testcache"); err != nil {
 		return fmt.Errorf("failed to clean test cache: %w", err)
 	}
