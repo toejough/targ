@@ -514,6 +514,72 @@ func TestDeregisterFromBeforeResolutionSucceeds(t *testing.T) {
 	})
 }
 
+//nolint:paralleltest // Cannot run in parallel - modifies global registry state
+func TestRegisterTargetWithSkip_Skip0ResolvesCorePackage(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		g := NewWithT(t)
+
+		// Reset registry before test
+		core.SetRegistry(nil)
+		t.Cleanup(func() { core.SetRegistry(nil) })
+
+		// Create target without explicit source
+		target := core.Targ(func() {}).Name("test-target")
+
+		// Register with skip=0 (should resolve to core package)
+		core.RegisterTargetWithSkip(0, target)
+
+		// Verify source was set to core package
+		registry := core.GetRegistry()
+		g.Expect(registry).To(HaveLen(1),
+			"registry should contain one item")
+
+		registeredTarget, ok := registry[0].(*core.Target)
+		g.Expect(ok).To(BeTrue(),
+			"registry item should be a *Target")
+
+		source := registeredTarget.GetSource()
+		g.Expect(source).ToNot(BeEmpty(),
+			"sourcePkg should be set by RegisterTargetWithSkip")
+
+		g.Expect(source).To(Equal("github.com/toejough/targ/internal/core"),
+			"with skip=0, sourcePkg should be core package itself")
+	})
+}
+
+//nolint:paralleltest // Cannot run in parallel - modifies global registry state
+func TestRegisterTargetWithSkip_Skip1ResolvesCaller(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		g := NewWithT(t)
+
+		// Reset registry before test
+		core.SetRegistry(nil)
+		t.Cleanup(func() { core.SetRegistry(nil) })
+
+		// Create target without explicit source
+		target := core.Targ(func() {}).Name("test-target")
+
+		// Register with skip=1 (should resolve to this test package)
+		core.RegisterTargetWithSkip(1, target)
+
+		// Verify source was set to test package
+		registry := core.GetRegistry()
+		g.Expect(registry).To(HaveLen(1),
+			"registry should contain one item")
+
+		registeredTarget, ok := registry[0].(*core.Target)
+		g.Expect(ok).To(BeTrue(),
+			"registry item should be a *Target")
+
+		source := registeredTarget.GetSource()
+		g.Expect(source).ToNot(BeEmpty(),
+			"sourcePkg should be set by RegisterTargetWithSkip")
+
+		g.Expect(source).To(Equal("github.com/toejough/targ/internal/core_test"),
+			"with skip=1, sourcePkg should be the direct caller's package")
+	})
+}
+
 // TestErrorMessageMentionsInit verifies that the error message
 // from DeregisterFrom after resolution contains "init()".
 //
