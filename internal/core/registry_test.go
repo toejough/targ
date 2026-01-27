@@ -1043,6 +1043,7 @@ func TestProperty_DetectConflicts_CatchesGroupNameConflicts(t *testing.T) {
 			"same group name from different packages should conflict")
 
 		var conflictErr *ConflictError
+
 		ok := errors.As(err, &conflictErr)
 		g.Expect(ok).To(BeTrue(), "error should be *ConflictError")
 		g.Expect(conflictErr.Conflicts).To(HaveLen(1),

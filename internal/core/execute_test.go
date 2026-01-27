@@ -94,12 +94,14 @@ func TestDeregisterFrom_MultipleDifferentPackages(t *testing.T) {
 
 		for _, pkgPath := range pkgPaths {
 			found := false
+
 			for _, dereg := range deregistrations {
 				if dereg.PackagePath == pkgPath {
 					found = true
 					break
 				}
 			}
+
 			g.Expect(found).To(BeTrue(),
 				"each package path should be in deregistrations queue")
 		}
@@ -128,12 +130,14 @@ func TestDeregisterFrom_ValidPathQueuesSuccessfully(t *testing.T) {
 		// Verify it was queued
 		deregistrations := core.GetDeregistrations()
 		found := false
+
 		for _, dereg := range deregistrations {
 			if dereg.PackagePath == pkgPath {
 				found = true
 				break
 			}
 		}
+
 		g.Expect(found).To(BeTrue(),
 			"package path should be in deregistrations queue")
 	})
@@ -524,12 +528,14 @@ func TestDeregisterFromBeforeResolutionSucceeds(t *testing.T) {
 		// Verify it was queued
 		deregistrations := core.GetDeregistrations()
 		found := false
+
 		for _, dereg := range deregistrations {
 			if dereg.PackagePath == pkgPath {
 				found = true
 				break
 			}
 		}
+
 		g.Expect(found).To(BeTrue(),
 			"package path should be in deregistrations queue")
 	})
@@ -916,6 +922,7 @@ func TestProperty_DeregisterThenReregister(t *testing.T) {
 		// Simulate remote package init() registering targets
 		remoteLint := core.Targ(func() {}).Name(name1)
 		remoteLint.SetSourceForTest(remotePkg)
+
 		remoteTest := core.Targ(func() {}).Name(name2)
 		remoteTest.SetSourceForTest(remotePkg)
 
@@ -948,11 +955,13 @@ func TestProperty_DeregisterThenReregister(t *testing.T) {
 
 		// Verify the preserved targets have the expected names
 		names := make([]string, 0, 2)
+
 		for _, item := range resolved {
 			if tgt, ok := item.(*core.Target); ok {
 				names = append(names, tgt.GetName())
 			}
 		}
+
 		g.Expect(names).To(ConsistOf(name1, "unit-test"),
 			"should preserve re-registered targets with their names")
 	})

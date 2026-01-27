@@ -1,0 +1,39 @@
+# 2026/01/27 15:10:45.691113 [TestProperty_DeregisterThenReregister] [rapid] draw remotePkg: "a.a/a/a"
+# 2026/01/27 15:10:45.691230 [TestProperty_DeregisterThenReregister] [rapid] draw name1: "a"
+# 2026/01/27 15:10:45.691232 [TestProperty_DeregisterThenReregister] [rapid] draw name2: "b"
+# 2026/01/27 15:10:45.691259 [TestProperty_DeregisterThenReregister] 
+# re-registered targets should be preserved after deregistration
+# Expected
+#     <[]interface {} | len:0, cap:4>: []
+# to have length 2
+# 
+v0.4.8#17418479077282741886
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x1
+0x0
