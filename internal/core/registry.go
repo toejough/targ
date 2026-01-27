@@ -217,17 +217,22 @@ func clearLocalTargetSources(items []any) {
 	// Clear sourcePkg for any target or group from main module
 	for _, item := range items {
 		if target, ok := item.(*Target); ok {
-			// Check if target's sourcePkg starts with main module
-			if strings.HasPrefix(target.sourcePkg, mainModule) {
+			if isFromModule(target.sourcePkg, mainModule) {
 				target.sourcePkg = ""
 			}
 		}
 
 		if group, ok := item.(*TargetGroup); ok {
-			// Check if group's sourcePkg starts with main module
-			if strings.HasPrefix(group.sourcePkg, mainModule) {
+			if isFromModule(group.sourcePkg, mainModule) {
 				group.sourcePkg = ""
 			}
 		}
 	}
+}
+
+// isFromModule checks if a package path belongs to the given module.
+// A package belongs to a module if it equals the module path or is a sub-package
+// (has the module path followed by "/").
+func isFromModule(pkgPath, modulePath string) bool {
+	return pkgPath == modulePath || strings.HasPrefix(pkgPath, modulePath+"/")
 }
