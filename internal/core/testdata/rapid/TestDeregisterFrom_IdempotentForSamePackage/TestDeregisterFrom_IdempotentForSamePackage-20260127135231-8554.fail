@@ -1,0 +1,33 @@
+# 2026/01/27 13:52:31.132934 [TestDeregisterFrom_IdempotentForSamePackage] [rapid] draw pkgPath: "a.a/a/a"
+# 2026/01/27 13:52:31.132940 [TestDeregisterFrom_IdempotentForSamePackage] 
+# first DeregisterFrom should not error
+# Unexpected error:
+#     <*errors.errorString | 0x1033dbbd0>: 
+#     targ: DeregisterFrom() must be called during init(), not after targ has started
+#     {
+#         s: "targ: DeregisterFrom() must be called during init(), not after targ has started",
+#     }
+# occurred
+# 
+v0.4.8#7603643187016618553
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0

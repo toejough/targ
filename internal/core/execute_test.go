@@ -18,6 +18,7 @@ func TestDeregisterFrom_EmptyPathReturnsError(t *testing.T) {
 
 		// Reset deregistrations before test
 		core.ResetDeregistrations()
+		core.ResetResolved()
 
 		// Empty string should always error
 		err := core.DeregisterFrom("")
@@ -33,6 +34,7 @@ func TestDeregisterFrom_IdempotentForSamePackage(t *testing.T) {
 
 		// Reset deregistrations before test
 		core.ResetDeregistrations()
+		core.ResetResolved()
 
 		// Generate a valid package path
 		pkgPath := rapid.StringMatching(`[a-z]+\.[a-z]+/[a-z][a-z0-9-]*/[a-z][a-z0-9-]*`).
@@ -68,6 +70,7 @@ func TestDeregisterFrom_MultipleDifferentPackages(t *testing.T) {
 
 		// Reset deregistrations before test
 		core.ResetDeregistrations()
+		core.ResetResolved()
 
 		// Generate multiple distinct package paths
 		pkgPaths := rapid.SliceOfNDistinct(
@@ -101,6 +104,7 @@ func TestDeregisterFrom_ValidPathQueuesSuccessfully(t *testing.T) {
 
 		// Reset deregistrations before test
 		core.ResetDeregistrations()
+		core.ResetResolved()
 
 		// Generate a valid package path (non-empty string)
 		pkgPath := rapid.StringMatching(`[a-z]+\.[a-z]+/[a-z][a-z0-9-]*/[a-z][a-z0-9-]*`).
@@ -157,9 +161,11 @@ func TestProperty_ExecuteRegisteredResolution_ConflictPreventsExecution(t *testi
 		// Set up registry with conflict - no deregistrations
 		core.SetRegistry(reg)
 		core.ResetDeregistrations()
+		core.ResetResolved()
 		t.Cleanup(func() {
 			core.SetRegistry(nil)
 			core.ResetDeregistrations()
+			core.ResetResolved()
 		})
 
 		// Execute with resolution - args specify the conflicting target
@@ -204,6 +210,7 @@ func TestProperty_ExecuteRegisteredResolution_DeregistrationErrorPreventsExecuti
 		// Set up registry and deregister unknown package
 		core.SetRegistry(reg)
 		core.ResetDeregistrations()
+		core.ResetResolved()
 
 		err := core.DeregisterFrom(unknownPkg)
 		g.Expect(err).ToNot(HaveOccurred(), "queueing deregistration should succeed")
@@ -211,6 +218,7 @@ func TestProperty_ExecuteRegisteredResolution_DeregistrationErrorPreventsExecuti
 		t.Cleanup(func() {
 			core.SetRegistry(nil)
 			core.ResetDeregistrations()
+			core.ResetResolved()
 		})
 
 		// Execute with resolution - args just use default since only one target
@@ -260,9 +268,11 @@ func TestProperty_ExecuteRegisteredResolution_ExistingBehaviorUnchanged(t *testi
 		// Set up clean registry - no deregistrations
 		core.SetRegistry(reg)
 		core.ResetDeregistrations()
+		core.ResetResolved()
 		t.Cleanup(func() {
 			core.SetRegistry(nil)
 			core.ResetDeregistrations()
+			core.ResetResolved()
 		})
 
 		// Execute first target via ExecuteWithResolution

@@ -1,0 +1,60 @@
+# 2026/01/27 13:52:31.125357 [TestProperty_DeregistrationBeforeConflictCheck] [rapid] draw name: "a"
+# 2026/01/27 13:52:31.125363 [TestProperty_DeregistrationBeforeConflictCheck] [rapid] draw pkg1: "a.a/a/a"
+# 2026/01/27 13:52:31.125365 [TestProperty_DeregistrationBeforeConflictCheck] [rapid] draw pkg2: "a.a/a/b"
+# 2026/01/27 13:52:31.125379 [TestProperty_DeregistrationBeforeConflictCheck] 
+# queueing deregistration should succeed
+# Unexpected error:
+#     <*errors.errorString | 0x1033dbbd0>: 
+#     targ: DeregisterFrom() must be called during init(), not after targ has started
+#     {
+#         s: "targ: DeregisterFrom() must be called during init(), not after targ has started",
+#     }
+# occurred
+# 
+v0.4.8#4399976972857576881
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x1
+0x0

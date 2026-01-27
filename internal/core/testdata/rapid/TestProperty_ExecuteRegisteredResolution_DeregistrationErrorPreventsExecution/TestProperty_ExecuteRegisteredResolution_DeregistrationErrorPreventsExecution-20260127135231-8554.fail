@@ -1,0 +1,55 @@
+# 2026/01/27 13:52:31.145089 [TestProperty_ExecuteRegisteredResolution_DeregistrationErrorPreventsExecution] [rapid] draw existingPkg: "a.a/a/a"
+# 2026/01/27 13:52:31.145094 [TestProperty_ExecuteRegisteredResolution_DeregistrationErrorPreventsExecution] [rapid] draw unknownPkg: "a.a/a/b"
+# 2026/01/27 13:52:31.145101 [TestProperty_ExecuteRegisteredResolution_DeregistrationErrorPreventsExecution] 
+# queueing deregistration should succeed
+# Unexpected error:
+#     <*errors.errorString | 0x1033dbbd0>: 
+#     targ: DeregisterFrom() must be called during init(), not after targ has started
+#     {
+#         s: "targ: DeregisterFrom() must be called during init(), not after targ has started",
+#     }
+# occurred
+# 
+v0.4.8#14960752883815771771
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x1
+0x0

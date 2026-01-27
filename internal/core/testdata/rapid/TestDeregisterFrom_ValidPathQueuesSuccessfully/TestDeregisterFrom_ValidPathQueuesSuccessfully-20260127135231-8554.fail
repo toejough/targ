@@ -1,0 +1,33 @@
+# 2026/01/27 13:52:31.138207 [TestDeregisterFrom_ValidPathQueuesSuccessfully] [rapid] draw pkgPath: "a.a/a/a"
+# 2026/01/27 13:52:31.138212 [TestDeregisterFrom_ValidPathQueuesSuccessfully] 
+# DeregisterFrom with valid path should not return error
+# Unexpected error:
+#     <*errors.errorString | 0x1033dbbd0>: 
+#     targ: DeregisterFrom() must be called during init(), not after targ has started
+#     {
+#         s: "targ: DeregisterFrom() must be called during init(), not after targ has started",
+#     }
+# occurred
+# 
+v0.4.8#15104223840894271583
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0

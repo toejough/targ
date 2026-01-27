@@ -11,8 +11,12 @@ import (
 
 // DeregisterFrom queues a package path for deregistration.
 // All targets from this package will be removed during registry resolution.
-// Returns error if packagePath is empty.
+// Returns error if packagePath is empty or if called after resolution.
 func DeregisterFrom(packagePath string) error {
+	if registryResolved {
+		return errDeregisterAfterResolution
+	}
+
 	if packagePath == "" {
 		return errEmptyPackagePath
 	}
@@ -111,7 +115,7 @@ func ResetDeregistrations() {
 
 // ResetResolved resets the resolved flag (for testing).
 func ResetResolved() {
-	// TODO: implement
+	registryResolved = false
 }
 
 // RunWithOptions executes the CLI using os.Args and exits on error.
@@ -129,9 +133,11 @@ func SetRegistry(targets []any) {
 
 // unexported variables.
 var (
-	deregistrations     []string //nolint:gochecknoglobals // Intentional global for DeregisterFrom() API
-	errEmptyPackagePath = errors.New("package path cannot be empty")
-	registry            []any //nolint:gochecknoglobals // Global registry is intentional for Register() API
+	deregistrations            []string //nolint:gochecknoglobals // Intentional global for DeregisterFrom() API
+	errDeregisterAfterResolution = errors.New("targ: DeregisterFrom() must be called during init(), not after targ has started")
+	errEmptyPackagePath        = errors.New("package path cannot be empty")
+	registry                   []any //nolint:gochecknoglobals // Global registry is intentional for Register() API
+	registryResolved           bool  //nolint:gochecknoglobals // Global flag to track resolution state
 )
 
 type osRunEnv struct{}

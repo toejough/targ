@@ -157,6 +157,9 @@ func detectConflicts(items []any) error {
 // and detecting conflicts. Returns the filtered registry or an error.
 // Clears the deregistration queue after processing.
 func resolveRegistry() ([]any, error) {
+	// Mark registry as resolved
+	registryResolved = true
+
 	// Always clear deregistrations at the end
 	defer func() {
 		deregistrations = nil

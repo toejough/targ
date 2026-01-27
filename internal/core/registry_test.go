@@ -43,6 +43,7 @@ func TestProperty_CleanRegistryPassesResolution(t *testing.T) {
 		// Set up globals - no deregistrations
 		SetRegistry(reg)
 		ResetDeregistrations()
+		ResetResolved()
 
 		// Resolve registry
 		result, err := resolveRegistry()
@@ -64,6 +65,7 @@ func TestProperty_CleanRegistryPassesResolution(t *testing.T) {
 		// Cleanup
 		SetRegistry(nil)
 		ResetDeregistrations()
+		ResetResolved()
 	})
 }
 
@@ -137,6 +139,7 @@ func TestProperty_DeregistrationBeforeConflictCheck(t *testing.T) {
 		// Set up globals - deregister pkg1 to resolve conflict
 		SetRegistry(reg)
 		ResetDeregistrations()
+		ResetResolved()
 
 		err := DeregisterFrom(pkg1)
 		g.Expect(err).ToNot(HaveOccurred(), "queueing deregistration should succeed")
@@ -162,6 +165,7 @@ func TestProperty_DeregistrationBeforeConflictCheck(t *testing.T) {
 		// Cleanup
 		SetRegistry(nil)
 		ResetDeregistrations()
+		ResetResolved()
 	})
 }
 
@@ -213,6 +217,7 @@ func TestProperty_DeregistrationErrorStopsResolution(t *testing.T) {
 		// Set up globals - try to deregister unknown package
 		SetRegistry(reg)
 		ResetDeregistrations()
+		ResetResolved()
 
 		err := DeregisterFrom(unknownPkg)
 		g.Expect(err).ToNot(HaveOccurred(), "queueing deregistration should succeed")
@@ -241,6 +246,7 @@ func TestProperty_DeregistrationErrorStopsResolution(t *testing.T) {
 		// Cleanup
 		SetRegistry(nil)
 		ResetDeregistrations()
+		ResetResolved()
 	})
 }
 
@@ -695,6 +701,7 @@ func TestProperty_QueueClearedAfterResolution(t *testing.T) {
 		// Set up globals - deregister the package
 		SetRegistry(reg)
 		ResetDeregistrations()
+		ResetResolved()
 
 		err := DeregisterFrom(pkg)
 		g.Expect(err).ToNot(HaveOccurred(), "queueing deregistration should succeed")
@@ -714,6 +721,7 @@ func TestProperty_QueueClearedAfterResolution(t *testing.T) {
 		// Cleanup
 		SetRegistry(nil)
 		ResetDeregistrations()
+		ResetResolved()
 	})
 }
 
