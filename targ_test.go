@@ -4,9 +4,10 @@ import (
 	"testing"
 
 	. "github.com/onsi/gomega"
+	"pgregory.net/rapid"
+
 	"github.com/toejough/targ"
 	"github.com/toejough/targ/internal/core"
-	"pgregory.net/rapid"
 )
 
 // TestDeregisterFromDelegatesToInternal verifies that the public API
@@ -35,7 +36,8 @@ func TestDeregisterFromDelegatesToInternal(t *testing.T) {
 			g.Expect(internalErr).To(HaveOccurred(), "internal should error when public errors")
 			g.Expect(pubErr.Error()).To(Equal(internalErr.Error()), "error messages should match")
 		} else {
-			g.Expect(internalErr).NotTo(HaveOccurred(), "internal should succeed when public succeeds")
+			g.Expect(internalErr).
+				NotTo(HaveOccurred(), "internal should succeed when public succeeds")
 		}
 
 		// Reset for queue comparison
@@ -60,6 +62,5 @@ func TestDeregisterFromEmptyPackagePath(t *testing.T) {
 	g := NewWithT(t)
 
 	err := targ.DeregisterFrom("")
-	g.Expect(err).To(HaveOccurred())
-	g.Expect(err.Error()).To(ContainSubstring("package path"))
+	g.Expect(err).To(MatchError(ContainSubstring("package path")))
 }

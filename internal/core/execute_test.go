@@ -609,9 +609,7 @@ func TestErrorMessageMentionsInit(t *testing.T) {
 		// Get the error
 		err := core.DeregisterFrom(pkgPath)
 
-		g.Expect(err).To(HaveOccurred(),
-			"DeregisterFrom should error after resolution")
-		g.Expect(err.Error()).To(ContainSubstring("init()"),
-			"error message should mention init()")
+		g.Expect(err).To(MatchError(ContainSubstring("init()")),
+			"DeregisterFrom should error after resolution and mention init()")
 	})
 }

@@ -142,7 +142,7 @@ func SetRegistry(targets []any) {
 
 // unexported variables.
 var (
-	deregistrations []string //nolint:gochecknoglobals // Intentional global for DeregisterFrom() API
+	deregistrations              []string //nolint:gochecknoglobals // Intentional global for DeregisterFrom() API
 	errDeregisterAfterResolution = errors.New(
 		"targ: DeregisterFrom() must be called during init(), not after targ has started",
 	)
