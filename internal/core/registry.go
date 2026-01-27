@@ -5,27 +5,15 @@ import (
 	"strings"
 )
 
-// DeregistrationError represents an error when deregistering a package with no targets.
-type DeregistrationError struct {
-	PackagePath string
-}
-
-func (e *DeregistrationError) Error() string {
-	return fmt.Sprintf(
-		"targ: DeregisterFrom(%q): no targets registered from this package",
-		e.PackagePath,
-	)
+// Conflict represents a single target name conflict.
+type Conflict struct {
+	Name    string   // Target name with conflict
+	Sources []string // Package paths that registered this name
 }
 
 // ConflictError represents duplicate target names from different sources.
 type ConflictError struct {
 	Conflicts []Conflict // All conflicts found
-}
-
-// Conflict represents a single target name conflict.
-type Conflict struct {
-	Name    string   // Target name with conflict
-	Sources []string // Package paths that registered this name
 }
 
 func (e *ConflictError) Error() string {
@@ -47,6 +35,18 @@ func (e *ConflictError) Error() string {
 	}
 
 	return sb.String()
+}
+
+// DeregistrationError represents an error when deregistering a package with no targets.
+type DeregistrationError struct {
+	PackagePath string
+}
+
+func (e *DeregistrationError) Error() string {
+	return fmt.Sprintf(
+		"targ: DeregisterFrom(%q): no targets registered from this package",
+		e.PackagePath,
+	)
 }
 
 // applyDeregistrations filters out targets from specified packages.
@@ -169,7 +169,8 @@ func resolveRegistry() ([]any, error) {
 	}
 
 	// Then check for conflicts
-	if err := detectConflicts(filtered); err != nil {
+	err = detectConflicts(filtered)
+	if err != nil {
 		return nil, err
 	}
 
