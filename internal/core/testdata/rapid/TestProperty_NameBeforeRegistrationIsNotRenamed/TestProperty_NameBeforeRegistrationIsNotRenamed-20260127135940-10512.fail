@@ -1,0 +1,13 @@
+# 2026/01/27 13:59:40.336434 [TestProperty_NameBeforeRegistrationIsNotRenamed] [rapid] draw name: "A"
+# 2026/01/27 13:59:40.336441 [TestProperty_NameBeforeRegistrationIsNotRenamed] 
+# calling Name() before registration should not set IsRenamed() to true
+# Expected
+#     <bool>: true
+# to be false
+# 
+v0.4.8#7618402310888439507
+0x5555555555555
+0x0
+0x0
+0x0
+0x0

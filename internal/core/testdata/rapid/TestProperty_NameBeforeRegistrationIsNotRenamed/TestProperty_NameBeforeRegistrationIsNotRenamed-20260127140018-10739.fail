@@ -1,0 +1,10 @@
+# 2026/01/27 14:00:18.409694 [TestProperty_NameBeforeRegistrationIsNotRenamed] [rapid] draw name: ""
+# 2026/01/27 14:00:18.409699 [TestProperty_NameBeforeRegistrationIsNotRenamed] 
+# Name() should set the target name
+# Expected
+#     <string>: 1
+# to equal
+#     <string>: 
+# 
+v0.4.8#16929821735572668393
+0x0

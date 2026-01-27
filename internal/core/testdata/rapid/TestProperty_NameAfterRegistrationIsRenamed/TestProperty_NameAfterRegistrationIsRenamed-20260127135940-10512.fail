@@ -1,0 +1,32 @@
+# 2026/01/27 13:59:40.327310 [TestProperty_NameAfterRegistrationIsRenamed] [rapid] draw name: ""
+# 2026/01/27 13:59:40.327373 [TestProperty_NameAfterRegistrationIsRenamed] [rapid] draw pkgPath: "a.a/a/a"
+# 2026/01/27 13:59:40.327386 [TestProperty_NameAfterRegistrationIsRenamed] 
+# Name() should set the target name
+# Expected
+#     <string>: 1
+# to equal
+#     <string>: 
+# 
+v0.4.8#15152630956076066850
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0

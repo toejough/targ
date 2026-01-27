@@ -205,7 +205,7 @@ func DeregisterFrom(packagePath string) error {
 // Typically called from init() in packages with //go:build targ.
 // Use ExecuteRegistered() in main() to run the registered targets.
 func Register(targets ...any) {
-	core.RegisterTarget(targets...)
+	core.RegisterTargetWithSkip(2, targets...)
 }
 
 // Run executes a command streaming stdout/stderr.

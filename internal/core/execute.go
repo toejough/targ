@@ -92,8 +92,17 @@ func Main(targets ...any) {
 // Use ExecuteRegistered() in main() to run the registered targets.
 // Automatically sets sourcePkg on each *Target using runtime.Caller.
 func RegisterTarget(targets ...any) {
+	RegisterTargetWithSkip(2, targets...)
+}
+
+// RegisterTargetWithSkip adds targets to the global registry with custom caller skip depth.
+// The skip parameter controls which caller's package is used for source attribution:
+// - skip=0: resolves to the core package itself (RegisterTargetWithSkip)
+// - skip=1: resolves to the direct caller
+// - skip=2: resolves to the caller's caller (useful for public API wrappers)
+func RegisterTargetWithSkip(skip int, targets ...any) {
 	// Detect calling package once for all targets
-	sourcePkg, _ := callerPackagePath(1)
+	sourcePkg, _ := callerPackagePath(skip)
 
 	// Set source on each Target before appending to registry
 	for _, item := range targets {

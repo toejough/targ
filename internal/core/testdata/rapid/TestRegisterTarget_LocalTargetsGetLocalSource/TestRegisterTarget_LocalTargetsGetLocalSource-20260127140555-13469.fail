@@ -1,0 +1,8 @@
+# 2026/01/27 14:05:55.049421 [TestRegisterTarget_LocalTargetsGetLocalSource] 
+# sourcePkg should be set to calling package
+# Expected
+#     <string>: github.com/toejough/targ/internal/core
+# to equal
+#     <string>: github.com/toejough/targ/internal/core_test
+# 
+v0.4.8#552957282349745019
