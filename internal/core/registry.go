@@ -60,57 +60,90 @@ func applyDeregistrations(items []any, deregistrations []Deregistration) ([]any,
 	}
 
 	// Track which packages had matches
-	matchCounts := make(map[string]int)
-	for _, dereg := range deregistrations {
-		matchCounts[dereg.PackagePath] = 0
+	matchCounts := initMatchCounts(deregistrations)
+
+	// Filter items based on deregistrations
+	result := filterItems(items, deregistrations, matchCounts)
+
+	// Verify all packages had matches
+	err := verifyMatchCounts(deregistrations, matchCounts)
+	if err != nil {
+		return nil, err
 	}
 
-	// Filter out targets and groups from deregistered packages
-	// Only remove items at index < RegistryLen for each deregistration
-	result := make([]any, 0, len(items))
-	for idx, item := range items {
-		var sourcePkg string
+	return result, nil
+}
 
-		// Get sourcePkg based on item type
-		switch v := item.(type) {
-		case *Target:
-			sourcePkg = v.sourcePkg
-		case *TargetGroup:
-			sourcePkg = v.sourcePkg
-		default:
+// filterItems processes each item and decides whether to keep or remove it.
+func filterItems(items []any, deregistrations []Deregistration, matchCounts map[string]int) []any {
+	result := make([]any, 0, len(items))
+
+	for idx, item := range items {
+		sourcePkg := getSourcePkg(item)
+		if sourcePkg == "" {
 			// Non-Target, non-TargetGroup items pass through
 			result = append(result, item)
 			continue
 		}
 
 		// Check if item should be removed by any deregistration
-		shouldRemove := false
-
-		for _, dereg := range deregistrations {
-			// Only remove if:
-			// 1. Package matches AND
-			// 2. Item was registered before the deregistration (idx < RegistryLen)
-			if sourcePkg == dereg.PackagePath && idx < dereg.RegistryLen {
-				shouldRemove = true
-				matchCounts[dereg.PackagePath]++
-
-				break
-			}
+		if shouldRemove(sourcePkg, idx, deregistrations, matchCounts) {
+			continue
 		}
 
-		if !shouldRemove {
-			result = append(result, item)
+		result = append(result, item)
+	}
+
+	return result
+}
+
+// getSourcePkg extracts the source package from a Target or TargetGroup.
+// Returns empty string for other types.
+func getSourcePkg(item any) string {
+	switch v := item.(type) {
+	case *Target:
+		return v.sourcePkg
+	case *TargetGroup:
+		return v.sourcePkg
+	default:
+		return ""
+	}
+}
+
+// initMatchCounts creates a map to track which packages had matches.
+func initMatchCounts(deregistrations []Deregistration) map[string]int {
+	matchCounts := make(map[string]int)
+	for _, dereg := range deregistrations {
+		matchCounts[dereg.PackagePath] = 0
+	}
+
+	return matchCounts
+}
+
+// shouldRemove checks if an item should be removed based on deregistrations.
+func shouldRemove(sourcePkg string, idx int, deregistrations []Deregistration, matchCounts map[string]int) bool {
+	for _, dereg := range deregistrations {
+		// Only remove if:
+		// 1. Package matches AND
+		// 2. Item was registered before the deregistration (idx < RegistryLen)
+		if sourcePkg == dereg.PackagePath && idx < dereg.RegistryLen {
+			matchCounts[dereg.PackagePath]++
+			return true
 		}
 	}
 
-	// Check for packages with no matches
+	return false
+}
+
+// verifyMatchCounts checks that all deregistered packages had at least one match.
+func verifyMatchCounts(deregistrations []Deregistration, matchCounts map[string]int) error {
 	for _, dereg := range deregistrations {
 		if matchCounts[dereg.PackagePath] == 0 {
-			return nil, &DeregistrationError{PackagePath: dereg.PackagePath}
+			return &DeregistrationError{PackagePath: dereg.PackagePath}
 		}
 	}
 
-	return result, nil
+	return nil
 }
 
 // detectConflicts checks the registry for name conflicts across packages.
