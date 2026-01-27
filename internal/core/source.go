@@ -1,6 +1,10 @@
 package core
 
-import "strings"
+import (
+	"fmt"
+	"runtime"
+	"strings"
+)
 
 // extractPackagePath parses package path from fully qualified function name.
 // It handles various runtime.FuncForPC formats:
@@ -41,4 +45,24 @@ func extractPackagePath(funcName string) string {
 
 	// Return everything up to (but not including) this dot
 	return funcName[:lastSlash+1+dotIdx]
+}
+
+// callerPackagePath returns the package path of the caller at the given stack depth.
+// depth 0 = callerPackagePath itself, 1 = direct caller, 2 = caller's caller, etc.
+func callerPackagePath(depth int) (string, error) {
+	// Get program counter at the specified depth
+	// We add 1 to depth because depth 0 would be this function itself
+	pc, _, _, ok := runtime.Caller(depth + 1)
+	if !ok {
+		return "", fmt.Errorf("runtime.Caller failed at depth %d", depth)
+	}
+
+	// Get function info from program counter
+	fn := runtime.FuncForPC(pc)
+	if fn == nil {
+		return "", fmt.Errorf("runtime.FuncForPC returned nil for depth %d", depth)
+	}
+
+	// Extract package path from fully qualified function name
+	return extractPackagePath(fn.Name()), nil
 }

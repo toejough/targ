@@ -118,8 +118,13 @@ func TestProperty_CallerPackagePath(t *testing.T) {
 		rapid.Check(t, func(t *rapid.T) {
 			g := NewWithT(t)
 
-			// Depth 1 means immediate caller - which is this test function
-			result, err := callerPackagePath(1)
+			// Create a helper function to call callerPackagePath
+			// This ensures we're testing from within this package
+			callHelper := func() (string, error) {
+				return callerPackagePath(0)
+			}
+
+			result, err := callHelper()
 
 			g.Expect(err).ToNot(HaveOccurred(), "callerPackagePath should not error with valid depth")
 			g.Expect(result).To(ContainSubstring("github.com/toejough/targ/internal/core"),
