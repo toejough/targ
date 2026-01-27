@@ -10,9 +10,8 @@ import (
 	"github.com/toejough/targ/internal/core"
 )
 
+//nolint:paralleltest // Cannot run in parallel - modifies global registryResolved state
 func TestDeregisterFrom_EmptyPathReturnsError(t *testing.T) {
-	t.Parallel()
-
 	rapid.Check(t, func(t *rapid.T) {
 		g := NewWithT(t)
 
@@ -28,6 +27,7 @@ func TestDeregisterFrom_EmptyPathReturnsError(t *testing.T) {
 	})
 }
 
+//nolint:paralleltest // Cannot run in parallel - modifies global deregistrations/registryResolved state
 func TestDeregisterFrom_IdempotentForSamePackage(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		g := NewWithT(t)
@@ -64,6 +64,7 @@ func TestDeregisterFrom_IdempotentForSamePackage(t *testing.T) {
 	})
 }
 
+//nolint:paralleltest // Cannot run in parallel - modifies global deregistrations/registryResolved state
 func TestDeregisterFrom_MultipleDifferentPackages(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		g := NewWithT(t)
@@ -98,6 +99,7 @@ func TestDeregisterFrom_MultipleDifferentPackages(t *testing.T) {
 	})
 }
 
+//nolint:paralleltest // Cannot run in parallel - modifies global deregistrations/registryResolved state
 func TestDeregisterFrom_ValidPathQueuesSuccessfully(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		g := NewWithT(t)
@@ -295,6 +297,7 @@ func TestProperty_ExecuteRegisteredResolution_ExistingBehaviorUnchanged(t *testi
 	})
 }
 
+//nolint:paralleltest // Cannot run in parallel - modifies global registry state
 func TestRegisterTarget_ExplicitSourceNotOverwritten(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		g := NewWithT(t)
@@ -328,6 +331,7 @@ func TestRegisterTarget_ExplicitSourceNotOverwritten(t *testing.T) {
 	})
 }
 
+//nolint:paralleltest // Cannot run in parallel - modifies global registry state
 func TestRegisterTarget_LocalTargetsGetLocalSource(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		g := NewWithT(t)
@@ -360,6 +364,7 @@ func TestRegisterTarget_LocalTargetsGetLocalSource(t *testing.T) {
 	})
 }
 
+//nolint:paralleltest // Cannot run in parallel - modifies global registry state
 func TestRegisterTarget_NonTargetItemsHandledGracefully(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		g := NewWithT(t)
@@ -404,6 +409,7 @@ func TestRegisterTarget_NonTargetItemsHandledGracefully(t *testing.T) {
 	})
 }
 
+//nolint:paralleltest // Cannot run in parallel - modifies global registry state
 func TestRegisterTarget_RegisteredTargetsHaveSource(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		g := NewWithT(t)
@@ -481,9 +487,9 @@ func TestDeregisterFromAfterResolutionErrors(t *testing.T) {
 
 // TestDeregisterFromBeforeResolutionSucceeds verifies that DeregisterFrom
 // works normally before resolution.
+//
+//nolint:paralleltest // Cannot run in parallel - checks global registryResolved state
 func TestDeregisterFromBeforeResolutionSucceeds(t *testing.T) {
-	t.Parallel()
-
 	rapid.Check(t, func(t *rapid.T) {
 		g := NewWithT(t)
 

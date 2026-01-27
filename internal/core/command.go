@@ -1937,6 +1937,7 @@ func hasRemoteTargets(nodes []*commandNode) bool {
 			return true
 		}
 	}
+
 	return false
 }
 

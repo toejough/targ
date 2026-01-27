@@ -133,11 +133,13 @@ func SetRegistry(targets []any) {
 
 // unexported variables.
 var (
-	deregistrations            []string //nolint:gochecknoglobals // Intentional global for DeregisterFrom() API
-	errDeregisterAfterResolution = errors.New("targ: DeregisterFrom() must be called during init(), not after targ has started")
-	errEmptyPackagePath        = errors.New("package path cannot be empty")
-	registry                   []any //nolint:gochecknoglobals // Global registry is intentional for Register() API
-	registryResolved           bool  //nolint:gochecknoglobals // Global flag to track resolution state
+	deregistrations []string //nolint:gochecknoglobals // Intentional global for DeregisterFrom() API
+	errDeregisterAfterResolution = errors.New(
+		"targ: DeregisterFrom() must be called during init(), not after targ has started",
+	)
+	errEmptyPackagePath = errors.New("package path cannot be empty")
+	registry            []any //nolint:gochecknoglobals // Global registry is intentional for Register() API
+	registryResolved    bool  //nolint:gochecknoglobals // Global flag to track resolution state
 )
 
 type osRunEnv struct{}

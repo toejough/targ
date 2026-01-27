@@ -25,6 +25,7 @@ func TestProperty_LocalTargetsShowLocal(t *testing.T) {
 		}
 
 		var buf bytes.Buffer
+
 		width := len(targetName)
 
 		// showAttribution = false for all-local targets (backwards compat)
@@ -35,10 +36,12 @@ func TestProperty_LocalTargetsShowLocal(t *testing.T) {
 		// This is for backwards compatibility
 		g.Expect(output).To(ContainSubstring(targetName),
 			"output should contain target name")
+
 		if desc != "" {
 			g.Expect(output).To(ContainSubstring(desc),
 				"output should contain description")
 		}
+
 		g.Expect(output).ToNot(ContainSubstring("(local)"),
 			"should not show (local) attribution when all targets are local")
 		// Check that there's no source package path pattern in the output
@@ -79,6 +82,7 @@ func TestProperty_RemoteTargetsShowSource(t *testing.T) {
 		}
 
 		var buf bytes.Buffer
+
 		width := len(targetName)
 
 		// showAttribution = true for remote targets
@@ -87,10 +91,12 @@ func TestProperty_RemoteTargetsShowSource(t *testing.T) {
 
 		g.Expect(output).To(ContainSubstring(targetName),
 			"output should contain target name")
+
 		if desc != "" {
 			g.Expect(output).To(ContainSubstring(desc),
 				"output should contain description")
 		}
+
 		g.Expect(output).To(ContainSubstring(sourcePkg),
 			"output should contain source package: %q", sourcePkg)
 	})
@@ -126,6 +132,7 @@ func TestProperty_RenamedTargetsAnnotated(t *testing.T) {
 		}
 
 		var buf bytes.Buffer
+
 		width := len(targetName)
 
 		// showAttribution = true for renamed remote targets
@@ -134,10 +141,12 @@ func TestProperty_RenamedTargetsAnnotated(t *testing.T) {
 
 		g.Expect(output).To(ContainSubstring(targetName),
 			"output should contain target name")
+
 		if desc != "" {
 			g.Expect(output).To(ContainSubstring(desc),
 				"output should contain description")
 		}
+
 		g.Expect(output).To(ContainSubstring(sourcePkg),
 			"output should contain source package")
 		g.Expect(output).To(ContainSubstring("renamed"),
@@ -155,7 +164,7 @@ func TestProperty_NoSyncedTargetsUnchanged(t *testing.T) {
 		numTargets := rapid.IntRange(1, 5).Draw(t, "numTargets")
 		nodes := make([]*commandNode, numTargets)
 
-		for i := 0; i < numTargets; i++ {
+		for i := range numTargets {
 			targetName := rapid.StringMatching(`[a-z][a-z0-9-]*`).Draw(t, "targetName")
 			desc := rapid.String().Draw(t, "description")
 
@@ -169,6 +178,7 @@ func TestProperty_NoSyncedTargetsUnchanged(t *testing.T) {
 		}
 
 		var buf bytes.Buffer
+
 		width := 0
 
 		for _, node := range nodes {
@@ -229,6 +239,7 @@ func TestProperty_MixedTargetsShowAttribution(t *testing.T) {
 		}
 
 		var buf bytes.Buffer
+
 		width := max(len(localName), len(remoteName))
 
 		// showAttribution = true when we have mixed local and remote targets
