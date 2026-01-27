@@ -13,6 +13,8 @@ import (
 )
 
 // Exported target variables - consumers can import these.
+//
+//nolint:gochecknoglobals // Portable targets must be global variables for import by consumers
 var (
 	// Lint runs linting with configurable linter via LINTER env var
 	Lint = targ.Targ(lint).
@@ -37,6 +39,8 @@ func init() {
 }
 
 // lint runs the linter specified by LINTER env var
+//
+//nolint:wrapcheck // Example code - simple error passthrough for clarity
 func lint(ctx context.Context) error {
 	linter := os.Getenv("LINTER")
 	if linter == "" {
@@ -44,10 +48,13 @@ func lint(ctx context.Context) error {
 	}
 
 	fmt.Printf("Running %s...\n", linter)
+
 	return targ.RunContext(ctx, linter, "run", "./...")
 }
 
 // runTests runs tests with coverage threshold from COVERAGE env var
+//
+//nolint:wrapcheck // Example code - simple error passthrough for clarity
 func runTests(ctx context.Context) error {
 	threshold := os.Getenv("COVERAGE")
 	if threshold == "" {
@@ -55,10 +62,13 @@ func runTests(ctx context.Context) error {
 	}
 
 	fmt.Printf("Running tests with %s%% coverage threshold...\n", threshold)
+
 	return targ.RunContext(ctx, "go", "test", "-cover", "./...")
 }
 
 // build compiles the project with output name from OUTPUT env var
+//
+//nolint:wrapcheck // Example code - simple error passthrough for clarity
 func build(ctx context.Context) error {
 	output := os.Getenv("OUTPUT")
 	if output == "" {
@@ -66,5 +76,6 @@ func build(ctx context.Context) error {
 	}
 
 	fmt.Printf("Building %s...\n", output)
+
 	return targ.RunContext(ctx, "go", "build", "-o", output, ".")
 }

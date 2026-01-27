@@ -69,6 +69,8 @@ When multiple remotes have conflicting target names, use DeregisterFrom:
 */
 
 // LocalDeploy is a local target that depends on remote targets
+//
+//nolint:gochecknoglobals // Portable target must be global variable for registration
 var LocalDeploy = targ.Targ(deploy).
 	Name("deploy").
 	Description("Deploy after linting and testing").
