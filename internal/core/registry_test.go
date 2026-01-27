@@ -322,3 +322,327 @@ func TestProperty_UnknownPackageErrors(t *testing.T) {
 			"error should contain the unknown package path")
 	})
 }
+
+// TestProperty_UniqueNamesNoConflict verifies that a registry with all unique names
+// across packages never returns a conflict error.
+func TestProperty_UniqueNamesNoConflict(t *testing.T) {
+	t.Parallel()
+
+	rapid.Check(t, func(t *rapid.T) {
+		g := NewWithT(t)
+
+		// Generate unique target names
+		numTargets := rapid.IntRange(1, 10).Draw(t, "numTargets")
+		names := make(map[string]bool)
+		registry := make([]any, 0, numTargets)
+
+		pkgGen := rapid.StringMatching(`[a-z]+\.[a-z]+/[a-z][a-z0-9-]*/[a-z][a-z0-9-]*`)
+
+		for range numTargets {
+			// Generate unique name
+			name := rapid.StringMatching(`[a-z][a-z0-9-]*`).
+				Filter(func(s string) bool { return !names[s] }).
+				Draw(t, "name")
+			names[name] = true
+
+			// Generate random package
+			pkg := pkgGen.Draw(t, "pkg")
+
+			// Create target
+			target := Targ(func() {}).Name(name)
+			target.sourcePkg = pkg
+			registry = append(registry, target)
+		}
+
+		// Detect conflicts
+		err := detectConflicts(registry)
+
+		// Should not error
+		g.Expect(err).ToNot(HaveOccurred(),
+			"registry with all unique names should have no conflicts")
+	})
+}
+
+// TestProperty_SameNameSameSourceNoConflict verifies that the same name from the same
+// package (idempotent registration) is not a conflict.
+func TestProperty_SameNameSameSourceNoConflict(t *testing.T) {
+	t.Parallel()
+
+	rapid.Check(t, func(t *rapid.T) {
+		g := NewWithT(t)
+
+		// Generate target name and package
+		name := rapid.StringMatching(`[a-z][a-z0-9-]*`).Draw(t, "name")
+		pkg := rapid.StringMatching(`[a-z]+\.[a-z]+/[a-z][a-z0-9-]*/[a-z][a-z0-9-]*`).
+			Draw(t, "pkg")
+
+		// Generate multiple targets with same name from same package
+		numTargets := rapid.IntRange(2, 5).Draw(t, "numTargets")
+		registry := make([]any, numTargets)
+
+		for i := range numTargets {
+			target := Targ(func() {}).Name(name)
+			target.sourcePkg = pkg
+			registry[i] = target
+		}
+
+		// Detect conflicts
+		err := detectConflicts(registry)
+
+		// Should not error - same source is idempotent
+		g.Expect(err).ToNot(HaveOccurred(),
+			"same name from same package should not conflict (idempotent)")
+	})
+}
+
+// TestProperty_SameNameDifferentSourceConflicts verifies that the same name from
+// different packages returns a ConflictError.
+func TestProperty_SameNameDifferentSourceConflicts(t *testing.T) {
+	t.Parallel()
+
+	rapid.Check(t, func(t *rapid.T) {
+		g := NewWithT(t)
+
+		// Generate target name
+		name := rapid.StringMatching(`[a-z][a-z0-9-]*`).Draw(t, "name")
+
+		// Generate two different package paths
+		pkgGen := rapid.StringMatching(`[a-z]+\.[a-z]+/[a-z][a-z0-9-]*/[a-z][a-z0-9-]*`)
+		pkg1 := pkgGen.Draw(t, "pkg1")
+		pkg2 := pkgGen.Filter(func(s string) bool { return s != pkg1 }).
+			Draw(t, "pkg2")
+
+		// Create registry with same name from different packages
+		registry := []any{
+			func() *Target {
+				t := Targ(func() {}).Name(name)
+				t.sourcePkg = pkg1
+				return t
+			}(),
+			func() *Target {
+				t := Targ(func() {}).Name(name)
+				t.sourcePkg = pkg2
+				return t
+			}(),
+		}
+
+		// Detect conflicts
+		err := detectConflicts(registry)
+
+		// Should return ConflictError
+		g.Expect(err).To(HaveOccurred(),
+			"same name from different packages should conflict")
+
+		var conflictErr *ConflictError
+		g.Expect(err).To(BeAssignableToTypeOf(conflictErr),
+			"error should be *ConflictError")
+
+		conflictErr = &ConflictError{}
+		ok := errors.As(err, &conflictErr)
+		g.Expect(ok).To(BeTrue(), "error should be *ConflictError")
+		g.Expect(conflictErr.Conflicts).To(HaveLen(1),
+			"should report exactly one conflict")
+		g.Expect(conflictErr.Conflicts[0].Name).To(Equal(name),
+			"conflict should contain the target name")
+		g.Expect(conflictErr.Conflicts[0].Sources).To(ConsistOf(pkg1, pkg2),
+			"conflict should contain both package paths")
+	})
+}
+
+// TestProperty_ErrorMessageContainsName verifies that ConflictError.Error() includes
+// the conflicting target name.
+func TestProperty_ErrorMessageContainsName(t *testing.T) {
+	t.Parallel()
+
+	rapid.Check(t, func(t *rapid.T) {
+		g := NewWithT(t)
+
+		// Generate target name
+		name := rapid.StringMatching(`[a-z][a-z0-9-]*`).Draw(t, "name")
+
+		// Generate two different package paths
+		pkgGen := rapid.StringMatching(`[a-z]+\.[a-z]+/[a-z][a-z0-9-]*/[a-z][a-z0-9-]*`)
+		pkg1 := pkgGen.Draw(t, "pkg1")
+		pkg2 := pkgGen.Filter(func(s string) bool { return s != pkg1 }).
+			Draw(t, "pkg2")
+
+		// Create registry with conflict
+		registry := []any{
+			func() *Target {
+				t := Targ(func() {}).Name(name)
+				t.sourcePkg = pkg1
+				return t
+			}(),
+			func() *Target {
+				t := Targ(func() {}).Name(name)
+				t.sourcePkg = pkg2
+				return t
+			}(),
+		}
+
+		// Detect conflicts
+		err := detectConflicts(registry)
+		g.Expect(err).To(HaveOccurred(), "should return error")
+
+		// Verify error message contains the name
+		errMsg := err.Error()
+		g.Expect(errMsg).To(ContainSubstring(name),
+			"error message should contain the conflicting target name")
+	})
+}
+
+// TestProperty_ErrorMessageContainsSources verifies that ConflictError.Error() includes
+// both source package paths.
+func TestProperty_ErrorMessageContainsSources(t *testing.T) {
+	t.Parallel()
+
+	rapid.Check(t, func(t *rapid.T) {
+		g := NewWithT(t)
+
+		// Generate target name
+		name := rapid.StringMatching(`[a-z][a-z0-9-]*`).Draw(t, "name")
+
+		// Generate two different package paths
+		pkgGen := rapid.StringMatching(`[a-z]+\.[a-z]+/[a-z][a-z0-9-]*/[a-z][a-z0-9-]*`)
+		pkg1 := pkgGen.Draw(t, "pkg1")
+		pkg2 := pkgGen.Filter(func(s string) bool { return s != pkg1 }).
+			Draw(t, "pkg2")
+
+		// Create registry with conflict
+		registry := []any{
+			func() *Target {
+				t := Targ(func() {}).Name(name)
+				t.sourcePkg = pkg1
+				return t
+			}(),
+			func() *Target {
+				t := Targ(func() {}).Name(name)
+				t.sourcePkg = pkg2
+				return t
+			}(),
+		}
+
+		// Detect conflicts
+		err := detectConflicts(registry)
+		g.Expect(err).To(HaveOccurred(), "should return error")
+
+		// Verify error message contains both sources
+		errMsg := err.Error()
+		g.Expect(errMsg).To(ContainSubstring(pkg1),
+			"error message should contain first package path")
+		g.Expect(errMsg).To(ContainSubstring(pkg2),
+			"error message should contain second package path")
+	})
+}
+
+// TestProperty_ErrorMessageSuggestsFix verifies that ConflictError.Error() mentions
+// DeregisterFrom as a solution.
+func TestProperty_ErrorMessageSuggestsFix(t *testing.T) {
+	t.Parallel()
+
+	rapid.Check(t, func(t *rapid.T) {
+		g := NewWithT(t)
+
+		// Generate target name
+		name := rapid.StringMatching(`[a-z][a-z0-9-]*`).Draw(t, "name")
+
+		// Generate two different package paths
+		pkgGen := rapid.StringMatching(`[a-z]+\.[a-z]+/[a-z][a-z0-9-]*/[a-z][a-z0-9-]*`)
+		pkg1 := pkgGen.Draw(t, "pkg1")
+		pkg2 := pkgGen.Filter(func(s string) bool { return s != pkg1 }).
+			Draw(t, "pkg2")
+
+		// Create registry with conflict
+		registry := []any{
+			func() *Target {
+				t := Targ(func() {}).Name(name)
+				t.sourcePkg = pkg1
+				return t
+			}(),
+			func() *Target {
+				t := Targ(func() {}).Name(name)
+				t.sourcePkg = pkg2
+				return t
+			}(),
+		}
+
+		// Detect conflicts
+		err := detectConflicts(registry)
+		g.Expect(err).To(HaveOccurred(), "should return error")
+
+		// Verify error message suggests DeregisterFrom
+		errMsg := err.Error()
+		g.Expect(errMsg).To(ContainSubstring("DeregisterFrom"),
+			"error message should suggest using DeregisterFrom")
+	})
+}
+
+// TestProperty_MultipleConflictsAllReported verifies that all conflicts are collected
+// and reported, not just the first one found.
+func TestProperty_MultipleConflictsAllReported(t *testing.T) {
+	t.Parallel()
+
+	rapid.Check(t, func(t *rapid.T) {
+		g := NewWithT(t)
+
+		// Generate two different target names
+		nameGen := rapid.StringMatching(`[a-z][a-z0-9-]*`)
+		name1 := nameGen.Draw(t, "name1")
+		name2 := nameGen.Filter(func(s string) bool { return s != name1 }).
+			Draw(t, "name2")
+
+		// Generate three different package paths
+		pkgGen := rapid.StringMatching(`[a-z]+\.[a-z]+/[a-z][a-z0-9-]*/[a-z][a-z0-9-]*`)
+		pkgA := pkgGen.Draw(t, "pkgA")
+		pkgB := pkgGen.Filter(func(s string) bool { return s != pkgA }).
+			Draw(t, "pkgB")
+		pkgC := pkgGen.Filter(func(s string) bool { return s != pkgA && s != pkgB }).
+			Draw(t, "pkgC")
+
+		// Create registry with multiple conflicts:
+		// - name1 from pkgA and pkgB (conflict)
+		// - name2 from pkgB and pkgC (conflict)
+		registry := []any{
+			func() *Target {
+				t := Targ(func() {}).Name(name1)
+				t.sourcePkg = pkgA
+				return t
+			}(),
+			func() *Target {
+				t := Targ(func() {}).Name(name1)
+				t.sourcePkg = pkgB
+				return t
+			}(),
+			func() *Target {
+				t := Targ(func() {}).Name(name2)
+				t.sourcePkg = pkgB
+				return t
+			}(),
+			func() *Target {
+				t := Targ(func() {}).Name(name2)
+				t.sourcePkg = pkgC
+				return t
+			}(),
+		}
+
+		// Detect conflicts
+		err := detectConflicts(registry)
+		g.Expect(err).To(HaveOccurred(), "should return error for conflicts")
+
+		var conflictErr *ConflictError
+		ok := errors.As(err, &conflictErr)
+		g.Expect(ok).To(BeTrue(), "error should be *ConflictError")
+
+		// Should report both conflicts
+		g.Expect(conflictErr.Conflicts).To(HaveLen(2),
+			"should report all conflicts, not just the first")
+
+		// Verify both conflict names are present
+		conflictNames := make([]string, len(conflictErr.Conflicts))
+		for i, c := range conflictErr.Conflicts {
+			conflictNames[i] = c.Name
+		}
+		g.Expect(conflictNames).To(ConsistOf(name1, name2),
+			"should report conflicts for both names")
+	})
+}
