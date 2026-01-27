@@ -613,3 +613,174 @@ func TestErrorMessageMentionsInit(t *testing.T) {
 			"DeregisterFrom should error after resolution and mention init()")
 	})
 }
+
+// TestProperty_LocalTargetsHaveSourcePkgCleared verifies that targets from the main module
+// have their sourcePkg cleared during resolution.
+//
+//nolint:paralleltest // Cannot run in parallel - modifies global registry state
+func TestProperty_LocalTargetsHaveSourcePkgCleared(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		g := NewWithT(t)
+
+		// Reset state before test
+		core.SetRegistry(nil)
+		core.ResetDeregistrations()
+		core.ResetResolved()
+		t.Cleanup(func() {
+			core.SetRegistry(nil)
+			core.ResetDeregistrations()
+			core.ResetResolved()
+			core.SetMainModuleForTest(nil)
+		})
+
+		// Generate main module path
+		mainModule := rapid.StringMatching(`github\.com/[a-z][a-z0-9-]*/[a-z][a-z0-9-]*`).
+			Draw(t, "mainModule")
+
+		// Create a local target (from main module)
+		localTarget := core.Targ(func() {}).Name("local-target")
+		localTarget.SetSourceForTest(mainModule)
+
+		// Set up registry with one local target
+		core.SetRegistry([]any{localTarget})
+
+		// Inject main module provider
+		core.SetMainModuleForTest(func() (string, bool) {
+			return mainModule, true
+		})
+
+		// Verify sourcePkg BEFORE resolution
+		g.Expect(localTarget.GetSource()).To(Equal(mainModule),
+			"local target should have mainModule as sourcePkg before resolution")
+
+		// Call resolveRegistry to clear local sourcePkg
+		resolved, err := core.ResolveRegistryForTest()
+		g.Expect(err).ToNot(HaveOccurred(), "resolveRegistry should not error")
+		g.Expect(resolved).To(HaveLen(1), "should have one item in resolved registry")
+
+		// Verify the target's sourcePkg was cleared AFTER resolution
+		g.Expect(localTarget.GetSource()).To(BeEmpty(),
+			"local target should have empty sourcePkg after resolution")
+
+		// Verify resolved item is the same target with empty sourcePkg
+		resolvedTarget, ok := resolved[0].(*core.Target)
+		g.Expect(ok).To(BeTrue(), "resolved item should be *core.Target")
+		g.Expect(resolvedTarget.GetSource()).To(BeEmpty(),
+			"resolved target should have empty sourcePkg")
+	})
+}
+
+// TestProperty_RemoteTargetsKeepSourcePkg verifies that targets from external modules
+// retain their sourcePkg after resolution.
+//
+//nolint:paralleltest // Cannot run in parallel - modifies global registry state
+func TestProperty_RemoteTargetsKeepSourcePkg(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		g := NewWithT(t)
+
+		// Reset state before test
+		core.SetRegistry(nil)
+		core.ResetDeregistrations()
+		core.ResetResolved()
+		t.Cleanup(func() {
+			core.SetRegistry(nil)
+			core.ResetDeregistrations()
+			core.ResetResolved()
+			core.SetMainModuleForTest(nil)
+		})
+
+		// Generate main module and external module paths (must be different)
+		mainModule := rapid.StringMatching(`github\.com/[a-z][a-z0-9-]*/[a-z][a-z0-9-]*`).
+			Draw(t, "mainModule")
+		externalModule := rapid.StringMatching(`github\.com/[a-z][a-z0-9-]*/[a-z][a-z0-9-]*`).
+			Filter(func(s string) bool { return s != mainModule }).
+			Draw(t, "externalModule")
+
+		// Create a remote target (from external module)
+		remoteTarget := core.Targ(func() {}).Name("remote-target")
+		remoteTarget.SetSourceForTest(externalModule)
+
+		// Set up registry with one remote target
+		core.SetRegistry([]any{remoteTarget})
+
+		// Inject main module provider
+		core.SetMainModuleForTest(func() (string, bool) {
+			return mainModule, true
+		})
+
+		// Verify sourcePkg BEFORE resolution
+		g.Expect(remoteTarget.GetSource()).To(Equal(externalModule),
+			"remote target should have externalModule as sourcePkg before resolution")
+
+		// Call resolveRegistry
+		resolved, err := core.ResolveRegistryForTest()
+		g.Expect(err).ToNot(HaveOccurred(), "resolveRegistry should not error")
+		g.Expect(resolved).To(HaveLen(1), "should have one item in resolved registry")
+
+		// Verify the target's sourcePkg was PRESERVED AFTER resolution
+		g.Expect(remoteTarget.GetSource()).To(Equal(externalModule),
+			"remote target should retain sourcePkg after resolution")
+
+		// Verify resolved item is the same target with preserved sourcePkg
+		resolvedTarget, ok := resolved[0].(*core.Target)
+		g.Expect(ok).To(BeTrue(), "resolved item should be *core.Target")
+		g.Expect(resolvedTarget.GetSource()).To(Equal(externalModule),
+			"resolved target should retain sourcePkg")
+	})
+}
+
+// TestProperty_MixedLocalAndRemoteTargetsHandled verifies that in a registry with both
+// local and remote targets, only local ones get sourcePkg cleared.
+//
+//nolint:paralleltest // Cannot run in parallel - modifies global registry state
+func TestProperty_MixedLocalAndRemoteTargetsHandled(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		g := NewWithT(t)
+
+		// Reset state before test
+		core.SetRegistry(nil)
+		core.ResetDeregistrations()
+		core.ResetResolved()
+		t.Cleanup(func() {
+			core.SetRegistry(nil)
+			core.ResetDeregistrations()
+			core.ResetResolved()
+			core.SetMainModuleForTest(nil)
+		})
+
+		// Generate main module and external module paths (must be different)
+		mainModule := rapid.StringMatching(`github\.com/[a-z][a-z0-9-]*/[a-z][a-z0-9-]*`).
+			Draw(t, "mainModule")
+		externalModule := rapid.StringMatching(`github\.com/[a-z][a-z0-9-]*/[a-z][a-z0-9-]*`).
+			Filter(func(s string) bool { return s != mainModule }).
+			Draw(t, "externalModule")
+
+		// Create mixed targets
+		localTarget := core.Targ(func() {}).Name("local-target")
+		localTarget.SetSourceForTest(mainModule)
+
+		remoteTarget := core.Targ(func() {}).Name("remote-target")
+		remoteTarget.SetSourceForTest(externalModule)
+
+		// Set up registry with both
+		core.SetRegistry([]any{localTarget, remoteTarget})
+
+		// Inject main module provider
+		core.SetMainModuleForTest(func() (string, bool) {
+			return mainModule, true
+		})
+
+		// Call resolveRegistry
+		resolved, err := core.ResolveRegistryForTest()
+		g.Expect(err).ToNot(HaveOccurred(), "resolveRegistry should not error")
+		g.Expect(resolved).To(HaveLen(2), "should have two items in resolved registry")
+
+		// Verify local target has empty sourcePkg
+		g.Expect(localTarget.GetSource()).To(BeEmpty(),
+			"local target should have empty sourcePkg")
+
+		// Verify remote target kept its sourcePkg
+		g.Expect(remoteTarget.GetSource()).To(Equal(externalModule),
+			"remote target should retain sourcePkg")
+	})
+}

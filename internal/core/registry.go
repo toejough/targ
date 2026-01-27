@@ -153,6 +153,11 @@ func detectConflicts(items []any) error {
 	return nil
 }
 
+// ResolveRegistryForTest is a test-only export of resolveRegistry.
+func ResolveRegistryForTest() ([]any, error) {
+	return resolveRegistry()
+}
+
 // resolveRegistry processes the global registry by applying deregistrations
 // and detecting conflicts. Returns the filtered registry or an error.
 // Clears the deregistration queue after processing.
@@ -177,5 +182,36 @@ func resolveRegistry() ([]any, error) {
 		return nil, err
 	}
 
+	// Clear sourcePkg for local targets (from main module)
+	clearLocalTargetSources(filtered)
+
 	return filtered, nil
+}
+
+// clearLocalTargetSources clears sourcePkg for targets from the main module.
+// Uses mainModuleProvider to determine the main module path.
+func clearLocalTargetSources(items []any) {
+	// Get main module path
+	var mainModule string
+	if mainModuleProvider != nil {
+		mainModule, _ = mainModuleProvider()
+	}
+
+	// If we can't determine main module, leave all sources as-is
+	if mainModule == "" {
+		return
+	}
+
+	// Clear sourcePkg for any target from main module
+	for _, item := range items {
+		target, ok := item.(*Target)
+		if !ok {
+			continue
+		}
+
+		// Check if target's sourcePkg starts with main module
+		if strings.HasPrefix(target.sourcePkg, mainModule) {
+			target.sourcePkg = ""
+		}
+	}
 }

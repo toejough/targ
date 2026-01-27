@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"runtime/debug"
 	"slices"
 	"strings"
 )
@@ -135,9 +136,25 @@ func RunWithOptions(opts RunOptions, targets ...any) {
 	// Exit is called by RunWithEnv via env.Exit()
 }
 
+// SetMainModuleForTest injects a main module provider (for testing).
+func SetMainModuleForTest(fn func() (string, bool)) {
+	mainModuleProvider = fn
+}
+
 // SetRegistry replaces the global registry (for testing).
 func SetRegistry(targets []any) {
 	registry = targets
+}
+
+// getMainModule returns the main module path using runtime/debug.ReadBuildInfo.
+// Returns (modulePath, true) on success, ("", false) on failure.
+func getMainModule() (string, bool) {
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return "", false
+	}
+
+	return info.Main.Path, true
 }
 
 // unexported variables.
@@ -146,9 +163,10 @@ var (
 	errDeregisterAfterResolution = errors.New(
 		"targ: DeregisterFrom() must be called during init(), not after targ has started",
 	)
-	errEmptyPackagePath = errors.New("package path cannot be empty")
-	registry            []any //nolint:gochecknoglobals // Global registry is intentional for Register() API
-	registryResolved    bool  //nolint:gochecknoglobals // Global flag to track resolution state
+	errEmptyPackagePath  = errors.New("package path cannot be empty")
+	mainModuleProvider   = getMainModule         //nolint:gochecknoglobals // Default to runtime detection, injected for testing
+	registry             []any                    //nolint:gochecknoglobals // Global registry is intentional for Register() API
+	registryResolved     bool                     //nolint:gochecknoglobals // Global flag to track resolution state
 )
 
 type osRunEnv struct{}
