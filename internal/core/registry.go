@@ -66,48 +66,35 @@ func applyDeregistrations(items []any, packagePaths []string) ([]any, error) {
 	// Filter out targets and groups from deregistered packages
 	result := make([]any, 0, len(items))
 	for _, item := range items {
+		var sourcePkg string
+
+		// Get sourcePkg based on item type
+		switch v := item.(type) {
+		case *Target:
+			sourcePkg = v.sourcePkg
+		case *TargetGroup:
+			sourcePkg = v.sourcePkg
+		default:
+			// Non-Target, non-TargetGroup items pass through
+			result = append(result, item)
+			continue
+		}
+
+		// Check if item's package is in deregistration list
 		shouldRemove := false
 
-		// Check if item is a Target
-		target, isTarget := item.(*Target)
-		if isTarget {
-			for _, pkg := range packagePaths {
-				if target.sourcePkg == pkg {
-					shouldRemove = true
-					matchCounts[pkg]++
+		for _, pkg := range packagePaths {
+			if sourcePkg == pkg {
+				shouldRemove = true
+				matchCounts[pkg]++
 
-					break
-				}
+				break
 			}
-
-			if !shouldRemove {
-				result = append(result, item)
-			}
-
-			continue
 		}
 
-		// Check if item is a TargetGroup
-		group, isGroup := item.(*TargetGroup)
-		if isGroup {
-			for _, pkg := range packagePaths {
-				if group.sourcePkg == pkg {
-					shouldRemove = true
-					matchCounts[pkg]++
-
-					break
-				}
-			}
-
-			if !shouldRemove {
-				result = append(result, item)
-			}
-
-			continue
+		if !shouldRemove {
+			result = append(result, item)
 		}
-
-		// Non-Target, non-TargetGroup items pass through
-		result = append(result, item)
 	}
 
 	// Check for packages with no matches
