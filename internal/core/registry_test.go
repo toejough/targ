@@ -93,7 +93,9 @@ func TestProperty_DeregisteredPackageFullyRemoved(t *testing.T) {
 		}
 
 		// Apply deregistration
-		result, err := applyDeregistrations(registry, []string{deregPkg})
+		result, err := applyDeregistrations(registry, []Deregistration{
+			{PackagePath: deregPkg, RegistryLen: len(registry)},
+		})
 
 		// Should succeed
 		g.Expect(err).ToNot(HaveOccurred(), "deregistering package with targets should succeed")
@@ -274,7 +276,7 @@ func TestProperty_EmptyDeregistrationsNoOp(t *testing.T) {
 		}
 
 		// Apply empty deregistrations
-		result, err := applyDeregistrations(registry, []string{})
+		result, err := applyDeregistrations(registry, []Deregistration{})
 
 		// Should succeed
 		g.Expect(err).ToNot(HaveOccurred(), "empty deregistrations should succeed")
@@ -544,7 +546,10 @@ func TestProperty_MultiplePackagesDeregistered(t *testing.T) {
 		}
 
 		// Deregister pkg1 and pkg2
-		result, err := applyDeregistrations(registry, []string{pkg1, pkg2})
+		result, err := applyDeregistrations(registry, []Deregistration{
+			{PackagePath: pkg1, RegistryLen: len(registry)},
+			{PackagePath: pkg2, RegistryLen: len(registry)},
+		})
 
 		// Should succeed
 		g.Expect(err).ToNot(HaveOccurred(), "deregistering multiple packages should succeed")
@@ -599,7 +604,9 @@ func TestProperty_NonTargetItemsPreserved(t *testing.T) {
 		}
 
 		// Deregister the package
-		result, err := applyDeregistrations(registry, []string{pkg})
+		result, err := applyDeregistrations(registry, []Deregistration{
+			{PackagePath: pkg, RegistryLen: len(registry)},
+		})
 
 		// Should succeed
 		g.Expect(err).ToNot(HaveOccurred(), "deregistration should succeed")
@@ -656,7 +663,9 @@ func TestProperty_OtherPackagesUntouched(t *testing.T) {
 		}
 
 		// Apply deregistration
-		result, err := applyDeregistrations(registry, []string{deregPkg})
+		result, err := applyDeregistrations(registry, []Deregistration{
+			{PackagePath: deregPkg, RegistryLen: len(registry)},
+		})
 
 		// Should succeed
 		g.Expect(err).ToNot(HaveOccurred(), "deregistering package should succeed")
@@ -880,7 +889,9 @@ func TestProperty_UnknownPackageErrors(t *testing.T) {
 		}
 
 		// Try to deregister unknown package
-		_, err := applyDeregistrations(registry, []string{unknownPkg})
+		_, err := applyDeregistrations(registry, []Deregistration{
+			{PackagePath: unknownPkg, RegistryLen: len(registry)},
+		})
 
 		// Should return DeregistrationError
 		g.Expect(err).To(HaveOccurred(), "deregistering unknown package should error")
@@ -921,7 +932,9 @@ func TestProperty_ApplyDeregistrations_RemovesGroupsFromDeregisteredPackages(t *
 		}
 
 		// Apply deregistration
-		result, err := applyDeregistrations(registry, []string{deregPkg})
+		result, err := applyDeregistrations(registry, []Deregistration{
+			{PackagePath: deregPkg, RegistryLen: len(registry)},
+		})
 
 		// Should succeed
 		g.Expect(err).ToNot(HaveOccurred(), "deregistering package with groups should succeed")
@@ -972,7 +985,9 @@ func TestProperty_ApplyDeregistrations_PreservesGroupsFromOtherPackages(t *testi
 		}
 
 		// Apply deregistration
-		result, err := applyDeregistrations(registry, []string{deregPkg})
+		result, err := applyDeregistrations(registry, []Deregistration{
+			{PackagePath: deregPkg, RegistryLen: len(registry)},
+		})
 
 		// Should succeed
 		g.Expect(err).ToNot(HaveOccurred(), "deregistering package should succeed")

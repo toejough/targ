@@ -6,12 +6,13 @@ import (
 	"io"
 	"os"
 	"runtime/debug"
-	"slices"
 	"strings"
 )
 
 // DeregisterFrom queues a package path for deregistration.
-// All targets from this package will be removed during registry resolution.
+// All targets from this package that were registered BEFORE this call
+// will be removed during registry resolution. Targets registered AFTER
+// this call (re-registered) will be preserved.
 // Returns error if packagePath is empty or if called after resolution.
 func DeregisterFrom(packagePath string) error {
 	if registryResolved {
@@ -23,11 +24,16 @@ func DeregisterFrom(packagePath string) error {
 	}
 
 	// Check if already queued (idempotent)
-	if slices.Contains(deregistrations, packagePath) {
-		return nil
+	for _, dereg := range deregistrations {
+		if dereg.PackagePath == packagePath {
+			return nil
+		}
 	}
 
-	deregistrations = append(deregistrations, packagePath)
+	deregistrations = append(deregistrations, Deregistration{
+		PackagePath: packagePath,
+		RegistryLen: len(registry),
+	})
 
 	return nil
 }
@@ -73,7 +79,7 @@ func ExecuteWithResolution(env RunEnv, opts RunOptions) error {
 }
 
 // GetDeregistrations returns the current deregistrations queue (for testing).
-func GetDeregistrations() []string {
+func GetDeregistrations() []Deregistration {
 	return deregistrations
 }
 
@@ -164,9 +170,17 @@ func getMainModule() (string, bool) {
 	return info.Main.Path, true
 }
 
+// Deregistration represents a package deregistration request.
+// It captures the registry length at the time of the request to ensure
+// only targets registered BEFORE the deregistration are affected.
+type Deregistration struct {
+	PackagePath string
+	RegistryLen int
+}
+
 // unexported variables.
 var (
-	deregistrations              []string //nolint:gochecknoglobals // Intentional global for DeregisterFrom() API
+	deregistrations              []Deregistration //nolint:gochecknoglobals // Intentional global for DeregisterFrom() API
 	errDeregisterAfterResolution = errors.New(
 		"targ: DeregisterFrom() must be called during init(), not after targ has started",
 	)

@@ -53,8 +53,8 @@ func TestDeregisterFrom_IdempotentForSamePackage(t *testing.T) {
 		deregistrations := core.GetDeregistrations()
 		count := 0
 
-		for _, path := range deregistrations {
-			if path == pkgPath {
+		for _, dereg := range deregistrations {
+			if dereg.PackagePath == pkgPath {
 				count++
 			}
 		}
@@ -93,7 +93,14 @@ func TestDeregisterFrom_MultipleDifferentPackages(t *testing.T) {
 			"all package paths should be in deregistrations queue")
 
 		for _, pkgPath := range pkgPaths {
-			g.Expect(deregistrations).To(ContainElement(pkgPath),
+			found := false
+			for _, dereg := range deregistrations {
+				if dereg.PackagePath == pkgPath {
+					found = true
+					break
+				}
+			}
+			g.Expect(found).To(BeTrue(),
 				"each package path should be in deregistrations queue")
 		}
 	})
@@ -120,7 +127,14 @@ func TestDeregisterFrom_ValidPathQueuesSuccessfully(t *testing.T) {
 
 		// Verify it was queued
 		deregistrations := core.GetDeregistrations()
-		g.Expect(deregistrations).To(ContainElement(pkgPath),
+		found := false
+		for _, dereg := range deregistrations {
+			if dereg.PackagePath == pkgPath {
+				found = true
+				break
+			}
+		}
+		g.Expect(found).To(BeTrue(),
 			"package path should be in deregistrations queue")
 	})
 }
@@ -509,7 +523,14 @@ func TestDeregisterFromBeforeResolutionSucceeds(t *testing.T) {
 
 		// Verify it was queued
 		deregistrations := core.GetDeregistrations()
-		g.Expect(deregistrations).To(ContainElement(pkgPath),
+		found := false
+		for _, dereg := range deregistrations {
+			if dereg.PackagePath == pkgPath {
+				found = true
+				break
+			}
+		}
+		g.Expect(found).To(BeTrue(),
 			"package path should be in deregistrations queue")
 	})
 }

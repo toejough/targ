@@ -50,22 +50,25 @@ func (e *DeregistrationError) Error() string {
 }
 
 // applyDeregistrations filters out targets from specified packages.
+// Only removes items at indices less than the RegistryLen specified in each deregistration.
+// This allows re-registering targets after deregistering their package.
 // Returns filtered registry and error if a deregistered package had no matches.
-func applyDeregistrations(items []any, packagePaths []string) ([]any, error) {
+func applyDeregistrations(items []any, deregistrations []Deregistration) ([]any, error) {
 	// Early return for empty deregistrations
-	if len(packagePaths) == 0 {
+	if len(deregistrations) == 0 {
 		return items, nil
 	}
 
 	// Track which packages had matches
 	matchCounts := make(map[string]int)
-	for _, pkg := range packagePaths {
-		matchCounts[pkg] = 0
+	for _, dereg := range deregistrations {
+		matchCounts[dereg.PackagePath] = 0
 	}
 
 	// Filter out targets and groups from deregistered packages
+	// Only remove items at index < RegistryLen for each deregistration
 	result := make([]any, 0, len(items))
-	for _, item := range items {
+	for idx, item := range items {
 		var sourcePkg string
 
 		// Get sourcePkg based on item type
@@ -80,13 +83,16 @@ func applyDeregistrations(items []any, packagePaths []string) ([]any, error) {
 			continue
 		}
 
-		// Check if item's package is in deregistration list
+		// Check if item should be removed by any deregistration
 		shouldRemove := false
 
-		for _, pkg := range packagePaths {
-			if sourcePkg == pkg {
+		for _, dereg := range deregistrations {
+			// Only remove if:
+			// 1. Package matches AND
+			// 2. Item was registered before the deregistration (idx < RegistryLen)
+			if sourcePkg == dereg.PackagePath && idx < dereg.RegistryLen {
 				shouldRemove = true
-				matchCounts[pkg]++
+				matchCounts[dereg.PackagePath]++
 
 				break
 			}
@@ -98,9 +104,9 @@ func applyDeregistrations(items []any, packagePaths []string) ([]any, error) {
 	}
 
 	// Check for packages with no matches
-	for _, pkg := range packagePaths {
-		if matchCounts[pkg] == 0 {
-			return nil, &DeregistrationError{PackagePath: pkg}
+	for _, dereg := range deregistrations {
+		if matchCounts[dereg.PackagePath] == 0 {
+			return nil, &DeregistrationError{PackagePath: dereg.PackagePath}
 		}
 	}
 
