@@ -8,6 +8,43 @@ import (
 	"pgregory.net/rapid"
 )
 
+func TestProperty_CallerPackagePath(t *testing.T) {
+	t.Parallel()
+
+	t.Run("CallerFromThisPackageReturnsThisPackage", func(t *testing.T) {
+		t.Parallel()
+		rapid.Check(t, func(t *rapid.T) {
+			g := NewWithT(t)
+
+			// Create a helper function to call callerPackagePath
+			// This ensures we're testing from within this package
+			callHelper := func() (string, error) {
+				return callerPackagePath(0)
+			}
+
+			result, err := callHelper()
+
+			g.Expect(err).
+				ToNot(HaveOccurred(), "callerPackagePath should not error with valid depth")
+			g.Expect(result).To(ContainSubstring("github.com/toejough/targ/internal/core"),
+				"caller package path should contain this package's path")
+		})
+	})
+
+	t.Run("InvalidDepthReturnsError", func(t *testing.T) {
+		t.Parallel()
+		rapid.Check(t, func(t *rapid.T) {
+			g := NewWithT(t)
+
+			// Very large depth should fail - no stack that deep
+			_, err := callerPackagePath(99999)
+
+			g.Expect(err).To(HaveOccurred(),
+				"callerPackagePath with invalid depth should return error")
+		})
+	})
+}
+
 func TestProperty_ExtractPackagePath(t *testing.T) {
 	t.Parallel()
 
@@ -35,6 +72,7 @@ func TestProperty_ExtractPackagePath(t *testing.T) {
 			if len(pkgSegments) > 0 {
 				fullName += "/" + strings.Join(pkgSegments, "/")
 			}
+
 			fullName += "." + funcName
 
 			result := extractPackagePath(fullName)
@@ -64,6 +102,7 @@ func TestProperty_ExtractPackagePath(t *testing.T) {
 			if len(pkgSegments) > 0 {
 				fullName += "/" + strings.Join(pkgSegments, "/")
 			}
+
 			fullName += "." + funcName
 
 			result := extractPackagePath(fullName)
@@ -100,48 +139,16 @@ func TestProperty_ExtractPackagePath(t *testing.T) {
 				{"github.com/user/repo.init.func1", "github.com/user/repo"},
 				{"github.com/user/repo/internal/pkg.Func", "github.com/user/repo/internal/pkg"},
 				{"", ""},
+				// Edge case: package name with no dot (no function name)
+				{"simplepkg", "simplepkg"},
+				// Edge case: path with no dot after last slash
+				{"github.com/user/repo", "github.com/user/repo"},
 			}
 
 			idx := rapid.IntRange(0, len(cases)-1).Draw(t, "caseIdx")
 			tc := cases[idx]
 			g.Expect(extractPackagePath(tc.input)).To(Equal(tc.expected),
 				"extractPackagePath(%q)", tc.input)
-		})
-	})
-}
-
-func TestProperty_CallerPackagePath(t *testing.T) {
-	t.Parallel()
-
-	t.Run("CallerFromThisPackageReturnsThisPackage", func(t *testing.T) {
-		t.Parallel()
-		rapid.Check(t, func(t *rapid.T) {
-			g := NewWithT(t)
-
-			// Create a helper function to call callerPackagePath
-			// This ensures we're testing from within this package
-			callHelper := func() (string, error) {
-				return callerPackagePath(0)
-			}
-
-			result, err := callHelper()
-
-			g.Expect(err).ToNot(HaveOccurred(), "callerPackagePath should not error with valid depth")
-			g.Expect(result).To(ContainSubstring("github.com/toejough/targ/internal/core"),
-				"caller package path should contain this package's path")
-		})
-	})
-
-	t.Run("InvalidDepthReturnsError", func(t *testing.T) {
-		t.Parallel()
-		rapid.Check(t, func(t *rapid.T) {
-			g := NewWithT(t)
-
-			// Very large depth should fail - no stack that deep
-			_, err := callerPackagePath(99999)
-
-			g.Expect(err).To(HaveOccurred(),
-				"callerPackagePath with invalid depth should return error")
 		})
 	})
 }

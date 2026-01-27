@@ -1,11 +1,31 @@
 package core
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strings"
 )
+
+// DeregisterFrom queues a package path for deregistration.
+// All targets from this package will be removed during registry resolution.
+// Returns error if packagePath is empty.
+func DeregisterFrom(packagePath string) error {
+	if packagePath == "" {
+		return errors.New("package path cannot be empty")
+	}
+
+	// Check if already queued (idempotent)
+	if slices.Contains(deregistrations, packagePath) {
+		return nil
+	}
+
+	deregistrations = append(deregistrations, packagePath)
+
+	return nil
+}
 
 // ExecuteRegistered runs the registered targets using os.Args and exits on error.
 // This is used by the targ buildtool for packages that use explicit registration.
@@ -18,6 +38,11 @@ func ExecuteRegistered() {
 func ExecuteRegisteredWithOptions(opts RunOptions) {
 	opts.AllowDefault = true
 	RunWithOptions(opts, registry...)
+}
+
+// GetDeregistrations returns the current deregistrations queue (for testing).
+func GetDeregistrations() []string {
+	return deregistrations
 }
 
 // GetRegistry returns the current global registry (for testing).
@@ -38,6 +63,11 @@ func RegisterTarget(targets ...any) {
 	registry = append(registry, targets...)
 }
 
+// ResetDeregistrations clears the deregistrations queue (for testing).
+func ResetDeregistrations() {
+	deregistrations = nil
+}
+
 // RunWithOptions executes the CLI using os.Args and exits on error.
 // Exit is handled by RunWithEnv via the environment interface.
 func RunWithOptions(opts RunOptions, targets ...any) {
@@ -51,39 +81,10 @@ func SetRegistry(targets []any) {
 	registry = targets
 }
 
-// DeregisterFrom queues a package path for deregistration.
-// All targets from this package will be removed during registry resolution.
-// Returns error if packagePath is empty.
-func DeregisterFrom(packagePath string) error {
-	if packagePath == "" {
-		return fmt.Errorf("package path cannot be empty")
-	}
-
-	// Check if already queued (idempotent)
-	for _, path := range deregistrations {
-		if path == packagePath {
-			return nil
-		}
-	}
-
-	deregistrations = append(deregistrations, packagePath)
-	return nil
-}
-
-// GetDeregistrations returns the current deregistrations queue (for testing).
-func GetDeregistrations() []string {
-	return deregistrations
-}
-
-// ResetDeregistrations clears the deregistrations queue (for testing).
-func ResetDeregistrations() {
-	deregistrations = nil
-}
-
 // unexported variables.
 var (
-	registry        []any    //nolint:gochecknoglobals // Global registry is intentional for Register() API
 	deregistrations []string //nolint:gochecknoglobals // Global deregistrations queue is intentional for DeregisterFrom() API
+	registry        []any    //nolint:gochecknoglobals // Global registry is intentional for Register() API
 )
 
 type osRunEnv struct{}
