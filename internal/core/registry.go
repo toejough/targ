@@ -152,3 +152,26 @@ func detectConflicts(items []any) error {
 
 	return nil
 }
+
+// resolveRegistry processes the global registry by applying deregistrations
+// and detecting conflicts. Returns the filtered registry or an error.
+// Clears the deregistration queue after processing.
+func resolveRegistry() ([]any, error) {
+	// Always clear deregistrations at the end
+	defer func() {
+		deregistrations = nil
+	}()
+
+	// Apply deregistrations first
+	filtered, err := applyDeregistrations(registry, deregistrations)
+	if err != nil {
+		return nil, err
+	}
+
+	// Then check for conflicts
+	if err := detectConflicts(filtered); err != nil {
+		return nil, err
+	}
+
+	return filtered, nil
+}
