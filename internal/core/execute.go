@@ -27,17 +27,44 @@ func DeregisterFrom(packagePath string) error {
 	return nil
 }
 
+// ExecuteWithResolution resolves the global registry (applying deregistrations and
+// detecting conflicts) and then executes targets via RunWithEnv.
+// On resolution error, prints to stderr and exits with code 1.
+// Exported for testing - production code should use ExecuteRegistered.
+func ExecuteWithResolution(env RunEnv, opts RunOptions) error {
+	// Resolve registry (applies deregistrations, detects conflicts)
+	resolved, err := resolveRegistry()
+	if err != nil {
+		// Print error to stderr
+		fmt.Fprintf(os.Stderr, "%v\n", err)
+
+		// Exit with error code
+		env.Exit(1)
+
+		return err
+	}
+
+	// Execute with resolved registry
+	return RunWithEnv(env, opts, resolved...)
+}
+
 // ExecuteRegistered runs the registered targets using os.Args and exits on error.
 // This is used by the targ buildtool for packages that use explicit registration.
 func ExecuteRegistered() {
-	RunWithOptions(RunOptions{AllowDefault: true}, registry...)
+	env := osRunEnv{}
+
+	_ = ExecuteWithResolution(env, RunOptions{AllowDefault: true})
+	// Exit is called by ExecuteWithResolution via env.Exit()
 }
 
 // ExecuteRegisteredWithOptions runs the registered targets with custom options.
 // Used by generated bootstrap code.
 func ExecuteRegisteredWithOptions(opts RunOptions) {
+	env := osRunEnv{}
 	opts.AllowDefault = true
-	RunWithOptions(opts, registry...)
+
+	_ = ExecuteWithResolution(env, opts)
+	// Exit is called by ExecuteWithResolution via env.Exit()
 }
 
 // GetDeregistrations returns the current deregistrations queue (for testing).

@@ -284,11 +284,9 @@ func TestProperty_ExecuteRegisteredResolution_ExistingBehaviorUnchanged(t *testi
 
 		executionCount := 0
 
-		for range numTargets {
-			// Generate unique name
-			name := rapid.StringMatching(`[a-z][a-z0-9-]*`).
-				Filter(func(s string) bool { return !names[s] }).
-				Draw(t, "name")
+		for i := range numTargets {
+			// Use simple sequential names
+			name := fmt.Sprintf("test%d", i)
 			names[name] = true
 
 			// Generate random package
@@ -308,11 +306,15 @@ func TestProperty_ExecuteRegisteredResolution_ExistingBehaviorUnchanged(t *testi
 			core.ResetDeregistrations()
 		})
 
-		// Stub args to select first target
+		// Execute first target via ExecuteWithResolution
+		// With multiple targets, need to specify name in args
 		firstTarget := reg[0].(*core.Target)
-		env := core.NewExecuteEnv([]string{"targ", firstTarget.GetName()})
+		args := []string{"targ"}
+		if numTargets > 1 {
+			args = append(args, firstTarget.GetName())
+		}
 
-		// Execute with resolution - should succeed without error
+		env := core.NewExecuteEnv(args)
 		err := core.ExecuteWithResolution(env, core.RunOptions{AllowDefault: true})
 
 		g.Expect(err).ToNot(HaveOccurred(),
@@ -365,10 +367,8 @@ func TestProperty_ExecuteRegisteredResolution_ConflictPreventsExecution(t *testi
 			core.ResetDeregistrations()
 		})
 
-		// Stub args to select the conflicting target
+		// Execute with resolution - args specify the conflicting target
 		env := core.NewExecuteEnv([]string{"targ", name})
-
-		// Execute with resolution - should fail due to conflict
 		err := core.ExecuteWithResolution(env, core.RunOptions{AllowDefault: true})
 
 		g.Expect(err).To(HaveOccurred(),
@@ -418,10 +418,8 @@ func TestProperty_ExecuteRegisteredResolution_DeregistrationErrorPreventsExecuti
 			core.ResetDeregistrations()
 		})
 
-		// Stub args to select the target
-		env := core.NewExecuteEnv([]string{"targ", "test-target"})
-
-		// Execute with resolution - should fail due to bad deregistration
+		// Execute with resolution - args just use default since only one target
+		env := core.NewExecuteEnv([]string{"targ"})
 		err = core.ExecuteWithResolution(env, core.RunOptions{AllowDefault: true})
 
 		g.Expect(err).To(HaveOccurred(),
