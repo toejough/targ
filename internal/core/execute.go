@@ -14,7 +14,7 @@ import (
 // Returns error if packagePath is empty.
 func DeregisterFrom(packagePath string) error {
 	if packagePath == "" {
-		return errors.New("package path cannot be empty")
+		return errEmptyPackagePath
 	}
 
 	// Check if already queued (idempotent)
@@ -25,27 +25,6 @@ func DeregisterFrom(packagePath string) error {
 	deregistrations = append(deregistrations, packagePath)
 
 	return nil
-}
-
-// ExecuteWithResolution resolves the global registry (applying deregistrations and
-// detecting conflicts) and then executes targets via RunWithEnv.
-// On resolution error, prints to stderr and exits with code 1.
-// Exported for testing - production code should use ExecuteRegistered.
-func ExecuteWithResolution(env RunEnv, opts RunOptions) error {
-	// Resolve registry (applies deregistrations, detects conflicts)
-	resolved, err := resolveRegistry()
-	if err != nil {
-		// Print error to stderr
-		fmt.Fprintf(os.Stderr, "%v\n", err)
-
-		// Exit with error code
-		env.Exit(1)
-
-		return err
-	}
-
-	// Execute with resolved registry
-	return RunWithEnv(env, opts, resolved...)
 }
 
 // ExecuteRegistered runs the registered targets using os.Args and exits on error.
@@ -65,6 +44,27 @@ func ExecuteRegisteredWithOptions(opts RunOptions) {
 
 	_ = ExecuteWithResolution(env, opts)
 	// Exit is called by ExecuteWithResolution via env.Exit()
+}
+
+// ExecuteWithResolution resolves the global registry (applying
+// deregistrations and detecting conflicts) and executes via RunWithEnv.
+// On resolution error, prints to stderr and exits with code 1.
+// Exported for testing - production code should use ExecuteRegistered.
+func ExecuteWithResolution(env RunEnv, opts RunOptions) error {
+	// Resolve registry (applies deregistrations, detects conflicts)
+	resolved, err := resolveRegistry()
+	if err != nil {
+		// Print error to stderr
+		fmt.Fprintf(os.Stderr, "%v\n", err)
+
+		// Exit with error code
+		env.Exit(1)
+
+		return err
+	}
+
+	// Execute with resolved registry
+	return RunWithEnv(env, opts, resolved...)
 }
 
 // GetDeregistrations returns the current deregistrations queue (for testing).
@@ -124,8 +124,9 @@ func SetRegistry(targets []any) {
 
 // unexported variables.
 var (
-	deregistrations []string //nolint:gochecknoglobals // Global deregistrations queue is intentional for DeregisterFrom() API
-	registry        []any    //nolint:gochecknoglobals // Global registry is intentional for Register() API
+	deregistrations     []string //nolint:gochecknoglobals // Intentional global for DeregisterFrom() API
+	errEmptyPackagePath = errors.New("package path cannot be empty")
+	registry            []any //nolint:gochecknoglobals // Global registry is intentional for Register() API
 )
 
 type osRunEnv struct{}

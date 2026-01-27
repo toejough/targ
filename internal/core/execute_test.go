@@ -11,6 +11,8 @@ import (
 )
 
 func TestDeregisterFrom_EmptyPathReturnsError(t *testing.T) {
+	t.Parallel()
+
 	rapid.Check(t, func(t *rapid.T) {
 		g := NewWithT(t)
 
@@ -114,6 +116,172 @@ func TestDeregisterFrom_ValidPathQueuesSuccessfully(t *testing.T) {
 		deregistrations := core.GetDeregistrations()
 		g.Expect(deregistrations).To(ContainElement(pkgPath),
 			"package path should be in deregistrations queue")
+	})
+}
+
+// TestProperty_ExecuteRegisteredResolution_ConflictPreventsExecution verifies that
+// conflicting targets prevent execution and cause error exit.
+//
+//nolint:paralleltest // Cannot run in parallel - modifies global registry state
+func TestProperty_ExecuteRegisteredResolution_ConflictPreventsExecution(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		g := NewWithT(t)
+
+		// Generate target name
+		name := rapid.StringMatching(`[a-z][a-z0-9-]*`).Draw(t, "name")
+
+		// Generate two different package paths
+		pkgGen := rapid.StringMatching(`[a-z]+\.[a-z]+/[a-z][a-z0-9-]*/[a-z][a-z0-9-]*`)
+		pkg1 := pkgGen.Draw(t, "pkg1")
+		pkg2 := pkgGen.Filter(func(s string) bool { return s != pkg1 }).
+			Draw(t, "pkg2")
+
+		executionCount := 0
+
+		// Create registry with conflict: same name from two packages
+		reg := []any{
+			func() *core.Target {
+				tgt := core.Targ(func() { executionCount++ }).Name(name)
+				tgt.SetSourceForTest(pkg1)
+
+				return tgt
+			}(),
+			func() *core.Target {
+				tgt := core.Targ(func() { executionCount++ }).Name(name)
+				tgt.SetSourceForTest(pkg2)
+
+				return tgt
+			}(),
+		}
+
+		// Set up registry with conflict - no deregistrations
+		core.SetRegistry(reg)
+		core.ResetDeregistrations()
+		t.Cleanup(func() {
+			core.SetRegistry(nil)
+			core.ResetDeregistrations()
+		})
+
+		// Execute with resolution - args specify the conflicting target
+		env := core.NewExecuteEnv([]string{"targ", name})
+		err := core.ExecuteWithResolution(env, core.RunOptions{AllowDefault: true})
+
+		g.Expect(err).To(HaveOccurred(),
+			"registry resolution should fail when conflicts exist")
+		g.Expect(executionCount).To(Equal(0),
+			"no targets should execute when conflict exists")
+		g.Expect(env.ExitCode()).To(Equal(1),
+			"should exit with code 1 on conflict")
+	})
+}
+
+// TestProperty_ExecuteRegisteredResolution_DeregistrationErrorPreventsExecution verifies that
+// bad deregistration (unknown package) prevents execution and causes error exit.
+//
+//nolint:paralleltest // Cannot run in parallel - modifies global registry state
+func TestProperty_ExecuteRegisteredResolution_DeregistrationErrorPreventsExecution(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		g := NewWithT(t)
+
+		// Generate two different package paths
+		pkgGen := rapid.StringMatching(`[a-z]+\.[a-z]+/[a-z][a-z0-9-]*/[a-z][a-z0-9-]*`)
+		existingPkg := pkgGen.Draw(t, "existingPkg")
+		unknownPkg := pkgGen.Filter(func(s string) bool { return s != existingPkg }).
+			Draw(t, "unknownPkg")
+
+		executionCount := 0
+
+		// Create registry with one target
+		reg := []any{
+			func() *core.Target {
+				tgt := core.Targ(func() { executionCount++ }).Name("test-target")
+				tgt.SetSourceForTest(existingPkg)
+
+				return tgt
+			}(),
+		}
+
+		// Set up registry and deregister unknown package
+		core.SetRegistry(reg)
+		core.ResetDeregistrations()
+
+		err := core.DeregisterFrom(unknownPkg)
+		g.Expect(err).ToNot(HaveOccurred(), "queueing deregistration should succeed")
+
+		t.Cleanup(func() {
+			core.SetRegistry(nil)
+			core.ResetDeregistrations()
+		})
+
+		// Execute with resolution - args just use default since only one target
+		env := core.NewExecuteEnv([]string{"targ"})
+		err = core.ExecuteWithResolution(env, core.RunOptions{AllowDefault: true})
+
+		g.Expect(err).To(HaveOccurred(),
+			"registry resolution should fail when deregistration errors")
+		g.Expect(executionCount).To(Equal(0),
+			"no targets should execute when deregistration fails")
+		g.Expect(env.ExitCode()).To(Equal(1),
+			"should exit with code 1 on deregistration error")
+	})
+}
+
+// TestProperty_ExecuteRegisteredResolution_ExistingBehaviorUnchanged verifies that
+// registry resolution works as before when there are no deregistrations and no conflicts.
+//
+//nolint:paralleltest // Cannot run in parallel - modifies global registry state
+func TestProperty_ExecuteRegisteredResolution_ExistingBehaviorUnchanged(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		g := NewWithT(t)
+
+		// Generate unique target names
+		numTargets := rapid.IntRange(1, 5).Draw(t, "numTargets")
+		names := make(map[string]bool)
+		reg := make([]any, 0, numTargets)
+
+		pkgGen := rapid.StringMatching(`[a-z]+\.[a-z]+/[a-z][a-z0-9-]*/[a-z][a-z0-9-]*`)
+
+		executionCount := 0
+
+		for i := range numTargets {
+			// Use simple sequential names
+			name := fmt.Sprintf("test%d", i)
+			names[name] = true
+
+			// Generate random package
+			pkg := pkgGen.Draw(t, "pkg")
+
+			// Create target that increments counter
+			target := core.Targ(func() { executionCount++ }).Name(name)
+			target.SetSourceForTest(pkg)
+			reg = append(reg, target)
+		}
+
+		// Set up clean registry - no deregistrations
+		core.SetRegistry(reg)
+		core.ResetDeregistrations()
+		t.Cleanup(func() {
+			core.SetRegistry(nil)
+			core.ResetDeregistrations()
+		})
+
+		// Execute first target via ExecuteWithResolution
+		// With multiple targets, need to specify name in args
+		firstTarget, ok := reg[0].(*core.Target)
+		g.Expect(ok).To(BeTrue(), "first item should be a *Target")
+
+		args := []string{"targ"}
+		if numTargets > 1 {
+			args = append(args, firstTarget.GetName())
+		}
+
+		env := core.NewExecuteEnv(args)
+		err := core.ExecuteWithResolution(env, core.RunOptions{AllowDefault: true})
+
+		g.Expect(err).ToNot(HaveOccurred(),
+			"registry resolution should succeed with clean registry")
+		g.Expect(executionCount).To(Equal(1),
+			"target should execute normally when no conflicts/deregistrations")
 	})
 }
 
@@ -264,169 +432,5 @@ func TestRegisterTarget_RegisteredTargetsHaveSource(t *testing.T) {
 			g.Expect(target.GetSource()).ToNot(BeEmpty(),
 				fmt.Sprintf("target %d should have non-empty source", i))
 		}
-	})
-}
-
-// TestProperty_ExecuteRegisteredResolution_ExistingBehaviorUnchanged verifies that
-// registry resolution works as before when there are no deregistrations and no conflicts.
-//
-//nolint:paralleltest // Cannot run in parallel - modifies global registry state
-func TestProperty_ExecuteRegisteredResolution_ExistingBehaviorUnchanged(t *testing.T) {
-	rapid.Check(t, func(t *rapid.T) {
-		g := NewWithT(t)
-
-		// Generate unique target names
-		numTargets := rapid.IntRange(1, 5).Draw(t, "numTargets")
-		names := make(map[string]bool)
-		reg := make([]any, 0, numTargets)
-
-		pkgGen := rapid.StringMatching(`[a-z]+\.[a-z]+/[a-z][a-z0-9-]*/[a-z][a-z0-9-]*`)
-
-		executionCount := 0
-
-		for i := range numTargets {
-			// Use simple sequential names
-			name := fmt.Sprintf("test%d", i)
-			names[name] = true
-
-			// Generate random package
-			pkg := pkgGen.Draw(t, "pkg")
-
-			// Create target that increments counter
-			target := core.Targ(func() { executionCount++ }).Name(name)
-			target.SetSourceForTest(pkg)
-			reg = append(reg, target)
-		}
-
-		// Set up clean registry - no deregistrations
-		core.SetRegistry(reg)
-		core.ResetDeregistrations()
-		t.Cleanup(func() {
-			core.SetRegistry(nil)
-			core.ResetDeregistrations()
-		})
-
-		// Execute first target via ExecuteWithResolution
-		// With multiple targets, need to specify name in args
-		firstTarget := reg[0].(*core.Target)
-		args := []string{"targ"}
-		if numTargets > 1 {
-			args = append(args, firstTarget.GetName())
-		}
-
-		env := core.NewExecuteEnv(args)
-		err := core.ExecuteWithResolution(env, core.RunOptions{AllowDefault: true})
-
-		g.Expect(err).ToNot(HaveOccurred(),
-			"registry resolution should succeed with clean registry")
-		g.Expect(executionCount).To(Equal(1),
-			"target should execute normally when no conflicts/deregistrations")
-	})
-}
-
-// TestProperty_ExecuteRegisteredResolution_ConflictPreventsExecution verifies that
-// conflicting targets prevent execution and cause error exit.
-//
-//nolint:paralleltest // Cannot run in parallel - modifies global registry state
-func TestProperty_ExecuteRegisteredResolution_ConflictPreventsExecution(t *testing.T) {
-	rapid.Check(t, func(t *rapid.T) {
-		g := NewWithT(t)
-
-		// Generate target name
-		name := rapid.StringMatching(`[a-z][a-z0-9-]*`).Draw(t, "name")
-
-		// Generate two different package paths
-		pkgGen := rapid.StringMatching(`[a-z]+\.[a-z]+/[a-z][a-z0-9-]*/[a-z][a-z0-9-]*`)
-		pkg1 := pkgGen.Draw(t, "pkg1")
-		pkg2 := pkgGen.Filter(func(s string) bool { return s != pkg1 }).
-			Draw(t, "pkg2")
-
-		executionCount := 0
-
-		// Create registry with conflict: same name from two packages
-		reg := []any{
-			func() *core.Target {
-				tgt := core.Targ(func() { executionCount++ }).Name(name)
-				tgt.SetSourceForTest(pkg1)
-
-				return tgt
-			}(),
-			func() *core.Target {
-				tgt := core.Targ(func() { executionCount++ }).Name(name)
-				tgt.SetSourceForTest(pkg2)
-
-				return tgt
-			}(),
-		}
-
-		// Set up registry with conflict - no deregistrations
-		core.SetRegistry(reg)
-		core.ResetDeregistrations()
-		t.Cleanup(func() {
-			core.SetRegistry(nil)
-			core.ResetDeregistrations()
-		})
-
-		// Execute with resolution - args specify the conflicting target
-		env := core.NewExecuteEnv([]string{"targ", name})
-		err := core.ExecuteWithResolution(env, core.RunOptions{AllowDefault: true})
-
-		g.Expect(err).To(HaveOccurred(),
-			"registry resolution should fail when conflicts exist")
-		g.Expect(executionCount).To(Equal(0),
-			"no targets should execute when conflict exists")
-		g.Expect(env.ExitCode()).To(Equal(1),
-			"should exit with code 1 on conflict")
-	})
-}
-
-// TestProperty_ExecuteRegisteredResolution_DeregistrationErrorPreventsExecution verifies that
-// bad deregistration (unknown package) prevents execution and causes error exit.
-//
-//nolint:paralleltest // Cannot run in parallel - modifies global registry state
-func TestProperty_ExecuteRegisteredResolution_DeregistrationErrorPreventsExecution(t *testing.T) {
-	rapid.Check(t, func(t *rapid.T) {
-		g := NewWithT(t)
-
-		// Generate two different package paths
-		pkgGen := rapid.StringMatching(`[a-z]+\.[a-z]+/[a-z][a-z0-9-]*/[a-z][a-z0-9-]*`)
-		existingPkg := pkgGen.Draw(t, "existingPkg")
-		unknownPkg := pkgGen.Filter(func(s string) bool { return s != existingPkg }).
-			Draw(t, "unknownPkg")
-
-		executionCount := 0
-
-		// Create registry with one target
-		reg := []any{
-			func() *core.Target {
-				tgt := core.Targ(func() { executionCount++ }).Name("test-target")
-				tgt.SetSourceForTest(existingPkg)
-
-				return tgt
-			}(),
-		}
-
-		// Set up registry and deregister unknown package
-		core.SetRegistry(reg)
-		core.ResetDeregistrations()
-
-		err := core.DeregisterFrom(unknownPkg)
-		g.Expect(err).ToNot(HaveOccurred(), "queueing deregistration should succeed")
-
-		t.Cleanup(func() {
-			core.SetRegistry(nil)
-			core.ResetDeregistrations()
-		})
-
-		// Execute with resolution - args just use default since only one target
-		env := core.NewExecuteEnv([]string{"targ"})
-		err = core.ExecuteWithResolution(env, core.RunOptions{AllowDefault: true})
-
-		g.Expect(err).To(HaveOccurred(),
-			"registry resolution should fail when deregistration errors")
-		g.Expect(executionCount).To(Equal(0),
-			"no targets should execute when deregistration fails")
-		g.Expect(env.ExitCode()).To(Equal(1),
-			"should exit with code 1 on deregistration error")
 	})
 }
