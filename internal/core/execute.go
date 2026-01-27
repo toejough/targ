@@ -51,9 +51,39 @@ func SetRegistry(targets []any) {
 	registry = targets
 }
 
+// DeregisterFrom queues a package path for deregistration.
+// All targets from this package will be removed during registry resolution.
+// Returns error if packagePath is empty.
+func DeregisterFrom(packagePath string) error {
+	if packagePath == "" {
+		return fmt.Errorf("package path cannot be empty")
+	}
+
+	// Check if already queued (idempotent)
+	for _, path := range deregistrations {
+		if path == packagePath {
+			return nil
+		}
+	}
+
+	deregistrations = append(deregistrations, packagePath)
+	return nil
+}
+
+// GetDeregistrations returns the current deregistrations queue (for testing).
+func GetDeregistrations() []string {
+	return deregistrations
+}
+
+// ResetDeregistrations clears the deregistrations queue (for testing).
+func ResetDeregistrations() {
+	deregistrations = nil
+}
+
 // unexported variables.
 var (
-	registry []any //nolint:gochecknoglobals // Global registry is intentional for Register() API
+	registry        []any    //nolint:gochecknoglobals // Global registry is intentional for Register() API
+	deregistrations []string //nolint:gochecknoglobals // Global deregistrations queue is intentional for DeregisterFrom() API
 )
 
 type osRunEnv struct{}

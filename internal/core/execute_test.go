@@ -10,8 +10,6 @@ import (
 )
 
 func TestDeregisterFrom_EmptyPathReturnsError(t *testing.T) {
-	t.Parallel()
-
 	rapid.Check(t, func(t *rapid.T) {
 		g := NewWithT(t)
 
@@ -27,8 +25,6 @@ func TestDeregisterFrom_EmptyPathReturnsError(t *testing.T) {
 }
 
 func TestDeregisterFrom_ValidPathQueuesSuccessfully(t *testing.T) {
-	t.Parallel()
-
 	rapid.Check(t, func(t *rapid.T) {
 		g := NewWithT(t)
 
@@ -53,8 +49,6 @@ func TestDeregisterFrom_ValidPathQueuesSuccessfully(t *testing.T) {
 }
 
 func TestDeregisterFrom_IdempotentForSamePackage(t *testing.T) {
-	t.Parallel()
-
 	rapid.Check(t, func(t *rapid.T) {
 		g := NewWithT(t)
 
@@ -89,8 +83,6 @@ func TestDeregisterFrom_IdempotentForSamePackage(t *testing.T) {
 }
 
 func TestDeregisterFrom_MultipleDifferentPackages(t *testing.T) {
-	t.Parallel()
-
 	rapid.Check(t, func(t *rapid.T) {
 		g := NewWithT(t)
 
