@@ -863,3 +863,125 @@ func TestProperty_RegisterTargetWithSkip_PreservesExplicitGroupSource(t *testing
 			"explicit group sourcePkg should not be overwritten")
 	})
 }
+
+// TestProperty_DeregisterThenReregister verifies that deregistering a package
+// then re-registering individual targets from it preserves the re-registered targets.
+//
+//nolint:paralleltest // Cannot run in parallel - modifies global registry state
+func TestProperty_DeregisterThenReregister(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		g := NewWithT(t)
+
+		// Reset state before test
+		core.SetRegistry(nil)
+		core.ResetDeregistrations()
+		core.ResetResolved()
+		t.Cleanup(func() {
+			core.SetRegistry(nil)
+			core.ResetDeregistrations()
+			core.ResetResolved()
+		})
+
+		// Generate package path
+		remotePkg := rapid.StringMatching(`[a-z]+\.[a-z]+/[a-z][a-z0-9-]*/[a-z][a-z0-9-]*`).
+			Draw(t, "remotePkg")
+
+		// Generate unique target names
+		name1 := rapid.StringMatching(`[a-z][a-z0-9-]*`).Draw(t, "name1")
+		name2 := rapid.StringMatching(`[a-z][a-z0-9-]*`).
+			Filter(func(s string) bool { return s != name1 }).
+			Draw(t, "name2")
+
+		// Simulate remote package init() registering targets
+		remoteLint := core.Targ(func() {}).Name(name1)
+		remoteLint.SetSourceForTest(remotePkg)
+		remoteTest := core.Targ(func() {}).Name(name2)
+		remoteTest.SetSourceForTest(remotePkg)
+
+		core.RegisterTarget(remoteLint, remoteTest)
+
+		// Verify both targets are in registry with remote source
+		reg := core.GetRegistry()
+		g.Expect(reg).To(HaveLen(2), "should have two targets after remote registration")
+
+		// Simulate consumer init() deregistering remote package
+		err := core.DeregisterFrom(remotePkg)
+		g.Expect(err).ToNot(HaveOccurred(), "DeregisterFrom should succeed")
+
+		// Simulate consumer init() re-registering specific targets
+		// These are the SAME Go pointers from remote package
+		core.RegisterTarget(remoteLint, remoteTest.Name("unit-test"))
+
+		// Verify registry has 4 items total (2 original + 2 re-registered)
+		reg = core.GetRegistry()
+		g.Expect(reg).To(HaveLen(4),
+			"registry should have original targets plus re-registered ones")
+
+		// Resolve registry - this applies deregistrations
+		resolved, err := core.ResolveRegistryForTest()
+		g.Expect(err).ToNot(HaveOccurred(), "resolveRegistry should succeed")
+
+		// Should preserve the re-registered targets, not remove them
+		g.Expect(resolved).To(HaveLen(2),
+			"re-registered targets should be preserved after deregistration")
+
+		// Verify the preserved targets have the expected names
+		names := make([]string, 0, 2)
+		for _, item := range resolved {
+			if tgt, ok := item.(*core.Target); ok {
+				names = append(names, tgt.GetName())
+			}
+		}
+		g.Expect(names).To(ConsistOf(name1, "unit-test"),
+			"should preserve re-registered targets with their names")
+	})
+}
+
+// TestProperty_DeregisterWithoutReregister verifies that deregistering without
+// re-registering still removes all targets from that package (existing behavior).
+//
+//nolint:paralleltest // Cannot run in parallel - modifies global registry state
+func TestProperty_DeregisterWithoutReregister(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		g := NewWithT(t)
+
+		// Reset state before test
+		core.SetRegistry(nil)
+		core.ResetDeregistrations()
+		core.ResetResolved()
+		t.Cleanup(func() {
+			core.SetRegistry(nil)
+			core.ResetDeregistrations()
+			core.ResetResolved()
+		})
+
+		// Generate package path
+		remotePkg := rapid.StringMatching(`[a-z]+\.[a-z]+/[a-z][a-z0-9-]*/[a-z][a-z0-9-]*`).
+			Draw(t, "remotePkg")
+
+		// Register multiple targets from remote package
+		numTargets := rapid.IntRange(1, 5).Draw(t, "numTargets")
+		for i := range numTargets {
+			tgt := core.Targ(func() {}).Name(fmt.Sprintf("target-%d", i))
+			tgt.SetSourceForTest(remotePkg)
+			core.RegisterTarget(tgt)
+		}
+
+		// Verify targets are in registry
+		reg := core.GetRegistry()
+		g.Expect(reg).To(HaveLen(numTargets),
+			"should have all targets in registry")
+
+		// Deregister the package WITHOUT re-registering anything
+		err := core.DeregisterFrom(remotePkg)
+		g.Expect(err).ToNot(HaveOccurred(), "DeregisterFrom should succeed")
+
+		// Resolve registry
+		resolved, err := core.ResolveRegistryForTest()
+		g.Expect(err).ToNot(HaveOccurred(), "resolveRegistry should succeed")
+
+		// All targets should be removed
+		g.Expect(resolved).To(BeEmpty(),
+			"all targets from deregistered package should be removed")
+	})
+}
