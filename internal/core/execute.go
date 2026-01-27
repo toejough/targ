@@ -9,6 +9,19 @@ import (
 	"strings"
 )
 
+// Exported constants.
+const (
+	CallerSkipPublicAPI = 2
+)
+
+// Deregistration represents a package deregistration request.
+// It captures the registry length at the time of the request to ensure
+// only targets registered BEFORE the deregistration are affected.
+type Deregistration struct {
+	PackagePath string
+	RegistryLen int
+}
+
 // DeregisterFrom queues a package path for deregistration.
 // All targets from this package that were registered BEFORE this call
 // will be removed during registry resolution. Targets registered AFTER
@@ -99,7 +112,7 @@ func Main(targets ...any) {
 // Use ExecuteRegistered() in main() to run the registered targets.
 // Automatically sets sourcePkg on each *Target using runtime.Caller.
 func RegisterTarget(targets ...any) {
-	RegisterTargetWithSkip(2, targets...)
+	RegisterTargetWithSkip(CallerSkipPublicAPI, targets...)
 }
 
 // RegisterTargetWithSkip adds targets to the global registry with custom caller skip depth.
@@ -157,25 +170,6 @@ func SetMainModuleForTest(fn func() (string, bool)) {
 // SetRegistry replaces the global registry (for testing).
 func SetRegistry(targets []any) {
 	registry = targets
-}
-
-// getMainModule returns the main module path using runtime/debug.ReadBuildInfo.
-// Returns (modulePath, true) on success, ("", false) on failure.
-func getMainModule() (string, bool) {
-	info, ok := debug.ReadBuildInfo()
-	if !ok {
-		return "", false
-	}
-
-	return info.Main.Path, true
-}
-
-// Deregistration represents a package deregistration request.
-// It captures the registry length at the time of the request to ensure
-// only targets registered BEFORE the deregistration are affected.
-type Deregistration struct {
-	PackagePath string
-	RegistryLen int
 }
 
 // unexported variables.
@@ -248,4 +242,15 @@ func (osRunEnv) Stdout() io.Writer {
 
 func (osRunEnv) SupportsSignals() bool {
 	return true
+}
+
+// getMainModule returns the main module path using runtime/debug.ReadBuildInfo.
+// Returns (modulePath, true) on success, ("", false) on failure.
+func getMainModule() (string, bool) {
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return "", false
+	}
+
+	return info.Main.Path, true
 }

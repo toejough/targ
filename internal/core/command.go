@@ -162,13 +162,19 @@ func (n *commandNode) executeWithParents(
 		return executeShellCommand(ctx, args, n, parents, visited, explicit, opts)
 	}
 
+	// Handle groups: nodes with Subcommands but no Func
+	// Check before deps-only targets since groups may also have Target set for attribution
+	if len(n.Subcommands) > 0 {
+		return executeGroupWithParents(ctx, args, n, parents, visited, opts)
+	}
+
 	// Handle deps-only targets: no Func/ShellCommand but has Target with deps
 	if n.Target != nil {
 		return executeDepsOnlyTarget(ctx, args, n, opts)
 	}
 
-	// Handle groups: nodes with Subcommands but no Func
-	return executeGroupWithParents(ctx, args, n, parents, visited, opts)
+	// Fallback: node with no execution capability
+	return args, nil
 }
 
 type flagHelp struct {
@@ -1167,6 +1173,33 @@ func formatFlagUsage(item flagHelp) string {
 	return name
 }
 
+// formatSourceAttribution returns the source attribution string for a target.
+// Returns empty string if showAttribution is false (backwards compat).
+func formatSourceAttribution(node *commandNode, showAttribution bool) string {
+	if !showAttribution {
+		return ""
+	}
+
+	if node.Target == nil {
+		return ""
+	}
+
+	source := node.Target.GetSource()
+	renamed := node.Target.IsRenamed()
+
+	if source == "" {
+		// Local target
+		return "(local)"
+	}
+
+	// Remote target
+	if renamed {
+		return fmt.Sprintf("(%s, renamed)", source)
+	}
+
+	return fmt.Sprintf("(%s)", source)
+}
+
 // funcSourceFile returns the source file path for a function.
 // Callers must ensure v is a valid, non-nil function value.
 func funcSourceFile(v reflect.Value) string {
@@ -1239,6 +1272,17 @@ func groupNodesBySource(nodes []*commandNode, opts RunOptions) []struct {
 	}
 
 	return groups
+}
+
+// hasRemoteTargets checks if any node has a non-empty source package.
+func hasRemoteTargets(nodes []*commandNode) bool {
+	for _, node := range nodes {
+		if node.Target != nil && node.Target.GetSource() != "" {
+			return true
+		}
+	}
+
+	return false
 }
 
 func isContextType(t reflect.Type) bool {
@@ -1941,69 +1985,21 @@ func printTargFlags(w io.Writer, opts RunOptions, isRoot bool) {
 	_, _ = fmt.Fprintln(w, "  --dep-mode <mode>     Dependency mode: serial or parallel")
 }
 
-// hasRemoteTargets checks if any node has a non-empty source package.
-func hasRemoteTargets(nodes []*commandNode) bool {
-	for _, node := range nodes {
-		if node.Target != nil && node.Target.GetSource() != "" {
-			return true
-		}
-	}
-
-	return false
-}
-
-// formatSourceAttribution returns the source attribution string for a target.
-// Returns empty string if showAttribution is false (backwards compat).
-func formatSourceAttribution(node *commandNode, showAttribution bool) string {
-	if !showAttribution {
-		return ""
-	}
-
-	if node.Target == nil {
-		return ""
-	}
-
-	source := node.Target.GetSource()
-	renamed := node.Target.IsRenamed()
-
-	if source == "" {
-		// Local target
-		return "(local)"
-	}
-
-	// Remote target
-	if renamed {
-		return fmt.Sprintf("(%s, renamed)", source)
-	}
-
-	return fmt.Sprintf("(%s)", source)
-}
-
 // printTopLevelCommand prints a top-level command with aligned description.
 // width is the column width for the name (for alignment).
 // showAttribution controls whether to show source attribution.
 func printTopLevelCommand(w io.Writer, node *commandNode, width int, showAttribution bool) {
 	sourceAttr := formatSourceAttribution(node, showAttribution)
 
-	if node.Description != "" {
-		if sourceAttr != "" {
-			_, _ = fmt.Fprintf(
-				w,
-				"  %-*s  %s  %s\n",
-				width,
-				node.Name,
-				node.Description,
-				sourceAttr,
-			)
-		} else {
-			_, _ = fmt.Fprintf(w, "  %-*s  %s\n", width, node.Name, node.Description)
-		}
-	} else {
-		if sourceAttr != "" {
-			_, _ = fmt.Fprintf(w, "  %s  %s\n", node.Name, sourceAttr)
-		} else {
-			_, _ = fmt.Fprintf(w, "  %s\n", node.Name)
-		}
+	switch {
+	case node.Description != "" && sourceAttr != "":
+		_, _ = fmt.Fprintf(w, "  %-*s  %s  %s\n", width, node.Name, node.Description, sourceAttr)
+	case node.Description != "":
+		_, _ = fmt.Fprintf(w, "  %-*s  %s\n", width, node.Name, node.Description)
+	case sourceAttr != "":
+		_, _ = fmt.Fprintf(w, "  %s  %s\n", node.Name, sourceAttr)
+	default:
+		_, _ = fmt.Fprintf(w, "  %s\n", node.Name)
 	}
 }
 

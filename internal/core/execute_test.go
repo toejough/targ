@@ -10,6 +10,78 @@ import (
 	"github.com/toejough/targ/internal/core"
 )
 
+// TestDeregisterFromAfterResolutionErrors verifies that DeregisterFrom
+// returns an error after resolveRegistry has run.
+//
+//nolint:paralleltest // Cannot run in parallel - modifies global registry state
+func TestDeregisterFromAfterResolutionErrors(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		g := NewWithT(t)
+
+		// Reset state before test
+		core.SetRegistry(nil)
+		core.ResetDeregistrations()
+		core.ResetResolved()
+		t.Cleanup(func() {
+			core.SetRegistry(nil)
+			core.ResetDeregistrations()
+			core.ResetResolved()
+		})
+
+		// Generate a package path
+		pkgPath := rapid.StringMatching(`[a-z]+\.[a-z]+/[a-z][a-z0-9-]*/[a-z][a-z0-9-]*`).
+			Draw(t, "pkgPath")
+
+		// Trigger resolution (even with empty registry)
+		env := core.NewExecuteEnv([]string{"targ"})
+		_ = core.ExecuteWithResolution(env, core.RunOptions{AllowDefault: true})
+
+		// Now DeregisterFrom should error
+		err := core.DeregisterFrom(pkgPath)
+
+		g.Expect(err).To(HaveOccurred(),
+			"DeregisterFrom should error after resolveRegistry has run")
+	})
+}
+
+// TestDeregisterFromBeforeResolutionSucceeds verifies that DeregisterFrom
+// works normally before resolution.
+//
+//nolint:paralleltest // Cannot run in parallel - checks global registryResolved state
+func TestDeregisterFromBeforeResolutionSucceeds(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		g := NewWithT(t)
+
+		// Reset deregistrations before test
+		core.ResetDeregistrations()
+		core.ResetResolved()
+
+		// Generate a valid package path
+		pkgPath := rapid.StringMatching(`[a-z]+\.[a-z]+/[a-z][a-z0-9-]*/[a-z][a-z0-9-]*`).
+			Draw(t, "pkgPath")
+
+		// Should succeed before resolution
+		err := core.DeregisterFrom(pkgPath)
+
+		g.Expect(err).ToNot(HaveOccurred(),
+			"DeregisterFrom should succeed before resolution")
+
+		// Verify it was queued
+		deregistrations := core.GetDeregistrations()
+		found := false
+
+		for _, dereg := range deregistrations {
+			if dereg.PackagePath == pkgPath {
+				found = true
+				break
+			}
+		}
+
+		g.Expect(found).To(BeTrue(),
+			"package path should be in deregistrations queue")
+	})
+}
+
 //nolint:paralleltest // Cannot run in parallel - modifies global registryResolved state
 func TestDeregisterFrom_EmptyPathReturnsError(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
@@ -140,6 +212,165 @@ func TestDeregisterFrom_ValidPathQueuesSuccessfully(t *testing.T) {
 
 		g.Expect(found).To(BeTrue(),
 			"package path should be in deregistrations queue")
+	})
+}
+
+// TestErrorMessageMentionsInit verifies that the error message
+// from DeregisterFrom after resolution contains "init()".
+//
+//nolint:paralleltest // Cannot run in parallel - modifies global registry state
+func TestErrorMessageMentionsInit(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		g := NewWithT(t)
+
+		// Reset state before test
+		core.SetRegistry(nil)
+		core.ResetDeregistrations()
+		core.ResetResolved()
+		t.Cleanup(func() {
+			core.SetRegistry(nil)
+			core.ResetDeregistrations()
+			core.ResetResolved()
+		})
+
+		// Generate a package path
+		pkgPath := rapid.StringMatching(`[a-z]+\.[a-z]+/[a-z][a-z0-9-]*/[a-z][a-z0-9-]*`).
+			Draw(t, "pkgPath")
+
+		// Trigger resolution
+		env := core.NewExecuteEnv([]string{"targ"})
+		_ = core.ExecuteWithResolution(env, core.RunOptions{AllowDefault: true})
+
+		// Get the error
+		err := core.DeregisterFrom(pkgPath)
+
+		g.Expect(err).To(MatchError(ContainSubstring("init()")),
+			"DeregisterFrom should error after resolution and mention init()")
+	})
+}
+
+// TestProperty_DeregisterThenReregister verifies that deregistering a package
+// then re-registering individual targets from it preserves the re-registered targets.
+//
+//nolint:paralleltest // Cannot run in parallel - modifies global registry state
+func TestProperty_DeregisterThenReregister(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		g := NewWithT(t)
+
+		// Reset state before test
+		core.SetRegistry(nil)
+		core.ResetDeregistrations()
+		core.ResetResolved()
+		t.Cleanup(func() {
+			core.SetRegistry(nil)
+			core.ResetDeregistrations()
+			core.ResetResolved()
+		})
+
+		// Generate package path
+		remotePkg := rapid.StringMatching(`[a-z]+\.[a-z]+/[a-z][a-z0-9-]*/[a-z][a-z0-9-]*`).
+			Draw(t, "remotePkg")
+
+		// Generate unique target names
+		name1 := rapid.StringMatching(`[a-z][a-z0-9-]*`).Draw(t, "name1")
+		name2 := rapid.StringMatching(`[a-z][a-z0-9-]*`).
+			Filter(func(s string) bool { return s != name1 }).
+			Draw(t, "name2")
+
+		// Simulate remote package init() registering targets
+		remoteLint := core.Targ(func() {}).Name(name1)
+		remoteLint.SetSourceForTest(remotePkg)
+
+		remoteTest := core.Targ(func() {}).Name(name2)
+		remoteTest.SetSourceForTest(remotePkg)
+
+		core.RegisterTarget(remoteLint, remoteTest)
+
+		// Verify both targets are in registry with remote source
+		reg := core.GetRegistry()
+		g.Expect(reg).To(HaveLen(2), "should have two targets after remote registration")
+
+		// Simulate consumer init() deregistering remote package
+		err := core.DeregisterFrom(remotePkg)
+		g.Expect(err).ToNot(HaveOccurred(), "DeregisterFrom should succeed")
+
+		// Simulate consumer init() re-registering specific targets
+		// These are the SAME Go pointers from remote package
+		core.RegisterTarget(remoteLint, remoteTest.Name("unit-test"))
+
+		// Verify registry has 4 items total (2 original + 2 re-registered)
+		reg = core.GetRegistry()
+		g.Expect(reg).To(HaveLen(4),
+			"registry should have original targets plus re-registered ones")
+
+		// Resolve registry - this applies deregistrations
+		resolved, err := core.ResolveRegistryForTest()
+		g.Expect(err).ToNot(HaveOccurred(), "resolveRegistry should succeed")
+
+		// Should preserve the re-registered targets, not remove them
+		g.Expect(resolved).To(HaveLen(2),
+			"re-registered targets should be preserved after deregistration")
+
+		// Verify the preserved targets have the expected names
+		names := make([]string, 0, 2)
+
+		for _, item := range resolved {
+			if tgt, ok := item.(*core.Target); ok {
+				names = append(names, tgt.GetName())
+			}
+		}
+
+		g.Expect(names).To(ConsistOf(name1, "unit-test"),
+			"should preserve re-registered targets with their names")
+	})
+}
+
+// TestProperty_DeregisterWithoutReregister verifies that deregistering without
+// re-registering still removes all targets from that package (existing behavior).
+//
+//nolint:paralleltest // Cannot run in parallel - modifies global registry state
+func TestProperty_DeregisterWithoutReregister(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		g := NewWithT(t)
+
+		// Reset state before test
+		core.SetRegistry(nil)
+		core.ResetDeregistrations()
+		core.ResetResolved()
+		t.Cleanup(func() {
+			core.SetRegistry(nil)
+			core.ResetDeregistrations()
+			core.ResetResolved()
+		})
+
+		// Generate package path
+		remotePkg := rapid.StringMatching(`[a-z]+\.[a-z]+/[a-z][a-z0-9-]*/[a-z][a-z0-9-]*`).
+			Draw(t, "remotePkg")
+
+		// Register multiple targets from remote package
+		numTargets := rapid.IntRange(1, 5).Draw(t, "numTargets")
+		for i := range numTargets {
+			tgt := core.Targ(func() {}).Name(fmt.Sprintf("target-%d", i))
+			tgt.SetSourceForTest(remotePkg)
+			core.RegisterTarget(tgt)
+		}
+
+		// Verify targets are in registry
+		reg := core.GetRegistry()
+		g.Expect(reg).To(HaveLen(numTargets),
+			"should have all targets in registry")
+
+		// Deregister the package WITHOUT re-registering anything
+		err := core.DeregisterFrom(remotePkg)
+		g.Expect(err).ToNot(HaveOccurred(), "DeregisterFrom should succeed")
+
+		// Resolve registry
+		resolved, err := core.ResolveRegistryForTest()
+		g.Expect(err).ToNot(HaveOccurred(), "resolveRegistry should succeed")
+
+		// All targets should be removed
+		g.Expect(resolved).To(BeEmpty(),
+			"all targets from deregistered package should be removed")
 	})
 }
 
@@ -315,6 +546,322 @@ func TestProperty_ExecuteRegisteredResolution_ExistingBehaviorUnchanged(t *testi
 	})
 }
 
+// TestProperty_LocalTargetsHaveSourcePkgCleared verifies that targets from the main module
+// have their sourcePkg cleared during resolution.
+//
+//nolint:paralleltest // Cannot run in parallel - modifies global registry state
+func TestProperty_LocalTargetsHaveSourcePkgCleared(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		g := NewWithT(t)
+
+		// Reset state before test
+		core.SetRegistry(nil)
+		core.ResetDeregistrations()
+		core.ResetResolved()
+		t.Cleanup(func() {
+			core.SetRegistry(nil)
+			core.ResetDeregistrations()
+			core.ResetResolved()
+			core.SetMainModuleForTest(nil)
+		})
+
+		// Generate main module path
+		mainModule := rapid.StringMatching(`github\.com/[a-z][a-z0-9-]*/[a-z][a-z0-9-]*`).
+			Draw(t, "mainModule")
+
+		// Create a local target (from main module)
+		localTarget := core.Targ(func() {}).Name("local-target")
+		localTarget.SetSourceForTest(mainModule)
+
+		// Set up registry with one local target
+		core.SetRegistry([]any{localTarget})
+
+		// Inject main module provider
+		core.SetMainModuleForTest(func() (string, bool) {
+			return mainModule, true
+		})
+
+		// Verify sourcePkg BEFORE resolution
+		g.Expect(localTarget.GetSource()).To(Equal(mainModule),
+			"local target should have mainModule as sourcePkg before resolution")
+
+		// Call resolveRegistry to clear local sourcePkg
+		resolved, err := core.ResolveRegistryForTest()
+		g.Expect(err).ToNot(HaveOccurred(), "resolveRegistry should not error")
+		g.Expect(resolved).To(HaveLen(1), "should have one item in resolved registry")
+
+		// Verify the target's sourcePkg was cleared AFTER resolution
+		g.Expect(localTarget.GetSource()).To(BeEmpty(),
+			"local target should have empty sourcePkg after resolution")
+
+		// Verify resolved item is the same target with empty sourcePkg
+		resolvedTarget, ok := resolved[0].(*core.Target)
+		g.Expect(ok).To(BeTrue(), "resolved item should be *core.Target")
+		g.Expect(resolvedTarget.GetSource()).To(BeEmpty(),
+			"resolved target should have empty sourcePkg")
+	})
+}
+
+// TestProperty_MixedLocalAndRemoteTargetsHandled verifies that in a registry with both
+// local and remote targets, only local ones get sourcePkg cleared.
+//
+//nolint:paralleltest // Cannot run in parallel - modifies global registry state
+func TestProperty_MixedLocalAndRemoteTargetsHandled(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		g := NewWithT(t)
+
+		// Reset state before test
+		core.SetRegistry(nil)
+		core.ResetDeregistrations()
+		core.ResetResolved()
+		t.Cleanup(func() {
+			core.SetRegistry(nil)
+			core.ResetDeregistrations()
+			core.ResetResolved()
+			core.SetMainModuleForTest(nil)
+		})
+
+		// Generate main module and external module paths (must be different)
+		mainModule := rapid.StringMatching(`github\.com/[a-z][a-z0-9-]*/[a-z][a-z0-9-]*`).
+			Draw(t, "mainModule")
+		externalModule := rapid.StringMatching(`github\.com/[a-z][a-z0-9-]*/[a-z][a-z0-9-]*`).
+			Filter(func(s string) bool { return s != mainModule }).
+			Draw(t, "externalModule")
+
+		// Create mixed targets
+		localTarget := core.Targ(func() {}).Name("local-target")
+		localTarget.SetSourceForTest(mainModule)
+
+		remoteTarget := core.Targ(func() {}).Name("remote-target")
+		remoteTarget.SetSourceForTest(externalModule)
+
+		// Set up registry with both
+		core.SetRegistry([]any{localTarget, remoteTarget})
+
+		// Inject main module provider
+		core.SetMainModuleForTest(func() (string, bool) {
+			return mainModule, true
+		})
+
+		// Call resolveRegistry
+		resolved, err := core.ResolveRegistryForTest()
+		g.Expect(err).ToNot(HaveOccurred(), "resolveRegistry should not error")
+		g.Expect(resolved).To(HaveLen(2), "should have two items in resolved registry")
+
+		// Verify local target has empty sourcePkg
+		g.Expect(localTarget.GetSource()).To(BeEmpty(),
+			"local target should have empty sourcePkg")
+
+		// Verify remote target kept its sourcePkg
+		g.Expect(remoteTarget.GetSource()).To(Equal(externalModule),
+			"remote target should retain sourcePkg")
+	})
+}
+
+// TestProperty_RegisterTargetWithSkip_PreservesExplicitGroupSource verifies that
+// RegisterTargetWithSkip does not overwrite explicitly set group sourcePkg.
+//
+//nolint:paralleltest // Cannot run in parallel - modifies global registry state
+func TestProperty_RegisterTargetWithSkip_PreservesExplicitGroupSource(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		g := NewWithT(t)
+
+		// Reset registry before test
+		core.SetRegistry(nil)
+		t.Cleanup(func() { core.SetRegistry(nil) })
+
+		// Generate explicit source package path
+		explicitSource := rapid.StringMatching(`[a-z]+\.[a-z]+/[a-z][a-z0-9-]*/[a-z][a-z0-9-]*`).
+			Draw(t, "explicitSource")
+
+		// Create a group and set explicit source
+		target := core.Targ(func() {}).Name("test-target")
+		group := core.Group("test-group", target)
+		group.SetSourceForTest(explicitSource)
+
+		// Register the group
+		core.RegisterTarget(group)
+
+		// Verify explicit source was preserved
+		registry := core.GetRegistry()
+		g.Expect(registry).To(HaveLen(1),
+			"registry should contain one item")
+
+		registeredGroup, ok := registry[0].(*core.TargetGroup)
+		g.Expect(ok).To(BeTrue(),
+			"registry item should be a *TargetGroup")
+
+		g.Expect(registeredGroup.GetSource()).To(Equal(explicitSource),
+			"explicit group sourcePkg should not be overwritten")
+	})
+}
+
+// TestProperty_RegisterTargetWithSkip_SetsSourceOnGroups verifies that
+// RegisterTargetWithSkip sets sourcePkg on *TargetGroup items.
+//
+//nolint:paralleltest // Cannot run in parallel - modifies global registry state
+func TestProperty_RegisterTargetWithSkip_SetsSourceOnGroups(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		g := NewWithT(t)
+
+		// Reset registry before test
+		core.SetRegistry(nil)
+		t.Cleanup(func() { core.SetRegistry(nil) })
+
+		// Create a group with a target
+		target := core.Targ(func() {}).Name("test-target")
+		group := core.Group("test-group", target)
+
+		// Verify group has no source before registration
+		g.Expect(group.GetSource()).To(BeEmpty(),
+			"group should have empty source before registration")
+
+		// Register the group (calls RegisterTargetWithSkip with skip=2)
+		core.RegisterTarget(group)
+
+		// Verify group has source set after registration
+		registry := core.GetRegistry()
+		g.Expect(registry).To(HaveLen(1),
+			"registry should contain one item")
+
+		registeredGroup, ok := registry[0].(*core.TargetGroup)
+		g.Expect(ok).To(BeTrue(),
+			"registry item should be a *TargetGroup")
+
+		g.Expect(registeredGroup.GetSource()).ToNot(BeEmpty(),
+			"group sourcePkg should be set by RegisterTarget")
+
+		g.Expect(registeredGroup.GetSource()).
+			To(Equal("github.com/toejough/targ/internal/core_test"),
+				"group sourcePkg should be set to calling package")
+	})
+}
+
+// TestProperty_RemoteTargetsKeepSourcePkg verifies that targets from external modules
+// retain their sourcePkg after resolution.
+//
+//nolint:paralleltest // Cannot run in parallel - modifies global registry state
+func TestProperty_RemoteTargetsKeepSourcePkg(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		g := NewWithT(t)
+
+		// Reset state before test
+		core.SetRegistry(nil)
+		core.ResetDeregistrations()
+		core.ResetResolved()
+		t.Cleanup(func() {
+			core.SetRegistry(nil)
+			core.ResetDeregistrations()
+			core.ResetResolved()
+			core.SetMainModuleForTest(nil)
+		})
+
+		// Generate main module and external module paths (must be different)
+		mainModule := rapid.StringMatching(`github\.com/[a-z][a-z0-9-]*/[a-z][a-z0-9-]*`).
+			Draw(t, "mainModule")
+		externalModule := rapid.StringMatching(`github\.com/[a-z][a-z0-9-]*/[a-z][a-z0-9-]*`).
+			Filter(func(s string) bool { return s != mainModule }).
+			Draw(t, "externalModule")
+
+		// Create a remote target (from external module)
+		remoteTarget := core.Targ(func() {}).Name("remote-target")
+		remoteTarget.SetSourceForTest(externalModule)
+
+		// Set up registry with one remote target
+		core.SetRegistry([]any{remoteTarget})
+
+		// Inject main module provider
+		core.SetMainModuleForTest(func() (string, bool) {
+			return mainModule, true
+		})
+
+		// Verify sourcePkg BEFORE resolution
+		g.Expect(remoteTarget.GetSource()).To(Equal(externalModule),
+			"remote target should have externalModule as sourcePkg before resolution")
+
+		// Call resolveRegistry
+		resolved, err := core.ResolveRegistryForTest()
+		g.Expect(err).ToNot(HaveOccurred(), "resolveRegistry should not error")
+		g.Expect(resolved).To(HaveLen(1), "should have one item in resolved registry")
+
+		// Verify the target's sourcePkg was PRESERVED AFTER resolution
+		g.Expect(remoteTarget.GetSource()).To(Equal(externalModule),
+			"remote target should retain sourcePkg after resolution")
+
+		// Verify resolved item is the same target with preserved sourcePkg
+		resolvedTarget, ok := resolved[0].(*core.Target)
+		g.Expect(ok).To(BeTrue(), "resolved item should be *core.Target")
+		g.Expect(resolvedTarget.GetSource()).To(Equal(externalModule),
+			"resolved target should retain sourcePkg")
+	})
+}
+
+//nolint:paralleltest // Cannot run in parallel - modifies global registry state
+func TestRegisterTargetWithSkip_Skip0ResolvesCorePackage(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		g := NewWithT(t)
+
+		// Reset registry before test
+		core.SetRegistry(nil)
+		t.Cleanup(func() { core.SetRegistry(nil) })
+
+		// Create target without explicit source
+		target := core.Targ(func() {}).Name("test-target")
+
+		// Register with skip=0 (should resolve to core package)
+		core.RegisterTargetWithSkip(0, target)
+
+		// Verify source was set to core package
+		registry := core.GetRegistry()
+		g.Expect(registry).To(HaveLen(1),
+			"registry should contain one item")
+
+		registeredTarget, ok := registry[0].(*core.Target)
+		g.Expect(ok).To(BeTrue(),
+			"registry item should be a *Target")
+
+		source := registeredTarget.GetSource()
+		g.Expect(source).ToNot(BeEmpty(),
+			"sourcePkg should be set by RegisterTargetWithSkip")
+
+		g.Expect(source).To(Equal("github.com/toejough/targ/internal/core"),
+			"with skip=0, sourcePkg should be core package itself")
+	})
+}
+
+//nolint:paralleltest // Cannot run in parallel - modifies global registry state
+func TestRegisterTargetWithSkip_Skip1ResolvesCaller(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		g := NewWithT(t)
+
+		// Reset registry before test
+		core.SetRegistry(nil)
+		t.Cleanup(func() { core.SetRegistry(nil) })
+
+		// Create target without explicit source
+		target := core.Targ(func() {}).Name("test-target")
+
+		// Register with skip=1 (should resolve to this test package)
+		core.RegisterTargetWithSkip(1, target)
+
+		// Verify source was set to test package
+		registry := core.GetRegistry()
+		g.Expect(registry).To(HaveLen(1),
+			"registry should contain one item")
+
+		registeredTarget, ok := registry[0].(*core.Target)
+		g.Expect(ok).To(BeTrue(),
+			"registry item should be a *Target")
+
+		source := registeredTarget.GetSource()
+		g.Expect(source).ToNot(BeEmpty(),
+			"sourcePkg should be set by RegisterTargetWithSkip")
+
+		g.Expect(source).To(Equal("github.com/toejough/targ/internal/core_test"),
+			"with skip=1, sourcePkg should be the direct caller's package")
+	})
+}
+
 //nolint:paralleltest // Cannot run in parallel - modifies global registry state
 func TestRegisterTarget_ExplicitSourceNotOverwritten(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
@@ -466,552 +1013,5 @@ func TestRegisterTarget_RegisteredTargetsHaveSource(t *testing.T) {
 			g.Expect(target.GetSource()).ToNot(BeEmpty(),
 				fmt.Sprintf("target %d should have non-empty source", i))
 		}
-	})
-}
-
-// TestDeregisterFromAfterResolutionErrors verifies that DeregisterFrom
-// returns an error after resolveRegistry has run.
-//
-//nolint:paralleltest // Cannot run in parallel - modifies global registry state
-func TestDeregisterFromAfterResolutionErrors(t *testing.T) {
-	rapid.Check(t, func(t *rapid.T) {
-		g := NewWithT(t)
-
-		// Reset state before test
-		core.SetRegistry(nil)
-		core.ResetDeregistrations()
-		core.ResetResolved()
-		t.Cleanup(func() {
-			core.SetRegistry(nil)
-			core.ResetDeregistrations()
-			core.ResetResolved()
-		})
-
-		// Generate a package path
-		pkgPath := rapid.StringMatching(`[a-z]+\.[a-z]+/[a-z][a-z0-9-]*/[a-z][a-z0-9-]*`).
-			Draw(t, "pkgPath")
-
-		// Trigger resolution (even with empty registry)
-		env := core.NewExecuteEnv([]string{"targ"})
-		_ = core.ExecuteWithResolution(env, core.RunOptions{AllowDefault: true})
-
-		// Now DeregisterFrom should error
-		err := core.DeregisterFrom(pkgPath)
-
-		g.Expect(err).To(HaveOccurred(),
-			"DeregisterFrom should error after resolveRegistry has run")
-	})
-}
-
-// TestDeregisterFromBeforeResolutionSucceeds verifies that DeregisterFrom
-// works normally before resolution.
-//
-//nolint:paralleltest // Cannot run in parallel - checks global registryResolved state
-func TestDeregisterFromBeforeResolutionSucceeds(t *testing.T) {
-	rapid.Check(t, func(t *rapid.T) {
-		g := NewWithT(t)
-
-		// Reset deregistrations before test
-		core.ResetDeregistrations()
-		core.ResetResolved()
-
-		// Generate a valid package path
-		pkgPath := rapid.StringMatching(`[a-z]+\.[a-z]+/[a-z][a-z0-9-]*/[a-z][a-z0-9-]*`).
-			Draw(t, "pkgPath")
-
-		// Should succeed before resolution
-		err := core.DeregisterFrom(pkgPath)
-
-		g.Expect(err).ToNot(HaveOccurred(),
-			"DeregisterFrom should succeed before resolution")
-
-		// Verify it was queued
-		deregistrations := core.GetDeregistrations()
-		found := false
-
-		for _, dereg := range deregistrations {
-			if dereg.PackagePath == pkgPath {
-				found = true
-				break
-			}
-		}
-
-		g.Expect(found).To(BeTrue(),
-			"package path should be in deregistrations queue")
-	})
-}
-
-//nolint:paralleltest // Cannot run in parallel - modifies global registry state
-func TestRegisterTargetWithSkip_Skip0ResolvesCorePackage(t *testing.T) {
-	rapid.Check(t, func(t *rapid.T) {
-		g := NewWithT(t)
-
-		// Reset registry before test
-		core.SetRegistry(nil)
-		t.Cleanup(func() { core.SetRegistry(nil) })
-
-		// Create target without explicit source
-		target := core.Targ(func() {}).Name("test-target")
-
-		// Register with skip=0 (should resolve to core package)
-		core.RegisterTargetWithSkip(0, target)
-
-		// Verify source was set to core package
-		registry := core.GetRegistry()
-		g.Expect(registry).To(HaveLen(1),
-			"registry should contain one item")
-
-		registeredTarget, ok := registry[0].(*core.Target)
-		g.Expect(ok).To(BeTrue(),
-			"registry item should be a *Target")
-
-		source := registeredTarget.GetSource()
-		g.Expect(source).ToNot(BeEmpty(),
-			"sourcePkg should be set by RegisterTargetWithSkip")
-
-		g.Expect(source).To(Equal("github.com/toejough/targ/internal/core"),
-			"with skip=0, sourcePkg should be core package itself")
-	})
-}
-
-//nolint:paralleltest // Cannot run in parallel - modifies global registry state
-func TestRegisterTargetWithSkip_Skip1ResolvesCaller(t *testing.T) {
-	rapid.Check(t, func(t *rapid.T) {
-		g := NewWithT(t)
-
-		// Reset registry before test
-		core.SetRegistry(nil)
-		t.Cleanup(func() { core.SetRegistry(nil) })
-
-		// Create target without explicit source
-		target := core.Targ(func() {}).Name("test-target")
-
-		// Register with skip=1 (should resolve to this test package)
-		core.RegisterTargetWithSkip(1, target)
-
-		// Verify source was set to test package
-		registry := core.GetRegistry()
-		g.Expect(registry).To(HaveLen(1),
-			"registry should contain one item")
-
-		registeredTarget, ok := registry[0].(*core.Target)
-		g.Expect(ok).To(BeTrue(),
-			"registry item should be a *Target")
-
-		source := registeredTarget.GetSource()
-		g.Expect(source).ToNot(BeEmpty(),
-			"sourcePkg should be set by RegisterTargetWithSkip")
-
-		g.Expect(source).To(Equal("github.com/toejough/targ/internal/core_test"),
-			"with skip=1, sourcePkg should be the direct caller's package")
-	})
-}
-
-// TestErrorMessageMentionsInit verifies that the error message
-// from DeregisterFrom after resolution contains "init()".
-//
-//nolint:paralleltest // Cannot run in parallel - modifies global registry state
-func TestErrorMessageMentionsInit(t *testing.T) {
-	rapid.Check(t, func(t *rapid.T) {
-		g := NewWithT(t)
-
-		// Reset state before test
-		core.SetRegistry(nil)
-		core.ResetDeregistrations()
-		core.ResetResolved()
-		t.Cleanup(func() {
-			core.SetRegistry(nil)
-			core.ResetDeregistrations()
-			core.ResetResolved()
-		})
-
-		// Generate a package path
-		pkgPath := rapid.StringMatching(`[a-z]+\.[a-z]+/[a-z][a-z0-9-]*/[a-z][a-z0-9-]*`).
-			Draw(t, "pkgPath")
-
-		// Trigger resolution
-		env := core.NewExecuteEnv([]string{"targ"})
-		_ = core.ExecuteWithResolution(env, core.RunOptions{AllowDefault: true})
-
-		// Get the error
-		err := core.DeregisterFrom(pkgPath)
-
-		g.Expect(err).To(MatchError(ContainSubstring("init()")),
-			"DeregisterFrom should error after resolution and mention init()")
-	})
-}
-
-// TestProperty_LocalTargetsHaveSourcePkgCleared verifies that targets from the main module
-// have their sourcePkg cleared during resolution.
-//
-//nolint:paralleltest // Cannot run in parallel - modifies global registry state
-func TestProperty_LocalTargetsHaveSourcePkgCleared(t *testing.T) {
-	rapid.Check(t, func(t *rapid.T) {
-		g := NewWithT(t)
-
-		// Reset state before test
-		core.SetRegistry(nil)
-		core.ResetDeregistrations()
-		core.ResetResolved()
-		t.Cleanup(func() {
-			core.SetRegistry(nil)
-			core.ResetDeregistrations()
-			core.ResetResolved()
-			core.SetMainModuleForTest(nil)
-		})
-
-		// Generate main module path
-		mainModule := rapid.StringMatching(`github\.com/[a-z][a-z0-9-]*/[a-z][a-z0-9-]*`).
-			Draw(t, "mainModule")
-
-		// Create a local target (from main module)
-		localTarget := core.Targ(func() {}).Name("local-target")
-		localTarget.SetSourceForTest(mainModule)
-
-		// Set up registry with one local target
-		core.SetRegistry([]any{localTarget})
-
-		// Inject main module provider
-		core.SetMainModuleForTest(func() (string, bool) {
-			return mainModule, true
-		})
-
-		// Verify sourcePkg BEFORE resolution
-		g.Expect(localTarget.GetSource()).To(Equal(mainModule),
-			"local target should have mainModule as sourcePkg before resolution")
-
-		// Call resolveRegistry to clear local sourcePkg
-		resolved, err := core.ResolveRegistryForTest()
-		g.Expect(err).ToNot(HaveOccurred(), "resolveRegistry should not error")
-		g.Expect(resolved).To(HaveLen(1), "should have one item in resolved registry")
-
-		// Verify the target's sourcePkg was cleared AFTER resolution
-		g.Expect(localTarget.GetSource()).To(BeEmpty(),
-			"local target should have empty sourcePkg after resolution")
-
-		// Verify resolved item is the same target with empty sourcePkg
-		resolvedTarget, ok := resolved[0].(*core.Target)
-		g.Expect(ok).To(BeTrue(), "resolved item should be *core.Target")
-		g.Expect(resolvedTarget.GetSource()).To(BeEmpty(),
-			"resolved target should have empty sourcePkg")
-	})
-}
-
-// TestProperty_RemoteTargetsKeepSourcePkg verifies that targets from external modules
-// retain their sourcePkg after resolution.
-//
-//nolint:paralleltest // Cannot run in parallel - modifies global registry state
-func TestProperty_RemoteTargetsKeepSourcePkg(t *testing.T) {
-	rapid.Check(t, func(t *rapid.T) {
-		g := NewWithT(t)
-
-		// Reset state before test
-		core.SetRegistry(nil)
-		core.ResetDeregistrations()
-		core.ResetResolved()
-		t.Cleanup(func() {
-			core.SetRegistry(nil)
-			core.ResetDeregistrations()
-			core.ResetResolved()
-			core.SetMainModuleForTest(nil)
-		})
-
-		// Generate main module and external module paths (must be different)
-		mainModule := rapid.StringMatching(`github\.com/[a-z][a-z0-9-]*/[a-z][a-z0-9-]*`).
-			Draw(t, "mainModule")
-		externalModule := rapid.StringMatching(`github\.com/[a-z][a-z0-9-]*/[a-z][a-z0-9-]*`).
-			Filter(func(s string) bool { return s != mainModule }).
-			Draw(t, "externalModule")
-
-		// Create a remote target (from external module)
-		remoteTarget := core.Targ(func() {}).Name("remote-target")
-		remoteTarget.SetSourceForTest(externalModule)
-
-		// Set up registry with one remote target
-		core.SetRegistry([]any{remoteTarget})
-
-		// Inject main module provider
-		core.SetMainModuleForTest(func() (string, bool) {
-			return mainModule, true
-		})
-
-		// Verify sourcePkg BEFORE resolution
-		g.Expect(remoteTarget.GetSource()).To(Equal(externalModule),
-			"remote target should have externalModule as sourcePkg before resolution")
-
-		// Call resolveRegistry
-		resolved, err := core.ResolveRegistryForTest()
-		g.Expect(err).ToNot(HaveOccurred(), "resolveRegistry should not error")
-		g.Expect(resolved).To(HaveLen(1), "should have one item in resolved registry")
-
-		// Verify the target's sourcePkg was PRESERVED AFTER resolution
-		g.Expect(remoteTarget.GetSource()).To(Equal(externalModule),
-			"remote target should retain sourcePkg after resolution")
-
-		// Verify resolved item is the same target with preserved sourcePkg
-		resolvedTarget, ok := resolved[0].(*core.Target)
-		g.Expect(ok).To(BeTrue(), "resolved item should be *core.Target")
-		g.Expect(resolvedTarget.GetSource()).To(Equal(externalModule),
-			"resolved target should retain sourcePkg")
-	})
-}
-
-// TestProperty_MixedLocalAndRemoteTargetsHandled verifies that in a registry with both
-// local and remote targets, only local ones get sourcePkg cleared.
-//
-//nolint:paralleltest // Cannot run in parallel - modifies global registry state
-func TestProperty_MixedLocalAndRemoteTargetsHandled(t *testing.T) {
-	rapid.Check(t, func(t *rapid.T) {
-		g := NewWithT(t)
-
-		// Reset state before test
-		core.SetRegistry(nil)
-		core.ResetDeregistrations()
-		core.ResetResolved()
-		t.Cleanup(func() {
-			core.SetRegistry(nil)
-			core.ResetDeregistrations()
-			core.ResetResolved()
-			core.SetMainModuleForTest(nil)
-		})
-
-		// Generate main module and external module paths (must be different)
-		mainModule := rapid.StringMatching(`github\.com/[a-z][a-z0-9-]*/[a-z][a-z0-9-]*`).
-			Draw(t, "mainModule")
-		externalModule := rapid.StringMatching(`github\.com/[a-z][a-z0-9-]*/[a-z][a-z0-9-]*`).
-			Filter(func(s string) bool { return s != mainModule }).
-			Draw(t, "externalModule")
-
-		// Create mixed targets
-		localTarget := core.Targ(func() {}).Name("local-target")
-		localTarget.SetSourceForTest(mainModule)
-
-		remoteTarget := core.Targ(func() {}).Name("remote-target")
-		remoteTarget.SetSourceForTest(externalModule)
-
-		// Set up registry with both
-		core.SetRegistry([]any{localTarget, remoteTarget})
-
-		// Inject main module provider
-		core.SetMainModuleForTest(func() (string, bool) {
-			return mainModule, true
-		})
-
-		// Call resolveRegistry
-		resolved, err := core.ResolveRegistryForTest()
-		g.Expect(err).ToNot(HaveOccurred(), "resolveRegistry should not error")
-		g.Expect(resolved).To(HaveLen(2), "should have two items in resolved registry")
-
-		// Verify local target has empty sourcePkg
-		g.Expect(localTarget.GetSource()).To(BeEmpty(),
-			"local target should have empty sourcePkg")
-
-		// Verify remote target kept its sourcePkg
-		g.Expect(remoteTarget.GetSource()).To(Equal(externalModule),
-			"remote target should retain sourcePkg")
-	})
-}
-
-// TestProperty_RegisterTargetWithSkip_SetsSourceOnGroups verifies that
-// RegisterTargetWithSkip sets sourcePkg on *TargetGroup items.
-//
-//nolint:paralleltest // Cannot run in parallel - modifies global registry state
-func TestProperty_RegisterTargetWithSkip_SetsSourceOnGroups(t *testing.T) {
-	rapid.Check(t, func(t *rapid.T) {
-		g := NewWithT(t)
-
-		// Reset registry before test
-		core.SetRegistry(nil)
-		t.Cleanup(func() { core.SetRegistry(nil) })
-
-		// Create a group with a target
-		target := core.Targ(func() {}).Name("test-target")
-		group := core.Group("test-group", target)
-
-		// Verify group has no source before registration
-		g.Expect(group.GetSource()).To(BeEmpty(),
-			"group should have empty source before registration")
-
-		// Register the group (calls RegisterTargetWithSkip with skip=2)
-		core.RegisterTarget(group)
-
-		// Verify group has source set after registration
-		registry := core.GetRegistry()
-		g.Expect(registry).To(HaveLen(1),
-			"registry should contain one item")
-
-		registeredGroup, ok := registry[0].(*core.TargetGroup)
-		g.Expect(ok).To(BeTrue(),
-			"registry item should be a *TargetGroup")
-
-		g.Expect(registeredGroup.GetSource()).ToNot(BeEmpty(),
-			"group sourcePkg should be set by RegisterTarget")
-
-		g.Expect(registeredGroup.GetSource()).
-			To(Equal("github.com/toejough/targ/internal/core_test"),
-				"group sourcePkg should be set to calling package")
-	})
-}
-
-// TestProperty_RegisterTargetWithSkip_PreservesExplicitGroupSource verifies that
-// RegisterTargetWithSkip does not overwrite explicitly set group sourcePkg.
-//
-//nolint:paralleltest // Cannot run in parallel - modifies global registry state
-func TestProperty_RegisterTargetWithSkip_PreservesExplicitGroupSource(t *testing.T) {
-	rapid.Check(t, func(t *rapid.T) {
-		g := NewWithT(t)
-
-		// Reset registry before test
-		core.SetRegistry(nil)
-		t.Cleanup(func() { core.SetRegistry(nil) })
-
-		// Generate explicit source package path
-		explicitSource := rapid.StringMatching(`[a-z]+\.[a-z]+/[a-z][a-z0-9-]*/[a-z][a-z0-9-]*`).
-			Draw(t, "explicitSource")
-
-		// Create a group and set explicit source
-		target := core.Targ(func() {}).Name("test-target")
-		group := core.Group("test-group", target)
-		group.SetSourceForTest(explicitSource)
-
-		// Register the group
-		core.RegisterTarget(group)
-
-		// Verify explicit source was preserved
-		registry := core.GetRegistry()
-		g.Expect(registry).To(HaveLen(1),
-			"registry should contain one item")
-
-		registeredGroup, ok := registry[0].(*core.TargetGroup)
-		g.Expect(ok).To(BeTrue(),
-			"registry item should be a *TargetGroup")
-
-		g.Expect(registeredGroup.GetSource()).To(Equal(explicitSource),
-			"explicit group sourcePkg should not be overwritten")
-	})
-}
-
-// TestProperty_DeregisterThenReregister verifies that deregistering a package
-// then re-registering individual targets from it preserves the re-registered targets.
-//
-//nolint:paralleltest // Cannot run in parallel - modifies global registry state
-func TestProperty_DeregisterThenReregister(t *testing.T) {
-	rapid.Check(t, func(t *rapid.T) {
-		g := NewWithT(t)
-
-		// Reset state before test
-		core.SetRegistry(nil)
-		core.ResetDeregistrations()
-		core.ResetResolved()
-		t.Cleanup(func() {
-			core.SetRegistry(nil)
-			core.ResetDeregistrations()
-			core.ResetResolved()
-		})
-
-		// Generate package path
-		remotePkg := rapid.StringMatching(`[a-z]+\.[a-z]+/[a-z][a-z0-9-]*/[a-z][a-z0-9-]*`).
-			Draw(t, "remotePkg")
-
-		// Generate unique target names
-		name1 := rapid.StringMatching(`[a-z][a-z0-9-]*`).Draw(t, "name1")
-		name2 := rapid.StringMatching(`[a-z][a-z0-9-]*`).
-			Filter(func(s string) bool { return s != name1 }).
-			Draw(t, "name2")
-
-		// Simulate remote package init() registering targets
-		remoteLint := core.Targ(func() {}).Name(name1)
-		remoteLint.SetSourceForTest(remotePkg)
-
-		remoteTest := core.Targ(func() {}).Name(name2)
-		remoteTest.SetSourceForTest(remotePkg)
-
-		core.RegisterTarget(remoteLint, remoteTest)
-
-		// Verify both targets are in registry with remote source
-		reg := core.GetRegistry()
-		g.Expect(reg).To(HaveLen(2), "should have two targets after remote registration")
-
-		// Simulate consumer init() deregistering remote package
-		err := core.DeregisterFrom(remotePkg)
-		g.Expect(err).ToNot(HaveOccurred(), "DeregisterFrom should succeed")
-
-		// Simulate consumer init() re-registering specific targets
-		// These are the SAME Go pointers from remote package
-		core.RegisterTarget(remoteLint, remoteTest.Name("unit-test"))
-
-		// Verify registry has 4 items total (2 original + 2 re-registered)
-		reg = core.GetRegistry()
-		g.Expect(reg).To(HaveLen(4),
-			"registry should have original targets plus re-registered ones")
-
-		// Resolve registry - this applies deregistrations
-		resolved, err := core.ResolveRegistryForTest()
-		g.Expect(err).ToNot(HaveOccurred(), "resolveRegistry should succeed")
-
-		// Should preserve the re-registered targets, not remove them
-		g.Expect(resolved).To(HaveLen(2),
-			"re-registered targets should be preserved after deregistration")
-
-		// Verify the preserved targets have the expected names
-		names := make([]string, 0, 2)
-
-		for _, item := range resolved {
-			if tgt, ok := item.(*core.Target); ok {
-				names = append(names, tgt.GetName())
-			}
-		}
-
-		g.Expect(names).To(ConsistOf(name1, "unit-test"),
-			"should preserve re-registered targets with their names")
-	})
-}
-
-// TestProperty_DeregisterWithoutReregister verifies that deregistering without
-// re-registering still removes all targets from that package (existing behavior).
-//
-//nolint:paralleltest // Cannot run in parallel - modifies global registry state
-func TestProperty_DeregisterWithoutReregister(t *testing.T) {
-	rapid.Check(t, func(t *rapid.T) {
-		g := NewWithT(t)
-
-		// Reset state before test
-		core.SetRegistry(nil)
-		core.ResetDeregistrations()
-		core.ResetResolved()
-		t.Cleanup(func() {
-			core.SetRegistry(nil)
-			core.ResetDeregistrations()
-			core.ResetResolved()
-		})
-
-		// Generate package path
-		remotePkg := rapid.StringMatching(`[a-z]+\.[a-z]+/[a-z][a-z0-9-]*/[a-z][a-z0-9-]*`).
-			Draw(t, "remotePkg")
-
-		// Register multiple targets from remote package
-		numTargets := rapid.IntRange(1, 5).Draw(t, "numTargets")
-		for i := range numTargets {
-			tgt := core.Targ(func() {}).Name(fmt.Sprintf("target-%d", i))
-			tgt.SetSourceForTest(remotePkg)
-			core.RegisterTarget(tgt)
-		}
-
-		// Verify targets are in registry
-		reg := core.GetRegistry()
-		g.Expect(reg).To(HaveLen(numTargets),
-			"should have all targets in registry")
-
-		// Deregister the package WITHOUT re-registering anything
-		err := core.DeregisterFrom(remotePkg)
-		g.Expect(err).ToNot(HaveOccurred(), "DeregisterFrom should succeed")
-
-		// Resolve registry
-		resolved, err := core.ResolveRegistryForTest()
-		g.Expect(err).ToNot(HaveOccurred(), "resolveRegistry should succeed")
-
-		// All targets should be removed
-		g.Expect(resolved).To(BeEmpty(),
-			"all targets from deregistered package should be removed")
 	})
 }

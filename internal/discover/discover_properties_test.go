@@ -20,7 +20,8 @@ func TestProperty_Discovery(t *testing.T) {
 		t.Parallel()
 		rapid.Check(t, func(t *rapid.T) {
 			g := NewWithT(t)
-			pkgName := rapid.StringMatching(`[a-z]{3,10}`).Draw(t, "pkgName")
+			// Prefix with 'x' to avoid Go keywords like "var", "func", "type"
+			pkgName := "x" + rapid.StringMatching(`[a-z]{2,9}`).Draw(t, "pkgName")
 
 			src := `//go:build targ
 

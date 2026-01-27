@@ -13,6 +13,8 @@ import (
 // TestDeregisterFromDelegatesToInternal verifies that the public API
 // delegates to the internal implementation with the same behavior.
 func TestDeregisterFromDelegatesToInternal(t *testing.T) {
+	t.Parallel()
+
 	rapid.Check(t, func(t *rapid.T) {
 		g := NewWithT(t)
 
@@ -49,6 +51,7 @@ func TestDeregisterFromDelegatesToInternal(t *testing.T) {
 
 		// Reset and call internal
 		core.ResetDeregistrations()
+
 		_ = core.DeregisterFrom(packagePath)
 		internalQueue := core.GetDeregistrations()
 
@@ -59,6 +62,8 @@ func TestDeregisterFromDelegatesToInternal(t *testing.T) {
 
 // TestDeregisterFromEmptyPackagePath verifies that empty package path is rejected.
 func TestDeregisterFromEmptyPackagePath(t *testing.T) {
+	t.Parallel()
+
 	g := NewWithT(t)
 
 	err := targ.DeregisterFrom("")

@@ -12,30 +12,40 @@ import (
 	"github.com/toejough/targ"
 )
 
-// Exported target variables - consumers can import these.
-//
-//nolint:gochecknoglobals // Portable targets must be global variables for import by consumers
-var (
-	// Lint runs linting with configurable linter via LINTER env var
-	Lint = targ.Targ(lint).
-		Name("lint").
-		Description("Run linter (set LINTER env var to choose linter)")
-
-	// Test runs tests with coverage threshold via COVERAGE env var
-	Test = targ.Targ(runTests).
-		Name("test").
-		Description("Run tests (set COVERAGE env var for threshold)")
-
-	// Build compiles the project with optional output via OUTPUT env var
-	Build = targ.Targ(build).
-		Name("build").
-		Description("Build project (set OUTPUT env var for binary name)")
-)
-
 //nolint:gochecknoinits // init required for targ.Register - targets auto-register on import
 func init() {
 	// Register all targets when package is imported
 	targ.Register(Lint, Test, Build)
+}
+
+// Exported variables.
+var (
+	// Build compiles the project with optional output via OUTPUT env var
+	Build = targ.Targ(build).
+		Name("build").
+		Description("Build project (set OUTPUT env var for binary name)")
+	// Lint runs linting with configurable linter via LINTER env var
+	Lint = targ.Targ(lint).
+		Name("lint").
+		Description("Run linter (set LINTER env var to choose linter)")
+	// Test runs tests with coverage threshold via COVERAGE env var
+	Test = targ.Targ(runTests).
+		Name("test").
+		Description("Run tests (set COVERAGE env var for threshold)")
+)
+
+// build compiles the project with output name from OUTPUT env var
+//
+//nolint:wrapcheck // Example code - simple error passthrough for clarity
+func build(ctx context.Context) error {
+	output := os.Getenv("OUTPUT")
+	if output == "" {
+		output = "app"
+	}
+
+	fmt.Printf("Building %s...\n", output)
+
+	return targ.RunContext(ctx, "go", "build", "-o", output, ".")
 }
 
 // lint runs the linter specified by LINTER env var
@@ -64,18 +74,4 @@ func runTests(ctx context.Context) error {
 	fmt.Printf("Running tests with %s%% coverage threshold...\n", threshold)
 
 	return targ.RunContext(ctx, "go", "test", "-cover", "./...")
-}
-
-// build compiles the project with output name from OUTPUT env var
-//
-//nolint:wrapcheck // Example code - simple error passthrough for clarity
-func build(ctx context.Context) error {
-	output := os.Getenv("OUTPUT")
-	if output == "" {
-		output = "app"
-	}
-
-	fmt.Printf("Building %s...\n", output)
-
-	return targ.RunContext(ctx, "go", "build", "-o", output, ".")
 }

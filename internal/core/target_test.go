@@ -1,10 +1,12 @@
-package core
+package core_test
 
 import (
 	"testing"
 
 	. "github.com/onsi/gomega"
 	"pgregory.net/rapid"
+
+	"github.com/toejough/targ/internal/core"
 )
 
 func TestProperty_DefaultIsNotRenamed(t *testing.T) {
@@ -14,7 +16,7 @@ func TestProperty_DefaultIsNotRenamed(t *testing.T) {
 		g := NewWithT(t)
 
 		// Create target without calling Name()
-		target := Targ(func() {})
+		target := core.Targ(func() {})
 
 		// Verify nameOverridden flag is false
 		g.Expect(target.IsRenamed()).To(BeFalse(),
@@ -29,7 +31,7 @@ func TestProperty_DefaultSourceIsEmpty(t *testing.T) {
 		g := NewWithT(t)
 
 		// Create target without setting sourcePkg
-		target := Targ(func() {})
+		target := core.Targ(func() {})
 
 		// Verify GetSource() returns empty string
 		g.Expect(target.GetSource()).To(BeEmpty(),
@@ -44,7 +46,7 @@ func TestProperty_DepsOnlyTargetIsNotRenamed(t *testing.T) {
 		g := NewWithT(t)
 
 		// Create deps-only target
-		target := Targ()
+		target := core.Targ()
 
 		// Verify nameOverridden flag is false
 		g.Expect(target.IsRenamed()).To(BeFalse(),
@@ -63,34 +65,12 @@ func TestProperty_GetSourceReturnsSetValue(t *testing.T) {
 			Draw(t, "pkgPath")
 
 		// Create target and set sourcePkg
-		target := Targ(func() {})
-		target.sourcePkg = pkgPath
+		target := core.Targ(func() {})
+		target.SetSourceForTest(pkgPath)
 
 		// Verify GetSource() returns the same value
 		g.Expect(target.GetSource()).To(Equal(pkgPath),
 			"GetSource() should return the set sourcePkg value")
-	})
-}
-
-func TestProperty_NameBeforeRegistrationIsNotRenamed(t *testing.T) {
-	t.Parallel()
-
-	rapid.Check(t, func(t *rapid.T) {
-		g := NewWithT(t)
-
-		// Generate non-empty target name to avoid empty string edge case
-		name := rapid.StringMatching(`[a-z][a-z0-9-]*`).Draw(t, "name")
-
-		// Create target without sourcePkg (simulating package author defining target)
-		target := Targ(func() {}).Name(name)
-
-		// Verify name is set
-		g.Expect(target.GetName()).To(Equal(name),
-			"Name() should set the target name")
-
-		// Verify nameOverridden flag is false (not registered yet)
-		g.Expect(target.IsRenamed()).To(BeFalse(),
-			"calling Name() before registration should not set IsRenamed() to true")
 	})
 }
 
@@ -106,7 +86,7 @@ func TestProperty_NameAfterRegistrationIsRenamed(t *testing.T) {
 			Draw(t, "pkgPath")
 
 		// Create target and set sourcePkg (simulating registered remote target)
-		target := Targ(func() {})
+		target := core.Targ(func() {})
 		target.SetSourceForTest(pkgPath)
 
 		// Now call Name() (simulating consumer renaming)
@@ -122,6 +102,28 @@ func TestProperty_NameAfterRegistrationIsRenamed(t *testing.T) {
 	})
 }
 
+func TestProperty_NameBeforeRegistrationIsNotRenamed(t *testing.T) {
+	t.Parallel()
+
+	rapid.Check(t, func(t *rapid.T) {
+		g := NewWithT(t)
+
+		// Generate non-empty target name to avoid empty string edge case
+		name := rapid.StringMatching(`[a-z][a-z0-9-]*`).Draw(t, "name")
+
+		// Create target without sourcePkg (simulating package author defining target)
+		target := core.Targ(func() {}).Name(name)
+
+		// Verify name is set
+		g.Expect(target.GetName()).To(Equal(name),
+			"Name() should set the target name")
+
+		// Verify nameOverridden flag is false (not registered yet)
+		g.Expect(target.IsRenamed()).To(BeFalse(),
+			"calling Name() before registration should not set IsRenamed() to true")
+	})
+}
+
 func TestProperty_ShellCommandTargetIsNotRenamed(t *testing.T) {
 	t.Parallel()
 
@@ -132,7 +134,7 @@ func TestProperty_ShellCommandTargetIsNotRenamed(t *testing.T) {
 		cmd := rapid.StringMatching(`[a-z]+ [a-z]+`).Draw(t, "cmd")
 
 		// Create shell command target
-		target := Targ(cmd)
+		target := core.Targ(cmd)
 
 		// Verify nameOverridden flag is false
 		g.Expect(target.IsRenamed()).To(BeFalse(),

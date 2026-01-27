@@ -90,6 +90,23 @@ func Checksum(inputs []string, dest string) (bool, error) {
 	}, nil)
 }
 
+// DeregisterFrom removes all targets registered by the named package.
+// Must be called from init() before targ executes.
+//
+// Example:
+//
+//	import targets "github.com/alice/go-targets"
+//
+//	func init() {
+//	    targ.DeregisterFrom("github.com/alice/go-targets")
+//	    targ.Register(targets.Test) // Re-register just this one
+//	}
+//
+// Returns error if packagePath is empty.
+func DeregisterFrom(packagePath string) error {
+	return core.DeregisterFrom(packagePath)
+}
+
 // EmptyExamples returns an empty slice to disable examples in help.
 func EmptyExamples() []Example { return core.EmptyExamples() }
 
@@ -184,28 +201,11 @@ func PrependBuiltinExamples(custom ...Example) []Example {
 	return core.PrependBuiltinExamples(custom...)
 }
 
-// DeregisterFrom removes all targets registered by the named package.
-// Must be called from init() before targ executes.
-//
-// Example:
-//
-//	import targets "github.com/alice/go-targets"
-//
-//	func init() {
-//	    targ.DeregisterFrom("github.com/alice/go-targets")
-//	    targ.Register(targets.Test) // Re-register just this one
-//	}
-//
-// Returns error if packagePath is empty.
-func DeregisterFrom(packagePath string) error {
-	return core.DeregisterFrom(packagePath)
-}
-
 // Register adds targets to the global registry for later execution.
 // Typically called from init() in packages with //go:build targ.
 // Use ExecuteRegistered() in main() to run the registered targets.
 func Register(targets ...any) {
-	core.RegisterTargetWithSkip(2, targets...)
+	core.RegisterTargetWithSkip(core.CallerSkipPublicAPI, targets...)
 }
 
 // Run executes a command streaming stdout/stderr.

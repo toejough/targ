@@ -1,4 +1,4 @@
-package core
+package core_test
 
 import (
 	"strings"
@@ -6,30 +6,12 @@ import (
 
 	. "github.com/onsi/gomega"
 	"pgregory.net/rapid"
+
+	"github.com/toejough/targ/internal/core"
 )
 
 func TestProperty_CallerPackagePath(t *testing.T) {
 	t.Parallel()
-
-	t.Run("CallerFromThisPackageReturnsThisPackage", func(t *testing.T) {
-		t.Parallel()
-		rapid.Check(t, func(t *rapid.T) {
-			g := NewWithT(t)
-
-			// Create a helper function to call callerPackagePath
-			// This ensures we're testing from within this package
-			callHelper := func() (string, error) {
-				return callerPackagePath(0)
-			}
-
-			result, err := callHelper()
-
-			g.Expect(err).
-				ToNot(HaveOccurred(), "callerPackagePath should not error with valid depth")
-			g.Expect(result).To(ContainSubstring("github.com/toejough/targ/internal/core"),
-				"caller package path should contain this package's path")
-		})
-	})
 
 	t.Run("InvalidDepthReturnsError", func(t *testing.T) {
 		t.Parallel()
@@ -37,7 +19,7 @@ func TestProperty_CallerPackagePath(t *testing.T) {
 			g := NewWithT(t)
 
 			// Very large depth should fail - no stack that deep
-			_, err := callerPackagePath(99999)
+			_, err := core.CallerPackagePathForTest(99999)
 
 			g.Expect(err).To(HaveOccurred(),
 				"callerPackagePath with invalid depth should return error")
@@ -75,7 +57,7 @@ func TestProperty_ExtractPackagePath(t *testing.T) {
 
 			fullName += "." + funcName
 
-			result := extractPackagePath(fullName)
+			result := core.ExtractPackagePathForTest(fullName)
 
 			// Result should be a prefix of input
 			g.Expect(fullName).To(HavePrefix(result),
@@ -105,7 +87,7 @@ func TestProperty_ExtractPackagePath(t *testing.T) {
 
 			fullName += "." + funcName
 
-			result := extractPackagePath(fullName)
+			result := core.ExtractPackagePathForTest(fullName)
 
 			// Result should not end with a dot
 			if result != "" {
@@ -119,7 +101,7 @@ func TestProperty_ExtractPackagePath(t *testing.T) {
 		t.Parallel()
 		g := NewWithT(t)
 
-		result := extractPackagePath("")
+		result := core.ExtractPackagePathForTest("")
 		g.Expect(result).To(BeEmpty(), "empty input should return empty string")
 	})
 
@@ -147,7 +129,7 @@ func TestProperty_ExtractPackagePath(t *testing.T) {
 
 			idx := rapid.IntRange(0, len(cases)-1).Draw(t, "caseIdx")
 			tc := cases[idx]
-			g.Expect(extractPackagePath(tc.input)).To(Equal(tc.expected),
+			g.Expect(core.ExtractPackagePathForTest(tc.input)).To(Equal(tc.expected),
 				"extractPackagePath(%q)", tc.input)
 		})
 	})
