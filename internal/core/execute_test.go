@@ -820,8 +820,9 @@ func TestProperty_RegisterTargetWithSkip_SetsSourceOnGroups(t *testing.T) {
 		g.Expect(registeredGroup.GetSource()).ToNot(BeEmpty(),
 			"group sourcePkg should be set by RegisterTarget")
 
-		g.Expect(registeredGroup.GetSource()).To(Equal("github.com/toejough/targ/internal/core_test"),
-			"group sourcePkg should be set to calling package")
+		g.Expect(registeredGroup.GetSource()).
+			To(Equal("github.com/toejough/targ/internal/core_test"),
+				"group sourcePkg should be set to calling package")
 	})
 }
 
