@@ -83,7 +83,8 @@ func TestProperty_PortableExamplesCompile(t *testing.T) {
 		g := NewWithT(t)
 
 		// Verify portable examples compile with targ build tag
-		err := targ.Run("go", "build", "-tags", "targ", "./examples/portable/...")
+		// Path is relative to test/ directory
+		err := targ.Run("go", "build", "-tags", "targ", "../examples/portable/...")
 		g.Expect(err).ToNot(HaveOccurred(), "portable examples should compile with targ build tag")
 	})
 }
