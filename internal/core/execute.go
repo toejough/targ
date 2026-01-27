@@ -59,7 +59,21 @@ func Main(targets ...any) {
 // RegisterTarget adds targets to the global registry for later execution.
 // Typically called from init() in packages with //go:build targ.
 // Use ExecuteRegistered() in main() to run the registered targets.
+// Automatically sets sourcePkg on each *Target using runtime.Caller.
 func RegisterTarget(targets ...any) {
+	// Detect calling package once for all targets
+	sourcePkg, _ := callerPackagePath(1)
+
+	// Set source on each Target before appending to registry
+	for _, item := range targets {
+		if target, ok := item.(*Target); ok {
+			// Only set if not already set (preserve explicit source)
+			if target.sourcePkg == "" && sourcePkg != "" {
+				target.sourcePkg = sourcePkg
+			}
+		}
+	}
+
 	registry = append(registry, targets...)
 }
 
