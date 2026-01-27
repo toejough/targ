@@ -121,7 +121,12 @@ func initMatchCounts(deregistrations []Deregistration) map[string]int {
 }
 
 // shouldRemove checks if an item should be removed based on deregistrations.
-func shouldRemove(sourcePkg string, idx int, deregistrations []Deregistration, matchCounts map[string]int) bool {
+func shouldRemove(
+	sourcePkg string,
+	idx int,
+	deregistrations []Deregistration,
+	matchCounts map[string]int,
+) bool {
 	for _, dereg := range deregistrations {
 		// Only remove if:
 		// 1. Package matches AND
