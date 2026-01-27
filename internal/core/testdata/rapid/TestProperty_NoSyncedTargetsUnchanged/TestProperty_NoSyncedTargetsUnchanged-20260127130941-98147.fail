@@ -1,0 +1,40 @@
+# 2026/01/27 13:09:41.189699 [TestProperty_NoSyncedTargetsUnchanged] [rapid] draw numTargets: 3
+# 2026/01/27 13:09:41.189702 [TestProperty_NoSyncedTargetsUnchanged] [rapid] draw targetName: "a"
+# 2026/01/27 13:09:41.189705 [TestProperty_NoSyncedTargetsUnchanged] [rapid] draw description: ""
+# 2026/01/27 13:09:41.189707 [TestProperty_NoSyncedTargetsUnchanged] [rapid] draw targetName: "a"
+# 2026/01/27 13:09:41.189707 [TestProperty_NoSyncedTargetsUnchanged] [rapid] draw description: ""
+# 2026/01/27 13:09:41.189708 [TestProperty_NoSyncedTargetsUnchanged] [rapid] draw targetName: "a"
+# 2026/01/27 13:09:41.189709 [TestProperty_NoSyncedTargetsUnchanged] [rapid] draw description: "("
+# 2026/01/27 13:09:41.189714 [TestProperty_NoSyncedTargetsUnchanged] 
+# all-local listing should not have any source annotations
+# Expected
+#     <string>:   a
+#       a
+#       a  (
+#     
+# not to contain substring
+#     <string>: (
+# 
+v0.4.8#13205378241870334253
+0x0
+0x38e38e38e38e4
+0x2
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x5555555555555
+0x0
+0xc05c654ab866b
+0x1b
+0x0

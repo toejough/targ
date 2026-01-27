@@ -1,0 +1,20 @@
+# 2026/01/27 13:11:21.680944 [TestProperty_LocalTargetsShowLocal] [rapid] draw targetName: "a"
+# 2026/01/27 13:11:21.680948 [TestProperty_LocalTargetsShowLocal] [rapid] draw description: "("
+# 2026/01/27 13:11:21.680956 [TestProperty_LocalTargetsShowLocal] 
+# should not show any source attribution when all targets are local
+# Expected
+#     <string>:   a  (
+#     
+# not to contain substring
+#     <string>: (
+# 
+v0.4.8#797566981027398597
+0x0
+0x0
+0x0
+0x0
+0x5555555555555
+0x0
+0xc05c654ab866b
+0x1b
+0x0

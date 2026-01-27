@@ -1930,13 +1930,61 @@ func printTargFlags(w io.Writer, opts RunOptions, isRoot bool) {
 	_, _ = fmt.Fprintln(w, "  --dep-mode <mode>     Dependency mode: serial or parallel")
 }
 
+// hasRemoteTargets checks if any node has a non-empty source package.
+func hasRemoteTargets(nodes []*commandNode) bool {
+	for _, node := range nodes {
+		if node.Target != nil && node.Target.GetSource() != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// formatSourceAttribution returns the source attribution string for a target.
+// Returns empty string if showAttribution is false (backwards compat).
+func formatSourceAttribution(node *commandNode, showAttribution bool) string {
+	if !showAttribution {
+		return ""
+	}
+
+	if node.Target == nil {
+		return ""
+	}
+
+	source := node.Target.GetSource()
+	renamed := node.Target.IsRenamed()
+
+	if source == "" {
+		// Local target
+		return "(local)"
+	}
+
+	// Remote target
+	if renamed {
+		return fmt.Sprintf("(%s, renamed)", source)
+	}
+
+	return fmt.Sprintf("(%s)", source)
+}
+
 // printTopLevelCommand prints a top-level command with aligned description.
 // width is the column width for the name (for alignment).
-func printTopLevelCommand(w io.Writer, node *commandNode, width int) {
+// showAttribution controls whether to show source attribution.
+func printTopLevelCommand(w io.Writer, node *commandNode, width int, showAttribution bool) {
+	sourceAttr := formatSourceAttribution(node, showAttribution)
+
 	if node.Description != "" {
-		_, _ = fmt.Fprintf(w, "  %-*s  %s\n", width, node.Name, node.Description)
+		if sourceAttr != "" {
+			_, _ = fmt.Fprintf(w, "  %-*s  %s  %s\n", width, node.Name, node.Description, sourceAttr)
+		} else {
+			_, _ = fmt.Fprintf(w, "  %-*s  %s\n", width, node.Name, node.Description)
+		}
 	} else {
-		_, _ = fmt.Fprintf(w, "  %s\n", node.Name)
+		if sourceAttr != "" {
+			_, _ = fmt.Fprintf(w, "  %s  %s\n", node.Name, sourceAttr)
+		} else {
+			_, _ = fmt.Fprintf(w, "  %s\n", node.Name)
+		}
 	}
 }
 
@@ -1958,6 +2006,9 @@ func printUsage(w io.Writer, nodes []*commandNode, opts RunOptions) {
 	// Commands grouped by source
 	_, _ = fmt.Fprintln(w, "\nCommands:")
 
+	// Check if we should show source attribution
+	showAttribution := hasRemoteTargets(nodes)
+
 	groups := groupNodesBySource(nodes, opts)
 	for i, group := range groups {
 		if i > 0 {
@@ -1968,7 +2019,7 @@ func printUsage(w io.Writer, nodes []*commandNode, opts RunOptions) {
 
 		width := maxNameWidth(group.nodes)
 		for _, node := range group.nodes {
-			printTopLevelCommand(w, node, width)
+			printTopLevelCommand(w, node, width, showAttribution)
 		}
 	}
 

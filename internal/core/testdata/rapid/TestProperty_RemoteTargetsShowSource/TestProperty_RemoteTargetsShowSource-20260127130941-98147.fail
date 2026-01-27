@@ -1,0 +1,38 @@
+# 2026/01/27 13:09:41.175515 [TestProperty_RemoteTargetsShowSource] [rapid] draw targetName: "a"
+# 2026/01/27 13:09:41.175518 [TestProperty_RemoteTargetsShowSource] [rapid] draw description: ""
+# 2026/01/27 13:09:41.175520 [TestProperty_RemoteTargetsShowSource] [rapid] draw domain: "a.a"
+# 2026/01/27 13:09:41.175521 [TestProperty_RemoteTargetsShowSource] [rapid] draw user: "a"
+# 2026/01/27 13:09:41.175522 [TestProperty_RemoteTargetsShowSource] [rapid] draw repo: "a"
+# 2026/01/27 13:09:41.175530 [TestProperty_RemoteTargetsShowSource] 
+# output should contain source package: "a.a/a/a"
+# Expected
+#     <string>:   a
+#     
+# to contain substring
+#     <string>: a.a/a/a
+# 
+v0.4.8#15670259753492090190
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0

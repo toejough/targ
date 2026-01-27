@@ -2,7 +2,6 @@ package core
 
 import (
 	"bytes"
-	"strings"
 	"testing"
 
 	. "github.com/onsi/gomega"
@@ -28,19 +27,23 @@ func TestProperty_LocalTargetsShowLocal(t *testing.T) {
 		var buf bytes.Buffer
 		width := len(targetName)
 
-		printTopLevelCommand(&buf, node, width)
+		// showAttribution = false for all-local targets (backwards compat)
+		printTopLevelCommand(&buf, node, width, false)
 		output := buf.String()
 
 		// When all targets are local, we should NOT show (local)
 		// This is for backwards compatibility
-		// But when we have mixed targets, local ones show (local)
-		// For now, just check that the output contains the name and description
 		g.Expect(output).To(ContainSubstring(targetName),
 			"output should contain target name")
 		if desc != "" {
 			g.Expect(output).To(ContainSubstring(desc),
 				"output should contain description")
 		}
+		g.Expect(output).ToNot(ContainSubstring("(local)"),
+			"should not show (local) attribution when all targets are local")
+		// Check that there's no source package path pattern in the output
+		g.Expect(output).ToNot(MatchRegexp(`\([a-z]+\.[a-z]+/`),
+			"should not show source package when all targets are local")
 	})
 }
 
@@ -78,7 +81,8 @@ func TestProperty_RemoteTargetsShowSource(t *testing.T) {
 		var buf bytes.Buffer
 		width := len(targetName)
 
-		printTopLevelCommand(&buf, node, width)
+		// showAttribution = true for remote targets
+		printTopLevelCommand(&buf, node, width, true)
 		output := buf.String()
 
 		g.Expect(output).To(ContainSubstring(targetName),
@@ -124,7 +128,8 @@ func TestProperty_RenamedTargetsAnnotated(t *testing.T) {
 		var buf bytes.Buffer
 		width := len(targetName)
 
-		printTopLevelCommand(&buf, node, width)
+		// showAttribution = true for renamed remote targets
+		printTopLevelCommand(&buf, node, width, true)
 		output := buf.String()
 
 		g.Expect(output).To(ContainSubstring(targetName),
@@ -172,8 +177,9 @@ func TestProperty_NoSyncedTargetsUnchanged(t *testing.T) {
 			}
 		}
 
+		// showAttribution = false when all targets are local (backwards compat)
 		for _, node := range nodes {
-			printTopLevelCommand(&buf, node, width)
+			printTopLevelCommand(&buf, node, width, false)
 		}
 
 		output := buf.String()
@@ -182,8 +188,9 @@ func TestProperty_NoSyncedTargetsUnchanged(t *testing.T) {
 		// This maintains backwards compatibility
 		g.Expect(output).ToNot(ContainSubstring("(local)"),
 			"all-local listing should not show (local) annotation")
-		g.Expect(output).ToNot(ContainSubstring("("),
-			"all-local listing should not have any source annotations")
+		// Check that there's no source package path pattern in the output
+		g.Expect(output).ToNot(MatchRegexp(`\([a-z]+\.[a-z]+/`),
+			"all-local listing should not have source package paths")
 	})
 }
 
@@ -224,31 +231,23 @@ func TestProperty_MixedTargetsShowAttribution(t *testing.T) {
 		var buf bytes.Buffer
 		width := max(len(localName), len(remoteName))
 
-		printTopLevelCommand(&buf, localNode, width)
-		printTopLevelCommand(&buf, remoteNode, width)
+		// showAttribution = true when we have mixed local and remote targets
+		printTopLevelCommand(&buf, localNode, width, true)
+		printTopLevelCommand(&buf, remoteNode, width, true)
 
 		output := buf.String()
 
 		// When we have a mix, local targets should show (local)
-		lines := strings.Split(output, "\n")
-		localLine := ""
-		remoteLine := ""
+		// Check both targets are present with correct attribution
+		g.Expect(output).To(ContainSubstring(localName),
+			"output should contain local target name")
+		g.Expect(output).To(ContainSubstring(remoteName),
+			"output should contain remote target name")
 
-		for _, line := range lines {
-			if strings.Contains(line, localName) {
-				localLine = line
-			}
-			if strings.Contains(line, remoteName) {
-				remoteLine = line
-			}
-		}
-
-		g.Expect(localLine).ToNot(BeEmpty(), "should have local target line")
-		g.Expect(remoteLine).ToNot(BeEmpty(), "should have remote target line")
-
-		g.Expect(localLine).To(ContainSubstring("(local)"),
+		// The output should have both (local) and the source package
+		g.Expect(output).To(ContainSubstring("(local)"),
 			"local target should show (local) when mixed with remote")
-		g.Expect(remoteLine).To(ContainSubstring(sourcePkg),
+		g.Expect(output).To(ContainSubstring(sourcePkg),
 			"remote target should show source package")
 	})
 }

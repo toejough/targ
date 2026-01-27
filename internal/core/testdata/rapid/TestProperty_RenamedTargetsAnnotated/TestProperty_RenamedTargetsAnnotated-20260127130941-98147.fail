@@ -1,0 +1,38 @@
+# 2026/01/27 13:09:41.176222 [TestProperty_RenamedTargetsAnnotated] [rapid] draw targetName: "a"
+# 2026/01/27 13:09:41.176224 [TestProperty_RenamedTargetsAnnotated] [rapid] draw description: ""
+# 2026/01/27 13:09:41.176225 [TestProperty_RenamedTargetsAnnotated] [rapid] draw domain: "a.a"
+# 2026/01/27 13:09:41.176227 [TestProperty_RenamedTargetsAnnotated] [rapid] draw user: "a"
+# 2026/01/27 13:09:41.176227 [TestProperty_RenamedTargetsAnnotated] [rapid] draw repo: "a"
+# 2026/01/27 13:09:41.176233 [TestProperty_RenamedTargetsAnnotated] 
+# output should contain source package
+# Expected
+#     <string>:   a
+#     
+# to contain substring
+#     <string>: a.a/a/a
+# 
+v0.4.8#52288016696909617
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0

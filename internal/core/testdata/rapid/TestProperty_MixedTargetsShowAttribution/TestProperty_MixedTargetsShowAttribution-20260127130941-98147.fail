@@ -1,0 +1,40 @@
+# 2026/01/27 13:09:41.175240 [TestProperty_MixedTargetsShowAttribution] [rapid] draw localName: "a"
+# 2026/01/27 13:09:41.175247 [TestProperty_MixedTargetsShowAttribution] [rapid] draw remoteName: "a"
+# 2026/01/27 13:09:41.175250 [TestProperty_MixedTargetsShowAttribution] [rapid] draw domain: "a.a"
+# 2026/01/27 13:09:41.175252 [TestProperty_MixedTargetsShowAttribution] [rapid] draw user: "a"
+# 2026/01/27 13:09:41.175253 [TestProperty_MixedTargetsShowAttribution] [rapid] draw repo: "a"
+# 2026/01/27 13:09:41.175262 [TestProperty_MixedTargetsShowAttribution] 
+# local target should show (local) when mixed with remote
+# Expected
+#     <string>:   a-remote  remote target
+# to contain substring
+#     <string>: (local)
+# 
+v0.4.8#3471668020025209819
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
