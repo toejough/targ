@@ -72,7 +72,7 @@ func TestProperty_GetSourceReturnsSetValue(t *testing.T) {
 	})
 }
 
-func TestProperty_NameSetsOverriddenFlag(t *testing.T) {
+func TestProperty_NameBeforeRegistrationIsNotRenamed(t *testing.T) {
 	t.Parallel()
 
 	rapid.Check(t, func(t *rapid.T) {
@@ -81,12 +81,44 @@ func TestProperty_NameSetsOverriddenFlag(t *testing.T) {
 		// Generate random target name
 		name := rapid.String().Draw(t, "name")
 
-		// Create target and set name
+		// Create target without sourcePkg (simulating package author defining target)
 		target := Targ(func() {}).Name(name)
+
+		// Verify name is set
+		g.Expect(target.GetName()).To(Equal(name),
+			"Name() should set the target name")
+
+		// Verify nameOverridden flag is false (not registered yet)
+		g.Expect(target.IsRenamed()).To(BeFalse(),
+			"calling Name() before registration should not set IsRenamed() to true")
+	})
+}
+
+func TestProperty_NameAfterRegistrationIsRenamed(t *testing.T) {
+	t.Parallel()
+
+	rapid.Check(t, func(t *rapid.T) {
+		g := NewWithT(t)
+
+		// Generate random target name and package path
+		name := rapid.String().Draw(t, "name")
+		pkgPath := rapid.StringMatching(`[a-z]+\.[a-z]+/[a-z][a-z0-9-]*/[a-z][a-z0-9-]*`).
+			Draw(t, "pkgPath")
+
+		// Create target and set sourcePkg (simulating registered remote target)
+		target := Targ(func() {})
+		target.SetSourceForTest(pkgPath)
+
+		// Now call Name() (simulating consumer renaming)
+		target.Name(name)
+
+		// Verify name is set
+		g.Expect(target.GetName()).To(Equal(name),
+			"Name() should set the target name")
 
 		// Verify nameOverridden flag is set
 		g.Expect(target.IsRenamed()).To(BeTrue(),
-			"calling Name() should set IsRenamed() to true")
+			"calling Name() after registration should set IsRenamed() to true")
 	})
 }
 
