@@ -163,10 +163,10 @@ var (
 	errDeregisterAfterResolution = errors.New(
 		"targ: DeregisterFrom() must be called during init(), not after targ has started",
 	)
-	errEmptyPackagePath  = errors.New("package path cannot be empty")
-	mainModuleProvider   = getMainModule         //nolint:gochecknoglobals // Default to runtime detection, injected for testing
-	registry             []any                    //nolint:gochecknoglobals // Global registry is intentional for Register() API
-	registryResolved     bool                     //nolint:gochecknoglobals // Global flag to track resolution state
+	errEmptyPackagePath = errors.New("package path cannot be empty")
+	mainModuleProvider  = getMainModule //nolint:gochecknoglobals // Default to runtime detection, injected for testing
+	registry            []any           //nolint:gochecknoglobals // Global registry is intentional for Register() API
+	registryResolved    bool            //nolint:gochecknoglobals // Global flag to track resolution state
 )
 
 type osRunEnv struct{}

@@ -1987,7 +1987,14 @@ func printTopLevelCommand(w io.Writer, node *commandNode, width int, showAttribu
 
 	if node.Description != "" {
 		if sourceAttr != "" {
-			_, _ = fmt.Fprintf(w, "  %-*s  %s  %s\n", width, node.Name, node.Description, sourceAttr)
+			_, _ = fmt.Fprintf(
+				w,
+				"  %-*s  %s  %s\n",
+				width,
+				node.Name,
+				node.Description,
+				sourceAttr,
+			)
 		} else {
 			_, _ = fmt.Fprintf(w, "  %-*s  %s\n", width, node.Name, node.Description)
 		}

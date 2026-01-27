@@ -3,6 +3,7 @@ package core
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 
 	. "github.com/onsi/gomega"
@@ -893,5 +894,316 @@ func TestProperty_UnknownPackageErrors(t *testing.T) {
 		g.Expect(ok).To(BeTrue(), "error should be *DeregistrationError")
 		g.Expect(deregErr.PackagePath).To(Equal(unknownPkg),
 			"error should contain the unknown package path")
+	})
+}
+
+// TestProperty_ApplyDeregistrations_RemovesGroupsFromDeregisteredPackages verifies that
+// groups from deregistered packages are removed just like targets.
+func TestProperty_ApplyDeregistrations_RemovesGroupsFromDeregisteredPackages(t *testing.T) {
+	t.Parallel()
+
+	rapid.Check(t, func(t *rapid.T) {
+		g := NewWithT(t)
+
+		// Generate package path to deregister
+		deregPkg := rapid.StringMatching(`[a-z]+\.[a-z]+/[a-z][a-z0-9-]*/[a-z][a-z0-9-]*`).
+			Draw(t, "deregPkg")
+
+		// Generate groups from deregistered package
+		numGroups := rapid.IntRange(1, 10).Draw(t, "numGroups")
+
+		registry := make([]any, numGroups)
+		for i := range numGroups {
+			target := Targ(func() {})
+			group := Group("test-group", target)
+			group.SetSourceForTest(deregPkg)
+			registry[i] = group
+		}
+
+		// Apply deregistration
+		result, err := applyDeregistrations(registry, []string{deregPkg})
+
+		// Should succeed
+		g.Expect(err).ToNot(HaveOccurred(), "deregistering package with groups should succeed")
+
+		// Result should be empty - all groups removed
+		g.Expect(result).To(BeEmpty(),
+			"all groups from deregistered package should be removed")
+	})
+}
+
+// TestProperty_ApplyDeregistrations_PreservesGroupsFromOtherPackages verifies that
+// groups from non-deregistered packages are preserved.
+func TestProperty_ApplyDeregistrations_PreservesGroupsFromOtherPackages(t *testing.T) {
+	t.Parallel()
+
+	rapid.Check(t, func(t *rapid.T) {
+		g := NewWithT(t)
+
+		// Generate two different package paths
+		deregPkg := rapid.StringMatching(`[a-z]+\.[a-z]+/[a-z][a-z0-9-]*/[a-z][a-z0-9-]*`).
+			Draw(t, "deregPkg")
+		otherPkg := rapid.StringMatching(`[a-z]+\.[a-z]+/[a-z][a-z0-9-]*/[a-z][a-z0-9-]*`).
+			Filter(func(s string) bool { return s != deregPkg }).
+			Draw(t, "otherPkg")
+
+		// Generate groups from both packages
+		numDeregGroups := rapid.IntRange(1, 5).Draw(t, "numDeregGroups")
+		numOtherGroups := rapid.IntRange(1, 5).Draw(t, "numOtherGroups")
+
+		registry := make([]any, 0, numDeregGroups+numOtherGroups)
+		expectedOther := make([]*TargetGroup, 0, numOtherGroups)
+
+		// Add groups from deregistered package
+		for i := range numDeregGroups {
+			target := Targ(func() {})
+			group := Group(fmt.Sprintf("dereg-group-%d", i), target)
+			group.SetSourceForTest(deregPkg)
+			registry = append(registry, group)
+		}
+
+		// Add groups from other package
+		for i := range numOtherGroups {
+			target := Targ(func() {})
+			group := Group(fmt.Sprintf("other-group-%d", i), target)
+			group.SetSourceForTest(otherPkg)
+			registry = append(registry, group)
+			expectedOther = append(expectedOther, group)
+		}
+
+		// Apply deregistration
+		result, err := applyDeregistrations(registry, []string{deregPkg})
+
+		// Should succeed
+		g.Expect(err).ToNot(HaveOccurred(), "deregistering package should succeed")
+
+		// Result should contain only groups from other package
+		g.Expect(result).To(HaveLen(numOtherGroups),
+			"should preserve all groups from non-deregistered packages")
+
+		// Verify the exact groups are preserved
+		for i, item := range result {
+			group, ok := item.(*TargetGroup)
+			g.Expect(ok).To(BeTrue(), "result should contain TargetGroup pointers")
+			g.Expect(group).To(BeIdenticalTo(expectedOther[i]),
+				"should preserve exact group instances")
+			g.Expect(group.GetSource()).To(Equal(otherPkg),
+				"preserved groups should have correct source package")
+		}
+	})
+}
+
+// TestProperty_DetectConflicts_CatchesGroupNameConflicts verifies that groups
+// with the same name from different packages are detected as conflicts.
+func TestProperty_DetectConflicts_CatchesGroupNameConflicts(t *testing.T) {
+	t.Parallel()
+
+	rapid.Check(t, func(t *rapid.T) {
+		g := NewWithT(t)
+
+		// Generate group name
+		name := rapid.StringMatching(`[a-z][a-z0-9-]*`).Draw(t, "name")
+
+		// Generate two different package paths
+		pkgGen := rapid.StringMatching(`[a-z]+\.[a-z]+/[a-z][a-z0-9-]*/[a-z][a-z0-9-]*`)
+		pkg1 := pkgGen.Draw(t, "pkg1")
+		pkg2 := pkgGen.Filter(func(s string) bool { return s != pkg1 }).
+			Draw(t, "pkg2")
+
+		// Create registry with same group name from different packages
+		target := Targ(func() {})
+		group1 := Group(name, target)
+		group1.SetSourceForTest(pkg1)
+
+		group2 := Group(name, target)
+		group2.SetSourceForTest(pkg2)
+
+		registry := []any{group1, group2}
+
+		// Detect conflicts
+		err := detectConflicts(registry)
+
+		// Should return ConflictError
+		g.Expect(err).To(HaveOccurred(),
+			"same group name from different packages should conflict")
+
+		var conflictErr *ConflictError
+		ok := errors.As(err, &conflictErr)
+		g.Expect(ok).To(BeTrue(), "error should be *ConflictError")
+		g.Expect(conflictErr.Conflicts).To(HaveLen(1),
+			"should report exactly one conflict")
+		g.Expect(conflictErr.Conflicts[0].Name).To(Equal(name),
+			"conflict should contain the group name")
+		g.Expect(conflictErr.Conflicts[0].Sources).To(ConsistOf(pkg1, pkg2),
+			"conflict should contain both package paths")
+	})
+}
+
+// TestProperty_DetectConflicts_AllowsSameGroupFromSamePackage verifies that
+// groups with the same name from the same package are not considered conflicts.
+func TestProperty_DetectConflicts_AllowsSameGroupFromSamePackage(t *testing.T) {
+	t.Parallel()
+
+	rapid.Check(t, func(t *rapid.T) {
+		g := NewWithT(t)
+
+		// Generate group name and package
+		name := rapid.StringMatching(`[a-z][a-z0-9-]*`).Draw(t, "name")
+		pkg := rapid.StringMatching(`[a-z]+\.[a-z]+/[a-z][a-z0-9-]*/[a-z][a-z0-9-]*`).
+			Draw(t, "pkg")
+
+		// Generate multiple groups with same name from same package
+		numGroups := rapid.IntRange(2, 5).Draw(t, "numGroups")
+		registry := make([]any, numGroups)
+
+		for i := range numGroups {
+			target := Targ(func() {})
+			group := Group(name, target)
+			group.SetSourceForTest(pkg)
+			registry[i] = group
+		}
+
+		// Detect conflicts
+		err := detectConflicts(registry)
+
+		// Should not error - same source is idempotent
+		g.Expect(err).ToNot(HaveOccurred(),
+			"same group name from same package should not conflict (idempotent)")
+	})
+}
+
+// TestProperty_ClearLocalTargetSources_ClearsGroupsFromMainModule verifies that
+// groups from the main module have their sourcePkg cleared.
+//
+//nolint:paralleltest // Cannot run in parallel - modifies global state via mainModuleProvider
+func TestProperty_ClearLocalTargetSources_ClearsGroupsFromMainModule(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		g := NewWithT(t)
+
+		// Generate main module path
+		mainModule := rapid.StringMatching(`github\.com/[a-z][a-z0-9-]*/[a-z][a-z0-9-]*`).
+			Draw(t, "mainModule")
+
+		// Create a local group (from main module)
+		target := Targ(func() {})
+		localGroup := Group("local-group", target)
+		localGroup.SetSourceForTest(mainModule)
+
+		// Set up registry with one local group
+		registry := []any{localGroup}
+
+		// Inject main module provider
+		SetMainModuleForTest(func() (string, bool) {
+			return mainModule, true
+		})
+		t.Cleanup(func() { SetMainModuleForTest(nil) })
+
+		// Verify sourcePkg BEFORE clearing
+		g.Expect(localGroup.GetSource()).To(Equal(mainModule),
+			"local group should have mainModule as sourcePkg before clearing")
+
+		// Call clearLocalTargetSources
+		clearLocalTargetSources(registry)
+
+		// Verify the group's sourcePkg was cleared
+		g.Expect(localGroup.GetSource()).To(BeEmpty(),
+			"local group should have empty sourcePkg after clearing")
+	})
+}
+
+// TestProperty_ClearLocalTargetSources_PreservesRemoteGroups verifies that
+// groups from external modules retain their sourcePkg.
+//
+//nolint:paralleltest // Cannot run in parallel - modifies global state via mainModuleProvider
+func TestProperty_ClearLocalTargetSources_PreservesRemoteGroups(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		g := NewWithT(t)
+
+		// Generate main module and external module paths (must be different)
+		mainModule := rapid.StringMatching(`github\.com/[a-z][a-z0-9-]*/[a-z][a-z0-9-]*`).
+			Draw(t, "mainModule")
+		externalModule := rapid.StringMatching(`github\.com/[a-z][a-z0-9-]*/[a-z][a-z0-9-]*`).
+			Filter(func(s string) bool { return s != mainModule }).
+			Draw(t, "externalModule")
+
+		// Create a remote group (from external module)
+		target := Targ(func() {})
+		remoteGroup := Group("remote-group", target)
+		remoteGroup.SetSourceForTest(externalModule)
+
+		// Set up registry with one remote group
+		registry := []any{remoteGroup}
+
+		// Inject main module provider
+		SetMainModuleForTest(func() (string, bool) {
+			return mainModule, true
+		})
+		t.Cleanup(func() { SetMainModuleForTest(nil) })
+
+		// Verify sourcePkg BEFORE clearing
+		g.Expect(remoteGroup.GetSource()).To(Equal(externalModule),
+			"remote group should have externalModule as sourcePkg before clearing")
+
+		// Call clearLocalTargetSources
+		clearLocalTargetSources(registry)
+
+		// Verify the group's sourcePkg was PRESERVED
+		g.Expect(remoteGroup.GetSource()).To(Equal(externalModule),
+			"remote group should retain sourcePkg after clearing")
+	})
+}
+
+// TestProperty_ClearLocalTargetSources_MixedTargetsAndGroups verifies that
+// both targets and groups from the main module are cleared.
+//
+//nolint:paralleltest // Cannot run in parallel - modifies global state via mainModuleProvider
+func TestProperty_ClearLocalTargetSources_MixedTargetsAndGroups(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		g := NewWithT(t)
+
+		// Generate main module and external module paths (must be different)
+		mainModule := rapid.StringMatching(`github\.com/[a-z][a-z0-9-]*/[a-z][a-z0-9-]*`).
+			Draw(t, "mainModule")
+		externalModule := rapid.StringMatching(`github\.com/[a-z][a-z0-9-]*/[a-z][a-z0-9-]*`).
+			Filter(func(s string) bool { return s != mainModule }).
+			Draw(t, "externalModule")
+
+		// Create mixed local and remote items
+		localTarget := Targ(func() {}).Name("local-target")
+		localTarget.SetSourceForTest(mainModule)
+
+		remoteTarget := Targ(func() {}).Name("remote-target")
+		remoteTarget.SetSourceForTest(externalModule)
+
+		target := Targ(func() {})
+		localGroup := Group("local-group", target)
+		localGroup.SetSourceForTest(mainModule)
+
+		remoteGroup := Group("remote-group", target)
+		remoteGroup.SetSourceForTest(externalModule)
+
+		// Set up registry with all items
+		registry := []any{localTarget, remoteTarget, localGroup, remoteGroup}
+
+		// Inject main module provider
+		SetMainModuleForTest(func() (string, bool) {
+			return mainModule, true
+		})
+		t.Cleanup(func() { SetMainModuleForTest(nil) })
+
+		// Call clearLocalTargetSources
+		clearLocalTargetSources(registry)
+
+		// Verify local items have empty sourcePkg
+		g.Expect(localTarget.GetSource()).To(BeEmpty(),
+			"local target should have empty sourcePkg")
+		g.Expect(localGroup.GetSource()).To(BeEmpty(),
+			"local group should have empty sourcePkg")
+
+		// Verify remote items kept their sourcePkg
+		g.Expect(remoteTarget.GetSource()).To(Equal(externalModule),
+			"remote target should retain sourcePkg")
+		g.Expect(remoteGroup.GetSource()).To(Equal(externalModule),
+			"remote group should retain sourcePkg")
 	})
 }

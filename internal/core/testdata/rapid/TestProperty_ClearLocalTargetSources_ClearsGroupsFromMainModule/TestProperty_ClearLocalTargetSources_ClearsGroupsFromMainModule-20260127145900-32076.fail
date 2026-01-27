@@ -1,0 +1,18 @@
+# 2026/01/27 14:59:00.377039 [TestProperty_ClearLocalTargetSources_ClearsGroupsFromMainModule] [rapid] draw mainModule: "github.com/a/a"
+# 2026/01/27 14:59:00.377057 [TestProperty_ClearLocalTargetSources_ClearsGroupsFromMainModule] 
+# local group should have empty sourcePkg after clearing
+# Expected
+#     <string>: github.com/a/a
+# to be empty
+# 
+v0.4.8#8976700658704240848
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0

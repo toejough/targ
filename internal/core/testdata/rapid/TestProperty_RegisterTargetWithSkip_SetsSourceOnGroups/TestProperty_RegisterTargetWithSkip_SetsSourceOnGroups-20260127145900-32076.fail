@@ -1,0 +1,7 @@
+# 2026/01/27 14:59:00.378789 [TestProperty_RegisterTargetWithSkip_SetsSourceOnGroups] 
+# group sourcePkg should be set by RegisterTarget
+# Expected
+#     <string>: 
+# not to be empty
+# 
+v0.4.8#16421923115342852870

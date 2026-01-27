@@ -27,6 +27,11 @@ func (g *TargetGroup) GetSource() string {
 	return g.sourcePkg
 }
 
+// SetSourceForTest sets the source package path (for testing only).
+func (g *TargetGroup) SetSourceForTest(pkg string) {
+	g.sourcePkg = pkg
+}
+
 // Group creates a named group containing the given members.
 // Members can be *Target or *TargetGroup (for nested hierarchies).
 //

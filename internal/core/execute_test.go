@@ -784,3 +784,81 @@ func TestProperty_MixedLocalAndRemoteTargetsHandled(t *testing.T) {
 			"remote target should retain sourcePkg")
 	})
 }
+
+// TestProperty_RegisterTargetWithSkip_SetsSourceOnGroups verifies that
+// RegisterTargetWithSkip sets sourcePkg on *TargetGroup items.
+//
+//nolint:paralleltest // Cannot run in parallel - modifies global registry state
+func TestProperty_RegisterTargetWithSkip_SetsSourceOnGroups(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		g := NewWithT(t)
+
+		// Reset registry before test
+		core.SetRegistry(nil)
+		t.Cleanup(func() { core.SetRegistry(nil) })
+
+		// Create a group with a target
+		target := core.Targ(func() {}).Name("test-target")
+		group := core.Group("test-group", target)
+
+		// Verify group has no source before registration
+		g.Expect(group.GetSource()).To(BeEmpty(),
+			"group should have empty source before registration")
+
+		// Register the group (calls RegisterTargetWithSkip with skip=2)
+		core.RegisterTarget(group)
+
+		// Verify group has source set after registration
+		registry := core.GetRegistry()
+		g.Expect(registry).To(HaveLen(1),
+			"registry should contain one item")
+
+		registeredGroup, ok := registry[0].(*core.TargetGroup)
+		g.Expect(ok).To(BeTrue(),
+			"registry item should be a *TargetGroup")
+
+		g.Expect(registeredGroup.GetSource()).ToNot(BeEmpty(),
+			"group sourcePkg should be set by RegisterTarget")
+
+		g.Expect(registeredGroup.GetSource()).To(Equal("github.com/toejough/targ/internal/core_test"),
+			"group sourcePkg should be set to calling package")
+	})
+}
+
+// TestProperty_RegisterTargetWithSkip_PreservesExplicitGroupSource verifies that
+// RegisterTargetWithSkip does not overwrite explicitly set group sourcePkg.
+//
+//nolint:paralleltest // Cannot run in parallel - modifies global registry state
+func TestProperty_RegisterTargetWithSkip_PreservesExplicitGroupSource(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		g := NewWithT(t)
+
+		// Reset registry before test
+		core.SetRegistry(nil)
+		t.Cleanup(func() { core.SetRegistry(nil) })
+
+		// Generate explicit source package path
+		explicitSource := rapid.StringMatching(`[a-z]+\.[a-z]+/[a-z][a-z0-9-]*/[a-z][a-z0-9-]*`).
+			Draw(t, "explicitSource")
+
+		// Create a group and set explicit source
+		target := core.Targ(func() {}).Name("test-target")
+		group := core.Group("test-group", target)
+		group.SetSourceForTest(explicitSource)
+
+		// Register the group
+		core.RegisterTarget(group)
+
+		// Verify explicit source was preserved
+		registry := core.GetRegistry()
+		g.Expect(registry).To(HaveLen(1),
+			"registry should contain one item")
+
+		registeredGroup, ok := registry[0].(*core.TargetGroup)
+		g.Expect(ok).To(BeTrue(),
+			"registry item should be a *TargetGroup")
+
+		g.Expect(registeredGroup.GetSource()).To(Equal(explicitSource),
+			"explicit group sourcePkg should not be overwritten")
+	})
+}
