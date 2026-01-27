@@ -1,0 +1,31 @@
+# 2026/01/27 14:20:54.400865 [TestProperty_RemoteTargetsKeepSource] [rapid] draw mainModule: "github.com/a/a"
+# 2026/01/27 14:20:54.400871 [TestProperty_RemoteTargetsKeepSource] [rapid] draw externalModule: "github.com/a/b"
+# 2026/01/27 14:20:54.400905 [TestProperty_RemoteTargetsKeepSource] 
+# execution should succeed
+# Unexpected error:
+#     <core.ExitError>: 
+#     exit code 1
+#     {Code: 1}
+# occurred
+# 
+v0.4.8#7526841459703477555
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x1
+0x0

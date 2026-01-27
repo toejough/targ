@@ -1,0 +1,20 @@
+# 2026/01/27 14:20:54.396166 [TestProperty_LocalTargetsShowAsLocal] [rapid] draw mainModule: "github.com/a/a"
+# 2026/01/27 14:20:54.396196 [TestProperty_LocalTargetsShowAsLocal] 
+# execution should succeed
+# Unexpected error:
+#     <core.ExitError>: 
+#     exit code 1
+#     {Code: 1}
+# occurred
+# 
+v0.4.8#9490313520444932717
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
