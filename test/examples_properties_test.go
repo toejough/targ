@@ -75,3 +75,15 @@ func TestProperty_ExampleHelpers(t *testing.T) {
 		})
 	})
 }
+
+func TestProperty_PortableExamplesCompile(t *testing.T) {
+	t.Parallel()
+
+	rapid.Check(t, func(t *rapid.T) {
+		g := NewWithT(t)
+
+		// Verify portable examples compile with targ build tag
+		err := targ.Run("go", "build", "-tags", "targ", "./examples/portable/...")
+		g.Expect(err).ToNot(HaveOccurred(), "portable examples should compile with targ build tag")
+	})
+}
