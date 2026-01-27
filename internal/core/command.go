@@ -1380,6 +1380,17 @@ func parseGroupLike(group GroupLike) (*commandNode, error) {
 		Subcommands: make(map[string]*commandNode),
 	}
 
+	// Preserve source attribution if this group has GetSource method
+	if sourceAware, ok := group.(interface{ GetSource() string }); ok {
+		// Create a lightweight wrapper to hold source info
+		// This allows groups to participate in source attribution display
+		groupTarget := &Target{
+			name:      group.GetName(),
+			sourcePkg: sourceAware.GetSource(),
+		}
+		node.Target = groupTarget
+	}
+
 	members := group.GetMembers()
 
 	for idx, member := range members {

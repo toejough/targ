@@ -7,8 +7,9 @@ import (
 
 // TargetGroup represents a named collection of targets that can be run together.
 type TargetGroup struct {
-	name    string
-	members []any // *Target or *TargetGroup
+	name      string
+	members   []any // *Target or *TargetGroup
+	sourcePkg string
 }
 
 // GetMembers returns the group's members.
@@ -19,6 +20,11 @@ func (g *TargetGroup) GetMembers() []any {
 // GetName returns the group's CLI name.
 func (g *TargetGroup) GetName() string {
 	return g.name
+}
+
+// GetSource returns the group's source package path.
+func (g *TargetGroup) GetSource() string {
+	return g.sourcePkg
 }
 
 // Group creates a named group containing the given members.
