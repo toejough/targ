@@ -658,6 +658,10 @@ func deadcode(ctx context.Context) error {
 				strings.HasPrefix(filePath, "internal/parse/") {
 				continue
 			}
+			// Skip example files (standalone demos, not part of the binary)
+			if strings.HasPrefix(filePath, "examples/") {
+				continue
+			}
 		}
 
 		filteredLines = append(filteredLines, line)
@@ -811,6 +815,11 @@ func deleteDeadcode(ctx context.Context) error {
 			strings.HasPrefix(file, "internal/file/") ||
 			strings.HasPrefix(file, "internal/discover/") ||
 			strings.HasPrefix(file, "internal/parse/") {
+			continue
+		}
+
+		// Skip example files (standalone demos, not part of the binary)
+		if strings.HasPrefix(file, "examples/") {
 			continue
 		}
 
