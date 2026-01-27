@@ -646,3 +646,215 @@ func TestProperty_MultipleConflictsAllReported(t *testing.T) {
 			"should report conflicts for both names")
 	})
 }
+
+// TestProperty_DeregistrationBeforeConflictCheck verifies that deregistering one side
+// of a conflict resolves it, confirming deregistration happens before conflict detection.
+func TestProperty_DeregistrationBeforeConflictCheck(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		g := NewWithT(t)
+
+		// Generate target name
+		name := rapid.StringMatching(`[a-z][a-z0-9-]*`).Draw(t, "name")
+
+		// Generate two different package paths
+		pkgGen := rapid.StringMatching(`[a-z]+\.[a-z]+/[a-z][a-z0-9-]*/[a-z][a-z0-9-]*`)
+		pkg1 := pkgGen.Draw(t, "pkg1")
+		pkg2 := pkgGen.Filter(func(s string) bool { return s != pkg1 }).
+			Draw(t, "pkg2")
+
+		// Create registry with conflict: same name from two packages
+		reg := []any{
+			func() *Target {
+				tgt := Targ(func() {}).Name(name)
+				tgt.sourcePkg = pkg1
+				return tgt
+			}(),
+			func() *Target {
+				tgt := Targ(func() {}).Name(name)
+				tgt.sourcePkg = pkg2
+				return tgt
+			}(),
+		}
+
+		// Set up globals - deregister pkg1 to resolve conflict
+		SetRegistry(reg)
+		ResetDeregistrations()
+		err := DeregisterFrom(pkg1)
+		g.Expect(err).ToNot(HaveOccurred(), "queueing deregistration should succeed")
+
+		// Resolve registry
+		result, err := resolveRegistry()
+
+		// Should succeed - conflict was resolved by deregistration
+		g.Expect(err).ToNot(HaveOccurred(),
+			"resolving registry should succeed after deregistering one side of conflict")
+
+		// Should contain only pkg2's target
+		g.Expect(result).To(HaveLen(1), "should have one target remaining")
+		target, ok := result[0].(*Target)
+		g.Expect(ok).To(BeTrue(), "result should contain Target pointer")
+		g.Expect(target.sourcePkg).To(Equal(pkg2),
+			"remaining target should be from non-deregistered package")
+
+		// Deregistration queue should be cleared
+		g.Expect(GetDeregistrations()).To(BeEmpty(),
+			"deregistration queue should be cleared after resolution")
+
+		// Cleanup
+		SetRegistry(nil)
+		ResetDeregistrations()
+	})
+}
+
+// TestProperty_DeregistrationErrorStopsResolution verifies that a bad deregistration
+// (package not found) returns error and prevents conflict check from running.
+func TestProperty_DeregistrationErrorStopsResolution(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		g := NewWithT(t)
+
+		// Generate two different package paths
+		pkgGen := rapid.StringMatching(`[a-z]+\.[a-z]+/[a-z][a-z0-9-]*/[a-z][a-z0-9-]*`)
+		existingPkg := pkgGen.Draw(t, "existingPkg")
+		unknownPkg := pkgGen.Filter(func(s string) bool { return s != existingPkg }).
+			Draw(t, "unknownPkg")
+
+		// Create registry with one target
+		reg := []any{
+			func() *Target {
+				tgt := Targ(func() {})
+				tgt.sourcePkg = existingPkg
+				return tgt
+			}(),
+		}
+
+		// Set up globals - try to deregister unknown package
+		SetRegistry(reg)
+		ResetDeregistrations()
+		err := DeregisterFrom(unknownPkg)
+		g.Expect(err).ToNot(HaveOccurred(), "queueing deregistration should succeed")
+
+		// Resolve registry
+		_, err = resolveRegistry()
+
+		// Should return DeregistrationError
+		g.Expect(err).To(HaveOccurred(),
+			"resolving registry should fail for unknown package deregistration")
+
+		var deregErr *DeregistrationError
+		g.Expect(err).To(BeAssignableToTypeOf(deregErr),
+			"error should be *DeregistrationError")
+
+		deregErr = &DeregistrationError{}
+		ok := errors.As(err, &deregErr)
+		g.Expect(ok).To(BeTrue(), "error should be *DeregistrationError")
+		g.Expect(deregErr.PackagePath).To(Equal(unknownPkg),
+			"error should contain the unknown package path")
+
+		// Deregistration queue should still be cleared even on error
+		g.Expect(GetDeregistrations()).To(BeEmpty(),
+			"deregistration queue should be cleared even after error")
+
+		// Cleanup
+		SetRegistry(nil)
+		ResetDeregistrations()
+	})
+}
+
+// TestProperty_CleanRegistryPassesResolution verifies that a registry with no
+// deregistrations and no conflicts resolves successfully.
+func TestProperty_CleanRegistryPassesResolution(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		g := NewWithT(t)
+
+		// Generate unique target names
+		numTargets := rapid.IntRange(1, 10).Draw(t, "numTargets")
+		names := make(map[string]bool)
+		reg := make([]any, 0, numTargets)
+
+		pkgGen := rapid.StringMatching(`[a-z]+\.[a-z]+/[a-z][a-z0-9-]*/[a-z][a-z0-9-]*`)
+
+		for range numTargets {
+			// Generate unique name
+			name := rapid.StringMatching(`[a-z][a-z0-9-]*`).
+				Filter(func(s string) bool { return !names[s] }).
+				Draw(t, "name")
+			names[name] = true
+
+			// Generate random package
+			pkg := pkgGen.Draw(t, "pkg")
+
+			// Create target
+			target := Targ(func() {}).Name(name)
+			target.sourcePkg = pkg
+			reg = append(reg, target)
+		}
+
+		// Set up globals - no deregistrations
+		SetRegistry(reg)
+		ResetDeregistrations()
+
+		// Resolve registry
+		result, err := resolveRegistry()
+
+		// Should succeed
+		g.Expect(err).ToNot(HaveOccurred(),
+			"resolving clean registry should succeed")
+
+		// Should return all targets unchanged
+		g.Expect(result).To(HaveLen(numTargets),
+			"should preserve all targets when no deregistrations/conflicts")
+
+		// Verify targets are unchanged
+		for i, item := range result {
+			g.Expect(item).To(BeIdenticalTo(reg[i]),
+				"clean registry should preserve exact target instances")
+		}
+
+		// Cleanup
+		SetRegistry(nil)
+		ResetDeregistrations()
+	})
+}
+
+// TestProperty_QueueClearedAfterResolution verifies that the deregistration queue
+// is cleared after resolveRegistry completes, whether it succeeds or fails.
+func TestProperty_QueueClearedAfterResolution(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		g := NewWithT(t)
+
+		// Generate package path
+		pkg := rapid.StringMatching(`[a-z]+\.[a-z]+/[a-z][a-z0-9-]*/[a-z][a-z0-9-]*`).
+			Draw(t, "pkg")
+
+		// Create registry with one target
+		reg := []any{
+			func() *Target {
+				tgt := Targ(func() {})
+				tgt.sourcePkg = pkg
+				return tgt
+			}(),
+		}
+
+		// Set up globals - deregister the package
+		SetRegistry(reg)
+		ResetDeregistrations()
+		err := DeregisterFrom(pkg)
+		g.Expect(err).ToNot(HaveOccurred(), "queueing deregistration should succeed")
+
+		// Verify queue has entry before resolution
+		g.Expect(GetDeregistrations()).To(HaveLen(1),
+			"deregistration queue should have entry before resolution")
+
+		// Resolve registry
+		_, err = resolveRegistry()
+		g.Expect(err).ToNot(HaveOccurred(), "resolution should succeed")
+
+		// Queue should be cleared
+		g.Expect(GetDeregistrations()).To(BeEmpty(),
+			"deregistration queue should be cleared after successful resolution")
+
+		// Cleanup
+		SetRegistry(nil)
+		ResetDeregistrations()
+	})
+}
