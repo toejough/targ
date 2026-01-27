@@ -201,7 +201,11 @@ func (t *Target) IsRenamed() bool {
 // By default, the function name is used (converted to kebab-case).
 func (t *Target) Name(s string) *Target {
 	t.name = s
-	t.nameOverridden = true
+	// Only mark as overridden if target has been registered (sourcePkg is set)
+	// This distinguishes between package author setting name vs consumer renaming
+	if t.sourcePkg != "" {
+		t.nameOverridden = true
+	}
 
 	return t
 }

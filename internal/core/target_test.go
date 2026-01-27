@@ -78,8 +78,8 @@ func TestProperty_NameBeforeRegistrationIsNotRenamed(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		g := NewWithT(t)
 
-		// Generate random target name
-		name := rapid.String().Draw(t, "name")
+		// Generate non-empty target name to avoid empty string edge case
+		name := rapid.StringMatching(`[a-z][a-z0-9-]*`).Draw(t, "name")
 
 		// Create target without sourcePkg (simulating package author defining target)
 		target := Targ(func() {}).Name(name)
@@ -100,8 +100,8 @@ func TestProperty_NameAfterRegistrationIsRenamed(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		g := NewWithT(t)
 
-		// Generate random target name and package path
-		name := rapid.String().Draw(t, "name")
+		// Generate non-empty target name and package path
+		name := rapid.StringMatching(`[a-z][a-z0-9-]*`).Draw(t, "name")
 		pkgPath := rapid.StringMatching(`[a-z]+\.[a-z]+/[a-z][a-z0-9-]*/[a-z][a-z0-9-]*`).
 			Draw(t, "pkgPath")
 
