@@ -63,32 +63,51 @@ func applyDeregistrations(items []any, packagePaths []string) ([]any, error) {
 		matchCounts[pkg] = 0
 	}
 
-	// Filter out targets from deregistered packages
+	// Filter out targets and groups from deregistered packages
 	result := make([]any, 0, len(items))
 	for _, item := range items {
+		shouldRemove := false
+
 		// Check if item is a Target
-		target, ok := item.(*Target)
-		if !ok {
-			// Non-Target items pass through
-			result = append(result, item)
+		target, isTarget := item.(*Target)
+		if isTarget {
+			for _, pkg := range packagePaths {
+				if target.sourcePkg == pkg {
+					shouldRemove = true
+					matchCounts[pkg]++
+
+					break
+				}
+			}
+
+			if !shouldRemove {
+				result = append(result, item)
+			}
+
 			continue
 		}
 
-		// Check if target's package is in deregistration list
-		shouldRemove := false
+		// Check if item is a TargetGroup
+		group, isGroup := item.(*TargetGroup)
+		if isGroup {
+			for _, pkg := range packagePaths {
+				if group.sourcePkg == pkg {
+					shouldRemove = true
+					matchCounts[pkg]++
 
-		for _, pkg := range packagePaths {
-			if target.sourcePkg == pkg {
-				shouldRemove = true
-				matchCounts[pkg]++
-
-				break
+					break
+				}
 			}
+
+			if !shouldRemove {
+				result = append(result, item)
+			}
+
+			continue
 		}
 
-		if !shouldRemove {
-			result = append(result, item)
-		}
+		// Non-Target, non-TargetGroup items pass through
+		result = append(result, item)
 	}
 
 	// Check for packages with no matches
@@ -108,14 +127,20 @@ func detectConflicts(items []any) error {
 	nameSources := make(map[string]map[string]bool)
 
 	for _, item := range items {
-		// Only check Target items
-		target, ok := item.(*Target)
-		if !ok {
+		var name, source string
+
+		// Check Target items
+		if target, ok := item.(*Target); ok {
+			name = target.GetName()
+			source = target.sourcePkg
+		} else if group, ok := item.(*TargetGroup); ok {
+			// Check TargetGroup items
+			name = group.GetName()
+			source = group.sourcePkg
+		} else {
+			// Skip non-Target, non-TargetGroup items
 			continue
 		}
-
-		name := target.GetName()
-		source := target.sourcePkg
 
 		// Initialize map if needed
 		if nameSources[name] == nil {
@@ -202,16 +227,20 @@ func clearLocalTargetSources(items []any) {
 		return
 	}
 
-	// Clear sourcePkg for any target from main module
+	// Clear sourcePkg for any target or group from main module
 	for _, item := range items {
-		target, ok := item.(*Target)
-		if !ok {
-			continue
+		if target, ok := item.(*Target); ok {
+			// Check if target's sourcePkg starts with main module
+			if strings.HasPrefix(target.sourcePkg, mainModule) {
+				target.sourcePkg = ""
+			}
 		}
 
-		// Check if target's sourcePkg starts with main module
-		if strings.HasPrefix(target.sourcePkg, mainModule) {
-			target.sourcePkg = ""
+		if group, ok := item.(*TargetGroup); ok {
+			// Check if group's sourcePkg starts with main module
+			if strings.HasPrefix(group.sourcePkg, mainModule) {
+				group.sourcePkg = ""
+			}
 		}
 	}
 }

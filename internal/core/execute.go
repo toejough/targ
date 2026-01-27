@@ -105,12 +105,19 @@ func RegisterTargetWithSkip(skip int, targets ...any) {
 	// Detect calling package once for all targets
 	sourcePkg, _ := callerPackagePath(skip)
 
-	// Set source on each Target before appending to registry
+	// Set source on each Target or TargetGroup before appending to registry
 	for _, item := range targets {
 		if target, ok := item.(*Target); ok {
 			// Only set if not already set (preserve explicit source)
 			if target.sourcePkg == "" && sourcePkg != "" {
 				target.sourcePkg = sourcePkg
+			}
+		}
+
+		if group, ok := item.(*TargetGroup); ok {
+			// Only set if not already set (preserve explicit source)
+			if group.sourcePkg == "" && sourcePkg != "" {
+				group.sourcePkg = sourcePkg
 			}
 		}
 	}
