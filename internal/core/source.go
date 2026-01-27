@@ -7,6 +7,7 @@ import (
 	"strings"
 )
 
+// unexported variables.
 var (
 	errCallerFailed = errors.New("runtime.Caller failed")
 	errFuncForPCNil = errors.New("runtime.FuncForPC returned nil")

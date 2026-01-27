@@ -1,0 +1,7 @@
+# 2026/01/27 12:42:36.409257 [TestRegisterTarget_LocalTargetsGetLocalSource] 
+# sourcePkg should be set by RegisterTarget
+# Expected
+#     <string>: 
+# not to be empty
+# 
+v0.4.8#8735437250038004478

@@ -55,8 +55,8 @@ type Target struct {
 	cacheDisabled bool
 
 	// Source attribution
-	sourcePkg       string // package that registered this target
-	nameOverridden  bool   // true if Name() was called
+	sourcePkg      string // package that registered this target
+	nameOverridden bool   // true if Name() was called
 }
 
 // Backoff sets exponential backoff delay after failures.
@@ -182,6 +182,11 @@ func (t *Target) GetSource() string {
 	return t.sourcePkg
 }
 
+// SetSourceForTest sets the source package path (for testing only).
+func (t *Target) SetSourceForTest(pkg string) {
+	t.sourcePkg = pkg
+}
+
 // GetTimeout returns the target's timeout duration.
 func (t *Target) GetTimeout() time.Duration {
 	return t.timeout
@@ -202,6 +207,7 @@ func (t *Target) IsRenamed() bool {
 func (t *Target) Name(s string) *Target {
 	t.name = s
 	t.nameOverridden = true
+
 	return t
 }
 
