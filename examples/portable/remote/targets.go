@@ -1,5 +1,3 @@
-//go:build targ
-
 // Package remote demonstrates portable target package authoring.
 // This package exports targets that can be imported and registered by other projects.
 package remote

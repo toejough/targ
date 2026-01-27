@@ -1,5 +1,3 @@
-//go:build targ
-
 // Package local demonstrates consuming portable target packages.
 // Shows three tiers: blank import, selective registration, and conflict resolution.
 package local
