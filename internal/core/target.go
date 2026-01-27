@@ -53,6 +53,10 @@ type Target struct {
 	// Disabled flags - when true, CLI flags control the setting
 	watchDisabled bool
 	cacheDisabled bool
+
+	// Source attribution
+	sourcePkg       string // package that registered this target
+	nameOverridden  bool   // true if Name() was called
 }
 
 // Backoff sets exponential backoff delay after failures.
@@ -173,6 +177,11 @@ func (t *Target) GetRetry() bool {
 	return t.retry
 }
 
+// GetSource returns the package path that registered this target.
+func (t *Target) GetSource() string {
+	return t.sourcePkg
+}
+
 // GetTimeout returns the target's timeout duration.
 func (t *Target) GetTimeout() time.Duration {
 	return t.timeout
@@ -183,10 +192,16 @@ func (t *Target) GetTimes() int {
 	return t.times
 }
 
+// IsRenamed returns true if Name() was called to override the default name.
+func (t *Target) IsRenamed() bool {
+	return t.nameOverridden
+}
+
 // Name sets the CLI name for this target.
 // By default, the function name is used (converted to kebab-case).
 func (t *Target) Name(s string) *Target {
 	t.name = s
+	t.nameOverridden = true
 	return t
 }
 
