@@ -967,6 +967,11 @@ func globs(dir string, ext []string) ([]string, error) {
 
 	err := filepath.Walk(dir, func(path string, _ os.FileInfo, err error) error {
 		if err != nil {
+			// Skip files that vanish mid-walk (e.g. coverage.out deleted by parallel task)
+			if os.IsNotExist(err) {
+				return nil
+			}
+
 			return fmt.Errorf("unable to find all glob matches: %w", err)
 		}
 
