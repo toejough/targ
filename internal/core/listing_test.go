@@ -262,3 +262,66 @@ func TestProperty_MixedTargetsShowAttribution(t *testing.T) {
 			"remote target should show source package")
 	})
 }
+
+func TestProperty_GroupsShowSourceAttribution(t *testing.T) {
+	t.Parallel()
+
+	rapid.Check(t, func(t *rapid.T) {
+		g := NewWithT(t)
+
+		// Create a mix with groups: local group, remote target
+		localGroupName := rapid.StringMatching(`[a-z][a-z0-9-]*`).Draw(t, "localGroupName")
+		remoteTargetName := rapid.StringMatching(`[a-z][a-z0-9-]*`).Draw(t, "remoteTargetName")
+
+		// Ensure names are different
+		if localGroupName == remoteTargetName {
+			remoteTargetName = remoteTargetName + "-target"
+		}
+
+		domain := rapid.StringMatching(`[a-z]+\.[a-z]+`).Draw(t, "domain")
+		user := rapid.StringMatching(`[a-z][a-z0-9-]*`).Draw(t, "user")
+		repo := rapid.StringMatching(`[a-z][a-z0-9-]*`).Draw(t, "repo")
+		sourcePkg := domain + "/" + user + "/" + repo
+
+		// Create a local group (no source)
+		localGroup := &TargetGroup{
+			name:    localGroupName,
+			members: []any{},
+		}
+
+		// Create a remote target
+		remoteTarget := &Target{
+			name:      remoteTargetName,
+			sourcePkg: sourcePkg,
+		}
+
+		// Parse both into commandNodes
+		localGroupNode, err := parseGroupLike(localGroup)
+		g.Expect(err).ToNot(HaveOccurred(), "parseGroupLike should succeed")
+
+		remoteNode, err := parseTargetLike(remoteTarget)
+		g.Expect(err).ToNot(HaveOccurred(), "parseTargetLike should succeed")
+
+		var buf bytes.Buffer
+
+		width := max(len(localGroupName), len(remoteTargetName))
+
+		// showAttribution = true when we have mixed local and remote
+		printTopLevelCommand(&buf, localGroupNode, width, true)
+		printTopLevelCommand(&buf, remoteNode, width, true)
+
+		output := buf.String()
+
+		// Groups should show (local) when mixed with remote targets
+		g.Expect(output).To(ContainSubstring(localGroupName),
+			"output should contain local group name")
+		g.Expect(output).To(ContainSubstring(remoteTargetName),
+			"output should contain remote target name")
+
+		// The local group should show (local) when mixed
+		g.Expect(output).To(ContainSubstring("(local)"),
+			"local group should show (local) when mixed with remote")
+		g.Expect(output).To(ContainSubstring(sourcePkg),
+			"remote target should show source package")
+	})
+}

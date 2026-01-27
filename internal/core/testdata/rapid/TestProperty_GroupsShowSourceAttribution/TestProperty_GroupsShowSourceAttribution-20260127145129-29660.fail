@@ -1,0 +1,42 @@
+# 2026/01/27 14:51:29.501130 [TestProperty_GroupsShowSourceAttribution] [rapid] draw localGroupName: "a"
+# 2026/01/27 14:51:29.501133 [TestProperty_GroupsShowSourceAttribution] [rapid] draw remoteTargetName: "a"
+# 2026/01/27 14:51:29.501135 [TestProperty_GroupsShowSourceAttribution] [rapid] draw domain: "a.a"
+# 2026/01/27 14:51:29.501136 [TestProperty_GroupsShowSourceAttribution] [rapid] draw user: "a"
+# 2026/01/27 14:51:29.501137 [TestProperty_GroupsShowSourceAttribution] [rapid] draw repo: "a"
+# 2026/01/27 14:51:29.501147 [TestProperty_GroupsShowSourceAttribution] 
+# local group should show (local) when mixed with remote
+# Expected
+#     <string>:   a
+#       a-target  (a.a/a/a)
+#     
+# to contain substring
+#     <string>: (local)
+# 
+v0.4.8#16221229737481871886
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
