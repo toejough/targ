@@ -1,8 +1,0 @@
-# 2026/01/27 12:25:20.575943 [TestProperty_CallerPackagePath/CallerFromThisPackageReturnsThisPackage] 
-# caller package path should contain this package's path
-# Expected
-#     <string>: pgregory.net/rapid
-# to contain substring
-#     <string>: github.com/toejough/targ/internal/core
-# 
-v0.4.8#4176256799856263943

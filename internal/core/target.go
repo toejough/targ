@@ -182,11 +182,6 @@ func (t *Target) GetSource() string {
 	return t.sourcePkg
 }
 
-// SetSourceForTest sets the source package path (for testing only).
-func (t *Target) SetSourceForTest(pkg string) {
-	t.sourcePkg = pkg
-}
-
 // GetTimeout returns the target's timeout duration.
 func (t *Target) GetTimeout() time.Duration {
 	return t.timeout
@@ -246,6 +241,11 @@ func (t *Target) Run(ctx context.Context, args ...any) error {
 	}
 
 	return nil
+}
+
+// SetSourceForTest sets the source package path (for testing only).
+func (t *Target) SetSourceForTest(pkg string) {
+	t.sourcePkg = pkg
 }
 
 // Timeout sets the maximum execution time for this target.
