@@ -109,6 +109,11 @@ func ResetDeregistrations() {
 	deregistrations = nil
 }
 
+// ResetResolved resets the resolved flag (for testing).
+func ResetResolved() {
+	// TODO: implement
+}
+
 // RunWithOptions executes the CLI using os.Args and exits on error.
 // Exit is handled by RunWithEnv via the environment interface.
 func RunWithOptions(opts RunOptions, targets ...any) {

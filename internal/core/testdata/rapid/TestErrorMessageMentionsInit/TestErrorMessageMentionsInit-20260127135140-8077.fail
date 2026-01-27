@@ -1,0 +1,28 @@
+# 2026/01/27 13:51:40.387204 [TestErrorMessageMentionsInit] [rapid] draw pkgPath: "a.a/a/a"
+# 2026/01/27 13:51:40.387208 [TestErrorMessageMentionsInit] 
+# DeregisterFrom should error after resolution
+# Expected an error to have occurred.  Got:
+#     <nil>: nil
+# 
+v0.4.8#17604294962348728210
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0

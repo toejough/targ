@@ -1,0 +1,28 @@
+# 2026/01/27 13:51:40.385424 [TestDeregisterFromAfterResolutionErrors] [rapid] draw pkgPath: "a.a/a/a"
+# 2026/01/27 13:51:40.385442 [TestDeregisterFromAfterResolutionErrors] 
+# DeregisterFrom should error after resolveRegistry has run
+# Expected an error to have occurred.  Got:
+#     <nil>: nil
+# 
+v0.4.8#2704998836478613228
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0

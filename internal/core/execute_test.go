@@ -434,3 +434,102 @@ func TestRegisterTarget_RegisteredTargetsHaveSource(t *testing.T) {
 		}
 	})
 }
+
+// TestDeregisterFromAfterResolutionErrors verifies that DeregisterFrom
+// returns an error after resolveRegistry has run.
+//
+//nolint:paralleltest // Cannot run in parallel - modifies global registry state
+func TestDeregisterFromAfterResolutionErrors(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		g := NewWithT(t)
+
+		// Reset state before test
+		core.SetRegistry(nil)
+		core.ResetDeregistrations()
+		core.ResetResolved()
+		t.Cleanup(func() {
+			core.SetRegistry(nil)
+			core.ResetDeregistrations()
+			core.ResetResolved()
+		})
+
+		// Generate a package path
+		pkgPath := rapid.StringMatching(`[a-z]+\.[a-z]+/[a-z][a-z0-9-]*/[a-z][a-z0-9-]*`).
+			Draw(t, "pkgPath")
+
+		// Trigger resolution (even with empty registry)
+		env := core.NewExecuteEnv([]string{"targ"})
+		_ = core.ExecuteWithResolution(env, core.RunOptions{AllowDefault: true})
+
+		// Now DeregisterFrom should error
+		err := core.DeregisterFrom(pkgPath)
+
+		g.Expect(err).To(HaveOccurred(),
+			"DeregisterFrom should error after resolveRegistry has run")
+	})
+}
+
+// TestDeregisterFromBeforeResolutionSucceeds verifies that DeregisterFrom
+// works normally before resolution.
+func TestDeregisterFromBeforeResolutionSucceeds(t *testing.T) {
+	t.Parallel()
+
+	rapid.Check(t, func(t *rapid.T) {
+		g := NewWithT(t)
+
+		// Reset deregistrations before test
+		core.ResetDeregistrations()
+		core.ResetResolved()
+
+		// Generate a valid package path
+		pkgPath := rapid.StringMatching(`[a-z]+\.[a-z]+/[a-z][a-z0-9-]*/[a-z][a-z0-9-]*`).
+			Draw(t, "pkgPath")
+
+		// Should succeed before resolution
+		err := core.DeregisterFrom(pkgPath)
+
+		g.Expect(err).ToNot(HaveOccurred(),
+			"DeregisterFrom should succeed before resolution")
+
+		// Verify it was queued
+		deregistrations := core.GetDeregistrations()
+		g.Expect(deregistrations).To(ContainElement(pkgPath),
+			"package path should be in deregistrations queue")
+	})
+}
+
+// TestErrorMessageMentionsInit verifies that the error message
+// from DeregisterFrom after resolution contains "init()".
+//
+//nolint:paralleltest // Cannot run in parallel - modifies global registry state
+func TestErrorMessageMentionsInit(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		g := NewWithT(t)
+
+		// Reset state before test
+		core.SetRegistry(nil)
+		core.ResetDeregistrations()
+		core.ResetResolved()
+		t.Cleanup(func() {
+			core.SetRegistry(nil)
+			core.ResetDeregistrations()
+			core.ResetResolved()
+		})
+
+		// Generate a package path
+		pkgPath := rapid.StringMatching(`[a-z]+\.[a-z]+/[a-z][a-z0-9-]*/[a-z][a-z0-9-]*`).
+			Draw(t, "pkgPath")
+
+		// Trigger resolution
+		env := core.NewExecuteEnv([]string{"targ"})
+		_ = core.ExecuteWithResolution(env, core.RunOptions{AllowDefault: true})
+
+		// Get the error
+		err := core.DeregisterFrom(pkgPath)
+
+		g.Expect(err).To(HaveOccurred(),
+			"DeregisterFrom should error after resolution")
+		g.Expect(err.Error()).To(ContainSubstring("init()"),
+			"error message should mention init()")
+	})
+}
