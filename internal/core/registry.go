@@ -50,7 +50,7 @@ func (e *DeregistrationError) Error() string {
 }
 
 // ResolveRegistryForTest is a test-only export of resolveRegistry.
-func ResolveRegistryForTest() ([]any, error) {
+func ResolveRegistryForTest() ([]any, []string, error) {
 	return resolveRegistry()
 }
 
@@ -221,11 +221,17 @@ func isFromModule(pkgPath, modulePath string) bool {
 }
 
 // resolveRegistry processes the global registry by applying deregistrations
-// and detecting conflicts. Returns the filtered registry or an error.
-// Clears the deregistration queue after processing.
-func resolveRegistry() ([]any, error) {
+// and detecting conflicts. Returns the filtered registry, deregistered package
+// paths, or an error. Clears the deregistration queue after processing.
+func resolveRegistry() ([]any, []string, error) {
 	// Mark registry as resolved
 	registryResolved = true
+
+	// Capture deregistered package paths before clearing
+	deregisteredPkgs := make([]string, 0, len(deregistrations))
+	for _, dereg := range deregistrations {
+		deregisteredPkgs = append(deregisteredPkgs, dereg.PackagePath)
+	}
 
 	// Always clear deregistrations at the end
 	defer func() {
@@ -235,19 +241,19 @@ func resolveRegistry() ([]any, error) {
 	// Apply deregistrations first
 	filtered, err := applyDeregistrations(registry, deregistrations)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	// Then check for conflicts
 	err = detectConflicts(filtered)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	// Clear sourcePkg for local targets (from main module)
 	clearLocalTargetSources(filtered)
 
-	return filtered, nil
+	return filtered, deregisteredPkgs, nil
 }
 
 // shouldRemove checks if an item should be removed based on deregistrations.

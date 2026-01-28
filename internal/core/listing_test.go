@@ -10,6 +10,43 @@ import (
 	"github.com/toejough/targ/internal/core"
 )
 
+func TestProperty_DeregisteredPackagesShownInHelp(t *testing.T) {
+	t.Parallel()
+
+	rapid.Check(t, func(t *rapid.T) {
+		g := NewWithT(t)
+
+		// Generate package paths
+		numPkgs := rapid.IntRange(1, 3).Draw(t, "numPkgs")
+		pkgs := make([]string, 0, numPkgs)
+
+		for i := range numPkgs {
+			domain := rapid.StringMatching(`[a-z]+\.[a-z]+`).Draw(t, "domain")
+			user := rapid.StringMatching(`[a-z][a-z0-9-]*`).Draw(t, "user")
+			repo := rapid.StringMatching(`[a-z][a-z0-9-]*`).Draw(t, "repo")
+			pkgs = append(pkgs, domain+"/"+user+"/"+repo)
+			_ = i
+		}
+
+		opts := core.RunOptions{
+			DeregisteredPackages: pkgs,
+		}
+
+		var buf bytes.Buffer
+		core.PrintDeregisteredPackagesForTest(&buf, opts)
+		output := buf.String()
+
+		// Property: header is shown
+		g.Expect(output).To(ContainSubstring("Deregistered packages"))
+
+		// Property: all packages are listed
+		for _, pkg := range pkgs {
+			g.Expect(output).To(ContainSubstring(pkg),
+				"output should contain deregistered package: %s", pkg)
+		}
+	})
+}
+
 func TestProperty_GroupsShowSourceAttribution(t *testing.T) {
 	t.Parallel()
 
@@ -215,6 +252,22 @@ func TestProperty_MixedTargetsShowAttribution(t *testing.T) {
 		g.Expect(output).To(ContainSubstring(sourcePkg),
 			"remote target should show source package")
 	})
+}
+
+func TestProperty_NoDeregisteredPackagesHidesSection(t *testing.T) {
+	t.Parallel()
+
+	g := NewWithT(t)
+
+	opts := core.RunOptions{
+		DeregisteredPackages: nil,
+	}
+
+	var buf bytes.Buffer
+	core.PrintDeregisteredPackagesForTest(&buf, opts)
+
+	g.Expect(buf.String()).To(BeEmpty(),
+		"should not print anything when no deregistered packages")
 }
 
 func TestProperty_NoSyncedTargetsUnchanged(t *testing.T) {

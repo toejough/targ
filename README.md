@@ -619,17 +619,47 @@ Import targets from other Go modules with `--sync`:
 targ --sync github.com/company/shared-targets
 ```
 
-This generates a targ file that imports and registers the remote module's exported targets:
+This adds a blank import and a `DeregisterFrom` call to your targ file:
 
 ```go
 //go:build targ
 
-package main
+package dev
 
-import "github.com/company/shared-targets"
+import (
+    "github.com/toejough/targ"
+
+    _ "github.com/company/shared-targets"
+)
 
 func init() {
-    targ.Register(targets.Build, targets.Lint, targets.Test)
+    _ = targ.DeregisterFrom("github.com/company/shared-targets")
+}
+```
+
+The blank import triggers the remote package's `init()`, which registers its targets.
+The `DeregisterFrom` call removes them by default, preventing name conflicts.
+
+**To use remote targets**, edit the generated code:
+
+```go
+import (
+    "github.com/toejough/targ"
+
+    targets "github.com/company/shared-targets"
+)
+
+func init() {
+    // Option A: Use all targets (remove DeregisterFrom)
+    // All targets from shared-targets are available
+
+    // Option B: Selective (keep DeregisterFrom, re-register what you want)
+    _ = targ.DeregisterFrom("github.com/company/shared-targets")
+    targ.Register(targets.Lint, targets.Test)
+
+    // Option C: Rename to avoid conflicts
+    _ = targ.DeregisterFrom("github.com/company/shared-targets")
+    targ.Register(targets.Test.Name("integration-test"))
 }
 ```
 

@@ -1793,6 +1793,21 @@ func printCommandHelp(w io.Writer, node *commandNode, opts RunOptions) {
 	printMoreInfo(w, opts)
 }
 
+func printDeregisteredPackages(w io.Writer, opts RunOptions) {
+	if len(opts.DeregisteredPackages) == 0 {
+		return
+	}
+
+	_, _ = fmt.Fprintln(
+		w,
+		"\nDeregistered packages (targets hidden — edit init() in your targ file to re-register):",
+	)
+
+	for _, pkg := range opts.DeregisteredPackages {
+		_, _ = fmt.Fprintf(w, "  %s\n", pkg)
+	}
+}
+
 func printDescription(w io.Writer, desc string) {
 	if desc != "" {
 		_, _ = fmt.Fprintln(w, desc)
@@ -2038,6 +2053,7 @@ func printUsage(w io.Writer, nodes []*commandNode, opts RunOptions) {
 		}
 	}
 
+	printDeregisteredPackages(w, opts)
 	printExamplesForNodes(w, opts, nodes)
 	printMoreInfo(w, opts)
 }

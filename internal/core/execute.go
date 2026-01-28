@@ -76,7 +76,7 @@ func ExecuteRegisteredWithOptions(opts RunOptions) {
 // Exported for testing - production code should use ExecuteRegistered.
 func ExecuteWithResolution(env RunEnv, opts RunOptions) error {
 	// Resolve registry (applies deregistrations, detects conflicts)
-	resolved, err := resolveRegistry()
+	resolved, deregisteredPkgs, err := resolveRegistry()
 	if err != nil {
 		// Print error to stderr
 		fmt.Fprintf(os.Stderr, "%v\n", err)
@@ -86,6 +86,9 @@ func ExecuteWithResolution(env RunEnv, opts RunOptions) error {
 
 		return err
 	}
+
+	// Pass deregistered packages through to help output
+	opts.DeregisteredPackages = deregisteredPkgs
 
 	// Execute with resolved registry
 	return RunWithEnv(env, opts, resolved...)

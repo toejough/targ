@@ -312,8 +312,8 @@ func TestProperty_CodeGeneration(t *testing.T) {
 		})
 	})
 
-	// Property: AddImportToTargFile adds blank import correctly
-	t.Run("AddImportAddsBlankImport", func(t *testing.T) {
+	// Property: AddImportToTargFile adds blank import and DeregisterFrom call
+	t.Run("AddImportAddsBlankImportAndDeregisterFrom", func(t *testing.T) {
 		t.Parallel()
 		rapid.Check(t, func(t *rapid.T) {
 			g := NewWithT(t)
@@ -335,12 +335,62 @@ var Lint = targ.Targ("golangci-lint run")
 			g.Expect(err).NotTo(HaveOccurred())
 
 			content := string(fileOps.Files["targs.go"])
-			// Property: Import is added
+			// Property: Blank import is added
 			g.Expect(content).To(ContainSubstring(`_ "` + pkgPath + `"`))
 			// Property: Original import preserved
 			g.Expect(content).To(ContainSubstring(`"github.com/toejough/targ"`))
 			// Property: Original code preserved
 			g.Expect(content).To(ContainSubstring("var Lint"))
+			// Property: DeregisterFrom call is added
+			g.Expect(content).To(ContainSubstring(`targ.DeregisterFrom("` + pkgPath + `")`))
+			// Property: init() function exists
+			g.Expect(content).To(ContainSubstring("func init()"))
+		})
+	})
+
+	// Property: AddImportToTargFile appends DeregisterFrom to existing init()
+	t.Run("AddImportAppendsToExistingInit", func(t *testing.T) {
+		t.Parallel()
+		rapid.Check(t, func(t *rapid.T) {
+			g := NewWithT(t)
+
+			fileOps := NewMemoryFileOps()
+			pkg1 := rapid.StringMatching(`github\.com/[a-z]+/[a-z]+`).Draw(t, "pkg1")
+			pkg2 := rapid.StringMatching(`github\.com/[a-z]+/[a-z]+`).
+				Filter(func(s string) bool { return s != pkg1 }).
+				Draw(t, "pkg2")
+
+			// Start with a file that already has init() with a DeregisterFrom call
+			initial := `//go:build targ
+
+package build
+
+import (
+	"github.com/toejough/targ"
+
+	_ "` + pkg1 + `"
+)
+
+func init() {
+	_ = targ.DeregisterFrom("` + pkg1 + `")
+}
+
+var Lint = targ.Targ("golangci-lint run")
+`
+			fileOps.Files["targs.go"] = []byte(initial)
+
+			err := runner.AddImportToTargFileWithFileOps(fileOps, "targs.go", pkg2)
+			g.Expect(err).NotTo(HaveOccurred())
+
+			content := string(fileOps.Files["targs.go"])
+			// Property: Both DeregisterFrom calls present
+			g.Expect(content).To(ContainSubstring(`targ.DeregisterFrom("` + pkg1 + `")`))
+			g.Expect(content).To(ContainSubstring(`targ.DeregisterFrom("` + pkg2 + `")`))
+			// Property: Both blank imports present
+			g.Expect(content).To(ContainSubstring(`_ "` + pkg1 + `"`))
+			g.Expect(content).To(ContainSubstring(`_ "` + pkg2 + `"`))
+			// Property: Still valid Go (has single init function)
+			g.Expect(strings.Count(content, "func init()")).To(Equal(1))
 		})
 	})
 

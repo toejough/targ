@@ -147,7 +147,7 @@ func TestProperty_CleanRegistryPassesResolution(t *testing.T) {
 		ResetResolved()
 
 		// Resolve registry
-		result, err := resolveRegistry()
+		result, _, err := resolveRegistry()
 
 		// Should succeed
 		g.Expect(err).ToNot(HaveOccurred(),
@@ -384,7 +384,7 @@ func TestProperty_DeregistrationBeforeConflictCheck(t *testing.T) {
 		g.Expect(err).ToNot(HaveOccurred(), "queueing deregistration should succeed")
 
 		// Resolve registry
-		result, err := resolveRegistry()
+		result, _, err := resolveRegistry()
 
 		// Should succeed - conflict was resolved by deregistration
 		g.Expect(err).ToNot(HaveOccurred(),
@@ -462,7 +462,7 @@ func TestProperty_DeregistrationErrorStopsResolution(t *testing.T) {
 		g.Expect(err).ToNot(HaveOccurred(), "queueing deregistration should succeed")
 
 		// Resolve registry
-		_, err = resolveRegistry()
+		_, _, err = resolveRegistry()
 
 		// Should return DeregistrationError
 		g.Expect(err).To(HaveOccurred(),
@@ -1037,7 +1037,7 @@ func TestProperty_QueueClearedAfterResolution(t *testing.T) {
 			"deregistration queue should have entry before resolution")
 
 		// Resolve registry
-		_, err = resolveRegistry()
+		_, _, err = resolveRegistry()
 		g.Expect(err).ToNot(HaveOccurred(), "resolution should succeed")
 
 		// Queue should be cleared

@@ -136,7 +136,7 @@ func TestProperty_DeregisterThenReregister(t *testing.T) {
 			"registry should have original targets plus re-registered ones")
 
 		// Resolve registry - this applies deregistrations
-		resolved, err := core.ResolveRegistryForTest()
+		resolved, _, err := core.ResolveRegistryForTest()
 		g.Expect(err).ToNot(HaveOccurred(), "resolveRegistry should succeed")
 
 		// Should preserve the re-registered targets, not remove them
@@ -197,7 +197,7 @@ func TestProperty_DeregisterWithoutReregister(t *testing.T) {
 		g.Expect(err).ToNot(HaveOccurred(), "DeregisterFrom should succeed")
 
 		// Resolve registry
-		resolved, err := core.ResolveRegistryForTest()
+		resolved, _, err := core.ResolveRegistryForTest()
 		g.Expect(err).ToNot(HaveOccurred(), "resolveRegistry should succeed")
 
 		// All targets should be removed
@@ -418,7 +418,7 @@ func TestProperty_LocalTargetsHaveSourcePkgCleared(t *testing.T) {
 			"local target should have mainModule as sourcePkg before resolution")
 
 		// Call resolveRegistry to clear local sourcePkg
-		resolved, err := core.ResolveRegistryForTest()
+		resolved, _, err := core.ResolveRegistryForTest()
 		g.Expect(err).ToNot(HaveOccurred(), "resolveRegistry should not error")
 		g.Expect(resolved).To(HaveLen(1), "should have one item in resolved registry")
 
@@ -476,7 +476,7 @@ func TestProperty_MixedLocalAndRemoteTargetsHandled(t *testing.T) {
 		})
 
 		// Call resolveRegistry
-		resolved, err := core.ResolveRegistryForTest()
+		resolved, _, err := core.ResolveRegistryForTest()
 		g.Expect(err).ToNot(HaveOccurred(), "resolveRegistry should not error")
 		g.Expect(resolved).To(HaveLen(2), "should have two items in resolved registry")
 
@@ -612,7 +612,7 @@ func TestProperty_RemoteTargetsKeepSourcePkg(t *testing.T) {
 			"remote target should have externalModule as sourcePkg before resolution")
 
 		// Call resolveRegistry
-		resolved, err := core.ResolveRegistryForTest()
+		resolved, _, err := core.ResolveRegistryForTest()
 		g.Expect(err).ToNot(HaveOccurred(), "resolveRegistry should not error")
 		g.Expect(resolved).To(HaveLen(1), "should have one item in resolved registry")
 
@@ -625,5 +625,88 @@ func TestProperty_RemoteTargetsKeepSourcePkg(t *testing.T) {
 		g.Expect(ok).To(BeTrue(), "resolved item should be *core.Target")
 		g.Expect(resolvedTarget.GetSource()).To(Equal(externalModule),
 			"resolved target should retain sourcePkg")
+	})
+}
+
+// TestProperty_ResolveRegistryReturnsDeregisteredPackages verifies that
+// resolveRegistry returns the list of deregistered package paths.
+//
+//nolint:paralleltest // Cannot run in parallel - modifies global registry state
+func TestProperty_ResolveRegistryReturnsDeregisteredPackages(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		g := NewWithT(t)
+
+		// Reset state before test
+		core.SetRegistry(nil)
+		core.ResetDeregistrations()
+		core.ResetResolved()
+		t.Cleanup(func() {
+			core.SetRegistry(nil)
+			core.ResetDeregistrations()
+			core.ResetResolved()
+		})
+
+		// Generate distinct package paths
+		numPkgs := rapid.IntRange(1, 3).Draw(t, "numPkgs")
+		pkgs := make([]string, 0, numPkgs)
+
+		for i := range numPkgs {
+			pkg := rapid.StringMatching(`[a-z]+\.[a-z]+/[a-z][a-z0-9-]*/[a-z][a-z0-9-]*`).
+				Draw(t, fmt.Sprintf("pkg%d", i))
+			pkgs = append(pkgs, pkg)
+		}
+
+		// Register targets from each package and deregister
+		for i, pkg := range pkgs {
+			tgt := core.Targ(func() {}).Name(fmt.Sprintf("tgt-%d", i))
+			tgt.SetSourceForTest(pkg)
+			core.RegisterTarget(tgt)
+
+			err := core.DeregisterFrom(pkg)
+			g.Expect(err).ToNot(HaveOccurred())
+		}
+
+		// Resolve registry
+		_, deregisteredPkgs, err := core.ResolveRegistryForTest()
+		g.Expect(err).ToNot(HaveOccurred(), "resolveRegistry should succeed")
+
+		// Property: deregistered packages list matches what was deregistered
+		g.Expect(deregisteredPkgs).To(ConsistOf(pkgs),
+			"should return all deregistered package paths")
+	})
+}
+
+// TestProperty_ResolveRegistryReturnsEmptyDeregisteredWhenNone verifies that
+// resolveRegistry returns empty slice when no deregistrations were made.
+//
+//nolint:paralleltest // Cannot run in parallel - modifies global registry state
+func TestProperty_ResolveRegistryReturnsEmptyDeregisteredWhenNone(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		g := NewWithT(t)
+
+		// Reset state before test
+		core.SetRegistry(nil)
+		core.ResetDeregistrations()
+		core.ResetResolved()
+		t.Cleanup(func() {
+			core.SetRegistry(nil)
+			core.ResetDeregistrations()
+			core.ResetResolved()
+		})
+
+		// Register targets without deregistering
+		numTargets := rapid.IntRange(0, 3).Draw(t, "numTargets")
+		for i := range numTargets {
+			tgt := core.Targ(func() {}).Name(fmt.Sprintf("tgt-%d", i))
+			core.RegisterTarget(tgt)
+		}
+
+		// Resolve registry
+		_, deregisteredPkgs, err := core.ResolveRegistryForTest()
+		g.Expect(err).ToNot(HaveOccurred(), "resolveRegistry should succeed")
+
+		// Property: no deregistered packages when none were deregistered
+		g.Expect(deregisteredPkgs).To(BeEmpty(),
+			"should return empty deregistered packages when none were deregistered")
 	})
 }

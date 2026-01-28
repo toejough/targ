@@ -132,7 +132,9 @@ func AddImportToTargFile(path, packagePath string) error {
 	return AddImportToTargFileWithFileOps(OSFileOps{}, path, packagePath)
 }
 
-// AddImportToTargFileWithFileOps adds a blank import using injected file operations.
+// AddImportToTargFileWithFileOps adds a blank import and a DeregisterFrom call
+// using injected file operations. The DeregisterFrom call is added to init()
+// so targets from the synced package are deregistered by default, preventing conflicts.
 func AddImportToTargFileWithFileOps(fileOps FileOps, path, packagePath string) error {
 	content, err := fileOps.ReadFile(path)
 	if err != nil {
@@ -147,38 +149,13 @@ func AddImportToTargFileWithFileOps(fileOps FileOps, path, packagePath string) e
 	}
 
 	// Add the blank import
-	importSpec := &ast.ImportSpec{
-		Name: ast.NewIdent("_"),
-		Path: &ast.BasicLit{
-			Kind:  token.STRING,
-			Value: strconv.Quote(packagePath),
-		},
-	}
+	addBlankImport(file, packagePath)
 
-	// Find or create import declaration
-	var importDecl *ast.GenDecl
+	// Ensure "github.com/toejough/targ" import exists (needed for DeregisterFrom)
+	ensureTargImport(file)
 
-	for _, decl := range file.Decls {
-		genDecl, ok := decl.(*ast.GenDecl)
-		if ok && genDecl.Tok == token.IMPORT {
-			importDecl = genDecl
-
-			break
-		}
-	}
-
-	if importDecl != nil {
-		// Add to existing import block
-		importDecl.Specs = append(importDecl.Specs, importSpec)
-	} else {
-		// Create new import declaration
-		importDecl = &ast.GenDecl{
-			Tok:   token.IMPORT,
-			Specs: []ast.Spec{importSpec},
-		}
-		// Insert after package declaration
-		file.Decls = append([]ast.Decl{importDecl}, file.Decls...)
-	}
+	// Add DeregisterFrom call to init()
+	addDeregisterFromToInit(file, packagePath)
 
 	// Format and write back
 	var buf bytes.Buffer
@@ -1518,7 +1495,12 @@ func (r *targRunner) handleSyncFlag(args []string) (exitCode int, done bool) {
 		return 1, true
 	}
 
-	fmt.Printf("Synced package %q to %s\n", opts.PackagePath, targFile)
+	fmt.Printf("Synced %q to %s\n", opts.PackagePath, targFile)
+	fmt.Println()
+	fmt.Println("All targets from this package are deregistered by default to prevent conflicts.")
+	fmt.Println("To use them, edit", targFile+":")
+	fmt.Println("  - Remove the DeregisterFrom line to use all targets")
+	fmt.Println("  - Or selectively re-register: targ.Register(pkg.TargetName)")
 
 	return 0, true
 }
@@ -1743,6 +1725,97 @@ func (r *targRunner) validateSourceDir(path string) (string, error) {
 
 // targetConverter converts a target in a file. Returns true if conversion was performed.
 type targetConverter func(filePath, targetName string) (bool, error)
+
+// addBlankImport adds a blank import (`_ "pkg"`) to the file's import declarations.
+func addBlankImport(file *ast.File, packagePath string) {
+	importSpec := &ast.ImportSpec{
+		Name: ast.NewIdent("_"),
+		Path: &ast.BasicLit{
+			Kind:  token.STRING,
+			Value: strconv.Quote(packagePath),
+		},
+	}
+
+	// Find or create import declaration
+	var importDecl *ast.GenDecl
+
+	for _, decl := range file.Decls {
+		genDecl, ok := decl.(*ast.GenDecl)
+		if ok && genDecl.Tok == token.IMPORT {
+			importDecl = genDecl
+
+			break
+		}
+	}
+
+	if importDecl != nil {
+		importDecl.Specs = append(importDecl.Specs, importSpec)
+	} else {
+		importDecl = &ast.GenDecl{
+			Tok:   token.IMPORT,
+			Specs: []ast.Spec{importSpec},
+		}
+		file.Decls = append([]ast.Decl{importDecl}, file.Decls...)
+	}
+}
+
+// addDeregisterFromToInit adds a `_ = targ.DeregisterFrom("pkg")` call to init().
+// If init() doesn't exist, it creates one. The call is prepended to the body.
+func addDeregisterFromToInit(file *ast.File, packagePath string) {
+	// Build the statement: _ = targ.DeregisterFrom("pkg")
+	deregisterStmt := &ast.AssignStmt{
+		Lhs: []ast.Expr{ast.NewIdent("_")},
+		Tok: token.ASSIGN,
+		Rhs: []ast.Expr{
+			&ast.CallExpr{
+				Fun: &ast.SelectorExpr{
+					X:   ast.NewIdent("targ"),
+					Sel: ast.NewIdent("DeregisterFrom"),
+				},
+				Args: []ast.Expr{
+					&ast.BasicLit{
+						Kind:  token.STRING,
+						Value: strconv.Quote(packagePath),
+					},
+				},
+			},
+		},
+	}
+
+	// Find existing init() function
+	for _, decl := range file.Decls {
+		funcDecl, ok := decl.(*ast.FuncDecl)
+		if !ok || funcDecl.Name.Name != "init" || funcDecl.Recv != nil {
+			continue
+		}
+
+		// Found init() — append the DeregisterFrom call at the end
+		funcDecl.Body.List = append(funcDecl.Body.List, deregisterStmt)
+
+		return
+	}
+
+	// No init() found — create one
+	initFunc := &ast.FuncDecl{
+		Name: ast.NewIdent("init"),
+		Type: &ast.FuncType{Params: &ast.FieldList{}},
+		Body: &ast.BlockStmt{
+			List: []ast.Stmt{deregisterStmt},
+		},
+	}
+
+	// Insert after imports (find last import decl position)
+	insertIdx := 0
+
+	for i, decl := range file.Decls {
+		if genDecl, ok := decl.(*ast.GenDecl); ok && genDecl.Tok == token.IMPORT {
+			insertIdx = i + 1
+		}
+	}
+
+	// Insert at the found position
+	file.Decls = slices.Insert(file.Decls, insertIdx, ast.Decl(initFunc))
+}
 
 // buildAndQueryBinary builds the binary and queries its commands.
 func buildAndQueryBinary(
@@ -2269,6 +2342,42 @@ func ensureTargDependency(dep TargDependency, importRoot string) {
 	getCmd.Stdout = io.Discard
 	getCmd.Stderr = io.Discard
 	_ = getCmd.Run()
+}
+
+// ensureTargImport ensures "github.com/toejough/targ" is in the import block.
+func ensureTargImport(file *ast.File) {
+	const targPkg = `"github.com/toejough/targ"`
+
+	for _, imp := range file.Imports {
+		if imp.Path.Value == targPkg {
+			return // Already imported
+		}
+	}
+
+	// Not found — add it
+	importSpec := &ast.ImportSpec{
+		Path: &ast.BasicLit{
+			Kind:  token.STRING,
+			Value: targPkg,
+		},
+	}
+
+	for _, decl := range file.Decls {
+		genDecl, ok := decl.(*ast.GenDecl)
+		if ok && genDecl.Tok == token.IMPORT {
+			// Prepend to existing import block
+			genDecl.Specs = append([]ast.Spec{importSpec}, genDecl.Specs...)
+			return
+		}
+	}
+
+	// No import block — create one
+	importDecl := &ast.GenDecl{
+		Tok:   token.IMPORT,
+		Specs: []ast.Spec{importSpec},
+	}
+
+	file.Decls = append([]ast.Decl{importDecl}, file.Decls...)
 }
 
 // escapeGoString escapes a string for use in a Go string literal.

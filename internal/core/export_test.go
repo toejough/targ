@@ -2,12 +2,13 @@ package core
 
 // Exported variables.
 var (
-	CallerPackagePathForTest    = callerPackagePath
-	ExtractPackagePathForTest   = extractPackagePath
-	HasRemoteTargetsForTest     = hasRemoteTargets
-	ParseGroupLikeForTest       = parseGroupLike
-	ParseTargetLikeForTest      = parseTargetLike
-	PrintTopLevelCommandForTest = printTopLevelCommand
+	CallerPackagePathForTest         = callerPackagePath
+	ExtractPackagePathForTest        = extractPackagePath
+	HasRemoteTargetsForTest          = hasRemoteTargets
+	ParseGroupLikeForTest            = parseGroupLike
+	ParseTargetLikeForTest           = parseTargetLike
+	PrintDeregisteredPackagesForTest = printDeregisteredPackages
+	PrintTopLevelCommandForTest      = printTopLevelCommand
 )
 
 // Test-only exports for use by core_test package tests.

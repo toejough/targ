@@ -89,6 +89,10 @@ type RunOptions struct {
 	// ShellRunner executes shell commands. If nil, uses the default sh -c execution.
 	// For testing, inject a mock to verify command construction without executing.
 	ShellRunner func(ctx context.Context, cmd string) error
+
+	// DeregisteredPackages lists package paths deregistered via DeregisterFrom.
+	// Populated by ExecuteWithResolution from the registry's deregistration queue.
+	DeregisteredPackages []string
 }
 
 // TagKind represents the type of a struct tag (flag, positional, subcommand).
