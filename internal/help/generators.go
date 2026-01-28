@@ -1,7 +1,3 @@
-// Package help generators for root and target help output.
-// These functions provide the high-level API for generating help,
-// using the Builder internally to ensure consistent structure and styling.
-
 package help
 
 import (
@@ -40,7 +36,7 @@ type TargetHelpOpts struct {
 func WriteRootHelp(w io.Writer, opts RootHelpOpts) {
 	b := New(opts.BinaryName).
 		WithDescription(opts.Description).
-		WithUsage(fmt.Sprintf("%s [targ flags...] [<command>...]", opts.BinaryName)).
+		WithUsage(opts.BinaryName + " [targ flags...] [<command>...]").
 		SetRoot(true).
 		AddTargFlagsFiltered(opts.Filter)
 
@@ -58,13 +54,17 @@ func WriteRootHelp(w io.Writer, opts RootHelpOpts) {
 	}
 
 	output := b.Render()
-	fmt.Fprint(w, output)
+	_, _ = fmt.Fprint(w, output)
 
 	// Deregistered packages (separate from Builder since it's a special case)
 	if len(opts.DeregisteredPackages) > 0 {
-		fmt.Fprintln(w, "\nDeregistered packages (targets hidden — edit init() in your targ file to re-register):")
+		_, _ = fmt.Fprintln(
+			w,
+			"\nDeregistered packages (targets hidden — edit init() in your targ file to re-register):",
+		)
+
 		for _, pkg := range opts.DeregisteredPackages {
-			fmt.Fprintf(w, "  %s\n", pkg)
+			_, _ = fmt.Fprintf(w, "  %s\n", pkg)
 		}
 	}
 }
@@ -124,5 +124,5 @@ func WriteTargetHelp(w io.Writer, opts TargetHelpOpts) {
 	}
 
 	output := b.Render()
-	fmt.Fprint(w, output)
+	_, _ = fmt.Fprint(w, output)
 }

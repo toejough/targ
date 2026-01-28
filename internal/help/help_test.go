@@ -3,8 +3,9 @@ package help_test
 import (
 	"testing"
 
-	"github.com/toejough/targ/internal/help"
 	. "github.com/onsi/gomega"
+
+	"github.com/toejough/targ/internal/help"
 )
 
 // TestPackageStructureExists verifies all expected types/functions exist.
@@ -17,21 +18,20 @@ func TestPackageStructureExists(t *testing.T) {
 	var _ help.Builder
 
 	// content.go should export content types
-	var _ help.Positional
-	var _ help.Flag
-	var _ help.Format
-	var _ help.Subcommand
-	var _ help.Example
-	var _ help.ContentBuilder
+	var (
+		_ help.Positional
+		_ help.Flag
+		_ help.Format
+		_ help.Subcommand
+		_ help.Example
+		_ help.ContentBuilder
+	)
 
 	// render.go - Render is a method on ContentBuilder, not standalone
 	// Verified by the render_test.go tests
 
 	// styles.go should export Styles
 	var _ help.Styles
-
-	// formats.go should export FormatRegistry
-	var _ help.FormatRegistry
 
 	g.Expect(true).To(BeTrue()) // Test passes if we get here (compilation succeeded)
 }

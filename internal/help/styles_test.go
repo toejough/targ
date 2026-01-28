@@ -5,6 +5,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	. "github.com/onsi/gomega"
+
 	"github.com/toejough/targ/internal/help"
 )
 
@@ -30,7 +31,8 @@ func TestStylesHasAllRequiredFields(t *testing.T) {
 	g.Expect(styles.Flag.GetForeground()).NotTo(BeNil(), "Flag should have foreground color")
 
 	// Placeholder should have yellow color (ANSI 3)
-	g.Expect(styles.Placeholder.GetForeground()).NotTo(BeNil(), "Placeholder should have foreground color")
+	g.Expect(styles.Placeholder.GetForeground()).
+		NotTo(BeNil(), "Placeholder should have foreground color")
 
 	// Subsection should be bold (like Header but for nested sections)
 	g.Expect(styles.Subsection.GetBold()).To(BeTrue(), "Subsection should be bold")

@@ -1148,19 +1148,6 @@ func flagVisited(spec *flagSpec, visited map[string]bool) bool {
 	return false
 }
 
-func formatFlagName(item flagHelp) string {
-	name := "--" + item.Name
-	if item.Short != "" {
-		name = fmt.Sprintf("--%s, -%s", item.Name, item.Short)
-	}
-
-	if item.Placeholder != "" && item.Placeholder != flagPlaceholder {
-		name = fmt.Sprintf("%s %s", name, item.Placeholder)
-	}
-
-	return name
-}
-
 func formatFlagUsage(item flagHelp) string {
 	name := "--" + item.Name
 	if item.Short != "" {
@@ -1176,30 +1163,10 @@ func formatFlagUsage(item flagHelp) string {
 
 // formatSourceAttribution returns the source attribution string for a target.
 // Returns empty string if showAttribution is false (backwards compat).
-func formatSourceAttribution(node *commandNode, showAttribution bool) string {
-	if !showAttribution {
-		return ""
-	}
 
-	if node.Target == nil {
-		return ""
-	}
+// Local target
 
-	source := node.Target.GetSource()
-	renamed := node.Target.IsRenamed()
-
-	if source == "" {
-		// Local target
-		return "(local)"
-	}
-
-	// Remote target
-	if renamed {
-		return fmt.Sprintf("(%s, renamed)", source)
-	}
-
-	return fmt.Sprintf("(%s)", source)
-}
+// Remote target
 
 // funcSourceFile returns the source file path for a function.
 // Callers must ensure v is a valid, non-nil function value.
@@ -1274,7 +1241,6 @@ func groupNodesBySource(nodes []*commandNode, opts RunOptions) []struct {
 
 	return groups
 }
-
 
 func isContextType(t reflect.Type) bool {
 	return t == reflect.TypeFor[context.Context]()
@@ -1711,100 +1677,115 @@ func positionalName(item positionalHelp) string {
 	return "ARG"
 }
 
+func convertFlagHelps(flagHelps []flagHelp) []help.Flag {
+	helpFlags := make([]help.Flag, 0, len(flagHelps))
+	for _, f := range flagHelps {
+		hf := help.Flag{Long: "--" + f.Name, Desc: f.Usage, Placeholder: f.Placeholder, Required: f.Required}
+		if f.Short != "" {
+			hf.Short = "-" + f.Short
+		}
+
+		helpFlags = append(helpFlags, hf)
+	}
+
+	return helpFlags
+}
+
+func collectHelpSubcommands(node *commandNode) []help.Subcommand {
+	if len(node.Subcommands) == 0 {
+		return nil
+	}
+
+	var helpSubs []help.Subcommand
+
+	for _, name := range sortedKeys(node.Subcommands) {
+		if sub := node.Subcommands[name]; sub != nil {
+			helpSubs = append(helpSubs, help.Subcommand{Name: name, Desc: sub.Description})
+		}
+	}
+
+	return helpSubs
+}
+
+func buildExecInfo(lines []string) *help.ExecutionInfo {
+	if len(lines) == 0 {
+		return nil
+	}
+
+	execInfo := &help.ExecutionInfo{}
+
+	for _, line := range lines {
+		switch {
+		case strings.HasPrefix(line, "Deps:"):
+			execInfo.Deps = strings.TrimPrefix(line, "Deps: ")
+		case strings.HasPrefix(line, "Cache:"):
+			execInfo.CachePatterns = strings.TrimPrefix(line, "Cache: ")
+		case strings.HasPrefix(line, "Watch:"):
+			execInfo.WatchPatterns = strings.TrimPrefix(line, "Watch: ")
+		case strings.HasPrefix(line, "Timeout:"):
+			execInfo.Timeout = strings.TrimPrefix(line, "Timeout: ")
+		case strings.HasPrefix(line, "Times:"):
+			execInfo.Times = strings.TrimPrefix(line, "Times: ")
+		case strings.HasPrefix(line, "Retry:"):
+			execInfo.Retry = strings.TrimPrefix(line, "Retry: ")
+		}
+	}
+
+	return execInfo
+}
+
+func convertExamples(examples []Example) []help.Example {
+	if examples == nil {
+		return nil
+	}
+
+	helpExamples := make([]help.Example, 0, len(examples))
+	for _, e := range examples {
+		helpExamples = append(helpExamples, help.Example{Title: e.Title, Code: e.Code})
+	}
+
+	return helpExamples
+}
+
+func resolveMoreInfoText(opts RunOptions) string {
+	if opts.MoreInfoText != "" {
+		return opts.MoreInfoText
+	}
+
+	if opts.RepoURL != "" {
+		return opts.RepoURL
+	}
+
+	return DetectRepoURL()
+}
+
 func printCommandHelp(w io.Writer, node *commandNode, opts RunOptions) {
-	// Build usage string
 	usageParts, err := buildUsageParts(node)
 	if err != nil {
 		_, _ = fmt.Fprintf(w, "Error: %v\n", err)
 		return
 	}
-	usageParts = append([]string{opts.BinaryName, "[targ flags...]"}, usageParts...)
-	usage := strings.Join(usageParts, " ")
 
-	// Collect command flags
+	usageParts = append([]string{opts.BinaryName, "[targ flags...]"}, usageParts...)
+
 	flagItems, err := collectFlagHelp(node)
 	if err != nil {
 		_, _ = fmt.Fprintf(w, "Error: %v\n", err)
 		return
 	}
-	helpFlags := make([]help.Flag, 0, len(flagItems))
-	for _, f := range flagItems {
-		hf := help.Flag{
-			Long:        "--" + f.Name,
-			Desc:        f.Usage,
-			Placeholder: f.Placeholder,
-			Required:    f.Required,
-		}
-		if f.Short != "" {
-			hf.Short = "-" + f.Short
-		}
-		helpFlags = append(helpFlags, hf)
-	}
-
-	// Collect subcommands
-	var helpSubs []help.Subcommand
-	if len(node.Subcommands) > 0 {
-		names := sortedKeys(node.Subcommands)
-		for _, name := range names {
-			sub := node.Subcommands[name]
-			if sub != nil {
-				helpSubs = append(helpSubs, help.Subcommand{Name: name, Desc: sub.Description})
-			}
-		}
-	}
-
-	// Build execution info
-	var execInfo *help.ExecutionInfo
-	lines := executionInfoLines(node)
-	if len(lines) > 0 {
-		execInfo = &help.ExecutionInfo{}
-		for _, line := range lines {
-			if strings.HasPrefix(line, "Deps:") {
-				execInfo.Deps = strings.TrimPrefix(line, "Deps: ")
-			} else if strings.HasPrefix(line, "Cache:") {
-				execInfo.CachePatterns = strings.TrimPrefix(line, "Cache: ")
-			} else if strings.HasPrefix(line, "Watch:") {
-				execInfo.WatchPatterns = strings.TrimPrefix(line, "Watch: ")
-			} else if strings.HasPrefix(line, "Timeout:") {
-				execInfo.Timeout = strings.TrimPrefix(line, "Timeout: ")
-			} else if strings.HasPrefix(line, "Times:") {
-				execInfo.Times = strings.TrimPrefix(line, "Times: ")
-			} else if strings.HasPrefix(line, "Retry:") {
-				execInfo.Retry = strings.TrimPrefix(line, "Retry: ")
-			}
-		}
-	}
-
-	// Convert examples (only if user supplied them)
-	var helpExamples []help.Example
-	if opts.Examples != nil {
-		for _, e := range opts.Examples {
-			helpExamples = append(helpExamples, help.Example{Title: e.Title, Code: e.Code})
-		}
-	}
-
-	// Get more info text
-	moreInfo := opts.MoreInfoText
-	if moreInfo == "" {
-		if url := opts.RepoURL; url != "" {
-			moreInfo = url
-		} else if url := DetectRepoURL(); url != "" {
-			moreInfo = url
-		}
-	}
 
 	help.WriteTargetHelp(w, help.TargetHelpOpts{
-		BinaryName:   opts.BinaryName,
-		Name:         node.Name,
-		Description:  node.Description,
-		SourceFile:   relativeSourcePathWithGetwd(node.SourceFile, optsGetwd(opts)),
-		ShellCommand: node.ShellCommand,
-		Usage:        usage,
-		Flags:        helpFlags,
-		Subcommands:  helpSubs,
-		ExecutionInfo: execInfo,
-		Examples:     helpExamples,
-		MoreInfoText: moreInfo,
+		BinaryName:    opts.BinaryName,
+		Name:          node.Name,
+		Description:   node.Description,
+		SourceFile:    relativeSourcePathWithGetwd(node.SourceFile, optsGetwd(opts)),
+		ShellCommand:  node.ShellCommand,
+		Usage:         strings.Join(usageParts, " "),
+		Flags:         convertFlagHelps(flagItems),
+		Subcommands:   collectHelpSubcommands(node),
+		ExecutionInfo: buildExecInfo(executionInfoLines(node)),
+		Examples:      convertExamples(opts.Examples),
+		MoreInfoText:  resolveMoreInfoText(opts),
 		Filter: help.TargFlagFilter{
 			IsRoot:            false,
 			DisableCompletion: opts.DisableCompletion,
@@ -1817,12 +1798,14 @@ func printCommandHelp(w io.Writer, node *commandNode, opts RunOptions) {
 func printUsage(w io.Writer, nodes []*commandNode, opts RunOptions) {
 	// Convert node groups to help.CommandGroup
 	groups := groupNodesBySource(nodes, opts)
+
 	cmdGroups := make([]help.CommandGroup, 0, len(groups))
 	for _, g := range groups {
 		cmds := make([]help.Command, 0, len(g.nodes))
 		for _, n := range g.nodes {
 			cmds = append(cmds, help.Command{Name: n.Name, Desc: n.Description})
 		}
+
 		cmdGroups = append(cmdGroups, help.CommandGroup{Source: g.source, Commands: cmds})
 	}
 
@@ -1831,6 +1814,7 @@ func printUsage(w io.Writer, nodes []*commandNode, opts RunOptions) {
 	if examples == nil {
 		examples = builtinExamplesForNodesWithGetenv(optsGetenv(opts), nodes)
 	}
+
 	helpExamples := make([]help.Example, 0, len(examples))
 	for _, e := range examples {
 		helpExamples = append(helpExamples, help.Example{Title: e.Title, Code: e.Code})
@@ -2155,25 +2139,5 @@ func validateTagOptionsSignature(method reflect.Value) error {
 }
 
 // writeWrappedUsage writes a usage line with wrapping at word boundaries.
-func writeWrappedUsage(w io.Writer, prefix string, parts []string) {
-	if len(parts) == 0 {
-		_, _ = fmt.Fprintln(w, prefix)
-		return
-	}
 
-	// Build lines by adding parts until we exceed the target width
-	currentLine := prefix + parts[0]
-	indent := strings.Repeat(" ", len(prefix))
-
-	for i := 1; i < len(parts); i++ {
-		part := parts[i]
-		if len(currentLine)+1+len(part) <= usageLineWidth {
-			currentLine += " " + part
-		} else {
-			_, _ = fmt.Fprintln(w, currentLine)
-			currentLine = indent + part
-		}
-	}
-
-	_, _ = fmt.Fprintln(w, currentLine)
-}
+// Build lines by adding parts until we exceed the target width

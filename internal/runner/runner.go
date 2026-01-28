@@ -183,77 +183,58 @@ func AddImportToTargFileWithFileOps(fileOps FileOps, path, packagePath string) e
 }
 
 // AddTargetToFileWithFileOps adds a target using injected file operations.
-func AddTargetToFileWithFileOps(fileOps FileOps, path string, opts CreateOptions) error {
-	content, err := fileOps.ReadFile(path)
-	if err != nil {
-		return fmt.Errorf("reading file: %w", err)
+type targetCodeResult struct {
+	code            string
+	needsTimeImport bool
+}
+
+func buildDepsCode(opts CreateOptions) string {
+	if len(opts.Deps) == 0 {
+		return ""
 	}
 
-	// Build the full variable name including path
-	fullPath := append(opts.Path, opts.Name) //nolint:gocritic // intentional copy
-	varName := PathToPascal(fullPath)
-
-	// Check if target already exists
-	if strings.Contains(string(content), fmt.Sprintf("var %s = ", varName)) {
-		return fmt.Errorf("%w: %s", errDuplicateTarget, strings.Join(fullPath, "/"))
+	depVars := make([]string, len(opts.Deps))
+	for i, dep := range opts.Deps {
+		depVars[i] = KebabToPascal(dep)
 	}
 
-	// Build the target code
+	depsArgs := strings.Join(depVars, ", ")
+	if opts.DepMode == "parallel" {
+		depsArgs += ", targ.DepModeParallel"
+	}
+
+	return fmt.Sprintf(".Deps(%s)", depsArgs)
+}
+
+func buildPatternsCode(method string, patterns []string) string {
+	if len(patterns) == 0 {
+		return ""
+	}
+
+	quoted := make([]string, len(patterns))
+	for i, p := range patterns {
+		quoted[i] = fmt.Sprintf("%q", p)
+	}
+
+	return fmt.Sprintf(".%s(%s)", method, strings.Join(quoted, ", "))
+}
+
+func buildTargetCode(varName string, opts CreateOptions) (targetCodeResult, error) {
 	var code strings.Builder
 
-	// Comment
-	code.WriteString(fmt.Sprintf("\n// %s runs: %s\n", varName, opts.ShellCmd))
-
-	// Start variable declaration
-	escapedCmd := escapeGoString(opts.ShellCmd)
-	code.WriteString(fmt.Sprintf("var %s = targ.Targ(%q)", varName, escapedCmd))
-
-	// Add Name() - use just the target name, not the full path
-	code.WriteString(fmt.Sprintf(".Name(%q)", opts.Name))
-
-	// Add Deps() if specified
-	if len(opts.Deps) > 0 {
-		depVars := make([]string, len(opts.Deps))
-		for i, dep := range opts.Deps {
-			depVars[i] = KebabToPascal(dep)
-		}
-
-		depsArgs := strings.Join(depVars, ", ")
-		if opts.DepMode == "parallel" {
-			depsArgs += ", targ.DepModeParallel"
-		}
-
-		code.WriteString(fmt.Sprintf(".Deps(%s)", depsArgs))
-	}
-
-	// Add Cache() if specified
-	if len(opts.Cache) > 0 {
-		patterns := make([]string, len(opts.Cache))
-		for i, p := range opts.Cache {
-			patterns[i] = fmt.Sprintf("%q", p)
-		}
-
-		code.WriteString(fmt.Sprintf(".Cache(%s)", strings.Join(patterns, ", ")))
-	}
-
-	// Add Watch() if specified
-	if len(opts.Watch) > 0 {
-		patterns := make([]string, len(opts.Watch))
-		for i, p := range opts.Watch {
-			patterns[i] = fmt.Sprintf("%q", p)
-		}
-
-		code.WriteString(fmt.Sprintf(".Watch(%s)", strings.Join(patterns, ", ")))
-	}
-
-	// Track whether generated code needs "time" import
 	needsTimeImport := false
 
-	// Add Timeout() if specified
+	code.WriteString(fmt.Sprintf("\n// %s runs: %s\n", varName, opts.ShellCmd))
+	code.WriteString(fmt.Sprintf("var %s = targ.Targ(%q)", varName, escapeGoString(opts.ShellCmd)))
+	code.WriteString(fmt.Sprintf(".Name(%q)", opts.Name))
+	code.WriteString(buildDepsCode(opts))
+	code.WriteString(buildPatternsCode("Cache", opts.Cache))
+	code.WriteString(buildPatternsCode("Watch", opts.Watch))
+
 	if opts.Timeout != "" {
 		durCode, err := durationToGoCode(opts.Timeout)
 		if err != nil {
-			return fmt.Errorf("invalid timeout: %w", err)
+			return targetCodeResult{}, fmt.Errorf("invalid timeout: %w", err)
 		}
 
 		code.WriteString(fmt.Sprintf(".Timeout(%s)", durCode))
@@ -261,21 +242,18 @@ func AddTargetToFileWithFileOps(fileOps FileOps, path string, opts CreateOptions
 		needsTimeImport = true
 	}
 
-	// Add Times() if specified
 	if opts.Times > 0 {
 		code.WriteString(fmt.Sprintf(".Times(%d)", opts.Times))
 	}
 
-	// Add Retry() if specified
 	if opts.Retry {
 		code.WriteString(".Retry()")
 	}
 
-	// Add Backoff() if specified
 	if opts.Backoff != "" {
 		backoffCode, err := backoffToGoCode(opts.Backoff)
 		if err != nil {
-			return fmt.Errorf("invalid backoff: %w", err)
+			return targetCodeResult{}, fmt.Errorf("invalid backoff: %w", err)
 		}
 
 		code.WriteString(fmt.Sprintf(".Backoff(%s)", backoffCode))
@@ -285,22 +263,40 @@ func AddTargetToFileWithFileOps(fileOps FileOps, path string, opts CreateOptions
 
 	code.WriteString("\n")
 
-	// Generate group modifications (new groups and patches to existing groups)
+	return targetCodeResult{code: code.String(), needsTimeImport: needsTimeImport}, nil
+}
+
+// AddTargetToFileWithFileOps adds a target variable to an existing targ file using injected file ops.
+func AddTargetToFileWithFileOps(fileOps FileOps, path string, opts CreateOptions) error {
+	content, err := fileOps.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("reading file: %w", err)
+	}
+
+	fullPath := append(opts.Path, opts.Name) //nolint:gocritic // intentional copy
+	varName := PathToPascal(fullPath)
+
+	if strings.Contains(string(content), fmt.Sprintf("var %s = ", varName)) {
+		return fmt.Errorf("%w: %s", errDuplicateTarget, strings.Join(fullPath, "/"))
+	}
+
+	result, err := buildTargetCode(varName, opts)
+	if err != nil {
+		return err
+	}
+
 	groupMods := generateGroupModifications(opts.Path, varName, string(content))
 
-	// Apply patches to existing content
 	modifiedContent := string(content)
 	for _, patch := range groupMods.ContentPatches {
 		modifiedContent = strings.Replace(modifiedContent, patch.Old, patch.New, 1)
 	}
 
-	// Add "time" import if needed and not already present
-	if needsTimeImport && !strings.Contains(modifiedContent, `"time"`) {
+	if result.needsTimeImport && !strings.Contains(modifiedContent, `"time"`) {
 		modifiedContent = addTimeImport(modifiedContent)
 	}
 
-	// Append new code
-	newContent := modifiedContent + code.String() + groupMods.newCode
+	newContent := modifiedContent + result.code + groupMods.newCode
 
 	err = fileOps.WriteFile(path, []byte(newContent), filePermissionsForCode)
 	if err != nil {
@@ -348,6 +344,17 @@ func CheckImportExistsWithFileOps(fileOps FileOps, path, packagePath string) (bo
 	}
 
 	return false, nil
+}
+
+// ContainsHelpFlag returns true if args contain --help or -h.
+func ContainsHelpFlag(args []string) bool {
+	for _, a := range args {
+		if a == helpLong || a == helpShort {
+			return true
+		}
+	}
+
+	return false
 }
 
 // ConvertFuncTargetToString converts a function target to a string target.
@@ -749,110 +756,159 @@ func NamespacePaths(files []string, root string) (map[string][]string, error) {
 
 // ParseCreateArgs parses arguments after --create into CreateOptions.
 // Format: [path...] <name> [--deps dep1 dep2...] [--cache/--watch pattern1...] [flags...] "shell-command"
-// The shell command is always the last argument.
-//
-//nolint:cyclop // Parsing logic has necessary branches for each flag type
+// collectListArg collects non-flag arguments into a slice until the next flag or end.
+func collectListArg(remaining []string, i int) ([]string, int) {
+	var values []string
+	for i < len(remaining) && !strings.HasPrefix(remaining[i], "--") {
+		values = append(values, remaining[i])
+		i++
+	}
+
+	return values, i
+}
+
+// parseSingleValueArg parses a single-value flag, returning the value and new index.
+func parseSingleValueArg(remaining []string, i int, flagName string) (string, int, error) {
+	if i >= len(remaining) {
+		return "", i, fmt.Errorf("%w: %s requires a value", errCreateUsage, flagName)
+	}
+
+	return remaining[i], i + 1, nil
+}
+
+// createArgParser holds state for parsing create arguments.
+type createArgParser struct {
+	opts        CreateOptions
+	pathAndName []string
+	remaining   []string
+	i           int
+}
+
+func (p *createArgParser) parseListFlag(target *[]string) {
+	p.i++
+	values, newI := collectListArg(p.remaining, p.i)
+	*target = values
+	p.i = newI
+}
+
+func (p *createArgParser) parseSingleFlag(flagName string, target *string) error {
+	p.i++
+
+	val, newI, err := parseSingleValueArg(p.remaining, p.i, flagName)
+	if err != nil {
+		return err
+	}
+
+	*target = val
+	p.i = newI
+
+	return nil
+}
+
+func (p *createArgParser) parsePositionalOrUnknown(arg string) error {
+	if strings.HasPrefix(arg, "--") {
+		return fmt.Errorf("%w: %s", errUnknownCreateFlag, arg)
+	}
+
+	p.pathAndName = append(p.pathAndName, arg)
+	p.i++
+
+	return nil
+}
+
+func (p *createArgParser) parseArg() error {
+	arg := p.remaining[p.i]
+
+	switch arg {
+	case "--deps":
+		p.parseListFlag(&p.opts.Deps)
+	case "--cache":
+		p.parseListFlag(&p.opts.Cache)
+	case "--watch":
+		p.parseListFlag(&p.opts.Watch)
+	case "--timeout":
+		return p.parseSingleFlag("--timeout", &p.opts.Timeout)
+	case "--times":
+		return p.parseTimesFlag()
+	case "--retry":
+		p.opts.Retry = true
+		p.i++
+	case "--backoff":
+		return p.parseSingleFlag("--backoff", &p.opts.Backoff)
+	case "--dep-mode":
+		return p.parseDepModeFlag()
+	default:
+		return p.parsePositionalOrUnknown(arg)
+	}
+
+	return nil
+}
+
+func (p *createArgParser) parseTimesFlag() error {
+	p.i++
+
+	val, newI, err := parseSingleValueArg(p.remaining, p.i, "--times")
+	if err != nil {
+		return err
+	}
+
+	n, err := strconv.Atoi(val)
+	if err != nil {
+		return fmt.Errorf("%w: --times value must be an integer", errCreateUsage)
+	}
+
+	p.opts.Times = n
+	p.i = newI
+
+	return nil
+}
+
+func (p *createArgParser) parseDepModeFlag() error {
+	p.i++
+
+	mode, newI, err := parseSingleValueArg(p.remaining, p.i, "--dep-mode")
+	if err != nil {
+		return err
+	}
+
+	if mode != "serial" && mode != "parallel" {
+		return fmt.Errorf("%w: --dep-mode must be serial or parallel", errCreateUsage)
+	}
+
+	p.opts.DepMode = mode
+	p.i = newI
+
+	return nil
+}
+
+// ParseCreateArgs parses arguments for --create; the shell command is always the last argument.
 func ParseCreateArgs(args []string) (CreateOptions, error) {
 	var opts CreateOptions
 
-	// Need at least 2 args: name and shell command
 	if len(args) < 2 { //nolint:mnd // minimum: name + command
 		return opts, errCreateUsage
 	}
 
-	// Shell command is always the last argument
 	opts.ShellCmd = args[len(args)-1]
-	remaining := args[:len(args)-1]
 
-	// Parse remaining arguments
-	var pathAndName []string
-
-	i := 0
-	for i < len(remaining) {
-		arg := remaining[i]
-
-		switch {
-		case arg == "--deps":
-			// Collect deps until next flag or end
-			i++
-			for i < len(remaining) && !strings.HasPrefix(remaining[i], "--") {
-				opts.Deps = append(opts.Deps, remaining[i])
-				i++
-			}
-		case arg == "--cache":
-			// Collect cache patterns until next flag or end
-			i++
-			for i < len(remaining) && !strings.HasPrefix(remaining[i], "--") {
-				opts.Cache = append(opts.Cache, remaining[i])
-				i++
-			}
-		case arg == "--watch":
-			// Collect watch patterns until next flag or end
-			i++
-			for i < len(remaining) && !strings.HasPrefix(remaining[i], "--") {
-				opts.Watch = append(opts.Watch, remaining[i])
-				i++
-			}
-		case arg == "--timeout":
-			i++
-			if i >= len(remaining) {
-				return opts, fmt.Errorf("%w: --timeout requires a value", errCreateUsage)
-			}
-			opts.Timeout = remaining[i]
-			i++
-		case arg == "--times":
-			i++
-			if i >= len(remaining) {
-				return opts, fmt.Errorf("%w: --times requires a value", errCreateUsage)
-			}
-			n, err := strconv.Atoi(remaining[i])
-			if err != nil {
-				return opts, fmt.Errorf("%w: --times value must be an integer", errCreateUsage)
-			}
-			opts.Times = n
-			i++
-		case arg == "--retry":
-			opts.Retry = true
-			i++
-		case arg == "--backoff":
-			i++
-			if i >= len(remaining) {
-				return opts, fmt.Errorf("%w: --backoff requires a value", errCreateUsage)
-			}
-			opts.Backoff = remaining[i]
-			i++
-		case arg == "--dep-mode":
-			i++
-			if i >= len(remaining) {
-				return opts, fmt.Errorf("%w: --dep-mode requires a value", errCreateUsage)
-			}
-			mode := remaining[i]
-			if mode != "serial" && mode != "parallel" {
-				return opts, fmt.Errorf("%w: --dep-mode must be serial or parallel", errCreateUsage)
-			}
-			opts.DepMode = mode
-			i++
-		case strings.HasPrefix(arg, "--"):
-			return opts, fmt.Errorf("%w: %s", errUnknownCreateFlag, arg)
-		default:
-			// Non-flag argument: path component or name
-			pathAndName = append(pathAndName, arg)
-			i++
+	parser := &createArgParser{opts: opts, remaining: args[:len(args)-1]}
+	for parser.i < len(parser.remaining) {
+		err := parser.parseArg()
+		if err != nil {
+			return opts, err
 		}
 	}
 
-	// Need at least the target name
-	if len(pathAndName) < 1 {
+	if len(parser.pathAndName) < 1 {
 		return opts, errCreateUsage
 	}
 
-	// Last of pathAndName is name, rest are path
-	opts.Name = pathAndName[len(pathAndName)-1]
-	if len(pathAndName) > 1 {
-		opts.Path = pathAndName[:len(pathAndName)-1]
+	parser.opts.Name = parser.pathAndName[len(parser.pathAndName)-1]
+	if len(parser.pathAndName) > 1 {
+		parser.opts.Path = parser.pathAndName[:len(parser.pathAndName)-1]
 	}
 
-	return opts, nil
+	return parser.opts, nil
 }
 
 // ParseHelpRequest parses args to determine if help was requested and if a target was specified.
@@ -865,7 +921,7 @@ func ParseHelpRequest(args []string) (bool, bool) {
 			break
 		}
 
-		if arg == "--help" || arg == "-h" {
+		if arg == helpLong || arg == helpShort {
 			helpRequested = true
 			continue
 		}
@@ -907,6 +963,86 @@ func PathToPascal(path []string) string {
 	}
 
 	return result.String()
+}
+
+// PrintCreateHelp writes structured help for --create to w.
+func PrintCreateHelp(w io.Writer) {
+	output := help.New("targ --create").
+		WithDescription("Create a new target in the nearest targ file.").
+		WithUsage(`targ --create [group...] <name> [flags...] "<shell-command>"`).
+		AddPositionals(
+			help.Positional{Name: "group", Placeholder: "<group...>"},
+			help.Positional{Name: "name", Placeholder: "<name>", Required: true},
+			help.Positional{
+				Name:        "shell-command",
+				Placeholder: `"<shell-command>"`,
+				Required:    true,
+			},
+		).
+		AddCommandFlags(
+			help.Flag{Long: "--deps", Placeholder: "<targets...>", Desc: "Deps to run first"},
+			help.Flag{Long: "--cache", Placeholder: "<patterns...>", Desc: "Skip if unchanged"},
+			help.Flag{Long: "--watch", Placeholder: "<patterns...>", Desc: "Re-run on change"},
+			help.Flag{Long: "--timeout", Placeholder: "<duration>", Desc: "Execution timeout"},
+			help.Flag{Long: "--times", Placeholder: "<n>", Desc: "Run n times"},
+			help.Flag{Long: "--retry", Desc: "Continue on failure"},
+			help.Flag{Long: "--backoff", Placeholder: "<duration,mult>", Desc: "Backoff (1s,2.0)"},
+			help.Flag{Long: "--dep-mode", Placeholder: "<mode>", Desc: "serial or parallel"},
+		).
+		AddFormats(
+			help.Format{
+				Name: "duration",
+				Desc: "<int><unit> where unit is s (seconds), m (minutes), h (hours)",
+			},
+		).
+		AddExamples(
+			help.Example{Code: `targ --create test "go test ./..."`},
+			help.Example{
+				Code: `targ --create dev lint --deps fmt --cache "**/*.go" "golangci-lint run"`,
+			},
+			help.Example{Code: `targ --create test --timeout 30s --retry "go test ./..."`},
+		).
+		Render()
+	_, _ = fmt.Fprint(w, output)
+}
+
+// PrintSyncHelp writes structured help for --sync to w.
+func PrintSyncHelp(w io.Writer) {
+	output := help.New("targ --sync").
+		WithDescription("Sync targets from a remote package.").
+		WithUsage("targ --sync <package-path>").
+		AddExamples(
+			help.Example{Code: "targ --sync github.com/user/repo"},
+			help.Example{Code: "targ --sync github.com/user/repo/tools"},
+		).
+		Render()
+	_, _ = fmt.Fprint(w, output)
+}
+
+// PrintToFuncHelp writes structured help for --to-func to w.
+func PrintToFuncHelp(w io.Writer) {
+	output := help.New("targ --to-func").
+		WithDescription("Convert a string target to a function target.").
+		WithUsage("targ --to-func <target-name>").
+		AddExamples(
+			help.Example{Code: "targ --to-func test"},
+			help.Example{Code: "targ --to-func dev/lint"},
+		).
+		Render()
+	_, _ = fmt.Fprint(w, output)
+}
+
+// PrintToStringHelp writes structured help for --to-string to w.
+func PrintToStringHelp(w io.Writer) {
+	output := help.New("targ --to-string").
+		WithDescription("Convert a function target to a string target.").
+		WithUsage("targ --to-string <target-name>").
+		AddExamples(
+			help.Example{Code: "targ --to-string test"},
+			help.Example{Code: "targ --to-string dev/lint"},
+		).
+		Render()
+	_, _ = fmt.Fprint(w, output)
 }
 
 // Run executes the targ CLI with the given binary name and arguments.
@@ -992,6 +1128,8 @@ func main() {
 	defaultTargModulePath  = "github.com/toejough/targ"
 	filePermissionsForCode = 0o644 // standard file permissions for created source files
 	helpIndentWidth        = 4     // Leading spaces in help output
+	helpLong               = "--help"
+	helpShort              = "-h"
 	isolatedModuleName     = "targ.build.local"
 	minArgsForCompletion   = 2      // Minimum args for __complete (binary + arg)
 	minCommandNameWidth    = 10     // Minimum column width for command names in help output
@@ -1005,8 +1143,9 @@ var (
 		"usage: targ --create [group...] <name> [--deps ...] [--cache/--watch ...]" +
 			" [--timeout/--times/--retry/--backoff/--dep-mode] \"<shell-command>\"",
 	)
-	errDuplicateTarget   = errors.New("target already exists")
-	errInvalidDependency = errors.New("invalid dependency name")
+	errBackoffFormat      = errors.New("backoff must be duration,multiplier (e.g. 1s,2.0)")
+	errDuplicateTarget    = errors.New("target already exists")
+	errInvalidDependency  = errors.New("invalid dependency name")
 	errInvalidGroup       = errors.New("invalid group name")
 	errInvalidPackagePath = errors.New(
 		"invalid package path: must be a module path (e.g., github.com/user/repo)",
@@ -1339,46 +1478,61 @@ func (r *targRunner) exitWithCleanup(code int) int {
 	return code
 }
 
-func (r *targRunner) handleCreateFlag(args []string) (exitCode int, done bool) {
+func (r *targRunner) handleCreateFlag(args []string) int {
 	if ContainsHelpFlag(args) {
 		PrintCreateHelp(os.Stdout)
-		return 0, true
+		return 0
 	}
 
 	opts, err := ParseCreateArgs(args)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return 1, true
+		_, _ = fmt.Fprintln(os.Stderr, err)
+		return 1
 	}
 
 	err = validateCreateOptions(opts)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return 1, true
+		_, _ = fmt.Fprintln(os.Stderr, err)
+		return 1
 	}
 
 	startDir, err := os.Getwd()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error getting working directory: %v\n", err)
-		return 1, true
+		_, _ = fmt.Fprintf(os.Stderr, "error getting working directory: %v\n", err)
+		return 1
 	}
 
 	targFile, err := FindOrCreateTargFile(startDir)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error finding/creating targ file: %v\n", err)
-		return 1, true
+		_, _ = fmt.Fprintf(os.Stderr, "error finding/creating targ file: %v\n", err)
+		return 1
 	}
 
 	err = AddTargetToFileWithOptions(targFile, opts)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error adding target: %v\n", err)
-		return 1, true
+		_, _ = fmt.Fprintf(os.Stderr, "error adding target: %v\n", err)
+		return 1
 	}
 
 	fullPath := append(opts.Path, opts.Name) //nolint:gocritic // intentional copy
 	fmt.Printf("Created target %q in %s\n", strings.Join(fullPath, "/"), targFile)
 
-	return 0, true
+	return 0
+}
+
+func (r *targRunner) dispatchFlagCommand(flagLong string, remaining []string) (int, bool) {
+	switch flagLong {
+	case "create":
+		return r.handleCreateFlag(remaining), true
+	case "sync":
+		return r.handleSyncFlag(remaining), true
+	case "to-func":
+		return r.handleToFuncFlag(remaining), true
+	case "to-string":
+		return r.handleToStringFlag(remaining), true
+	}
+
+	return 0, false
 }
 
 func (r *targRunner) handleEarlyFlags() (exitCode int, done bool) {
@@ -1386,10 +1540,7 @@ func (r *targRunner) handleEarlyFlags() (exitCode int, done bool) {
 	helpSeen := false
 
 	for i, arg := range r.args {
-		isFlag := strings.HasPrefix(arg, "-")
-
-		// Track when we see a target name (first non-flag)
-		if !isFlag && !seenTarget {
+		if !strings.HasPrefix(arg, "-") && !seenTarget {
 			seenTarget = true
 		}
 
@@ -1399,7 +1550,7 @@ func (r *targRunner) handleEarlyFlags() (exitCode int, done bool) {
 		}
 
 		if f.Removed != "" {
-			fmt.Fprintf(os.Stderr, "%s: %s\n", arg, f.Removed)
+			_, _ = fmt.Fprintf(os.Stderr, "%s: %s\n", arg, f.Removed)
 			return 1, true
 		}
 
@@ -1407,22 +1558,14 @@ func (r *targRunner) handleEarlyFlags() (exitCode int, done bool) {
 			helpSeen = true
 		}
 
-		// Position-sensitive flags: only recognized before first target
 		if !seenTarget {
 			remaining := r.args[i+1:]
 			if helpSeen {
-				remaining = append([]string{"--help"}, remaining...)
+				remaining = append([]string{helpLong}, remaining...)
 			}
 
-			switch f.Long {
-			case "create":
-				return r.handleCreateFlag(remaining)
-			case "sync":
-				return r.handleSyncFlag(remaining)
-			case "to-func":
-				return r.handleToFuncFlag(remaining)
-			case "to-string":
-				return r.handleToStringFlag(remaining)
+			if code, handled := r.dispatchFlagCommand(f.Long, remaining); handled {
+				return code, true
 			}
 		}
 	}
@@ -1574,57 +1717,51 @@ func (r *targRunner) handleSingleModule(infos []discover.PackageInfo) int {
 	return r.buildAndRun(importRoot, binaryPath, targBinName, bootstrap.code)
 }
 
-func (r *targRunner) handleSyncFlag(args []string) (exitCode int, done bool) {
+func (r *targRunner) handleSyncFlag(args []string) int {
 	if ContainsHelpFlag(args) {
 		PrintSyncHelp(os.Stdout)
-		return 0, true
+		return 0
 	}
 
-	// Parse the sync arguments
 	opts, err := ParseSyncArgs(args)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return 1, true
+		_, _ = fmt.Fprintln(os.Stderr, err)
+		return 1
 	}
 
-	// Get working directory
 	startDir, err := os.Getwd()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error getting working directory: %v\n", err)
-		return 1, true
+		_, _ = fmt.Fprintf(os.Stderr, "error getting working directory: %v\n", err)
+		return 1
 	}
 
-	// Find or create targ file
 	targFile, err := FindOrCreateTargFile(startDir)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error finding/creating targ file: %v\n", err)
-		return 1, true
+		_, _ = fmt.Fprintf(os.Stderr, "error finding/creating targ file: %v\n", err)
+		return 1
 	}
 
-	// Check if import already exists
 	exists, err := CheckImportExists(targFile, opts.PackagePath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error checking imports: %v\n", err)
-		return 1, true
+		_, _ = fmt.Fprintf(os.Stderr, "error checking imports: %v\n", err)
+		return 1
 	}
 
 	if exists {
-		fmt.Fprintf(os.Stderr, "%v: %s\n", errPackageAlreadySynced, opts.PackagePath)
-		return 1, true
+		_, _ = fmt.Fprintf(os.Stderr, "%v: %s\n", errPackageAlreadySynced, opts.PackagePath)
+		return 1
 	}
 
-	// Fetch the package
 	err = fetchPackage(opts.PackagePath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to fetch package: %v\n", err)
-		return 1, true
+		_, _ = fmt.Fprintf(os.Stderr, "failed to fetch package: %v\n", err)
+		return 1
 	}
 
-	// Add the import to the targ file
 	err = AddImportToTargFile(targFile, opts.PackagePath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error adding import: %v\n", err)
-		return 1, true
+		_, _ = fmt.Fprintf(os.Stderr, "error adding import: %v\n", err)
+		return 1
 	}
 
 	fmt.Printf("Synced %q to %s\n", opts.PackagePath, targFile)
@@ -1634,18 +1771,18 @@ func (r *targRunner) handleSyncFlag(args []string) (exitCode int, done bool) {
 	fmt.Println("  - Remove the DeregisterFrom line to use all targets")
 	fmt.Println("  - Or selectively re-register: targ.Register(pkg.TargetName)")
 
-	return 0, true
+	return 0
 }
 
-func (r *targRunner) handleToFuncFlag(args []string) (exitCode int, done bool) {
+func (r *targRunner) handleToFuncFlag(args []string) int {
 	if ContainsHelpFlag(args) {
 		PrintToFuncHelp(os.Stdout)
-		return 0, true
+		return 0
 	}
 
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "--to-func requires a target name")
-		return 1, true
+		_, _ = fmt.Fprintln(os.Stderr, "--to-func requires a target name")
+		return 1
 	}
 
 	return convertTargetInFiles(
@@ -1657,15 +1794,15 @@ func (r *targRunner) handleToFuncFlag(args []string) (exitCode int, done bool) {
 	)
 }
 
-func (r *targRunner) handleToStringFlag(args []string) (exitCode int, done bool) {
+func (r *targRunner) handleToStringFlag(args []string) int {
 	if ContainsHelpFlag(args) {
 		PrintToStringHelp(os.Stdout)
-		return 0, true
+		return 0
 	}
 
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "--to-string requires a target name")
-		return 1, true
+		_, _ = fmt.Fprintln(os.Stderr, "--to-string requires a target name")
+		return 1
 	}
 
 	return convertTargetInFiles(
@@ -1675,88 +1812,6 @@ func (r *targRunner) handleToStringFlag(args []string) (exitCode int, done bool)
 		"a function target",
 		ConvertFuncTargetToString,
 	)
-}
-
-// ContainsHelpFlag returns true if args contain --help or -h.
-func ContainsHelpFlag(args []string) bool {
-	for _, a := range args {
-		if a == "--help" || a == "-h" {
-			return true
-		}
-	}
-
-	return false
-}
-
-// PrintCreateHelp writes structured help for --create to w.
-func PrintCreateHelp(w io.Writer) {
-	output := help.New("targ --create").
-		WithDescription("Create a new target in the nearest targ file.").
-		WithUsage(`targ --create [group...] <name> [flags...] "<shell-command>"`).
-		AddPositionals(
-			help.Positional{Name: "group", Placeholder: "<group...>"},
-			help.Positional{Name: "name", Placeholder: "<name>", Required: true},
-			help.Positional{Name: "shell-command", Placeholder: `"<shell-command>"`, Required: true},
-		).
-		AddCommandFlags(
-			help.Flag{Long: "--deps", Placeholder: "<targets...>", Desc: "Dependency targets to run first"},
-			help.Flag{Long: "--cache", Placeholder: "<patterns...>", Desc: "Skip if files unchanged"},
-			help.Flag{Long: "--watch", Placeholder: "<patterns...>", Desc: "Re-run on file changes"},
-			help.Flag{Long: "--timeout", Placeholder: "<duration>", Desc: "Set execution timeout (e.g. 30s, 5m)"},
-			help.Flag{Long: "--times", Placeholder: "<n>", Desc: "Run the command n times"},
-			help.Flag{Long: "--retry", Desc: "Continue on failure"},
-			help.Flag{Long: "--backoff", Placeholder: "<duration,mult>", Desc: "Exponential backoff (e.g. 1s,2.0)"},
-			help.Flag{Long: "--dep-mode", Placeholder: "<mode>", Desc: "Dependency mode: serial or parallel"},
-		).
-		AddFormats(
-			help.Format{Name: "duration", Desc: "<int><unit> where unit is s (seconds), m (minutes), h (hours)"},
-		).
-		AddExamples(
-			help.Example{Code: `targ --create test "go test ./..."`},
-			help.Example{Code: `targ --create dev lint --deps fmt --cache "**/*.go" "golangci-lint run"`},
-			help.Example{Code: `targ --create test --timeout 30s --retry "go test ./..."`},
-		).
-		Render()
-	fmt.Fprint(w, output)
-}
-
-// PrintSyncHelp writes structured help for --sync to w.
-func PrintSyncHelp(w io.Writer) {
-	output := help.New("targ --sync").
-		WithDescription("Sync targets from a remote package.").
-		WithUsage("targ --sync <package-path>").
-		AddExamples(
-			help.Example{Code: "targ --sync github.com/user/repo"},
-			help.Example{Code: "targ --sync github.com/user/repo/tools"},
-		).
-		Render()
-	fmt.Fprint(w, output)
-}
-
-// PrintToFuncHelp writes structured help for --to-func to w.
-func PrintToFuncHelp(w io.Writer) {
-	output := help.New("targ --to-func").
-		WithDescription("Convert a string target to a function target.").
-		WithUsage("targ --to-func <target-name>").
-		AddExamples(
-			help.Example{Code: "targ --to-func test"},
-			help.Example{Code: "targ --to-func dev/lint"},
-		).
-		Render()
-	fmt.Fprint(w, output)
-}
-
-// PrintToStringHelp writes structured help for --to-string to w.
-func PrintToStringHelp(w io.Writer) {
-	output := help.New("targ --to-string").
-		WithDescription("Convert a function target to a string target.").
-		WithUsage("targ --to-string <target-name>").
-		AddExamples(
-			help.Example{Code: "targ --to-string test"},
-			help.Example{Code: "targ --to-string dev/lint"},
-		).
-		Render()
-	fmt.Fprint(w, output)
 }
 
 func (r *targRunner) logError(prefix string, err error) {
@@ -2039,6 +2094,46 @@ func addDeregisterFromToInit(file *ast.File, packagePath string) {
 
 	// Insert at the found position
 	file.Decls = slices.Insert(file.Decls, insertIdx, ast.Decl(initFunc))
+}
+
+// addTimeImport adds "time" to the import block in generated Go source.
+func addTimeImport(content string) string {
+	// Case 1: single import — convert to grouped
+	const singleImport = `import "github.com/toejough/targ"`
+	if strings.Contains(content, singleImport) {
+		return strings.Replace(content, singleImport,
+			"import (\n\t\"time\"\n\n\t\"github.com/toejough/targ\"\n)", 1)
+	}
+
+	// Case 2: grouped import with targ — insert "time" before the targ line
+	if before, _, ok := strings.Cut(content, `"github.com/toejough/targ"`); ok {
+		insertAt := strings.LastIndex(before, "\n") + 1
+		return content[:insertAt] + "\t\"time\"\n\n" + content[insertAt:]
+	}
+
+	return content
+}
+
+// backoffToGoCode converts "duration,multiplier" to Go code like "1*time.Second, 2.0".
+func backoffToGoCode(s string) (string, error) {
+	parts := strings.SplitN(s, ",", 2) //nolint:mnd // format is "duration,multiplier"
+	if len(parts) != 2 {               //nolint:mnd // need exactly 2 parts
+		return "", fmt.Errorf("%w: %q", errBackoffFormat, s)
+	}
+
+	durCode, err := durationToGoCode(parts[0])
+	if err != nil {
+		return "", err
+	}
+
+	mult := strings.TrimSpace(parts[1])
+
+	_, err = strconv.ParseFloat(mult, 64)
+	if err != nil {
+		return "", fmt.Errorf("invalid multiplier %q: %w", mult, err)
+	}
+
+	return durCode + ", " + mult, nil
 }
 
 // buildAndQueryBinary builds the binary and queries its commands.
@@ -2375,43 +2470,40 @@ func computeModuleCacheKey(mt moduleTargets, importRoot string, bootstrap []byte
 func convertTargetInFiles(
 	_, targetName, successVerb, notFoundDesc string,
 	convert targetConverter,
-) (exitCode int, done bool) {
-	// Get working directory
+) int {
 	startDir, err := os.Getwd()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error getting working directory: %v\n", err)
-		return 1, true
+		_, _ = fmt.Fprintf(os.Stderr, "error getting working directory: %v\n", err)
+		return 1
 	}
 
-	// Find targ files
 	targFiles, err := findTargFiles(startDir)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error finding targ files: %v\n", err)
-		return 1, true
+		_, _ = fmt.Fprintf(os.Stderr, "error finding targ files: %v\n", err)
+		return 1
 	}
 
 	if len(targFiles) == 0 {
-		fmt.Fprintln(os.Stderr, "no targ files found")
-		return 1, true
+		_, _ = fmt.Fprintln(os.Stderr, "no targ files found")
+		return 1
 	}
 
-	// Convert target in each file until we find it
 	for _, targFile := range targFiles {
 		ok, convErr := convert(targFile, targetName)
 		if convErr != nil {
-			fmt.Fprintf(os.Stderr, "error converting target: %v\n", convErr)
-			return 1, true
+			_, _ = fmt.Fprintf(os.Stderr, "error converting target: %v\n", convErr)
+			return 1
 		}
 
 		if ok {
 			fmt.Printf("Converted target %q to %s in %s\n", targetName, successVerb, targFile)
-			return 0, true
+			return 0
 		}
 	}
 
-	fmt.Fprintf(os.Stderr, "target %q not found or not %s\n", targetName, notFoundDesc)
+	_, _ = fmt.Fprintf(os.Stderr, "target %q not found or not %s\n", targetName, notFoundDesc)
 
-	return 1, true
+	return 1
 }
 
 // copyFileStrippingTag copies a file to destPath, removing the //go:build targ line.
@@ -2558,6 +2650,25 @@ func dispatchCompletion(registry []moduleRegistry, args []string) error {
 	return nil
 }
 
+// durationToGoCode converts a duration string like "30s" to Go code like "30 * time.Second".
+func durationToGoCode(s string) (string, error) {
+	d, err := time.ParseDuration(s)
+	if err != nil {
+		return "", fmt.Errorf("parsing duration %q: %w", s, err)
+	}
+
+	switch {
+	case d%time.Hour == 0:
+		return fmt.Sprintf("%d * time.Hour", int(d/time.Hour)), nil
+	case d%time.Minute == 0:
+		return fmt.Sprintf("%d * time.Minute", int(d/time.Minute)), nil
+	case d%time.Second == 0:
+		return fmt.Sprintf("%d * time.Second", int(d/time.Second)), nil
+	default:
+		return fmt.Sprintf("time.Duration(%d)", d.Nanoseconds()), nil
+	}
+}
+
 // ensureTargDependency runs go get to ensure targ dependency is available.
 func ensureTargDependency(dep TargDependency, importRoot string) {
 	//nolint:gosec // build tool runs go get by design
@@ -2610,65 +2721,6 @@ func escapeGoString(s string) string {
 	s = strings.ReplaceAll(s, "\"", "\\\"")
 
 	return s
-}
-
-// durationToGoCode converts a duration string like "30s" to Go code like "30 * time.Second".
-func durationToGoCode(s string) (string, error) {
-	d, err := time.ParseDuration(s)
-	if err != nil {
-		return "", fmt.Errorf("parsing duration %q: %w", s, err)
-	}
-
-	switch {
-	case d%time.Hour == 0:
-		return fmt.Sprintf("%d * time.Hour", int(d/time.Hour)), nil
-	case d%time.Minute == 0:
-		return fmt.Sprintf("%d * time.Minute", int(d/time.Minute)), nil
-	case d%time.Second == 0:
-		return fmt.Sprintf("%d * time.Second", int(d/time.Second)), nil
-	default:
-		return fmt.Sprintf("time.Duration(%d)", d.Nanoseconds()), nil
-	}
-}
-
-// backoffToGoCode converts "duration,multiplier" to Go code like "1*time.Second, 2.0".
-func backoffToGoCode(s string) (string, error) {
-	parts := strings.SplitN(s, ",", 2) //nolint:mnd // format is "duration,multiplier"
-	if len(parts) != 2 {               //nolint:mnd // need exactly 2 parts
-		return "", fmt.Errorf("backoff must be duration,multiplier (e.g. 1s,2.0): %q", s)
-	}
-
-	durCode, err := durationToGoCode(parts[0])
-	if err != nil {
-		return "", err
-	}
-
-	mult := strings.TrimSpace(parts[1])
-
-	_, err = strconv.ParseFloat(mult, 64)
-	if err != nil {
-		return "", fmt.Errorf("invalid multiplier %q: %w", mult, err)
-	}
-
-	return durCode + ", " + mult, nil
-}
-
-// addTimeImport adds "time" to the import block in generated Go source.
-func addTimeImport(content string) string {
-	// Case 1: single import — convert to grouped
-	const singleImport = `import "github.com/toejough/targ"`
-	if strings.Contains(content, singleImport) {
-		return strings.Replace(content, singleImport,
-			"import (\n\t\"time\"\n\n\t\"github.com/toejough/targ\"\n)", 1)
-	}
-
-	// Case 2: grouped import with targ — insert "time" before the targ line
-	if idx := strings.Index(content, `"github.com/toejough/targ"`); idx != -1 {
-		insertAt := strings.LastIndex(content[:idx], "\n") + 1
-		return content[:insertAt] + "\t\"time\"\n\n" + content[insertAt:]
-	}
-
-	return content
 }
 
 func extractBinName(binArg string) string {
@@ -3155,7 +3207,7 @@ func isCleanVersion(version string) bool {
 
 // isHelpRequest returns true if args represent a help request.
 func isHelpRequest(args []string) bool {
-	return len(args) == 0 || args[0] == "-h" || args[0] == "--help"
+	return len(args) == 0 || args[0] == helpShort || args[0] == helpLong
 }
 
 // isIncludableModuleFile returns true if the file should be included in module cache.
@@ -3168,7 +3220,6 @@ func isIncludableModuleFile(name string) bool {
 	// Include non-test .go files
 	return strings.HasSuffix(name, ".go") && !strings.HasSuffix(name, "_test.go")
 }
-
 
 // isTargTargCall checks if call is targ.Targ().
 func isTargTargCall(call *ast.CallExpr) bool {
@@ -3184,7 +3235,6 @@ func isTargTargCall(call *ast.CallExpr) bool {
 
 	return ident.Name == "targ" && sel.Sel.Name == "Targ"
 }
-
 
 // linkModuleEntry creates a symlink for a single directory entry if needed.
 func linkModuleEntry(startDir, root string, entry os.DirEntry) error {
@@ -3283,20 +3333,12 @@ func prepareBuildContext(
 }
 
 // printMultiModuleHelp prints aggregated help for all modules.
-func printMultiModuleHelp(registry []moduleRegistry) {
-	fmt.Println("targ is a build-tool runner that discovers tagged commands and executes them.")
-	fmt.Println()
-	fmt.Println("Usage: targ [FLAGS...] COMMAND [COMMAND_ARGS...]")
-	fmt.Println()
-	fmt.Println("Commands:")
+type cmdEntry struct {
+	name        string
+	description string
+}
 
-	// Collect all commands and sort by name
-	type cmdEntry struct {
-		name        string
-		description string
-	}
-
-	// Count total commands for preallocation
+func collectSortedCommands(registry []moduleRegistry) []cmdEntry {
 	totalCmds := 0
 	for _, reg := range registry {
 		totalCmds += len(reg.Commands)
@@ -3310,22 +3352,19 @@ func printMultiModuleHelp(registry []moduleRegistry) {
 		}
 	}
 
-	sort.Slice(allCmds, func(i, j int) bool {
-		return allCmds[i].name < allCmds[j].name
-	})
+	sort.Slice(allCmds, func(i, j int) bool { return allCmds[i].name < allCmds[j].name })
 
-	// Find max command name length for alignment
-	maxLen := 0
+	return allCmds
+}
+
+func printCommandList(allCmds []cmdEntry) {
+	maxLen := minCommandNameWidth
 	for _, cmd := range allCmds {
 		if len(cmd.name) > maxLen {
 			maxLen = len(cmd.name)
 		}
 	}
-	// Ensure minimum width and add padding
-	if maxLen < minCommandNameWidth {
-		maxLen = minCommandNameWidth
-	}
-	// Indent for continuation lines: leading + name width + padding + space + extra padding
+
 	indent := strings.Repeat(" ", helpIndentWidth+maxLen+commandNamePadding+1+commandNamePadding)
 
 	for _, cmd := range allCmds {
@@ -3336,10 +3375,9 @@ func printMultiModuleHelp(registry []moduleRegistry) {
 			fmt.Printf("%s%s\n", indent, line)
 		}
 	}
+}
 
-	fmt.Println()
-	fmt.Println("Flags:")
-
+func printFlagList() {
 	for _, f := range flags.VisibleFlags() {
 		name := "--" + f.Long
 		if f.Short != "" {
@@ -3348,7 +3386,18 @@ func printMultiModuleHelp(registry []moduleRegistry) {
 
 		fmt.Printf("    %-28s %s\n", name, f.Desc)
 	}
+}
 
+func printMultiModuleHelp(registry []moduleRegistry) {
+	fmt.Println("targ is a build-tool runner that discovers tagged commands and executes them.")
+	fmt.Println()
+	fmt.Println("Usage: targ [FLAGS...] COMMAND [COMMAND_ARGS...]")
+	fmt.Println()
+	fmt.Println("Commands:")
+	printCommandList(collectSortedCommands(registry))
+	fmt.Println()
+	fmt.Println("Flags:")
+	printFlagList()
 	fmt.Println()
 	fmt.Println("More info: https://github.com/toejough/targ#readme")
 }

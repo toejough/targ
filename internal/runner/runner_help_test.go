@@ -10,6 +10,157 @@ import (
 	"github.com/toejough/targ/internal/runner"
 )
 
+func TestContainsHelpFlag(t *testing.T) {
+	t.Parallel()
+	g := NewWithT(t)
+
+	g.Expect(runner.ContainsHelpFlag([]string{"--help"})).To(BeTrue())
+	g.Expect(runner.ContainsHelpFlag([]string{"-h"})).To(BeTrue())
+	g.Expect(runner.ContainsHelpFlag([]string{"foo", "--help"})).To(BeTrue())
+	g.Expect(runner.ContainsHelpFlag([]string{"foo", "-h"})).To(BeTrue())
+	g.Expect(runner.ContainsHelpFlag([]string{"foo", "bar"})).To(BeFalse())
+	g.Expect(runner.ContainsHelpFlag([]string{})).To(BeFalse())
+}
+
+func TestCreateHelp(t *testing.T) {
+	t.Parallel()
+	g := NewWithT(t)
+
+	var buf strings.Builder
+	runner.PrintCreateHelp(&buf)
+	output := buf.String()
+
+	// Deterministic content checks
+	g.Expect(output).To(ContainSubstring("Create a new target"))
+	g.Expect(output).To(ContainSubstring("Positionals:"))
+	g.Expect(output).To(ContainSubstring("group"))
+	g.Expect(output).To(ContainSubstring("name"))
+	g.Expect(output).To(ContainSubstring("shell-command"))
+	g.Expect(output).To(ContainSubstring("Flags:"))
+	g.Expect(output).To(ContainSubstring("--deps"))
+	g.Expect(output).To(ContainSubstring("--cache"))
+	g.Expect(output).To(ContainSubstring("--watch"))
+	g.Expect(output).To(ContainSubstring("--timeout"))
+	g.Expect(output).To(ContainSubstring("--times"))
+	g.Expect(output).To(ContainSubstring("--retry"))
+	g.Expect(output).To(ContainSubstring("--backoff"))
+	g.Expect(output).To(ContainSubstring("--dep-mode"))
+	g.Expect(output).To(ContainSubstring("Formats:"))
+	g.Expect(output).To(ContainSubstring("duration"))
+	g.Expect(output).To(ContainSubstring("Examples:"))
+}
+
+func TestProperty_HelpOutputStructure(t *testing.T) {
+	t.Parallel()
+
+	type helpFunc struct {
+		name string
+		fn   func(*strings.Builder)
+		spec helpSpec
+	}
+
+	helpers := []helpFunc{
+		{
+			name: "create",
+			fn:   func(b *strings.Builder) { runner.PrintCreateHelp(b) },
+			spec: helpSpec{
+				command:        "--create",
+				hasPositionals: true,
+				hasFlags:       true,
+				hasFormats:     true,
+			},
+		},
+		{
+			name: "sync",
+			fn:   func(b *strings.Builder) { runner.PrintSyncHelp(b) },
+			spec: helpSpec{
+				command:        "--sync",
+				hasPositionals: false,
+				hasFlags:       false,
+				hasFormats:     false,
+			},
+		},
+		{
+			name: "to-func",
+			fn:   func(b *strings.Builder) { runner.PrintToFuncHelp(b) },
+			spec: helpSpec{
+				command:        "--to-func",
+				hasPositionals: false,
+				hasFlags:       false,
+				hasFormats:     false,
+			},
+		},
+		{
+			name: "to-string",
+			fn:   func(b *strings.Builder) { runner.PrintToStringHelp(b) },
+			spec: helpSpec{
+				command:        "--to-string",
+				hasPositionals: false,
+				hasFlags:       false,
+				hasFormats:     false,
+			},
+		},
+	}
+
+	for _, h := range helpers {
+		t.Run(h.name, func(t *testing.T) {
+			t.Parallel()
+			rapid.Check(t, func(t *rapid.T) {
+				g := NewWithT(t)
+
+				var buf strings.Builder
+				h.fn(&buf)
+				validateHelpOutput(g, buf.String(), h.spec)
+			})
+		})
+	}
+}
+
+func TestSyncHelp(t *testing.T) {
+	t.Parallel()
+	g := NewWithT(t)
+
+	var buf strings.Builder
+	runner.PrintSyncHelp(&buf)
+	output := buf.String()
+
+	g.Expect(output).To(ContainSubstring("Sync targets from a remote package"))
+	g.Expect(output).To(ContainSubstring("Usage:"))
+	g.Expect(output).To(ContainSubstring("--sync"))
+	g.Expect(output).To(ContainSubstring("package-path"))
+	g.Expect(output).To(ContainSubstring("Examples:"))
+}
+
+func TestToFuncHelp(t *testing.T) {
+	t.Parallel()
+	g := NewWithT(t)
+
+	var buf strings.Builder
+	runner.PrintToFuncHelp(&buf)
+	output := buf.String()
+
+	g.Expect(output).To(ContainSubstring("Convert a string target to a function target"))
+	g.Expect(output).To(ContainSubstring("Usage:"))
+	g.Expect(output).To(ContainSubstring("--to-func"))
+	g.Expect(output).To(ContainSubstring("target-name"))
+	g.Expect(output).To(ContainSubstring("Examples:"))
+}
+
+func TestToStringHelp(t *testing.T) {
+	t.Parallel()
+	g := NewWithT(t)
+
+	var buf strings.Builder
+	runner.PrintToStringHelp(&buf)
+	output := buf.String()
+
+	g.Expect(output).To(ContainSubstring("Convert a function target to a string target"))
+	g.Expect(output).To(ContainSubstring("Usage:"))
+	g.Expect(output).To(ContainSubstring("--to-string"))
+	g.Expect(output).To(ContainSubstring("target-name"))
+	g.Expect(output).To(ContainSubstring("Examples:"))
+}
+
 // helpSpec describes the expected sections in help output for property tests.
 type helpSpec struct {
 	command        string // e.g. "--create"
@@ -72,6 +223,7 @@ func validateHelpOutput(g Gomega, output string, spec helpSpec) {
 
 	// Each example starts with "targ"
 	inExamples := false
+
 	for _, line := range lines {
 		if strings.HasPrefix(line, "Examples:") {
 			inExamples = true
@@ -87,161 +239,37 @@ func validateHelpOutput(g Gomega, output string, spec helpSpec) {
 
 	// If Flags: section exists, every flag line contains --
 	if spec.hasFlags {
-		inFlags := false
-		for _, line := range lines {
-			if strings.Contains(line, "Flags:") {
-				inFlags = true
-				continue
-			}
+		validateFlagsSection(g, lines)
+	}
+}
 
-			// Stop at next section (ends with colon)
-			if inFlags && strings.TrimSpace(line) != "" {
-				trimmed := strings.TrimSpace(line)
-				if strings.HasSuffix(trimmed, ":") && !strings.Contains(trimmed, "--") {
-					inFlags = false
-					continue
-				}
-			}
+func validateFlagsSection(g Gomega, lines []string) {
+	inFlags := false
 
-			if inFlags && strings.TrimSpace(line) != "" {
-				// Skip subsection headers like "Global Flags:" or "Command Flags:"
-				trimmed := strings.TrimSpace(line)
-				if strings.HasSuffix(trimmed, ":") {
-					continue
-				}
-				g.Expect(line).To(ContainSubstring("--"),
-					"flag line should contain --: %q", trimmed)
-			}
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+
+		if strings.Contains(line, "Flags:") {
+			inFlags = true
+			continue
 		}
-	}
-}
 
-func TestCreateHelp(t *testing.T) {
-	t.Parallel()
-	g := NewWithT(t)
+		if !inFlags || trimmed == "" {
+			continue
+		}
 
-	var buf strings.Builder
-	runner.PrintCreateHelp(&buf)
-	output := buf.String()
+		// Stop at next section (ends with colon, not a flag)
+		if strings.HasSuffix(trimmed, ":") && !strings.Contains(trimmed, "--") {
+			inFlags = false
+			continue
+		}
 
-	// Deterministic content checks
-	g.Expect(output).To(ContainSubstring("Create a new target"))
-	g.Expect(output).To(ContainSubstring("Positionals:"))
-	g.Expect(output).To(ContainSubstring("group"))
-	g.Expect(output).To(ContainSubstring("name"))
-	g.Expect(output).To(ContainSubstring("shell-command"))
-	g.Expect(output).To(ContainSubstring("Flags:"))
-	g.Expect(output).To(ContainSubstring("--deps"))
-	g.Expect(output).To(ContainSubstring("--cache"))
-	g.Expect(output).To(ContainSubstring("--watch"))
-	g.Expect(output).To(ContainSubstring("--timeout"))
-	g.Expect(output).To(ContainSubstring("--times"))
-	g.Expect(output).To(ContainSubstring("--retry"))
-	g.Expect(output).To(ContainSubstring("--backoff"))
-	g.Expect(output).To(ContainSubstring("--dep-mode"))
-	g.Expect(output).To(ContainSubstring("Formats:"))
-	g.Expect(output).To(ContainSubstring("duration"))
-	g.Expect(output).To(ContainSubstring("Examples:"))
-}
+		// Skip subsection headers like "Global Flags:" or "Command Flags:"
+		if strings.HasSuffix(trimmed, ":") {
+			continue
+		}
 
-func TestSyncHelp(t *testing.T) {
-	t.Parallel()
-	g := NewWithT(t)
-
-	var buf strings.Builder
-	runner.PrintSyncHelp(&buf)
-	output := buf.String()
-
-	g.Expect(output).To(ContainSubstring("Sync targets from a remote package"))
-	g.Expect(output).To(ContainSubstring("Usage:"))
-	g.Expect(output).To(ContainSubstring("--sync"))
-	g.Expect(output).To(ContainSubstring("package-path"))
-	g.Expect(output).To(ContainSubstring("Examples:"))
-}
-
-func TestToFuncHelp(t *testing.T) {
-	t.Parallel()
-	g := NewWithT(t)
-
-	var buf strings.Builder
-	runner.PrintToFuncHelp(&buf)
-	output := buf.String()
-
-	g.Expect(output).To(ContainSubstring("Convert a string target to a function target"))
-	g.Expect(output).To(ContainSubstring("Usage:"))
-	g.Expect(output).To(ContainSubstring("--to-func"))
-	g.Expect(output).To(ContainSubstring("target-name"))
-	g.Expect(output).To(ContainSubstring("Examples:"))
-}
-
-func TestToStringHelp(t *testing.T) {
-	t.Parallel()
-	g := NewWithT(t)
-
-	var buf strings.Builder
-	runner.PrintToStringHelp(&buf)
-	output := buf.String()
-
-	g.Expect(output).To(ContainSubstring("Convert a function target to a string target"))
-	g.Expect(output).To(ContainSubstring("Usage:"))
-	g.Expect(output).To(ContainSubstring("--to-string"))
-	g.Expect(output).To(ContainSubstring("target-name"))
-	g.Expect(output).To(ContainSubstring("Examples:"))
-}
-
-func TestContainsHelpFlag(t *testing.T) {
-	t.Parallel()
-	g := NewWithT(t)
-
-	g.Expect(runner.ContainsHelpFlag([]string{"--help"})).To(BeTrue())
-	g.Expect(runner.ContainsHelpFlag([]string{"-h"})).To(BeTrue())
-	g.Expect(runner.ContainsHelpFlag([]string{"foo", "--help"})).To(BeTrue())
-	g.Expect(runner.ContainsHelpFlag([]string{"foo", "-h"})).To(BeTrue())
-	g.Expect(runner.ContainsHelpFlag([]string{"foo", "bar"})).To(BeFalse())
-	g.Expect(runner.ContainsHelpFlag([]string{})).To(BeFalse())
-}
-
-func TestProperty_HelpOutputStructure(t *testing.T) {
-	t.Parallel()
-
-	type helpFunc struct {
-		name string
-		fn   func(*strings.Builder)
-		spec helpSpec
-	}
-
-	helpers := []helpFunc{
-		{
-			name: "create",
-			fn:   func(b *strings.Builder) { runner.PrintCreateHelp(b) },
-			spec: helpSpec{command: "--create", hasPositionals: true, hasFlags: true, hasFormats: true},
-		},
-		{
-			name: "sync",
-			fn:   func(b *strings.Builder) { runner.PrintSyncHelp(b) },
-			spec: helpSpec{command: "--sync", hasPositionals: false, hasFlags: false, hasFormats: false},
-		},
-		{
-			name: "to-func",
-			fn:   func(b *strings.Builder) { runner.PrintToFuncHelp(b) },
-			spec: helpSpec{command: "--to-func", hasPositionals: false, hasFlags: false, hasFormats: false},
-		},
-		{
-			name: "to-string",
-			fn:   func(b *strings.Builder) { runner.PrintToStringHelp(b) },
-			spec: helpSpec{command: "--to-string", hasPositionals: false, hasFlags: false, hasFormats: false},
-		},
-	}
-
-	for _, h := range helpers {
-		t.Run(h.name, func(t *testing.T) {
-			t.Parallel()
-			rapid.Check(t, func(t *rapid.T) {
-				g := NewWithT(t)
-				var buf strings.Builder
-				h.fn(&buf)
-				validateHelpOutput(g, buf.String(), h.spec)
-			})
-		})
+		g.Expect(line).To(ContainSubstring("--"),
+			"flag line should contain --: %q", trimmed)
 	}
 }

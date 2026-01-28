@@ -4,20 +4,69 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/toejough/targ/internal/help"
 	. "github.com/onsi/gomega"
+
+	"github.com/toejough/targ/internal/help"
 )
 
-func TestWriteHeaderContainsText(t *testing.T) {
+func TestStripANSIWithEmptyString(t *testing.T) {
+	t.Parallel()
+	g := NewWithT(t)
+
+	result := help.StripANSI("")
+	g.Expect(result).To(Equal(""))
+}
+
+func TestStripANSIWithEscapeCodes(t *testing.T) {
+	t.Parallel()
+	g := NewWithT(t)
+
+	// ANSI escape for bold: \x1b[1m ... \x1b[0m
+	input := "\x1b[1mhello\x1b[0m world"
+	result := help.StripANSI(input)
+	g.Expect(result).To(Equal("hello world"))
+}
+
+func TestStripANSIWithMultipleEscapeCodes(t *testing.T) {
+	t.Parallel()
+	g := NewWithT(t)
+
+	// Multiple ANSI codes
+	input := "\x1b[1m\x1b[36mhello\x1b[0m \x1b[33mworld\x1b[0m"
+	result := help.StripANSI(input)
+	g.Expect(result).To(Equal("hello world"))
+}
+
+func TestStripANSIWithPlainText(t *testing.T) {
+	t.Parallel()
+	g := NewWithT(t)
+
+	result := help.StripANSI("hello world")
+	g.Expect(result).To(Equal("hello world"))
+}
+
+func TestWriteExampleWithTitle(t *testing.T) {
 	t.Parallel()
 	g := NewWithT(t)
 
 	var buf strings.Builder
-	help.WriteHeader(&buf, "Test:")
+	help.WriteExample(&buf, "Basic usage", "targ build")
 	output := buf.String()
 
-	g.Expect(output).To(ContainSubstring("Test:"))
-	g.Expect(output).To(HaveSuffix("\n"))
+	g.Expect(output).To(ContainSubstring("Basic usage:"))
+	g.Expect(output).To(ContainSubstring("targ build"))
+}
+
+func TestWriteExampleWithoutTitle(t *testing.T) {
+	t.Parallel()
+	g := NewWithT(t)
+
+	var buf strings.Builder
+	help.WriteExample(&buf, "", "targ build")
+	output := buf.String()
+
+	g.Expect(output).To(ContainSubstring("targ build"))
+	g.Expect(output).NotTo(ContainSubstring(":"))
 }
 
 func TestWriteFlagLineFormatsCorrectly(t *testing.T) {
@@ -45,18 +94,6 @@ func TestWriteFlagLineWithShortForm(t *testing.T) {
 	g.Expect(output).To(ContainSubstring("-h"))
 }
 
-func TestWriteValueLineFormatsCorrectly(t *testing.T) {
-	t.Parallel()
-	g := NewWithT(t)
-
-	var buf strings.Builder
-	help.WriteValueLine(&buf, "shell", "bash, zsh, fish")
-	output := buf.String()
-
-	g.Expect(output).To(ContainSubstring("shell"))
-	g.Expect(output).To(ContainSubstring("bash, zsh, fish"))
-}
-
 func TestWriteFormatLineFormatsCorrectly(t *testing.T) {
 	t.Parallel()
 	g := NewWithT(t)
@@ -69,26 +106,26 @@ func TestWriteFormatLineFormatsCorrectly(t *testing.T) {
 	g.Expect(output).To(ContainSubstring("<int><unit>"))
 }
 
-func TestWriteExampleWithTitle(t *testing.T) {
+func TestWriteHeaderContainsText(t *testing.T) {
 	t.Parallel()
 	g := NewWithT(t)
 
 	var buf strings.Builder
-	help.WriteExample(&buf, "Basic usage", "targ build")
+	help.WriteHeader(&buf, "Test:")
 	output := buf.String()
 
-	g.Expect(output).To(ContainSubstring("Basic usage:"))
-	g.Expect(output).To(ContainSubstring("targ build"))
+	g.Expect(output).To(ContainSubstring("Test:"))
+	g.Expect(output).To(HaveSuffix("\n"))
 }
 
-func TestWriteExampleWithoutTitle(t *testing.T) {
+func TestWriteValueLineFormatsCorrectly(t *testing.T) {
 	t.Parallel()
 	g := NewWithT(t)
 
 	var buf strings.Builder
-	help.WriteExample(&buf, "", "targ build")
+	help.WriteValueLine(&buf, "shell", "bash, zsh, fish")
 	output := buf.String()
 
-	g.Expect(output).To(ContainSubstring("targ build"))
-	g.Expect(output).NotTo(ContainSubstring(":"))
+	g.Expect(output).To(ContainSubstring("shell"))
+	g.Expect(output).To(ContainSubstring("bash, zsh, fish"))
 }

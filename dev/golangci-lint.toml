@@ -49,6 +49,7 @@ allow = [
 	'github.com/toejough/go-reorder',
 	'github.com/bmatcuk/doublestar/v4',
 	'golang.org/x/tools/go/packages',
+	'github.com/charmbracelet/lipgloss',
 ]
 
 [linters.settings.depguard.rules.test]
@@ -60,6 +61,7 @@ allow = [
 	'github.com/toejough/targ',
 	'github.com/onsi/gomega',
 	'pgregory.net/rapid',
+	'github.com/charmbracelet/lipgloss',
 ]
 
 [linters.settings.nlreturn]
@@ -96,6 +98,15 @@ ignore-names = [
 	'fv',
 	'ft',
 	'mu',
+	'sb',
+	'e',
+	's',
+	'hf',
+	'et',
+	'pt',
+	'st',
+	'd',
+	'h',
 ]
 
 [linters.settings.unused]

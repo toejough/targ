@@ -1044,7 +1044,7 @@ func suggestMatchingFlags(w io.Writer, flags []string, prefix string, seen map[s
 func targBooleanFlags() map[string]bool { return flags.BooleanFlags() }
 
 // targFlagsWithValues returns flags that consume the next argument as a value.
-func targFlagsWithValues() map[string]bool { return flags.FlagsWithValues() }
+func targFlagsWithValues() map[string]bool { return flags.WithValues() }
 
 // targGlobalFlags returns flags valid at any command level.
 func targGlobalFlags() []string { return flags.GlobalFlags() }

@@ -1,6 +1,3 @@
-// Package help styling definitions.
-// This file defines lipgloss styles for consistent terminal output.
-
 package help
 
 import "github.com/charmbracelet/lipgloss"
