@@ -5,4 +5,15 @@ package help
 // Builder is the entry point for constructing help output.
 // It uses a type-state pattern where each phase returns a new type,
 // ensuring sections are added in the correct order.
-type Builder struct{}
+type Builder struct {
+	content *ContentBuilder
+}
+
+// New creates a new help Builder for the given command name.
+func New(commandName string) *Builder {
+	return &Builder{
+		content: &ContentBuilder{
+			commandName: commandName,
+		},
+	}
+}
