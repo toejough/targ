@@ -36,3 +36,17 @@ type Example struct {
 	Title string
 	Code  string
 }
+
+// ContentBuilder holds all help content before rendering.
+// Fields are unexported; use builder methods to populate.
+type ContentBuilder struct {
+	commandName  string
+	description  string
+	usage        string
+	positionals  []Positional
+	globalFlags  []Flag
+	commandFlags []Flag
+	formats      []Format
+	subcommands  []Subcommand
+	examples     []Example
+}
