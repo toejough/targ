@@ -152,3 +152,20 @@ func TestAddExamplesPanicsOnEmpty(t *testing.T) {
 	cb := help.New("test").WithDescription("desc")
 	g.Expect(func() { cb.AddExamples() }).To(Panic())
 }
+
+func TestAddGlobalFlagsIsChainable(t *testing.T) {
+	t.Parallel()
+	g := NewWithT(t)
+
+	cb := help.New("test").WithDescription("desc").AddGlobalFlags("--timeout", "--parallel")
+	g.Expect(cb).NotTo(BeNil())
+}
+
+func TestAddGlobalFlagsHandlesUnknownFlagGracefully(t *testing.T) {
+	t.Parallel()
+	g := NewWithT(t)
+
+	// Unknown flags should be silently ignored (no panic)
+	cb := help.New("test").WithDescription("desc").AddGlobalFlags("--nonexistent")
+	g.Expect(cb).NotTo(BeNil())
+}
