@@ -34,3 +34,41 @@ func (cb *ContentBuilder) WithUsage(usage string) *ContentBuilder {
 	cb.usage = usage
 	return cb
 }
+
+// AddPositionals adds positional arguments to the help output.
+// Multiple calls accumulate positionals.
+func (cb *ContentBuilder) AddPositionals(pos ...Positional) *ContentBuilder {
+	cb.positionals = append(cb.positionals, pos...)
+	return cb
+}
+
+// AddCommandFlags adds command-specific flags to the help output.
+// Multiple calls accumulate flags.
+func (cb *ContentBuilder) AddCommandFlags(flags ...Flag) *ContentBuilder {
+	cb.commandFlags = append(cb.commandFlags, flags...)
+	return cb
+}
+
+// AddFormats adds value format descriptions to the help output.
+// Multiple calls accumulate formats.
+func (cb *ContentBuilder) AddFormats(formats ...Format) *ContentBuilder {
+	cb.formats = append(cb.formats, formats...)
+	return cb
+}
+
+// AddSubcommands adds subcommand entries to the help output.
+// Multiple calls accumulate subcommands.
+func (cb *ContentBuilder) AddSubcommands(subs ...Subcommand) *ContentBuilder {
+	cb.subcommands = append(cb.subcommands, subs...)
+	return cb
+}
+
+// AddExamples sets the examples for the help output.
+// At least one example is required; panics if called with no arguments.
+func (cb *ContentBuilder) AddExamples(examples ...Example) *ContentBuilder {
+	if len(examples) == 0 {
+		panic("help.AddExamples: at least one example is required")
+	}
+	cb.examples = append(cb.examples, examples...)
+	return cb
+}
