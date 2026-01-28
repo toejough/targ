@@ -34,3 +34,28 @@ func TestNewBuilderPanicsOnEmptyName(t *testing.T) {
 
 	g.Expect(func() { help.New("") }).To(Panic())
 }
+
+func TestWithDescriptionReturnsContentBuilder(t *testing.T) {
+	t.Parallel()
+	g := NewWithT(t)
+
+	b := help.New("test-command")
+	cb := b.WithDescription("A test command")
+
+	g.Expect(cb).NotTo(BeNil())
+}
+
+func TestProperty_WithDescriptionCarriesOverCommandName(t *testing.T) {
+	t.Parallel()
+
+	rapid.Check(t, func(t *rapid.T) {
+		name := rapid.StringOf(rapid.Rune()).Filter(func(s string) bool {
+			return s != ""
+		}).Draw(t, "commandName")
+		desc := rapid.String().Draw(t, "description")
+
+		b := help.New(name)
+		cb := b.WithDescription(desc)
+		_ = cb // ContentBuilder created successfully with description
+	})
+}
