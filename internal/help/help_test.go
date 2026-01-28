@@ -22,9 +22,10 @@ func TestPackageStructureExists(t *testing.T) {
 	var _ help.Format
 	var _ help.Subcommand
 	var _ help.Example
+	var _ help.ContentBuilder
 
-	// render.go should export Render function
-	_ = help.Render
+	// render.go - Render is a method on ContentBuilder, not standalone
+	// Verified by the render_test.go tests
 
 	// styles.go should export Styles
 	var _ help.Styles
