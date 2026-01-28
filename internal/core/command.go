@@ -17,6 +17,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/toejough/targ/internal/flags"
 	internalsh "github.com/toejough/targ/internal/sh"
 )
 
@@ -1831,15 +1832,16 @@ func printExampleList(w io.Writer, examples []Example) {
 func printExamples(w io.Writer, opts RunOptions, isRoot bool) {
 	examples := opts.Examples
 	if examples == nil {
+		if !isRoot {
+			// At target level with no user-supplied examples, skip Examples section.
+			// The target's description, source, shell command, and execution info
+			// are already informative without generic examples.
+			return
+		}
 		getenv := optsGetenv(opts)
-		if isRoot {
-			examples = []Example{
-				completionExampleWithGetenv(getenv),
-				chainExample(nil),
-			}
-		} else {
-			// At subcommand level, only show chaining example
-			examples = []Example{chainExample(nil)}
+		examples = []Example{
+			completionExampleWithGetenv(getenv),
+			chainExample(nil),
 		}
 	}
 
@@ -1973,31 +1975,36 @@ func printSubcommandList(w io.Writer, subs map[string]*commandNode, indent strin
 func printTargFlags(w io.Writer, opts RunOptions, isRoot bool) {
 	_, _ = fmt.Fprintln(w, "Targ flags:")
 
-	if isRoot && !opts.DisableCompletion {
-		_, _ = fmt.Fprintln(w, "  --completion [shell]")
+	for _, f := range flags.VisibleFlags() {
+		if skipTargFlag(f, opts, isRoot) {
+			continue
+		}
+
+		name := "--" + f.Long
+		if f.Short != "" {
+			name = fmt.Sprintf("--%s, -%s", f.Long, f.Short)
+		}
+
+		_, _ = fmt.Fprintf(w, "  %-28s %s\n", name, f.Desc)
+	}
+}
+
+// skipTargFlag returns true if this flag should be omitted from help output.
+func skipTargFlag(f flags.Def, opts RunOptions, isRoot bool) bool {
+	if f.RootOnly && !isRoot {
+		return true
 	}
 
-	if !opts.DisableHelp {
-		_, _ = fmt.Fprintln(w, "  --help")
+	switch f.Long {
+	case "completion":
+		return opts.DisableCompletion
+	case "help":
+		return opts.DisableHelp
+	case "timeout":
+		return opts.DisableTimeout
+	default:
+		return false
 	}
-
-	if isRoot {
-		_, _ = fmt.Fprintln(w, "  --source, -s <path>   Use targ files from specified directory")
-	}
-
-	if !opts.DisableTimeout {
-		_, _ = fmt.Fprintln(w, "  --timeout <duration>")
-	}
-
-	// Runtime override flags
-	_, _ = fmt.Fprintln(w, "  --parallel, -p        Run multiple targets concurrently")
-	_, _ = fmt.Fprintln(w, "  --times <n>           Run the command n times")
-	_, _ = fmt.Fprintln(w, "  --retry               Continue on failure")
-	_, _ = fmt.Fprintln(w, "  --backoff <d,m>       Exponential backoff (duration,multiplier)")
-	_, _ = fmt.Fprintln(w, "  --watch <pattern>     Re-run on file changes (repeatable)")
-	_, _ = fmt.Fprintln(w, "  --cache <pattern>     Skip if files unchanged (repeatable)")
-	_, _ = fmt.Fprintln(w, "  --while <cmd>         Run while shell command succeeds")
-	_, _ = fmt.Fprintln(w, "  --dep-mode <mode>     Dependency mode: serial or parallel")
 }
 
 // printTopLevelCommand prints a top-level command with aligned description.
@@ -2067,7 +2074,7 @@ func printValuesAndFormats(w io.Writer, opts RunOptions, isRoot bool) {
 		_, _ = fmt.Fprintln(w, "\nValues:")
 		_, _ = fmt.Fprintf(
 			w,
-			"  shell: bash, zsh, fish (default: current shell (detected: %s))\n",
+			"  shell: bash, zsh, fish (for --completion; default: current shell (detected: %s))\n",
 			shell,
 		)
 	}
@@ -2079,7 +2086,7 @@ func printValuesAndFormats(w io.Writer, opts RunOptions, isRoot bool) {
 		if !opts.DisableTimeout {
 			_, _ = fmt.Fprintln(
 				w,
-				"  duration: <int><unit> where unit is s (seconds), m (minutes), h (hours)",
+				"  duration: <int><unit> where unit is s (seconds), m (minutes), h (hours) (used by --timeout, --backoff)",
 			)
 		}
 	}
