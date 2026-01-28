@@ -10,6 +10,9 @@ type Styles struct {
 	// Header is the style for section headers (bold).
 	Header lipgloss.Style
 
+	// Subsection is the style for subsection headers like "Global Flags:" (bold).
+	Subsection lipgloss.Style
+
 	// Flag is the style for flag names (cyan).
 	Flag lipgloss.Style
 
@@ -21,6 +24,7 @@ type Styles struct {
 func DefaultStyles() Styles {
 	return Styles{
 		Header:      lipgloss.NewStyle().Bold(true),
+		Subsection:  lipgloss.NewStyle().Bold(true),
 		Flag:        lipgloss.NewStyle().Foreground(lipgloss.Color("6")), // Cyan
 		Placeholder: lipgloss.NewStyle().Foreground(lipgloss.Color("3")), // Yellow
 	}
