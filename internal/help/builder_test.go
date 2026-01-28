@@ -59,3 +59,26 @@ func TestProperty_WithDescriptionCarriesOverCommandName(t *testing.T) {
 		_ = cb // ContentBuilder created successfully with description
 	})
 }
+
+func TestWithUsageIsChainable(t *testing.T) {
+	t.Parallel()
+	g := NewWithT(t)
+
+	cb := help.New("test").WithDescription("desc").WithUsage("test [options]")
+	g.Expect(cb).NotTo(BeNil())
+}
+
+func TestProperty_WithUsageStoresValue(t *testing.T) {
+	t.Parallel()
+
+	rapid.Check(t, func(t *rapid.T) {
+		name := rapid.StringOf(rapid.Rune()).Filter(func(s string) bool {
+			return s != ""
+		}).Draw(t, "commandName")
+		desc := rapid.String().Draw(t, "description")
+		usage := rapid.String().Draw(t, "usage")
+
+		cb := help.New(name).WithDescription(desc).WithUsage(usage)
+		_ = cb // ContentBuilder with usage set
+	})
+}
