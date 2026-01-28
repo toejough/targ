@@ -1985,6 +1985,11 @@ func printTargFlags(w io.Writer, opts RunOptions, isRoot bool) {
 			name = fmt.Sprintf("--%s, -%s", f.Long, f.Short)
 		}
 
+		// Add placeholder for flags that take values
+		if f.Placeholder != "" {
+			name = fmt.Sprintf("%s %s", name, f.Placeholder)
+		}
+
 		_, _ = fmt.Fprintf(w, "  %-28s %s\n", name, f.Desc)
 	}
 }
