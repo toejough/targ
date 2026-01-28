@@ -21,3 +21,10 @@ func New(commandName string) *Builder {
 		},
 	}
 }
+
+// WithDescription sets the command description and transitions to ContentBuilder.
+// This is the first method that must be called after New().
+func (b *Builder) WithDescription(desc string) *ContentBuilder {
+	b.content.description = desc
+	return b.content
+}
