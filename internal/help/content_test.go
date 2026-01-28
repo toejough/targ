@@ -164,3 +164,15 @@ func TestProperty_ExampleCanBeCreated(t *testing.T) {
 		_ = e.Title
 	})
 }
+
+func TestContentBuilderExists(t *testing.T) {
+	t.Parallel()
+	g := NewWithT(t)
+
+	// ContentBuilder should be exported and usable
+	var _ help.ContentBuilder
+
+	ct := reflect.TypeOf(help.ContentBuilder{})
+	g.Expect(ct.NumField()).To(BeNumerically(">=", 9),
+		"ContentBuilder should have at least 9 fields")
+}
