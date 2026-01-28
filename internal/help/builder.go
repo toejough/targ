@@ -28,3 +28,9 @@ func (b *Builder) WithDescription(desc string) *ContentBuilder {
 	b.content.description = desc
 	return b.content
 }
+
+// WithUsage sets a custom usage line for the help output.
+func (cb *ContentBuilder) WithUsage(usage string) *ContentBuilder {
+	cb.usage = usage
+	return cb
+}
