@@ -104,6 +104,11 @@ var (
 	Watch                = targ.Targ(watch).Description("Watch and re-run checks")
 )
 
+// CoverageCheckArgs configures coverage threshold checks.
+type CoverageCheckArgs struct {
+	Threshold float64 `targ:"flag,desc=Minimum coverage percentage (default: 80)"`
+}
+
 type CoverageArgs struct {
 	HTML bool `targ:"flag,desc=Open HTML report in browser"`
 }
@@ -123,10 +128,21 @@ type deadFunc struct {
 	line int
 }
 
+// RedundantTestArgs configures findRedundantTests.
+type RedundantTestArgs struct {
+	BaselinePattern   string  `targ:"flag,desc=Test name pattern for baseline tests (default: TestProperty_)"`
+	CoverageThreshold float64 `targ:"flag,desc=Minimum coverage percentage (default: 80)"`
+}
+
 type lineAndCoverage struct {
 	line     string
 	coverage float64
 }
+
+var (
+	modulePathOnce sync.Once
+	modulePath     string
+)
 
 type thinViolation struct {
 	File   string
@@ -185,9 +201,14 @@ func check(_ context.Context) error {
 	return nil // deps handled by target definition
 }
 
-func checkCoverage(ctx context.Context) error {
+func checkCoverage(ctx context.Context, args CoverageCheckArgs) error {
 	fmt.Println("Checking coverage...")
 	// Test runs as dep before this function
+
+	threshold := args.Threshold
+	if threshold == 0 {
+		threshold = 80.0
+	}
 
 	// Merge duplicate coverage blocks from cross-package testing
 	if err := mergeCoverageBlocks("coverage.out"); err != nil {
@@ -246,16 +267,20 @@ func checkCoverage(ctx context.Context) error {
 
 	fmt.Println(strings.Join(sortedLines, "\n"))
 
-	coverage := 80.0
-	if lc.coverage < coverage {
-		return fmt.Errorf("function coverage was less than the limit of %.1f:\n  %s", coverage, lc.line)
+	if lc.coverage < threshold {
+		return fmt.Errorf("function coverage was less than the limit of %.1f:\n  %s", threshold, lc.line)
 	}
 
 	return nil
 }
 
-func checkCoverageForFail(ctx context.Context) error {
+func checkCoverageForFail(ctx context.Context, args CoverageCheckArgs) error {
 	fmt.Println("Checking coverage...")
+
+	threshold := args.Threshold
+	if threshold == 0 {
+		threshold = 80.0
+	}
 
 	// Merge duplicate coverage blocks from cross-package testing
 	if err := mergeCoverageBlocks("coverage.out"); err != nil {
@@ -297,7 +322,6 @@ func checkCoverageForFail(ctx context.Context) error {
 		}
 	}
 
-	threshold := 80.0
 	if minCoverage < threshold {
 		return fmt.Errorf("function coverage was less than the limit of %.1f:\n  %s", threshold, minLine)
 	}
@@ -650,14 +674,6 @@ func deadcode(ctx context.Context) error {
 			if isPublicAPIEntryPoint(filePath) {
 				continue
 			}
-			// Skip internal packages that support the CLI or public API
-			if strings.HasPrefix(filePath, "internal/core/") ||
-				strings.HasPrefix(filePath, "internal/sh/") ||
-				strings.HasPrefix(filePath, "internal/file/") ||
-				strings.HasPrefix(filePath, "internal/discover/") ||
-				strings.HasPrefix(filePath, "internal/parse/") {
-				continue
-			}
 			// Skip example files (standalone demos, not part of the binary)
 			if strings.HasPrefix(filePath, "examples/") {
 				continue
@@ -809,15 +825,6 @@ func deleteDeadcode(ctx context.Context) error {
 			continue
 		}
 
-		// Skip internal packages that support the CLI or public API
-		if strings.HasPrefix(file, "internal/core/") ||
-			strings.HasPrefix(file, "internal/sh/") ||
-			strings.HasPrefix(file, "internal/file/") ||
-			strings.HasPrefix(file, "internal/discover/") ||
-			strings.HasPrefix(file, "internal/parse/") {
-			continue
-		}
-
 		// Skip example files (standalone demos, not part of the binary)
 		if strings.HasPrefix(file, "examples/") {
 			continue
@@ -850,20 +857,24 @@ func deleteDeadcode(ctx context.Context) error {
 	return nil
 }
 
-func findRedundantTests() error {
+func findRedundantTests(args RedundantTestArgs) error {
+	pattern := args.BaselinePattern
+	if pattern == "" {
+		pattern = "TestProperty_"
+	}
+
+	threshold := args.CoverageThreshold
+	if threshold == 0 {
+		threshold = 80.0
+	}
+
 	config := testredundancy.Config{
 		BaselineTests: []testredundancy.BaselineTestSpec{
-			// Property-based tests form the baseline
-			{Package: "./test", TestPattern: "TestProperty_"},
-			{Package: "./internal/core", TestPattern: "TestProperty_"},
-			{Package: "./internal/runner", TestPattern: "TestProperty_"},
-			{Package: "./internal/discover", TestPattern: "TestProperty_"},
-			{Package: "./internal/parse", TestPattern: "TestProperty_"},
+			{Package: "./...", TestPattern: pattern},
 		},
-		CoverageThreshold: 80.0,
+		CoverageThreshold: threshold,
 		PackageToAnalyze:  "./...",
-		// Measure coverage of internal packages
-		CoveragePackages: "./internal/...",
+		CoveragePackages:  "./internal/...",
 	}
 
 	return testredundancy.Find(config)
@@ -945,7 +956,7 @@ func fuzz() error {
 	for _, test := range fuzzTests {
 		fmt.Printf("  Fuzzing %s in %s...\n", test.name, test.dir)
 
-		err := targ.Run("go", "test", test.dir, "-fuzz=^"+test.name+"$", "-fuzztime=1000x")
+		err := targ.Run("go", "test", test.dir, "-run=^$", "-fuzz=^"+test.name+"$", "-fuzztime=1000x")
 		if err != nil {
 			return fmt.Errorf("fuzz test %s failed: %w", test.name, err)
 		}
@@ -1051,6 +1062,26 @@ func isBasicLit(expr ast.Expr) bool {
 	return ok
 }
 
+// getModulePath reads the module path from go.mod, caching the result.
+func getModulePath() string {
+	modulePathOnce.Do(func() {
+		data, err := os.ReadFile("go.mod")
+		if err != nil {
+			return
+		}
+
+		for _, line := range strings.Split(string(data), "\n") {
+			if strings.HasPrefix(line, "module ") {
+				modulePath = strings.TrimSpace(strings.TrimPrefix(line, "module "))
+
+				return
+			}
+		}
+	})
+
+	return modulePath
+}
+
 // isEntryPointCoverageLine checks coverage.out format lines (e.g., "module/targ.go:1.1,2.2 1 0")
 func isEntryPointCoverageLine(line string) bool {
 	// main.go files are CLI entry points
@@ -1058,33 +1089,16 @@ func isEntryPointCoverageLine(line string) bool {
 		return true
 	}
 
-	// internal/runner, internal/discover, and internal/parse contain CLI tooling
-	if strings.Contains(line, "/internal/runner/") ||
-		strings.Contains(line, "/internal/discover/") ||
-		strings.Contains(line, "/internal/parse/") {
-		return true
-	}
+	// Extract file path from coverage line using module prefix
+	modPath := getModulePath()
+	prefix := modPath + "/"
 
-	// internal/core/execute.go contains os.Exit entry points
-	if strings.Contains(line, "/internal/core/execute.go:") {
-		return true
-	}
-
-	// internal/sh and internal/file support the public API
-	// They are tested through the public API wrappers in targ.go
-	if strings.Contains(line, "/internal/sh/") || strings.Contains(line, "/internal/file/") {
-		return true
-	}
-
-	// Extract file path from coverage line
-	const modulePrefix = "github.com/toejough/targ/"
-
-	idx := strings.Index(line, modulePrefix)
+	idx := strings.Index(line, prefix)
 	if idx == -1 {
 		return false
 	}
 
-	afterModule := line[idx+len(modulePrefix):]
+	afterModule := line[idx+len(prefix):]
 
 	// Find where the file path ends (at the colon)
 	colonIdx := strings.Index(afterModule, ":")
@@ -1094,7 +1108,7 @@ func isEntryPointCoverageLine(line string) bool {
 
 	pathPart := afterModule[:colonIdx]
 
-	// Top-level module files (no subdirectory)
+	// Top-level module files (no subdirectory) are entry points
 	if !strings.Contains(pathPart, "/") {
 		return true
 	}
