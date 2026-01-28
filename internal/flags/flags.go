@@ -6,32 +6,40 @@ import "strings"
 
 // Def describes a CLI flag for help, completion, and detection.
 type Def struct {
-	Long        string // without "--", e.g. "timeout"
-	Short       string // without "-", e.g. "p" (empty if none)
-	Desc        string // help text
-	Placeholder string // value placeholder for help, e.g. "<duration>" (empty if TakesValue is false)
-	TakesValue  bool   // consumes next arg as value
-	RootOnly    bool   // only valid before any command
-	Hidden      bool   // excluded from help/completion (deprecated aliases)
-	Removed     string // non-empty = removed flag, value is error message
+	Long        string       // without "--", e.g. "timeout"
+	Short       string       // without "-", e.g. "p" (empty if none)
+	Desc        string       // help text
+	Placeholder *Placeholder // value placeholder with format info (nil if TakesValue is false)
+	TakesValue  bool         // consumes next arg as value
+	RootOnly    bool         // only valid before any command
+	Hidden      bool         // excluded from help/completion (deprecated aliases)
+	Removed     string       // non-empty = removed flag, value is error message
+}
+
+// PlaceholderName returns the placeholder display name, or empty string if none.
+func (d Def) PlaceholderName() string {
+	if d.Placeholder == nil {
+		return ""
+	}
+	return d.Placeholder.Name
 }
 
 // All is the complete flag registry. Every targ flag must be here.
 // Help, completion, and detection are all derived from this slice.
 var All = []Def{
 	// Runtime flags (handled by core during target execution)
-	{Long: "completion", Desc: "Generate shell completion script", Placeholder: "<shell>", TakesValue: true, RootOnly: true},
+	{Long: "completion", Desc: "Generate shell completion script", Placeholder: &PlaceholderShell, TakesValue: true, RootOnly: true},
 	{Long: "help", Short: "h", Desc: "Show help"},
-	{Long: "source", Short: "s", Desc: "Use targ files from specified directory", Placeholder: "<dir>", TakesValue: true, RootOnly: true},
-	{Long: "timeout", Desc: "Set execution timeout", Placeholder: "<duration>", TakesValue: true},
+	{Long: "source", Short: "s", Desc: "Use targ files from specified directory", Placeholder: &PlaceholderDir, TakesValue: true, RootOnly: true},
+	{Long: "timeout", Desc: "Set execution timeout", Placeholder: &PlaceholderDuration, TakesValue: true},
 	{Long: "parallel", Short: "p", Desc: "Run multiple targets concurrently"},
-	{Long: "times", Desc: "Run the command n times", Placeholder: "<n>", TakesValue: true},
+	{Long: "times", Desc: "Run the command n times", Placeholder: &PlaceholderN, TakesValue: true},
 	{Long: "retry", Desc: "Continue on failure"},
-	{Long: "backoff", Desc: "Exponential backoff", Placeholder: "<duration,mult>", TakesValue: true},
-	{Long: "watch", Desc: "Re-run on file changes (repeatable)", Placeholder: "<pattern>", TakesValue: true},
-	{Long: "cache", Desc: "Skip if files unchanged (repeatable)", Placeholder: "<pattern>", TakesValue: true},
-	{Long: "while", Desc: "Run while shell command succeeds", Placeholder: "<cmd>", TakesValue: true},
-	{Long: "dep-mode", Desc: "Dependency mode: serial or parallel", Placeholder: "<mode>", TakesValue: true},
+	{Long: "backoff", Desc: "Exponential backoff", Placeholder: &PlaceholderDurationMult, TakesValue: true},
+	{Long: "watch", Desc: "Re-run on file changes (repeatable)", Placeholder: &PlaceholderGlob, TakesValue: true},
+	{Long: "cache", Desc: "Skip if files unchanged (repeatable)", Placeholder: &PlaceholderGlob, TakesValue: true},
+	{Long: "while", Desc: "Run while shell command succeeds", Placeholder: &PlaceholderCmd, TakesValue: true},
+	{Long: "dep-mode", Desc: "Dependency mode", Placeholder: &PlaceholderMode, TakesValue: true},
 	{Long: "no-binary-cache", Desc: "Disable binary caching", RootOnly: true},
 
 	// Early flags (handled by runner before binary compilation)

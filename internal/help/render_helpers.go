@@ -26,6 +26,11 @@ func WriteSubheader(w io.Writer, text string) {
 // WriteFlagLine writes a flag entry with optional short form, placeholder, and description.
 // Format: "  --long, -s <placeholder>  description"
 func WriteFlagLine(w io.Writer, long, short, placeholder, desc string) {
+	WriteFlagLineIndent(w, long, short, placeholder, desc, "  ")
+}
+
+// WriteFlagLineIndent writes a flag entry with custom indentation.
+func WriteFlagLineIndent(w io.Writer, long, short, placeholder, desc, indent string) {
 	var nameParts []string
 	if long != "" {
 		nameParts = append(nameParts, styles.Flag.Render("--"+long))
@@ -34,15 +39,16 @@ func WriteFlagLine(w io.Writer, long, short, placeholder, desc string) {
 		nameParts = append(nameParts, styles.Flag.Render("-"+short))
 	}
 
-	line := "  " + strings.Join(nameParts, ", ")
+	line := indent + strings.Join(nameParts, ", ")
 	if placeholder != "" {
 		line += " " + styles.Placeholder.Render(placeholder)
 	}
 
 	// Pad to align descriptions
 	const minWidth = 30
-	if len(stripANSI(line)) < minWidth {
-		line += strings.Repeat(" ", minWidth-len(stripANSI(line)))
+	visibleLen := len(StripANSI(line))
+	if visibleLen < minWidth {
+		line += strings.Repeat(" ", minWidth-visibleLen)
 	} else {
 		line += "  "
 	}
@@ -79,8 +85,8 @@ func WriteExample(w io.Writer, title, code string) {
 	}
 }
 
-// stripANSI removes ANSI escape codes from a string for length calculation.
-func stripANSI(s string) string {
+// StripANSI removes ANSI escape codes from a string for length calculation.
+func StripANSI(s string) string {
 	var result strings.Builder
 	inEscape := false
 	for _, r := range s {

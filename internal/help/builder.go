@@ -44,27 +44,39 @@ func (cb *ContentBuilder) AddPositionals(pos ...Positional) *ContentBuilder {
 	return cb
 }
 
-// AddGlobalFlags adds global flags by looking them up in the flag registry.
+// AddGlobalFlags adds global flags (available at any command level).
+func (cb *ContentBuilder) AddGlobalFlags(flgs ...Flag) *ContentBuilder {
+	cb.globalFlags = append(cb.globalFlags, flgs...)
+	return cb
+}
+
+// AddGlobalFlagsFromRegistry adds global flags by looking them up in the flag registry.
 // Unknown flag names are silently ignored.
-func (cb *ContentBuilder) AddGlobalFlags(flagNames ...string) *ContentBuilder {
+func (cb *ContentBuilder) AddGlobalFlagsFromRegistry(flagNames ...string) *ContentBuilder {
 	for _, name := range flagNames {
 		def := flags.Find(name)
 		if def == nil {
 			continue // Unknown flag, skip
 		}
-		f := Flag{
-			Long: "--" + def.Long,
-			Desc: def.Desc,
-		}
-		if def.Short != "" {
-			f.Short = "-" + def.Short
-		}
-		if def.TakesValue {
-			f.Placeholder = "<value>"
-		}
+		f := FlagFromDef(def)
 		cb.globalFlags = append(cb.globalFlags, f)
 	}
 	return cb
+}
+
+// FlagFromDef creates a Flag from a flags.Def.
+func FlagFromDef(def *flags.Def) Flag {
+	f := Flag{
+		Long: "--" + def.Long,
+		Desc: def.Desc,
+	}
+	if def.Short != "" {
+		f.Short = "-" + def.Short
+	}
+	if def.Placeholder != nil {
+		f.Placeholder = def.Placeholder.Name
+	}
+	return f
 }
 
 // AddCommandFlags adds command-specific flags to the help output.
@@ -88,12 +100,110 @@ func (cb *ContentBuilder) AddSubcommands(subs ...Subcommand) *ContentBuilder {
 	return cb
 }
 
-// AddExamples sets the examples for the help output.
-// At least one example is required; panics if called with no arguments.
+// AddExamples adds examples to the help output.
+// If called with no arguments, explicitly disables examples.
 func (cb *ContentBuilder) AddExamples(examples ...Example) *ContentBuilder {
-	if len(examples) == 0 {
-		panic("help.AddExamples: at least one example is required")
-	}
+	cb.examplesSet = true
 	cb.examples = append(cb.examples, examples...)
 	return cb
+}
+
+// WithSourceFile sets the source file location (for target help).
+func (cb *ContentBuilder) WithSourceFile(path string) *ContentBuilder {
+	cb.sourceFile = path
+	return cb
+}
+
+// WithShellCommand sets the shell command (for shell targets).
+func (cb *ContentBuilder) WithShellCommand(cmd string) *ContentBuilder {
+	cb.shellCommand = cmd
+	return cb
+}
+
+// WithExecutionInfo sets the execution configuration display.
+func (cb *ContentBuilder) WithExecutionInfo(info ExecutionInfo) *ContentBuilder {
+	cb.executionInfo = &info
+	return cb
+}
+
+// WithMoreInfo sets the more info text (URL or custom text).
+func (cb *ContentBuilder) WithMoreInfo(text string) *ContentBuilder {
+	cb.moreInfoText = text
+	return cb
+}
+
+// AddValues adds value type descriptions to the help output.
+func (cb *ContentBuilder) AddValues(values ...Value) *ContentBuilder {
+	cb.values = append(cb.values, values...)
+	return cb
+}
+
+// AddCommandGroups adds grouped command lists (for top-level help).
+func (cb *ContentBuilder) AddCommandGroups(groups ...CommandGroup) *ContentBuilder {
+	cb.commandGroups = append(cb.commandGroups, groups...)
+	return cb
+}
+
+// AddRootOnlyFlags adds root-only flags to the help output.
+func (cb *ContentBuilder) AddRootOnlyFlags(flags ...Flag) *ContentBuilder {
+	cb.rootOnlyFlags = append(cb.rootOnlyFlags, flags...)
+	return cb
+}
+
+// SetRoot marks this as root-level help (affects section visibility).
+func (cb *ContentBuilder) SetRoot(isRoot bool) *ContentBuilder {
+	cb.isRoot = isRoot
+	return cb
+}
+
+// TargFlagFilter controls which targ flags to include.
+type TargFlagFilter struct {
+	IsRoot             bool
+	DisableCompletion  bool
+	DisableHelp        bool
+	DisableTimeout     bool
+}
+
+// AddTargFlagsFiltered adds targ's built-in flags, filtered and grouped.
+// Also automatically adds Formats for any placeholders that need explanation.
+func (cb *ContentBuilder) AddTargFlagsFiltered(filter TargFlagFilter) *ContentBuilder {
+	var includedDefs []flags.Def
+	for _, def := range flags.VisibleFlags() {
+		if shouldSkipTargFlag(def, filter) {
+			continue
+		}
+		includedDefs = append(includedDefs, def)
+		f := FlagFromDef(&def)
+		if def.RootOnly {
+			cb.rootOnlyFlags = append(cb.rootOnlyFlags, f)
+		} else {
+			cb.globalFlags = append(cb.globalFlags, f)
+		}
+	}
+
+	// Automatically add Formats for placeholders that need explanation
+	for _, ph := range flags.PlaceholdersUsedByFlags(includedDefs) {
+		cb.formats = append(cb.formats, Format{
+			Name: ph.Name,
+			Desc: ph.Format,
+		})
+	}
+
+	return cb
+}
+
+func shouldSkipTargFlag(f flags.Def, filter TargFlagFilter) bool {
+	if f.RootOnly && !filter.IsRoot {
+		return true
+	}
+	switch f.Long {
+	case "completion":
+		return filter.DisableCompletion
+	case "help":
+		return filter.DisableHelp
+	case "timeout":
+		return filter.DisableTimeout
+	default:
+		return false
+	}
 }

@@ -13,8 +13,10 @@ func TestFlagsWithValueHavePlaceholders(t *testing.T) {
 
 	for _, f := range flags.All {
 		if f.TakesValue && f.Removed == "" && !f.Hidden {
-			g.Expect(f.Placeholder).NotTo(BeEmpty(),
+			g.Expect(f.Placeholder).NotTo(BeNil(),
 				"flag --%s takes a value but has no placeholder", f.Long)
+			g.Expect(f.Placeholder.Name).NotTo(BeEmpty(),
+				"flag --%s has placeholder with empty name", f.Long)
 		}
 	}
 }
@@ -25,8 +27,8 @@ func TestFlagsWithoutValueHaveNoPlaceholder(t *testing.T) {
 
 	for _, f := range flags.All {
 		if !f.TakesValue && f.Removed == "" {
-			g.Expect(f.Placeholder).To(BeEmpty(),
-				"flag --%s doesn't take a value but has placeholder %q", f.Long, f.Placeholder)
+			g.Expect(f.Placeholder).To(BeNil(),
+				"flag --%s doesn't take a value but has placeholder", f.Long)
 		}
 	}
 }
@@ -37,7 +39,8 @@ func TestTimeoutFlagHasDurationPlaceholder(t *testing.T) {
 
 	def := flags.Find("--timeout")
 	g.Expect(def).NotTo(BeNil())
-	g.Expect(def.Placeholder).To(Equal("<duration>"))
+	g.Expect(def.Placeholder).NotTo(BeNil())
+	g.Expect(def.Placeholder.Name).To(Equal("<duration>"))
 }
 
 func TestBackoffFlagHasDurationPlaceholder(t *testing.T) {
@@ -46,5 +49,6 @@ func TestBackoffFlagHasDurationPlaceholder(t *testing.T) {
 
 	def := flags.Find("--backoff")
 	g.Expect(def).NotTo(BeNil())
-	g.Expect(def.Placeholder).To(ContainSubstring("duration"))
+	g.Expect(def.Placeholder).NotTo(BeNil())
+	g.Expect(def.Placeholder.Name).To(ContainSubstring("duration"))
 }

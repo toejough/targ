@@ -138,12 +138,22 @@ func TestRenderIncludesExamples(t *testing.T) {
 	g.Expect(output).To(ContainSubstring("Basic usage"))
 }
 
-func TestRenderPanicsWithoutExamples(t *testing.T) {
+func TestRenderOmitsExamplesWhenNotSet(t *testing.T) {
 	t.Parallel()
 	g := NewWithT(t)
 
-	cb := help.New("test").WithDescription("desc")
-	g.Expect(func() { cb.Render() }).To(Panic())
+	// When AddExamples is never called, examples section is omitted
+	output := help.New("test").WithDescription("desc").Render()
+	g.Expect(output).NotTo(ContainSubstring("Examples:"))
+}
+
+func TestRenderOmitsExamplesWhenExplicitlyDisabled(t *testing.T) {
+	t.Parallel()
+	g := NewWithT(t)
+
+	// When AddExamples is called with no args, examples section is explicitly disabled
+	output := help.New("test").WithDescription("desc").AddExamples().Render()
+	g.Expect(output).NotTo(ContainSubstring("Examples:"))
 }
 
 func TestProperty_RenderSectionOrderIsCorrect(t *testing.T) {
@@ -155,7 +165,7 @@ func TestProperty_RenderSectionOrderIsCorrect(t *testing.T) {
 			WithDescription("description").
 			WithUsage("test [options]").
 			AddPositionals(help.Positional{Name: "file"}).
-			AddGlobalFlags("--help").
+			AddGlobalFlags(help.Flag{Long: "--help", Desc: "Show help"}).
 			AddCommandFlags(help.Flag{Long: "--verbose"}).
 			AddFormats(help.Format{Name: "fmt"}).
 			AddSubcommands(help.Subcommand{Name: "sub"}).
@@ -166,17 +176,19 @@ func TestProperty_RenderSectionOrderIsCorrect(t *testing.T) {
 		g := NewWithT(t)
 		descIdx := indexOf(output, "description")
 		usageIdx := indexOf(output, "Usage:")
+		targFlagsIdx := indexOf(output, "Targ flags:")
+		formatsIdx := indexOf(output, "Formats:")
 		posIdx := indexOf(output, "Positionals:")
 		flagsIdx := indexOf(output, "Flags:")
-		formatsIdx := indexOf(output, "Formats:")
 		subsIdx := indexOf(output, "Subcommands:")
 		examplesIdx := indexOf(output, "Examples:")
 
 		g.Expect(descIdx).To(BeNumerically("<", usageIdx), "description before usage")
-		g.Expect(usageIdx).To(BeNumerically("<", posIdx), "usage before positionals")
+		g.Expect(usageIdx).To(BeNumerically("<", targFlagsIdx), "usage before targ flags")
+		g.Expect(targFlagsIdx).To(BeNumerically("<", formatsIdx), "targ flags before formats")
+		g.Expect(formatsIdx).To(BeNumerically("<", posIdx), "formats before positionals")
 		g.Expect(posIdx).To(BeNumerically("<", flagsIdx), "positionals before flags")
-		g.Expect(flagsIdx).To(BeNumerically("<", formatsIdx), "flags before formats")
-		g.Expect(formatsIdx).To(BeNumerically("<", subsIdx), "formats before subcommands")
+		g.Expect(flagsIdx).To(BeNumerically("<", subsIdx), "flags before subcommands")
 		g.Expect(subsIdx).To(BeNumerically("<", examplesIdx), "subcommands before examples")
 	})
 }

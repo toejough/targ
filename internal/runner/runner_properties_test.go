@@ -3,8 +3,10 @@ package runner_test
 
 import (
 	"errors"
+	"fmt"
 	"io/fs"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -518,6 +520,290 @@ import (
 			g.Expect(opts.Deps).To(Equal([]string{dep1, dep2}))
 			g.Expect(opts.Cache).To(Equal([]string{cachePattern}))
 			g.Expect(opts.ShellCmd).To(Equal(shellCmd))
+		})
+	})
+
+	// Property: ParseCreateArgs parses --watch patterns
+	t.Run("ParseCreateArgsWatch", func(t *testing.T) {
+		t.Parallel()
+		rapid.Check(t, func(t *rapid.T) {
+			g := NewWithT(t)
+			targetName := rapid.StringMatching(`[a-z]{3,10}`).Draw(t, "targetName")
+			shellCmd := rapid.StringMatching(`[a-z]+ [a-z]+`).Draw(t, "shellCmd")
+			watchPattern := rapid.StringMatching(`\*\*/\*\.[a-z]{2,4}`).Draw(t, "watchPattern")
+
+			opts, err := runner.ParseCreateArgs([]string{
+				targetName, "--watch", watchPattern, shellCmd,
+			})
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(opts.Watch).To(Equal([]string{watchPattern}))
+		})
+	})
+
+	// Property: ParseCreateArgs parses --timeout
+	t.Run("ParseCreateArgsTimeout", func(t *testing.T) {
+		t.Parallel()
+		rapid.Check(t, func(t *rapid.T) {
+			g := NewWithT(t)
+			targetName := rapid.StringMatching(`[a-z]{3,10}`).Draw(t, "targetName")
+			shellCmd := rapid.StringMatching(`[a-z]+ [a-z]+`).Draw(t, "shellCmd")
+			secs := rapid.IntRange(1, 300).Draw(t, "secs")
+			timeout := strconv.Itoa(secs) + "s"
+
+			opts, err := runner.ParseCreateArgs([]string{
+				targetName, "--timeout", timeout, shellCmd,
+			})
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(opts.Timeout).To(Equal(timeout))
+		})
+	})
+
+	// Property: ParseCreateArgs parses --times
+	t.Run("ParseCreateArgsTimes", func(t *testing.T) {
+		t.Parallel()
+		rapid.Check(t, func(t *rapid.T) {
+			g := NewWithT(t)
+			targetName := rapid.StringMatching(`[a-z]{3,10}`).Draw(t, "targetName")
+			shellCmd := rapid.StringMatching(`[a-z]+ [a-z]+`).Draw(t, "shellCmd")
+			times := rapid.IntRange(1, 100).Draw(t, "times")
+
+			opts, err := runner.ParseCreateArgs([]string{
+				targetName, "--times", strconv.Itoa(times), shellCmd,
+			})
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(opts.Times).To(Equal(times))
+		})
+	})
+
+	// Property: ParseCreateArgs parses --retry
+	t.Run("ParseCreateArgsRetry", func(t *testing.T) {
+		t.Parallel()
+		rapid.Check(t, func(t *rapid.T) {
+			g := NewWithT(t)
+			targetName := rapid.StringMatching(`[a-z]{3,10}`).Draw(t, "targetName")
+			shellCmd := rapid.StringMatching(`[a-z]+ [a-z]+`).Draw(t, "shellCmd")
+
+			opts, err := runner.ParseCreateArgs([]string{
+				targetName, "--retry", shellCmd,
+			})
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(opts.Retry).To(BeTrue())
+		})
+	})
+
+	// Property: ParseCreateArgs parses --backoff
+	t.Run("ParseCreateArgsBackoff", func(t *testing.T) {
+		t.Parallel()
+		rapid.Check(t, func(t *rapid.T) {
+			g := NewWithT(t)
+			targetName := rapid.StringMatching(`[a-z]{3,10}`).Draw(t, "targetName")
+			shellCmd := rapid.StringMatching(`[a-z]+ [a-z]+`).Draw(t, "shellCmd")
+			secs := rapid.IntRange(1, 10).Draw(t, "secs")
+			mult := rapid.Float64Range(1.1, 5.0).Draw(t, "mult")
+			backoff := strconv.Itoa(secs) + "s," + strconv.FormatFloat(mult, 'f', 1, 64)
+
+			opts, err := runner.ParseCreateArgs([]string{
+				targetName, "--backoff", backoff, shellCmd,
+			})
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(opts.Backoff).To(Equal(backoff))
+		})
+	})
+
+	// Property: ParseCreateArgs parses --dep-mode
+	t.Run("ParseCreateArgsDepMode", func(t *testing.T) {
+		t.Parallel()
+		rapid.Check(t, func(t *rapid.T) {
+			g := NewWithT(t)
+			targetName := rapid.StringMatching(`[a-z]{3,10}`).Draw(t, "targetName")
+			shellCmd := rapid.StringMatching(`[a-z]+ [a-z]+`).Draw(t, "shellCmd")
+			mode := rapid.SampledFrom([]string{"serial", "parallel"}).Draw(t, "mode")
+
+			opts, err := runner.ParseCreateArgs([]string{
+				targetName, "--dep-mode", mode, shellCmd,
+			})
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(opts.DepMode).To(Equal(mode))
+		})
+	})
+
+	// Property: ParseCreateArgs rejects invalid --dep-mode
+	t.Run("ParseCreateArgsInvalidDepMode", func(t *testing.T) {
+		t.Parallel()
+		rapid.Check(t, func(t *rapid.T) {
+			g := NewWithT(t)
+			targetName := rapid.StringMatching(`[a-z]{3,10}`).Draw(t, "targetName")
+			shellCmd := rapid.StringMatching(`[a-z]+ [a-z]+`).Draw(t, "shellCmd")
+			badMode := rapid.StringMatching(`[a-z]{3,10}`).
+				Filter(func(s string) bool { return s != "serial" && s != "parallel" }).
+				Draw(t, "badMode")
+
+			_, err := runner.ParseCreateArgs([]string{
+				targetName, "--dep-mode", badMode, shellCmd,
+			})
+			g.Expect(err).To(HaveOccurred())
+		})
+	})
+
+	// Property: Code gen includes .Watch() when watch patterns specified
+	t.Run("WatchPatternsIncluded", func(t *testing.T) {
+		t.Parallel()
+		rapid.Check(t, func(t *rapid.T) {
+			g := NewWithT(t)
+
+			fileOps := NewMemoryFileOps()
+			targetName := rapid.StringMatching(`[a-z][a-z0-9]{2,8}`).Draw(t, "targetName")
+			numPatterns := rapid.IntRange(1, 3).Draw(t, "numPatterns")
+
+			patterns := make([]string, numPatterns)
+			for i := range numPatterns {
+				patterns[i] = rapid.StringMatching(`\*\*/\*\.[a-z]{2,4}`).Draw(t, "pattern")
+			}
+
+			initial := "//go:build targ\n\npackage build\n\nimport \"github.com/toejough/targ\"\n"
+			fileOps.Files["targs.go"] = []byte(initial)
+
+			err := runner.AddTargetToFileWithFileOps(fileOps, "targs.go", runner.CreateOptions{
+				Name:     targetName,
+				ShellCmd: "go build",
+				Watch:    patterns,
+			})
+			g.Expect(err).NotTo(HaveOccurred())
+
+			content := string(fileOps.Files["targs.go"])
+			g.Expect(content).To(ContainSubstring(".Watch("))
+
+			for _, p := range patterns {
+				g.Expect(content).To(ContainSubstring(p))
+			}
+		})
+	})
+
+	// Property: Code gen includes .Timeout() with time import
+	t.Run("TimeoutCodeGen", func(t *testing.T) {
+		t.Parallel()
+		rapid.Check(t, func(t *rapid.T) {
+			g := NewWithT(t)
+
+			fileOps := NewMemoryFileOps()
+			targetName := rapid.StringMatching(`[a-z][a-z0-9]{2,8}`).Draw(t, "targetName")
+			secs := rapid.IntRange(1, 300).Draw(t, "secs")
+
+			initial := "//go:build targ\n\npackage build\n\nimport \"github.com/toejough/targ\"\n"
+			fileOps.Files["targs.go"] = []byte(initial)
+
+			err := runner.AddTargetToFileWithFileOps(fileOps, "targs.go", runner.CreateOptions{
+				Name:     targetName,
+				ShellCmd: "go test",
+				Timeout:  strconv.Itoa(secs) + "s",
+			})
+			g.Expect(err).NotTo(HaveOccurred())
+
+			content := string(fileOps.Files["targs.go"])
+			g.Expect(content).To(ContainSubstring(".Timeout("))
+			g.Expect(content).To(MatchRegexp(`time\.(Second|Minute|Hour|Duration)`))
+			g.Expect(content).To(ContainSubstring(`"time"`))
+		})
+	})
+
+	// Property: Code gen includes .Times()
+	t.Run("TimesCodeGen", func(t *testing.T) {
+		t.Parallel()
+		rapid.Check(t, func(t *rapid.T) {
+			g := NewWithT(t)
+
+			fileOps := NewMemoryFileOps()
+			targetName := rapid.StringMatching(`[a-z][a-z0-9]{2,8}`).Draw(t, "targetName")
+			times := rapid.IntRange(1, 100).Draw(t, "times")
+
+			initial := "//go:build targ\n\npackage build\n\nimport \"github.com/toejough/targ\"\n"
+			fileOps.Files["targs.go"] = []byte(initial)
+
+			err := runner.AddTargetToFileWithFileOps(fileOps, "targs.go", runner.CreateOptions{
+				Name:     targetName,
+				ShellCmd: "go test",
+				Times:    times,
+			})
+			g.Expect(err).NotTo(HaveOccurred())
+
+			content := string(fileOps.Files["targs.go"])
+			g.Expect(content).To(ContainSubstring(fmt.Sprintf(".Times(%d)", times)))
+		})
+	})
+
+	// Property: Code gen includes .Retry()
+	t.Run("RetryCodeGen", func(t *testing.T) {
+		t.Parallel()
+		rapid.Check(t, func(t *rapid.T) {
+			g := NewWithT(t)
+
+			fileOps := NewMemoryFileOps()
+			targetName := rapid.StringMatching(`[a-z][a-z0-9]{2,8}`).Draw(t, "targetName")
+
+			initial := "//go:build targ\n\npackage build\n\nimport \"github.com/toejough/targ\"\n"
+			fileOps.Files["targs.go"] = []byte(initial)
+
+			err := runner.AddTargetToFileWithFileOps(fileOps, "targs.go", runner.CreateOptions{
+				Name:     targetName,
+				ShellCmd: "go test",
+				Retry:    true,
+			})
+			g.Expect(err).NotTo(HaveOccurred())
+
+			content := string(fileOps.Files["targs.go"])
+			g.Expect(content).To(ContainSubstring(".Retry()"))
+		})
+	})
+
+	// Property: Code gen includes .Backoff() with time import
+	t.Run("BackoffCodeGen", func(t *testing.T) {
+		t.Parallel()
+		rapid.Check(t, func(t *rapid.T) {
+			g := NewWithT(t)
+
+			fileOps := NewMemoryFileOps()
+			targetName := rapid.StringMatching(`[a-z][a-z0-9]{2,8}`).Draw(t, "targetName")
+
+			initial := "//go:build targ\n\npackage build\n\nimport \"github.com/toejough/targ\"\n"
+			fileOps.Files["targs.go"] = []byte(initial)
+
+			err := runner.AddTargetToFileWithFileOps(fileOps, "targs.go", runner.CreateOptions{
+				Name:     targetName,
+				ShellCmd: "go test",
+				Backoff:  "1s,2.0",
+			})
+			g.Expect(err).NotTo(HaveOccurred())
+
+			content := string(fileOps.Files["targs.go"])
+			g.Expect(content).To(ContainSubstring(".Backoff("))
+			g.Expect(content).To(ContainSubstring("time.Second"))
+			g.Expect(content).To(ContainSubstring(`"time"`))
+		})
+	})
+
+	// Property: Code gen includes dep-mode in .Deps() call
+	t.Run("DepModeCodeGen", func(t *testing.T) {
+		t.Parallel()
+		rapid.Check(t, func(t *rapid.T) {
+			g := NewWithT(t)
+
+			fileOps := NewMemoryFileOps()
+			targetName := rapid.StringMatching(`[a-z][a-z0-9]{2,8}`).Draw(t, "targetName")
+			dep := rapid.StringMatching(`[a-z]{3,8}`).Draw(t, "dep")
+
+			initial := "//go:build targ\n\npackage build\n\nimport \"github.com/toejough/targ\"\n"
+			fileOps.Files["targs.go"] = []byte(initial)
+
+			err := runner.AddTargetToFileWithFileOps(fileOps, "targs.go", runner.CreateOptions{
+				Name:     targetName,
+				ShellCmd: "go test",
+				Deps:     []string{dep},
+				DepMode:  "parallel",
+			})
+			g.Expect(err).NotTo(HaveOccurred())
+
+			content := string(fileOps.Files["targs.go"])
+			g.Expect(content).To(ContainSubstring("targ.DepModeParallel"))
 		})
 	})
 

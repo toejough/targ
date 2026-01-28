@@ -145,27 +145,39 @@ func TestAddExamplesIsChainable(t *testing.T) {
 	g.Expect(cb).NotTo(BeNil())
 }
 
-func TestAddExamplesPanicsOnEmpty(t *testing.T) {
+func TestAddExamplesEmptyDisablesExamples(t *testing.T) {
 	t.Parallel()
 	g := NewWithT(t)
 
-	cb := help.New("test").WithDescription("desc")
-	g.Expect(func() { cb.AddExamples() }).To(Panic())
+	// Empty AddExamples explicitly disables examples (no panic)
+	cb := help.New("test").WithDescription("desc").AddExamples()
+	g.Expect(cb).NotTo(BeNil())
 }
 
 func TestAddGlobalFlagsIsChainable(t *testing.T) {
 	t.Parallel()
 	g := NewWithT(t)
 
-	cb := help.New("test").WithDescription("desc").AddGlobalFlags("--timeout", "--parallel")
+	cb := help.New("test").WithDescription("desc").AddGlobalFlags(
+		help.Flag{Long: "--timeout", Desc: "Set timeout"},
+		help.Flag{Long: "--parallel", Desc: "Run in parallel"},
+	)
 	g.Expect(cb).NotTo(BeNil())
 }
 
-func TestAddGlobalFlagsHandlesUnknownFlagGracefully(t *testing.T) {
+func TestAddGlobalFlagsFromRegistryIsChainable(t *testing.T) {
+	t.Parallel()
+	g := NewWithT(t)
+
+	cb := help.New("test").WithDescription("desc").AddGlobalFlagsFromRegistry("--timeout", "--parallel")
+	g.Expect(cb).NotTo(BeNil())
+}
+
+func TestAddGlobalFlagsFromRegistryHandlesUnknownFlagGracefully(t *testing.T) {
 	t.Parallel()
 	g := NewWithT(t)
 
 	// Unknown flags should be silently ignored (no panic)
-	cb := help.New("test").WithDescription("desc").AddGlobalFlags("--nonexistent")
+	cb := help.New("test").WithDescription("desc").AddGlobalFlagsFromRegistry("--nonexistent")
 	g.Expect(cb).NotTo(BeNil())
 }

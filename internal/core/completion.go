@@ -6,6 +6,8 @@ import (
 	"io"
 	"reflect"
 	"strings"
+
+	"github.com/toejough/targ/internal/flags"
 )
 
 // PrintCompletionScriptTo writes a shell completion script to the given writer.
@@ -1039,49 +1041,16 @@ func suggestMatchingFlags(w io.Writer, flags []string, prefix string, seen map[s
 }
 
 // targBooleanFlags returns flags that don't take a value.
-func targBooleanFlags() map[string]bool {
-	return map[string]bool{
-		"--no-binary-cache": true,
-		"--no-cache":        true, // deprecated alias
-		"--help":            true,
-		"-h":                true,
-		"--retry":           true,
-	}
-}
+func targBooleanFlags() map[string]bool { return flags.BooleanFlags() }
 
 // targFlagsWithValues returns flags that consume the next argument as a value.
-func targFlagsWithValues() map[string]bool {
-	return map[string]bool{
-		"--timeout":    true,
-		"--completion": true,
-		"--times":      true,
-		"--backoff":    true,
-		"--watch":      true,
-		"--cache":      true,
-		"--while":      true,
-		"--dep-mode":   true,
-	}
-}
+func targFlagsWithValues() map[string]bool { return flags.FlagsWithValues() }
 
 // targGlobalFlags returns flags valid at any command level.
-func targGlobalFlags() []string {
-	return []string{
-		"--help",
-		"--timeout",
-		"--times",
-		"--retry",
-		"--backoff",
-		"--watch",
-		"--cache",
-		"--while",
-		"--dep-mode",
-	}
-}
+func targGlobalFlags() []string { return flags.GlobalFlags() }
 
 // targRootOnlyFlags returns flags only valid at root level (before any command).
-func targRootOnlyFlags() []string {
-	return []string{"--no-binary-cache", "--completion"}
-}
+func targRootOnlyFlags() []string { return flags.RootOnlyFlags() }
 
 func tokenizeCommandLine(commandLine string) ([]string, bool) {
 	t := &cmdLineTokenizer{}

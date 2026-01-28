@@ -9,45 +9,92 @@ import (
 )
 
 // Render produces the final help string with all sections in canonical order.
-// Panics if AddExamples was not called (examples are required).
+// Section order:
+//   - Description
+//   - Source (target help only)
+//   - Command (shell targets only)
+//   - Usage
+//   - Targ flags (grouped: Global, Root-only)
+//   - Values (root help only)
+//   - Formats
+//   - Positionals (flag-command help)
+//   - Flags (target-specific flags)
+//   - Subcommands (target help)
+//   - Commands (root help)
+//   - Execution (target help)
+//   - Examples
+//   - More info
 func (cb *ContentBuilder) Render() string {
-	if len(cb.examples) == 0 {
-		panic("help.Render: AddExamples must be called before Render")
-	}
-
 	styles := DefaultStyles()
 	var sections []string
 
-	// Description (always present, no header)
+	// Description (always first, no header)
 	if cb.description != "" {
 		sections = append(sections, cb.description)
+	}
+
+	// Source file (target help only)
+	if cb.sourceFile != "" {
+		sections = append(sections, fmt.Sprintf("Source: %s", cb.sourceFile))
+	}
+
+	// Shell command (shell targets only)
+	if cb.shellCommand != "" {
+		sections = append(sections, fmt.Sprintf("Command: %s", cb.shellCommand))
 	}
 
 	// Usage
 	sections = append(sections, cb.renderUsage(styles))
 
-	// Positionals (omitted if empty)
-	if pos := cb.renderPositionals(styles); pos != "" {
-		sections = append(sections, pos)
-	}
-
-	// Flags (omitted if empty)
-	if flags := cb.renderFlags(styles); flags != "" {
+	// Targ flags (grouped)
+	if flags := cb.renderTargFlags(styles); flags != "" {
 		sections = append(sections, flags)
 	}
 
-	// Formats (omitted if empty)
+	// Values (root help only)
+	if values := cb.renderValues(styles); values != "" {
+		sections = append(sections, values)
+	}
+
+	// Formats
 	if formats := cb.renderFormats(styles); formats != "" {
 		sections = append(sections, formats)
 	}
 
-	// Subcommands (omitted if empty)
+	// Positionals (flag-command help)
+	if pos := cb.renderPositionals(styles); pos != "" {
+		sections = append(sections, pos)
+	}
+
+	// Command-specific flags
+	if flags := cb.renderCommandFlags(styles); flags != "" {
+		sections = append(sections, flags)
+	}
+
+	// Subcommands (target help)
 	if subs := cb.renderSubcommands(styles); subs != "" {
 		sections = append(sections, subs)
 	}
 
-	// Examples (always present)
-	sections = append(sections, cb.renderExamples(styles))
+	// Command groups (root help)
+	if groups := cb.renderCommandGroups(styles); groups != "" {
+		sections = append(sections, groups)
+	}
+
+	// Execution info (target help)
+	if exec := cb.renderExecutionInfo(styles); exec != "" {
+		sections = append(sections, exec)
+	}
+
+	// Examples (omitted if examplesSet is true but empty)
+	if examples := cb.renderExamples(styles); examples != "" {
+		sections = append(sections, examples)
+	}
+
+	// More info
+	if cb.moreInfoText != "" {
+		sections = append(sections, cb.renderMoreInfo(styles))
+	}
 
 	return strings.Join(sections, "\n\n") + "\n"
 }
@@ -88,53 +135,85 @@ func (cb *ContentBuilder) renderPositionals(styles Styles) string {
 	return sb.String()
 }
 
-func (cb *ContentBuilder) renderFlags(styles Styles) string {
+// renderTargFlags renders targ's built-in flags grouped by category.
+func (cb *ContentBuilder) renderTargFlags(styles Styles) string {
 	hasGlobal := len(cb.globalFlags) > 0
-	hasCommand := len(cb.commandFlags) > 0
+	hasRootOnly := len(cb.rootOnlyFlags) > 0
 
-	if !hasGlobal && !hasCommand {
+	if !hasGlobal && !hasRootOnly {
 		return ""
 	}
 
 	var sb strings.Builder
-	sb.WriteString(styles.Header.Render("Flags:"))
+	sb.WriteString(styles.Header.Render("Targ flags:"))
 
 	if hasGlobal {
 		sb.WriteString("\n  ")
-		sb.WriteString(styles.Subsection.Render("Global Flags:"))
+		sb.WriteString(styles.Subsection.Render("Global:"))
 		for _, f := range cb.globalFlags {
 			sb.WriteString("\n")
-			sb.WriteString(cb.renderFlag(f, styles))
+			sb.WriteString(cb.renderFlagWithIndent(f, styles, "    "))
 		}
 	}
 
-	if hasCommand {
+	if hasRootOnly && cb.isRoot {
 		sb.WriteString("\n  ")
-		sb.WriteString(styles.Subsection.Render("Command Flags:"))
-		for _, f := range cb.commandFlags {
+		sb.WriteString(styles.Subsection.Render("Root only:"))
+		for _, f := range cb.rootOnlyFlags {
 			sb.WriteString("\n")
-			sb.WriteString(cb.renderFlag(f, styles))
+			sb.WriteString(cb.renderFlagWithIndent(f, styles, "    "))
 		}
 	}
 
 	return sb.String()
 }
 
-func (cb *ContentBuilder) renderFlag(f Flag, styles Styles) string {
-	var parts []string
-	if f.Short != "" {
-		parts = append(parts, styles.Flag.Render(f.Short))
+// renderCommandFlags renders target-specific flags.
+func (cb *ContentBuilder) renderCommandFlags(styles Styles) string {
+	if len(cb.commandFlags) == 0 {
+		return ""
 	}
+
+	var sb strings.Builder
+	sb.WriteString(styles.Header.Render("Flags:"))
+
+	for _, f := range cb.commandFlags {
+		sb.WriteString("\n")
+		sb.WriteString(cb.renderFlag(f, styles))
+	}
+
+	return sb.String()
+}
+
+func (cb *ContentBuilder) renderFlag(f Flag, styles Styles) string {
+	return cb.renderFlagWithIndent(f, styles, "  ")
+}
+
+func (cb *ContentBuilder) renderFlagWithIndent(f Flag, styles Styles, indent string) string {
+	var parts []string
 	if f.Long != "" {
 		parts = append(parts, styles.Flag.Render(f.Long))
 	}
+	if f.Short != "" {
+		parts = append(parts, styles.Flag.Render(f.Short))
+	}
 
-	line := "    " + strings.Join(parts, ", ")
+	line := indent + strings.Join(parts, ", ")
 	if f.Placeholder != "" {
 		line += " " + styles.Placeholder.Render(f.Placeholder)
 	}
+
+	// Pad to align descriptions
+	const minWidth = 30
+	visibleLen := len(StripANSI(line))
+	if visibleLen < minWidth {
+		line += strings.Repeat(" ", minWidth-visibleLen)
+	} else {
+		line += "  "
+	}
+
 	if f.Desc != "" {
-		line += "  " + f.Desc
+		line += f.Desc
 	}
 	return line
 }
@@ -180,6 +259,15 @@ func (cb *ContentBuilder) renderSubcommands(styles Styles) string {
 }
 
 func (cb *ContentBuilder) renderExamples(styles Styles) string {
+	// If examplesSet but empty, user explicitly disabled examples
+	if cb.examplesSet && len(cb.examples) == 0 {
+		return ""
+	}
+	// If not set and empty, omit section
+	if len(cb.examples) == 0 {
+		return ""
+	}
+
 	var sb strings.Builder
 	sb.WriteString(styles.Header.Render("Examples:"))
 
@@ -191,5 +279,108 @@ func (cb *ContentBuilder) renderExamples(styles Styles) string {
 		sb.WriteString(e.Code)
 	}
 
+	return sb.String()
+}
+
+func (cb *ContentBuilder) renderValues(styles Styles) string {
+	if len(cb.values) == 0 {
+		return ""
+	}
+
+	var sb strings.Builder
+	sb.WriteString(styles.Header.Render("Values:"))
+
+	for _, v := range cb.values {
+		sb.WriteString("\n  ")
+		sb.WriteString(styles.Placeholder.Render(v.Name))
+		sb.WriteString(": ")
+		sb.WriteString(v.Desc)
+	}
+
+	return sb.String()
+}
+
+func (cb *ContentBuilder) renderCommandGroups(styles Styles) string {
+	if len(cb.commandGroups) == 0 {
+		return ""
+	}
+
+	var sb strings.Builder
+	sb.WriteString(styles.Header.Render("Commands:"))
+
+	for i, group := range cb.commandGroups {
+		if i > 0 {
+			sb.WriteString("\n")
+		}
+		sb.WriteString(fmt.Sprintf("\n\n  Source: %s", group.Source))
+
+		// Calculate max name width for alignment
+		maxWidth := 0
+		for _, cmd := range group.Commands {
+			if len(cmd.Name) > maxWidth {
+				maxWidth = len(cmd.Name)
+			}
+		}
+
+		for _, cmd := range group.Commands {
+			sb.WriteString("\n  ")
+			if cmd.Desc != "" {
+				sb.WriteString(fmt.Sprintf("%-*s  %s", maxWidth, cmd.Name, cmd.Desc))
+			} else {
+				sb.WriteString(cmd.Name)
+			}
+		}
+	}
+
+	return sb.String()
+}
+
+func (cb *ContentBuilder) renderExecutionInfo(styles Styles) string {
+	if cb.executionInfo == nil {
+		return ""
+	}
+
+	info := cb.executionInfo
+	var lines []string
+
+	if info.Deps != "" {
+		lines = append(lines, "Deps: "+info.Deps)
+	}
+	if info.CachePatterns != "" {
+		lines = append(lines, "Cache: "+info.CachePatterns)
+	}
+	if info.WatchPatterns != "" {
+		lines = append(lines, "Watch: "+info.WatchPatterns)
+	}
+	if info.Timeout != "" {
+		lines = append(lines, "Timeout: "+info.Timeout)
+	}
+	if info.Times != "" {
+		lines = append(lines, "Times: "+info.Times)
+	}
+	if info.Retry != "" {
+		lines = append(lines, "Retry: "+info.Retry)
+	}
+
+	if len(lines) == 0 {
+		return ""
+	}
+
+	var sb strings.Builder
+	sb.WriteString(styles.Header.Render("Execution:"))
+
+	for _, line := range lines {
+		sb.WriteString("\n  ")
+		sb.WriteString(line)
+	}
+
+	return sb.String()
+}
+
+func (cb *ContentBuilder) renderMoreInfo(styles Styles) string {
+	var sb strings.Builder
+	sb.WriteString(styles.Header.Render("More info:"))
+	sb.WriteString("\n  ")
+	sb.WriteString(cb.moreInfoText)
 	return sb.String()
 }

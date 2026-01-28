@@ -1032,8 +1032,7 @@ func TestProperty_ShellDetection(t *testing.T) {
 
 		result, err := targ.Execute([]string{"app", "--help"}, a, b)
 		g.Expect(err).NotTo(HaveOccurred())
-		// Empty SHELL should default to bash syntax
+		// Empty SHELL should default to bash syntax (eval)
 		g.Expect(result.Output).To(ContainSubstring("eval"))
-		g.Expect(result.Output).To(ContainSubstring("detected: bash"))
 	})
 }

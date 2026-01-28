@@ -17,7 +17,6 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/toejough/targ/internal/flags"
 	"github.com/toejough/targ/internal/help"
 	internalsh "github.com/toejough/targ/internal/sh"
 )
@@ -1276,16 +1275,6 @@ func groupNodesBySource(nodes []*commandNode, opts RunOptions) []struct {
 	return groups
 }
 
-// hasRemoteTargets checks if any node has a non-empty source package.
-func hasRemoteTargets(nodes []*commandNode) bool {
-	for _, node := range nodes {
-		if node.Target != nil && node.Target.GetSource() != "" {
-			return true
-		}
-	}
-
-	return false
-}
 
 func isContextType(t reflect.Type) bool {
 	return t == reflect.TypeFor[context.Context]()
@@ -1336,18 +1325,6 @@ func matchesGlobCmd(name, pattern string) bool {
 
 	// No wildcards - exact match
 	return strings.EqualFold(name, pattern)
-}
-
-// maxNameWidth returns the maximum name length among nodes.
-func maxNameWidth(nodes []*commandNode) int {
-	maxWidth := 0
-	for _, node := range nodes {
-		if len(node.Name) > maxWidth {
-			maxWidth = len(node.Name)
-		}
-	}
-
-	return maxWidth
 }
 
 func nodeChain(node *commandNode) []*commandNode {
@@ -1735,368 +1712,154 @@ func positionalName(item positionalHelp) string {
 }
 
 func printCommandHelp(w io.Writer, node *commandNode, opts RunOptions) {
-	binName := opts.BinaryName
-
-	// Description first (consistent with top-level)
-	printDescription(w, node.Description)
-
-	// Source location (for build tool targets)
-	if node.SourceFile != "" {
-		_, _ = fmt.Fprintf(
-			w,
-			"Source: %s\n\n",
-			relativeSourcePathWithGetwd(node.SourceFile, optsGetwd(opts)),
-		)
-	}
-
-	// Shell command (for shell targets)
-	if node.ShellCommand != "" {
-		_, _ = fmt.Fprintf(w, "Command: %s\n\n", node.ShellCommand)
-	}
-
-	// Usage with targ flags and ... notation
+	// Build usage string
 	usageParts, err := buildUsageParts(node)
 	if err != nil {
 		_, _ = fmt.Fprintf(w, "Error: %v\n", err)
 		return
 	}
+	usageParts = append([]string{opts.BinaryName, "[targ flags...]"}, usageParts...)
+	usage := strings.Join(usageParts, " ")
 
-	// Insert "[targ flags...]" after binName
-	usageParts = append([]string{binName, "[targ flags...]"}, usageParts...)
-	printWrappedUsage(w, "Usage: ", usageParts)
-	_, _ = fmt.Fprintln(w)
-
-	// Targ flags (not root, so no --completion)
-	printTargFlags(w, opts, false)
-
-	// Flags for this command
-	flags, err := collectFlagHelp(node)
+	// Collect command flags
+	flagItems, err := collectFlagHelp(node)
 	if err != nil {
 		_, _ = fmt.Fprintf(w, "Error: %v\n", err)
 		return
 	}
-
-	if len(flags) > 0 {
-		_, _ = fmt.Fprintln(w)
-		help.WriteHeader(w, "Flags:")
-		printFlagsIndented(w, flags, "  ")
+	helpFlags := make([]help.Flag, 0, len(flagItems))
+	for _, f := range flagItems {
+		hf := help.Flag{
+			Long:        "--" + f.Name,
+			Desc:        f.Usage,
+			Placeholder: f.Placeholder,
+			Required:    f.Required,
+		}
+		if f.Short != "" {
+			hf.Short = "-" + f.Short
+		}
+		helpFlags = append(helpFlags, hf)
 	}
 
-	// Subcommands (list, not recursive details)
+	// Collect subcommands
+	var helpSubs []help.Subcommand
 	if len(node.Subcommands) > 0 {
-		_, _ = fmt.Fprintln(w)
-		help.WriteHeader(w, "Subcommands:")
-		printSubcommandList(w, node.Subcommands, "  ")
-	}
-
-	// Execution configuration
-	printExecutionInfo(w, node)
-
-	// Examples and More Info (at the very end)
-	printExamples(w, opts, false)
-	printMoreInfo(w, opts)
-}
-
-func printDeregisteredPackages(w io.Writer, opts RunOptions) {
-	if len(opts.DeregisteredPackages) == 0 {
-		return
-	}
-
-	_, _ = fmt.Fprintln(
-		w,
-		"\nDeregistered packages (targets hidden — edit init() in your targ file to re-register):",
-	)
-
-	for _, pkg := range opts.DeregisteredPackages {
-		_, _ = fmt.Fprintf(w, "  %s\n", pkg)
-	}
-}
-
-func printDescription(w io.Writer, desc string) {
-	if desc != "" {
-		_, _ = fmt.Fprintln(w, desc)
-		_, _ = fmt.Fprintln(w)
-	}
-}
-
-func printExampleList(w io.Writer, examples []Example) {
-	if len(examples) == 0 {
-		return
-	}
-
-	_, _ = fmt.Fprintln(w)
-	help.WriteHeader(w, "Examples:")
-
-	for _, ex := range examples {
-		help.WriteExample(w, ex.Title, ex.Code)
-	}
-}
-
-func printExamples(w io.Writer, opts RunOptions, isRoot bool) {
-	examples := opts.Examples
-	if examples == nil {
-		if !isRoot {
-			// At target level with no user-supplied examples, skip Examples section.
-			// The target's description, source, shell command, and execution info
-			// are already informative without generic examples.
-			return
-		}
-		getenv := optsGetenv(opts)
-		examples = []Example{
-			completionExampleWithGetenv(getenv),
-			chainExample(nil),
+		names := sortedKeys(node.Subcommands)
+		for _, name := range names {
+			sub := node.Subcommands[name]
+			if sub != nil {
+				helpSubs = append(helpSubs, help.Subcommand{Name: name, Desc: sub.Description})
+			}
 		}
 	}
 
-	printExampleList(w, examples)
+	// Build execution info
+	var execInfo *help.ExecutionInfo
+	lines := executionInfoLines(node)
+	if len(lines) > 0 {
+		execInfo = &help.ExecutionInfo{}
+		for _, line := range lines {
+			if strings.HasPrefix(line, "Deps:") {
+				execInfo.Deps = strings.TrimPrefix(line, "Deps: ")
+			} else if strings.HasPrefix(line, "Cache:") {
+				execInfo.CachePatterns = strings.TrimPrefix(line, "Cache: ")
+			} else if strings.HasPrefix(line, "Watch:") {
+				execInfo.WatchPatterns = strings.TrimPrefix(line, "Watch: ")
+			} else if strings.HasPrefix(line, "Timeout:") {
+				execInfo.Timeout = strings.TrimPrefix(line, "Timeout: ")
+			} else if strings.HasPrefix(line, "Times:") {
+				execInfo.Times = strings.TrimPrefix(line, "Times: ")
+			} else if strings.HasPrefix(line, "Retry:") {
+				execInfo.Retry = strings.TrimPrefix(line, "Retry: ")
+			}
+		}
+	}
+
+	// Convert examples (only if user supplied them)
+	var helpExamples []help.Example
+	if opts.Examples != nil {
+		for _, e := range opts.Examples {
+			helpExamples = append(helpExamples, help.Example{Title: e.Title, Code: e.Code})
+		}
+	}
+
+	// Get more info text
+	moreInfo := opts.MoreInfoText
+	if moreInfo == "" {
+		if url := opts.RepoURL; url != "" {
+			moreInfo = url
+		} else if url := DetectRepoURL(); url != "" {
+			moreInfo = url
+		}
+	}
+
+	help.WriteTargetHelp(w, help.TargetHelpOpts{
+		BinaryName:   opts.BinaryName,
+		Name:         node.Name,
+		Description:  node.Description,
+		SourceFile:   relativeSourcePathWithGetwd(node.SourceFile, optsGetwd(opts)),
+		ShellCommand: node.ShellCommand,
+		Usage:        usage,
+		Flags:        helpFlags,
+		Subcommands:  helpSubs,
+		ExecutionInfo: execInfo,
+		Examples:     helpExamples,
+		MoreInfoText: moreInfo,
+		Filter: help.TargFlagFilter{
+			IsRoot:            false,
+			DisableCompletion: opts.DisableCompletion,
+			DisableHelp:       opts.DisableHelp,
+			DisableTimeout:    opts.DisableTimeout,
+		},
+	})
 }
 
-func printExamplesForNodes(w io.Writer, opts RunOptions, nodes []*commandNode) {
+func printUsage(w io.Writer, nodes []*commandNode, opts RunOptions) {
+	// Convert node groups to help.CommandGroup
+	groups := groupNodesBySource(nodes, opts)
+	cmdGroups := make([]help.CommandGroup, 0, len(groups))
+	for _, g := range groups {
+		cmds := make([]help.Command, 0, len(g.nodes))
+		for _, n := range g.nodes {
+			cmds = append(cmds, help.Command{Name: n.Name, Desc: n.Description})
+		}
+		cmdGroups = append(cmdGroups, help.CommandGroup{Source: g.source, Commands: cmds})
+	}
+
+	// Convert examples
 	examples := opts.Examples
 	if examples == nil {
 		examples = builtinExamplesForNodesWithGetenv(optsGetenv(opts), nodes)
 	}
-
-	printExampleList(w, examples)
-}
-
-// printExecutionInfo displays execution configuration for a command.
-func printExecutionInfo(w io.Writer, node *commandNode) {
-	lines := executionInfoLines(node)
-	if len(lines) == 0 {
-		return
+	helpExamples := make([]help.Example, 0, len(examples))
+	for _, e := range examples {
+		helpExamples = append(helpExamples, help.Example{Title: e.Title, Code: e.Code})
 	}
 
-	_, _ = fmt.Fprintln(w)
-	help.WriteHeader(w, "Execution:")
-
-	for _, line := range lines {
-		help.WriteIndentedLine(w, line)
-	}
-}
-
-// printFlagWithWrappedEnum prints a flag, wrapping long enum values.
-func printFlagWithWrappedEnum(w io.Writer, name, usage, placeholder, indent string) {
-	// Check if placeholder contains enum values that need wrapping
-	if strings.HasPrefix(placeholder, "{") && strings.Contains(placeholder, "|") &&
-		len(placeholder) > 40 {
-		// For long enums, wrap the values across multiple lines
-		enumContent := strings.TrimPrefix(strings.TrimSuffix(placeholder, "}"), "{")
-		values := strings.Split(enumContent, "|")
-
-		// Build the flag name without placeholder (we'll show enum separately)
-		baseName := strings.TrimSuffix(name, " "+placeholder)
-
-		// Print first line with flag name and first enum value
-		_, _ = fmt.Fprintf(w, "%s%s {%s|\n", indent, baseName, values[0])
-
-		// Print remaining values indented
-		const bracePadding = 2 // account for " {" before enum values
-
-		const usageSeparator = 4 // spaces between closing brace and usage text
-
-		valueIndent := indent + strings.Repeat(" ", len(baseName)+bracePadding)
-		for i := 1; i < len(values); i++ {
-			if i == len(values)-1 {
-				_, _ = fmt.Fprintf(
-					w,
-					"%s%s}%s%s\n",
-					valueIndent,
-					values[i],
-					strings.Repeat(" ", usageSeparator),
-					usage,
-				)
-			} else {
-				_, _ = fmt.Fprintf(w, "%s%s|\n", valueIndent, values[i])
-			}
-		}
-
-		return
-	}
-
-	// Normal flag without long enum
-	if usage != "" {
-		_, _ = fmt.Fprintf(w, "%s%-28s %s\n", indent, name, usage)
-	} else {
-		_, _ = fmt.Fprintf(w, "%s%s\n", indent, name)
-	}
-}
-
-// printFlagsIndented prints flags with proper indentation and enum wrapping.
-func printFlagsIndented(w io.Writer, flags []flagHelp, indent string) {
-	for _, item := range flags {
-		name := formatFlagName(item)
-		printFlagWithWrappedEnum(w, name, item.Usage, item.Placeholder, indent)
-	}
-}
-
-func printMoreInfo(w io.Writer, opts RunOptions) {
-	// User override takes precedence
-	if opts.MoreInfoText != "" {
-		_, _ = fmt.Fprintln(w)
-		help.WriteHeader(w, "More info:")
-		help.WriteIndentedLine(w, opts.MoreInfoText)
-		return
-	}
-
-	// Try explicit RepoURL, then auto-detect
-	url := opts.RepoURL
-	if url == "" {
-		url = DetectRepoURL()
-	}
-
-	if url != "" {
-		_, _ = fmt.Fprintln(w)
-		help.WriteHeader(w, "More info:")
-		help.WriteIndentedLine(w, url)
-	}
-}
-
-// printSubcommandGrid prints subcommands in a multi-column alphabetized grid.
-
-// Calculate column width based on longest name
-
-// Determine number of columns (fit in ~60 chars after indent)
-
-// Print in columns
-
-// printSubcommandList prints subcommands with name and description only.
-//
-
-func printSubcommandList(w io.Writer, subs map[string]*commandNode, indent string) {
-	names := sortedKeys(subs)
-	for _, name := range names {
-		sub := subs[name]
-		if sub == nil {
-			continue
-		}
-
-		if sub.Description != "" {
-			_, _ = fmt.Fprintf(w, "%s%-12s %s\n", indent, name, sub.Description)
-		} else {
-			_, _ = fmt.Fprintf(w, "%s%s\n", indent, name)
-		}
-	}
-}
-
-// printTargFlags prints targ's built-in flags.
-func printTargFlags(w io.Writer, opts RunOptions, isRoot bool) {
-	help.WriteHeader(w, "Targ flags:")
-
-	for _, f := range flags.VisibleFlags() {
-		if skipTargFlag(f, opts, isRoot) {
-			continue
-		}
-
-		help.WriteFlagLine(w, f.Long, f.Short, f.Placeholder, f.Desc)
-	}
-}
-
-// skipTargFlag returns true if this flag should be omitted from help output.
-func skipTargFlag(f flags.Def, opts RunOptions, isRoot bool) bool {
-	if f.RootOnly && !isRoot {
-		return true
-	}
-
-	switch f.Long {
-	case "completion":
-		return opts.DisableCompletion
-	case "help":
-		return opts.DisableHelp
-	case "timeout":
-		return opts.DisableTimeout
-	default:
-		return false
-	}
-}
-
-// printTopLevelCommand prints a top-level command with aligned description.
-// width is the column width for the name (for alignment).
-// showAttribution controls whether to show source attribution.
-func printTopLevelCommand(w io.Writer, node *commandNode, width int, showAttribution bool) {
-	sourceAttr := formatSourceAttribution(node, showAttribution)
-
-	switch {
-	case node.Description != "" && sourceAttr != "":
-		_, _ = fmt.Fprintf(w, "  %-*s  %s  %s\n", width, node.Name, node.Description, sourceAttr)
-	case node.Description != "":
-		_, _ = fmt.Fprintf(w, "  %-*s  %s\n", width, node.Name, node.Description)
-	case sourceAttr != "":
-		_, _ = fmt.Fprintf(w, "  %s  %s\n", node.Name, sourceAttr)
-	default:
-		_, _ = fmt.Fprintf(w, "  %s\n", node.Name)
-	}
-}
-
-func printUsage(w io.Writer, nodes []*commandNode, opts RunOptions) {
-	binName := opts.BinaryName
-
-	// Description first (consistent with command-level)
-	if opts.Description != "" {
-		_, _ = fmt.Fprintln(w, opts.Description)
-		_, _ = fmt.Fprintln(w)
-	}
-
-	_, _ = fmt.Fprintf(w, "Usage: %s [targ flags...] [<command>...]\n\n", binName)
-
-	// Targ flags
-	printTargFlags(w, opts, true)
-	printValuesAndFormats(w, opts, true)
-
-	// Commands grouped by source
-	_, _ = fmt.Fprintln(w)
-	help.WriteHeader(w, "Commands:")
-
-	groups := groupNodesBySource(nodes, opts)
-	for i, group := range groups {
-		if i > 0 {
-			_, _ = fmt.Fprintln(w)
-		}
-
-		// Show source file as explicit header
-		_, _ = fmt.Fprintf(w, "\n  Source: %s\n", group.source)
-
-		width := maxNameWidth(group.nodes)
-		for _, node := range group.nodes {
-			// Don't show per-command attribution - commands are already grouped by source
-			printTopLevelCommand(w, node, width, false)
+	// Get more info text
+	moreInfo := opts.MoreInfoText
+	if moreInfo == "" {
+		if url := opts.RepoURL; url != "" {
+			moreInfo = url
+		} else if url := DetectRepoURL(); url != "" {
+			moreInfo = url
 		}
 	}
 
-	printDeregisteredPackages(w, opts)
-	printExamplesForNodes(w, opts, nodes)
-	printMoreInfo(w, opts)
-}
-
-// printValuesAndFormats prints the Values and Formats help sections.
-func printValuesAndFormats(w io.Writer, opts RunOptions, isRoot bool) {
-	// Values section (only if completion is shown)
-	if isRoot && !opts.DisableCompletion {
-		shell := detectCurrentShell(optsGetenv(opts))
-
-		_, _ = fmt.Fprintln(w)
-		help.WriteHeader(w, "Values:")
-		help.WriteValueLine(w, "shell",
-			fmt.Sprintf("bash, zsh, fish (for --completion; default: current shell (detected: %s))", shell))
-	}
-
-	// Formats section
-	if !opts.DisableTimeout || isRoot {
-		_, _ = fmt.Fprintln(w)
-		help.WriteHeader(w, "Formats:")
-
-		if !opts.DisableTimeout {
-			help.WriteFormatLine(w, "duration",
-				"<int><unit> where unit is s (seconds), m (minutes), h (hours) (used by --timeout, --backoff)")
-		}
-	}
-}
-
-// printWrappedUsage prints a usage line with wrapping at word boundaries.
-// prefix is the text before the usage line (e.g., "Usage: " or "  Usage: ")
-// parts are the individual components (flags, positionals, etc.)
-func printWrappedUsage(w io.Writer, prefix string, parts []string) {
-	writeWrappedUsage(w, prefix, parts)
+	help.WriteRootHelp(w, help.RootHelpOpts{
+		BinaryName:           opts.BinaryName,
+		Description:          opts.Description,
+		CommandGroups:        cmdGroups,
+		DeregisteredPackages: opts.DeregisteredPackages,
+		Examples:             helpExamples,
+		MoreInfoText:         moreInfo,
+		Filter: help.TargFlagFilter{
+			IsRoot:            true,
+			DisableCompletion: opts.DisableCompletion,
+			DisableHelp:       opts.DisableHelp,
+			DisableTimeout:    opts.DisableTimeout,
+		},
+	})
 }
 
 // relativeSourcePathWithGetwd returns a relative path if possible, otherwise the absolute path.
