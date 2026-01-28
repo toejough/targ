@@ -16,12 +16,21 @@ func TestNewBuilderReturnsBuilder(t *testing.T) {
 	g.Expect(b).NotTo(BeNil())
 }
 
-func TestProperty_NewBuilderAcceptsAnyCommandName(t *testing.T) {
+func TestProperty_NewBuilderAcceptsAnyNonEmptyCommandName(t *testing.T) {
 	t.Parallel()
 
 	rapid.Check(t, func(t *rapid.T) {
-		name := rapid.String().Draw(t, "commandName")
+		name := rapid.StringOf(rapid.Rune()).Filter(func(s string) bool {
+			return s != ""
+		}).Draw(t, "commandName")
 		b := help.New(name)
 		_ = b // Builder created successfully
 	})
+}
+
+func TestNewBuilderPanicsOnEmptyName(t *testing.T) {
+	t.Parallel()
+	g := NewWithT(t)
+
+	g.Expect(func() { help.New("") }).To(Panic())
 }

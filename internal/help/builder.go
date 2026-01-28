@@ -10,7 +10,11 @@ type Builder struct {
 }
 
 // New creates a new help Builder for the given command name.
+// It panics if commandName is empty.
 func New(commandName string) *Builder {
+	if commandName == "" {
+		panic("help.New: commandName must not be empty")
+	}
 	return &Builder{
 		content: &ContentBuilder{
 			commandName: commandName,
