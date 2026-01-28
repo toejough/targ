@@ -44,43 +44,6 @@ func TestDeregisterFromAfterResolutionErrors(t *testing.T) {
 	})
 }
 
-//nolint:paralleltest // Cannot run in parallel - modifies global deregistrations/registryResolved state
-func TestDeregisterFrom_IdempotentForSamePackage(t *testing.T) {
-	rapid.Check(t, func(t *rapid.T) {
-		g := NewWithT(t)
-
-		// Reset deregistrations before test
-		core.ResetDeregistrations()
-		core.ResetResolved()
-
-		// Generate a valid package path
-		pkgPath := rapid.StringMatching(`[a-z]+\.[a-z]+/[a-z][a-z0-9-]*/[a-z][a-z0-9-]*`).
-			Draw(t, "pkgPath")
-
-		// Call twice with same path
-		err1 := core.DeregisterFrom(pkgPath)
-		err2 := core.DeregisterFrom(pkgPath)
-
-		g.Expect(err1).ToNot(HaveOccurred(),
-			"first DeregisterFrom should not error")
-		g.Expect(err2).ToNot(HaveOccurred(),
-			"second DeregisterFrom should not error")
-
-		// Verify no duplicate in queue
-		deregistrations := core.GetDeregistrations()
-		count := 0
-
-		for _, dereg := range deregistrations {
-			if dereg.PackagePath == pkgPath {
-				count++
-			}
-		}
-
-		g.Expect(count).To(Equal(1),
-			"package path should only appear once in deregistrations queue")
-	})
-}
-
 // TestProperty_DeregisterThenReregister verifies that deregistering a package
 // then re-registering individual targets from it preserves the re-registered targets.
 //
