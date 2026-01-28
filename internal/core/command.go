@@ -2047,20 +2047,19 @@ func printUsage(w io.Writer, nodes []*commandNode, opts RunOptions) {
 	_, _ = fmt.Fprintln(w)
 	help.WriteHeader(w, "Commands:")
 
-	// Check if we should show source attribution
-	showAttribution := hasRemoteTargets(nodes)
-
 	groups := groupNodesBySource(nodes, opts)
 	for i, group := range groups {
 		if i > 0 {
 			_, _ = fmt.Fprintln(w)
 		}
 
-		_, _ = fmt.Fprintf(w, "\n  [%s]\n", group.source)
+		// Show source file as explicit header
+		_, _ = fmt.Fprintf(w, "\n  Source: %s\n", group.source)
 
 		width := maxNameWidth(group.nodes)
 		for _, node := range group.nodes {
-			printTopLevelCommand(w, node, width, showAttribution)
+			// Don't show per-command attribution - commands are already grouped by source
+			printTopLevelCommand(w, node, width, false)
 		}
 	}
 
