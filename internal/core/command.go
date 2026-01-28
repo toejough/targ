@@ -18,6 +18,7 @@ import (
 	"unicode"
 
 	"github.com/toejough/targ/internal/flags"
+	"github.com/toejough/targ/internal/help"
 	internalsh "github.com/toejough/targ/internal/sh"
 )
 
@@ -1776,13 +1777,15 @@ func printCommandHelp(w io.Writer, node *commandNode, opts RunOptions) {
 	}
 
 	if len(flags) > 0 {
-		_, _ = fmt.Fprintln(w, "\nFlags:")
+		_, _ = fmt.Fprintln(w)
+		help.WriteHeader(w, "Flags:")
 		printFlagsIndented(w, flags, "  ")
 	}
 
 	// Subcommands (list, not recursive details)
 	if len(node.Subcommands) > 0 {
-		_, _ = fmt.Fprintln(w, "\nSubcommands:")
+		_, _ = fmt.Fprintln(w)
+		help.WriteHeader(w, "Subcommands:")
 		printSubcommandList(w, node.Subcommands, "  ")
 	}
 
@@ -1821,11 +1824,11 @@ func printExampleList(w io.Writer, examples []Example) {
 		return
 	}
 
-	_, _ = fmt.Fprintln(w, "\nExamples:")
+	_, _ = fmt.Fprintln(w)
+	help.WriteHeader(w, "Examples:")
 
 	for _, ex := range examples {
-		_, _ = fmt.Fprintf(w, "  %s:\n", ex.Title)
-		_, _ = fmt.Fprintf(w, "    %s\n", ex.Code)
+		help.WriteExample(w, ex.Title, ex.Code)
 	}
 }
 
@@ -1864,10 +1867,11 @@ func printExecutionInfo(w io.Writer, node *commandNode) {
 		return
 	}
 
-	_, _ = fmt.Fprintln(w, "\nExecution:")
+	_, _ = fmt.Fprintln(w)
+	help.WriteHeader(w, "Execution:")
 
 	for _, line := range lines {
-		_, _ = fmt.Fprintf(w, "  %s\n", line)
+		help.WriteIndentedLine(w, line)
 	}
 }
 
@@ -1929,7 +1933,9 @@ func printFlagsIndented(w io.Writer, flags []flagHelp, indent string) {
 func printMoreInfo(w io.Writer, opts RunOptions) {
 	// User override takes precedence
 	if opts.MoreInfoText != "" {
-		_, _ = fmt.Fprintf(w, "\nMore info:\n  %s\n", opts.MoreInfoText)
+		_, _ = fmt.Fprintln(w)
+		help.WriteHeader(w, "More info:")
+		help.WriteIndentedLine(w, opts.MoreInfoText)
 		return
 	}
 
@@ -1940,7 +1946,9 @@ func printMoreInfo(w io.Writer, opts RunOptions) {
 	}
 
 	if url != "" {
-		_, _ = fmt.Fprintf(w, "\nMore info:\n  %s\n", url)
+		_, _ = fmt.Fprintln(w)
+		help.WriteHeader(w, "More info:")
+		help.WriteIndentedLine(w, url)
 	}
 }
 
@@ -1973,24 +1981,14 @@ func printSubcommandList(w io.Writer, subs map[string]*commandNode, indent strin
 
 // printTargFlags prints targ's built-in flags.
 func printTargFlags(w io.Writer, opts RunOptions, isRoot bool) {
-	_, _ = fmt.Fprintln(w, "Targ flags:")
+	help.WriteHeader(w, "Targ flags:")
 
 	for _, f := range flags.VisibleFlags() {
 		if skipTargFlag(f, opts, isRoot) {
 			continue
 		}
 
-		name := "--" + f.Long
-		if f.Short != "" {
-			name = fmt.Sprintf("--%s, -%s", f.Long, f.Short)
-		}
-
-		// Add placeholder for flags that take values
-		if f.Placeholder != "" {
-			name = fmt.Sprintf("%s %s", name, f.Placeholder)
-		}
-
-		_, _ = fmt.Fprintf(w, "  %-28s %s\n", name, f.Desc)
+		help.WriteFlagLine(w, f.Long, f.Short, f.Placeholder, f.Desc)
 	}
 }
 
@@ -2046,7 +2044,8 @@ func printUsage(w io.Writer, nodes []*commandNode, opts RunOptions) {
 	printValuesAndFormats(w, opts, true)
 
 	// Commands grouped by source
-	_, _ = fmt.Fprintln(w, "\nCommands:")
+	_, _ = fmt.Fprintln(w)
+	help.WriteHeader(w, "Commands:")
 
 	// Check if we should show source attribution
 	showAttribution := hasRemoteTargets(nodes)
@@ -2076,23 +2075,20 @@ func printValuesAndFormats(w io.Writer, opts RunOptions, isRoot bool) {
 	if isRoot && !opts.DisableCompletion {
 		shell := detectCurrentShell(optsGetenv(opts))
 
-		_, _ = fmt.Fprintln(w, "\nValues:")
-		_, _ = fmt.Fprintf(
-			w,
-			"  shell: bash, zsh, fish (for --completion; default: current shell (detected: %s))\n",
-			shell,
-		)
+		_, _ = fmt.Fprintln(w)
+		help.WriteHeader(w, "Values:")
+		help.WriteValueLine(w, "shell",
+			fmt.Sprintf("bash, zsh, fish (for --completion; default: current shell (detected: %s))", shell))
 	}
 
 	// Formats section
 	if !opts.DisableTimeout || isRoot {
-		_, _ = fmt.Fprintln(w, "\nFormats:")
+		_, _ = fmt.Fprintln(w)
+		help.WriteHeader(w, "Formats:")
 
 		if !opts.DisableTimeout {
-			_, _ = fmt.Fprintln(
-				w,
-				"  duration: <int><unit> where unit is s (seconds), m (minutes), h (hours) (used by --timeout, --backoff)",
-			)
+			help.WriteFormatLine(w, "duration",
+				"<int><unit> where unit is s (seconds), m (minutes), h (hours) (used by --timeout, --backoff)")
 		}
 	}
 }
