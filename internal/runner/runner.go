@@ -26,9 +26,12 @@ import (
 	"strconv"
 	"strings"
 	"text/template"
+	"time"
 	"unicode/utf8"
 
 	"github.com/toejough/targ/internal/discover"
+	"github.com/toejough/targ/internal/flags"
+	"github.com/toejough/targ/internal/help"
 )
 
 // ContentPatch represents a string replacement to apply to file content.
@@ -44,6 +47,12 @@ type CreateOptions struct {
 	ShellCmd string   // Shell command to execute
 	Deps     []string // Dependency target names
 	Cache    []string // Cache patterns
+	Watch    []string // Watch patterns
+	Timeout  string   // Duration string (e.g. "30s")
+	Times    int      // Run count (0 = unset)
+	Retry    bool     // Continue on failure
+	Backoff  string   // "duration,multiplier" (e.g. "1s,2.0")
+	DepMode  string   // "serial" or "parallel"
 }
 
 // FileOps abstracts file system operations for testing.
@@ -209,7 +218,12 @@ func AddTargetToFileWithFileOps(fileOps FileOps, path string, opts CreateOptions
 			depVars[i] = KebabToPascal(dep)
 		}
 
-		code.WriteString(fmt.Sprintf(".Deps(%s)", strings.Join(depVars, ", ")))
+		depsArgs := strings.Join(depVars, ", ")
+		if opts.DepMode == "parallel" {
+			depsArgs += ", targ.DepModeParallel"
+		}
+
+		code.WriteString(fmt.Sprintf(".Deps(%s)", depsArgs))
 	}
 
 	// Add Cache() if specified
@@ -222,6 +236,53 @@ func AddTargetToFileWithFileOps(fileOps FileOps, path string, opts CreateOptions
 		code.WriteString(fmt.Sprintf(".Cache(%s)", strings.Join(patterns, ", ")))
 	}
 
+	// Add Watch() if specified
+	if len(opts.Watch) > 0 {
+		patterns := make([]string, len(opts.Watch))
+		for i, p := range opts.Watch {
+			patterns[i] = fmt.Sprintf("%q", p)
+		}
+
+		code.WriteString(fmt.Sprintf(".Watch(%s)", strings.Join(patterns, ", ")))
+	}
+
+	// Track whether generated code needs "time" import
+	needsTimeImport := false
+
+	// Add Timeout() if specified
+	if opts.Timeout != "" {
+		durCode, err := durationToGoCode(opts.Timeout)
+		if err != nil {
+			return fmt.Errorf("invalid timeout: %w", err)
+		}
+
+		code.WriteString(fmt.Sprintf(".Timeout(%s)", durCode))
+
+		needsTimeImport = true
+	}
+
+	// Add Times() if specified
+	if opts.Times > 0 {
+		code.WriteString(fmt.Sprintf(".Times(%d)", opts.Times))
+	}
+
+	// Add Retry() if specified
+	if opts.Retry {
+		code.WriteString(".Retry()")
+	}
+
+	// Add Backoff() if specified
+	if opts.Backoff != "" {
+		backoffCode, err := backoffToGoCode(opts.Backoff)
+		if err != nil {
+			return fmt.Errorf("invalid backoff: %w", err)
+		}
+
+		code.WriteString(fmt.Sprintf(".Backoff(%s)", backoffCode))
+
+		needsTimeImport = true
+	}
+
 	code.WriteString("\n")
 
 	// Generate group modifications (new groups and patches to existing groups)
@@ -231,6 +292,11 @@ func AddTargetToFileWithFileOps(fileOps FileOps, path string, opts CreateOptions
 	modifiedContent := string(content)
 	for _, patch := range groupMods.ContentPatches {
 		modifiedContent = strings.Replace(modifiedContent, patch.Old, patch.New, 1)
+	}
+
+	// Add "time" import if needed and not already present
+	if needsTimeImport && !strings.Contains(modifiedContent, `"time"`) {
+		modifiedContent = addTimeImport(modifiedContent)
 	}
 
 	// Append new code
@@ -682,7 +748,7 @@ func NamespacePaths(files []string, root string) (map[string][]string, error) {
 }
 
 // ParseCreateArgs parses arguments after --create into CreateOptions.
-// Format: [path...] <name> [--deps dep1 dep2...] [--cache pattern1...] "shell-command"
+// Format: [path...] <name> [--deps dep1 dep2...] [--cache/--watch pattern1...] [flags...] "shell-command"
 // The shell command is always the last argument.
 //
 //nolint:cyclop // Parsing logic has necessary branches for each flag type
@@ -720,6 +786,52 @@ func ParseCreateArgs(args []string) (CreateOptions, error) {
 				opts.Cache = append(opts.Cache, remaining[i])
 				i++
 			}
+		case arg == "--watch":
+			// Collect watch patterns until next flag or end
+			i++
+			for i < len(remaining) && !strings.HasPrefix(remaining[i], "--") {
+				opts.Watch = append(opts.Watch, remaining[i])
+				i++
+			}
+		case arg == "--timeout":
+			i++
+			if i >= len(remaining) {
+				return opts, fmt.Errorf("%w: --timeout requires a value", errCreateUsage)
+			}
+			opts.Timeout = remaining[i]
+			i++
+		case arg == "--times":
+			i++
+			if i >= len(remaining) {
+				return opts, fmt.Errorf("%w: --times requires a value", errCreateUsage)
+			}
+			n, err := strconv.Atoi(remaining[i])
+			if err != nil {
+				return opts, fmt.Errorf("%w: --times value must be an integer", errCreateUsage)
+			}
+			opts.Times = n
+			i++
+		case arg == "--retry":
+			opts.Retry = true
+			i++
+		case arg == "--backoff":
+			i++
+			if i >= len(remaining) {
+				return opts, fmt.Errorf("%w: --backoff requires a value", errCreateUsage)
+			}
+			opts.Backoff = remaining[i]
+			i++
+		case arg == "--dep-mode":
+			i++
+			if i >= len(remaining) {
+				return opts, fmt.Errorf("%w: --dep-mode requires a value", errCreateUsage)
+			}
+			mode := remaining[i]
+			if mode != "serial" && mode != "parallel" {
+				return opts, fmt.Errorf("%w: --dep-mode must be serial or parallel", errCreateUsage)
+			}
+			opts.DepMode = mode
+			i++
 		case strings.HasPrefix(arg, "--"):
 			return opts, fmt.Errorf("%w: %s", errUnknownCreateFlag, arg)
 		default:
@@ -890,11 +1002,11 @@ func main() {
 // unexported variables.
 var (
 	errCreateUsage = errors.New(
-		"usage: targ --create [group...] <name> [--deps ...] [--cache ...] \"<shell-command>\"",
+		"usage: targ --create [group...] <name> [--deps ...] [--cache/--watch ...]" +
+			" [--timeout/--times/--retry/--backoff/--dep-mode] \"<shell-command>\"",
 	)
-	errDuplicateTarget    = errors.New("target already exists")
-	errFlagRemoved        = errors.New("flag has been removed; use --create instead")
-	errInvalidDependency  = errors.New("invalid dependency name")
+	errDuplicateTarget   = errors.New("target already exists")
+	errInvalidDependency = errors.New("invalid dependency name")
 	errInvalidGroup       = errors.New("invalid group name")
 	errInvalidPackagePath = errors.New(
 		"invalid package path: must be a module path (e.g., github.com/user/repo)",
@@ -1228,6 +1340,11 @@ func (r *targRunner) exitWithCleanup(code int) int {
 }
 
 func (r *targRunner) handleCreateFlag(args []string) (exitCode int, done bool) {
+	if ContainsHelpFlag(args) {
+		PrintCreateHelp(os.Stdout)
+		return 0, true
+	}
+
 	opts, err := ParseCreateArgs(args)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -1266,6 +1383,7 @@ func (r *targRunner) handleCreateFlag(args []string) (exitCode int, done bool) {
 
 func (r *targRunner) handleEarlyFlags() (exitCode int, done bool) {
 	seenTarget := false
+	helpSeen := false
 
 	for i, arg := range r.args {
 		isFlag := strings.HasPrefix(arg, "-")
@@ -1275,27 +1393,36 @@ func (r *targRunner) handleEarlyFlags() (exitCode int, done bool) {
 			seenTarget = true
 		}
 
-		if isRemovedFlag(arg) {
-			fmt.Fprintf(os.Stderr, "%s: %v\n", arg, errFlagRemoved)
+		f := flags.Find(arg)
+		if f == nil {
+			continue
+		}
+
+		if f.Removed != "" {
+			fmt.Fprintf(os.Stderr, "%s: %s\n", arg, f.Removed)
 			return 1, true
+		}
+
+		if f.Long == "help" {
+			helpSeen = true
 		}
 
 		// Position-sensitive flags: only recognized before first target
 		if !seenTarget {
-			if isCreateFlag(arg) {
-				return r.handleCreateFlag(r.args[i+1:])
+			remaining := r.args[i+1:]
+			if helpSeen {
+				remaining = append([]string{"--help"}, remaining...)
 			}
 
-			if isSyncFlag(arg) {
-				return r.handleSyncFlag(r.args[i+1:])
-			}
-
-			if isToFuncFlag(arg) {
-				return r.handleToFuncFlag(r.args[i+1:])
-			}
-
-			if isToStringFlag(arg) {
-				return r.handleToStringFlag(r.args[i+1:])
+			switch f.Long {
+			case "create":
+				return r.handleCreateFlag(remaining)
+			case "sync":
+				return r.handleSyncFlag(remaining)
+			case "to-func":
+				return r.handleToFuncFlag(remaining)
+			case "to-string":
+				return r.handleToStringFlag(remaining)
 			}
 		}
 	}
@@ -1448,6 +1575,11 @@ func (r *targRunner) handleSingleModule(infos []discover.PackageInfo) int {
 }
 
 func (r *targRunner) handleSyncFlag(args []string) (exitCode int, done bool) {
+	if ContainsHelpFlag(args) {
+		PrintSyncHelp(os.Stdout)
+		return 0, true
+	}
+
 	// Parse the sync arguments
 	opts, err := ParseSyncArgs(args)
 	if err != nil {
@@ -1506,6 +1638,11 @@ func (r *targRunner) handleSyncFlag(args []string) (exitCode int, done bool) {
 }
 
 func (r *targRunner) handleToFuncFlag(args []string) (exitCode int, done bool) {
+	if ContainsHelpFlag(args) {
+		PrintToFuncHelp(os.Stdout)
+		return 0, true
+	}
+
 	if len(args) == 0 {
 		fmt.Fprintln(os.Stderr, "--to-func requires a target name")
 		return 1, true
@@ -1521,6 +1658,11 @@ func (r *targRunner) handleToFuncFlag(args []string) (exitCode int, done bool) {
 }
 
 func (r *targRunner) handleToStringFlag(args []string) (exitCode int, done bool) {
+	if ContainsHelpFlag(args) {
+		PrintToStringHelp(os.Stdout)
+		return 0, true
+	}
+
 	if len(args) == 0 {
 		fmt.Fprintln(os.Stderr, "--to-string requires a target name")
 		return 1, true
@@ -1533,6 +1675,88 @@ func (r *targRunner) handleToStringFlag(args []string) (exitCode int, done bool)
 		"a function target",
 		ConvertFuncTargetToString,
 	)
+}
+
+// ContainsHelpFlag returns true if args contain --help or -h.
+func ContainsHelpFlag(args []string) bool {
+	for _, a := range args {
+		if a == "--help" || a == "-h" {
+			return true
+		}
+	}
+
+	return false
+}
+
+// PrintCreateHelp writes structured help for --create to w.
+func PrintCreateHelp(w io.Writer) {
+	output := help.New("targ --create").
+		WithDescription("Create a new target in the nearest targ file.").
+		WithUsage(`targ --create [group...] <name> [flags...] "<shell-command>"`).
+		AddPositionals(
+			help.Positional{Name: "group", Placeholder: "<group...>"},
+			help.Positional{Name: "name", Placeholder: "<name>", Required: true},
+			help.Positional{Name: "shell-command", Placeholder: `"<shell-command>"`, Required: true},
+		).
+		AddCommandFlags(
+			help.Flag{Long: "--deps", Placeholder: "<targets...>", Desc: "Dependency targets to run first"},
+			help.Flag{Long: "--cache", Placeholder: "<patterns...>", Desc: "Skip if files unchanged"},
+			help.Flag{Long: "--watch", Placeholder: "<patterns...>", Desc: "Re-run on file changes"},
+			help.Flag{Long: "--timeout", Placeholder: "<duration>", Desc: "Set execution timeout (e.g. 30s, 5m)"},
+			help.Flag{Long: "--times", Placeholder: "<n>", Desc: "Run the command n times"},
+			help.Flag{Long: "--retry", Desc: "Continue on failure"},
+			help.Flag{Long: "--backoff", Placeholder: "<duration,mult>", Desc: "Exponential backoff (e.g. 1s,2.0)"},
+			help.Flag{Long: "--dep-mode", Placeholder: "<mode>", Desc: "Dependency mode: serial or parallel"},
+		).
+		AddFormats(
+			help.Format{Name: "duration", Desc: "<int><unit> where unit is s (seconds), m (minutes), h (hours)"},
+		).
+		AddExamples(
+			help.Example{Code: `targ --create test "go test ./..."`},
+			help.Example{Code: `targ --create dev lint --deps fmt --cache "**/*.go" "golangci-lint run"`},
+			help.Example{Code: `targ --create test --timeout 30s --retry "go test ./..."`},
+		).
+		Render()
+	fmt.Fprint(w, output)
+}
+
+// PrintSyncHelp writes structured help for --sync to w.
+func PrintSyncHelp(w io.Writer) {
+	output := help.New("targ --sync").
+		WithDescription("Sync targets from a remote package.").
+		WithUsage("targ --sync <package-path>").
+		AddExamples(
+			help.Example{Code: "targ --sync github.com/user/repo"},
+			help.Example{Code: "targ --sync github.com/user/repo/tools"},
+		).
+		Render()
+	fmt.Fprint(w, output)
+}
+
+// PrintToFuncHelp writes structured help for --to-func to w.
+func PrintToFuncHelp(w io.Writer) {
+	output := help.New("targ --to-func").
+		WithDescription("Convert a string target to a function target.").
+		WithUsage("targ --to-func <target-name>").
+		AddExamples(
+			help.Example{Code: "targ --to-func test"},
+			help.Example{Code: "targ --to-func dev/lint"},
+		).
+		Render()
+	fmt.Fprint(w, output)
+}
+
+// PrintToStringHelp writes structured help for --to-string to w.
+func PrintToStringHelp(w io.Writer) {
+	output := help.New("targ --to-string").
+		WithDescription("Convert a function target to a string target.").
+		WithUsage("targ --to-string <target-name>").
+		AddExamples(
+			help.Example{Code: "targ --to-string test"},
+			help.Example{Code: "targ --to-string dev/lint"},
+		).
+		Render()
+	fmt.Fprint(w, output)
 }
 
 func (r *targRunner) logError(prefix string, err error) {
@@ -2388,6 +2612,65 @@ func escapeGoString(s string) string {
 	return s
 }
 
+// durationToGoCode converts a duration string like "30s" to Go code like "30 * time.Second".
+func durationToGoCode(s string) (string, error) {
+	d, err := time.ParseDuration(s)
+	if err != nil {
+		return "", fmt.Errorf("parsing duration %q: %w", s, err)
+	}
+
+	switch {
+	case d%time.Hour == 0:
+		return fmt.Sprintf("%d * time.Hour", int(d/time.Hour)), nil
+	case d%time.Minute == 0:
+		return fmt.Sprintf("%d * time.Minute", int(d/time.Minute)), nil
+	case d%time.Second == 0:
+		return fmt.Sprintf("%d * time.Second", int(d/time.Second)), nil
+	default:
+		return fmt.Sprintf("time.Duration(%d)", d.Nanoseconds()), nil
+	}
+}
+
+// backoffToGoCode converts "duration,multiplier" to Go code like "1*time.Second, 2.0".
+func backoffToGoCode(s string) (string, error) {
+	parts := strings.SplitN(s, ",", 2) //nolint:mnd // format is "duration,multiplier"
+	if len(parts) != 2 {               //nolint:mnd // need exactly 2 parts
+		return "", fmt.Errorf("backoff must be duration,multiplier (e.g. 1s,2.0): %q", s)
+	}
+
+	durCode, err := durationToGoCode(parts[0])
+	if err != nil {
+		return "", err
+	}
+
+	mult := strings.TrimSpace(parts[1])
+
+	_, err = strconv.ParseFloat(mult, 64)
+	if err != nil {
+		return "", fmt.Errorf("invalid multiplier %q: %w", mult, err)
+	}
+
+	return durCode + ", " + mult, nil
+}
+
+// addTimeImport adds "time" to the import block in generated Go source.
+func addTimeImport(content string) string {
+	// Case 1: single import — convert to grouped
+	const singleImport = `import "github.com/toejough/targ"`
+	if strings.Contains(content, singleImport) {
+		return strings.Replace(content, singleImport,
+			"import (\n\t\"time\"\n\n\t\"github.com/toejough/targ\"\n)", 1)
+	}
+
+	// Case 2: grouped import with targ — insert "time" before the targ line
+	if idx := strings.Index(content, `"github.com/toejough/targ"`); idx != -1 {
+		insertAt := strings.LastIndex(content[:idx], "\n") + 1
+		return content[:insertAt] + "\t\"time\"\n\n" + content[insertAt:]
+	}
+
+	return content
+}
+
 func extractBinName(binArg string) string {
 	if binArg == "" {
 		return buildTag
@@ -2870,11 +3153,6 @@ func isCleanVersion(version string) bool {
 	return version != "" && version != "(devel)" && !strings.Contains(version, "+dirty")
 }
 
-// isCreateFlag checks if the argument is the --create flag.
-func isCreateFlag(arg string) bool {
-	return arg == "--create"
-}
-
 // isHelpRequest returns true if args represent a help request.
 func isHelpRequest(args []string) bool {
 	return len(args) == 0 || args[0] == "-h" || args[0] == "--help"
@@ -2891,24 +3169,6 @@ func isIncludableModuleFile(name string) bool {
 	return strings.HasSuffix(name, ".go") && !strings.HasSuffix(name, "_test.go")
 }
 
-// isRemovedFlag checks if the argument is a removed flag.
-func isRemovedFlag(arg string) bool {
-	switch {
-	case arg == "--init" || strings.HasPrefix(arg, "--init="):
-		return true
-	case arg == "--alias" || strings.HasPrefix(arg, "--alias="):
-		return true
-	case arg == "--move":
-		return true
-	default:
-		return false
-	}
-}
-
-// isSyncFlag checks if the argument is the --sync flag.
-func isSyncFlag(arg string) bool {
-	return arg == "--sync"
-}
 
 // isTargTargCall checks if call is targ.Targ().
 func isTargTargCall(call *ast.CallExpr) bool {
@@ -2925,15 +3185,6 @@ func isTargTargCall(call *ast.CallExpr) bool {
 	return ident.Name == "targ" && sel.Sel.Name == "Targ"
 }
 
-// isToFuncFlag checks if the argument is the --to-func flag.
-func isToFuncFlag(arg string) bool {
-	return arg == "--to-func"
-}
-
-// isToStringFlag checks if the argument is the --to-string flag.
-func isToStringFlag(arg string) bool {
-	return arg == "--to-string"
-}
 
 // linkModuleEntry creates a symlink for a single directory entry if needed.
 func linkModuleEntry(startDir, root string, entry os.DirEntry) error {
@@ -3087,6 +3338,18 @@ func printMultiModuleHelp(registry []moduleRegistry) {
 	}
 
 	fmt.Println()
+	fmt.Println("Flags:")
+
+	for _, f := range flags.VisibleFlags() {
+		name := "--" + f.Long
+		if f.Short != "" {
+			name = fmt.Sprintf("--%s, -%s", f.Long, f.Short)
+		}
+
+		fmt.Printf("    %-28s %s\n", name, f.Desc)
+	}
+
+	fmt.Println()
 	fmt.Println("More info: https://github.com/toejough/targ#readme")
 }
 
@@ -3113,15 +3376,9 @@ func printNoTargetsCompletion(args []string) {
 		prefix = parts[len(parts)-1]
 	}
 
-	// All targ flags available at root level
-	allFlags := []string{
-		"--help",
-		"--timeout",
-		"--no-binary-cache",
-		"--completion",
-	}
-
-	for _, flag := range allFlags {
+	// All visible targ flags available at root level
+	for _, f := range flags.VisibleFlags() {
+		flag := "--" + f.Long
 		if strings.HasPrefix(flag, prefix) {
 			fmt.Println(flag)
 		}
