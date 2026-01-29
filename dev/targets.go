@@ -67,7 +67,7 @@ func init() {
 		TestForFail,
 		Tidy,
 		TodoCheck,
-		Watch,
+		Watch, Status,
 	)
 }
 
@@ -97,6 +97,7 @@ var (
 	Mutate               = targ.Targ(mutate).Description("Run mutation tests")
 	ReorderDecls         = targ.Targ(reorderDecls).Description("Reorder declarations")
 	ReorderDeclsCheck    = targ.Targ(reorderDeclsCheck).Description("Check declaration order")
+	Status               = targ.Targ("git status").Name("status")
 	Test                 = targ.Targ(test).Description("Run unit tests")
 	TestForFail          = targ.Targ(testForFail).Description("Run tests (fail-fast)")
 	Tidy                 = targ.Targ(tidy).Description("Tidy go.mod")

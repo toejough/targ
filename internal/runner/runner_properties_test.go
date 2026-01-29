@@ -4,6 +4,9 @@ package runner_test
 import (
 	"errors"
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"io/fs"
 	"path/filepath"
 	"strconv"
@@ -265,6 +268,84 @@ func TestProperty_CodeGeneration(t *testing.T) {
 			path, err := runner.FindOrCreateTargFileWithFileOps(fileOps, dirName)
 			g.Expect(err).NotTo(HaveOccurred())
 			g.Expect(path).To(Equal(filePath))
+		})
+	})
+
+	// Property: FindOrCreateTargFile finds targ file in a descendant directory
+	t.Run("FindsDescendantTargFile", func(t *testing.T) {
+		t.Parallel()
+		rapid.Check(t, func(t *rapid.T) {
+			g := NewWithT(t)
+
+			root := "/" + rapid.StringMatching(`[a-z]{3,8}`).Draw(t, "root")
+			parent := rapid.StringMatching(`[a-z]{3,8}`).Draw(t, "parent")
+			child := rapid.StringMatching(`[a-z]{3,8}`).Draw(t, "child")
+
+			startDir := filepath.Join(root, parent)
+			descendantDir := filepath.Join(root, parent, child)
+
+			fileOps := NewMemoryFileOps()
+			g.Expect(fileOps.MkdirAll(descendantDir, 0o755)).To(Succeed())
+
+			fileOps.Dirs[root] = []fs.DirEntry{memDirEntry{name: parent, isDir: true}}
+			fileOps.Dirs[startDir] = []fs.DirEntry{memDirEntry{name: child, isDir: true}}
+
+			descendantTarg := filepath.Join(descendantDir, "targets.go")
+			content := `//go:build targ
+
+package build
+`
+
+			g.Expect(fileOps.WriteFile(descendantTarg, []byte(content), 0o644)).To(Succeed())
+
+			path, err := runner.FindOrCreateTargFileWithFileOps(fileOps, startDir)
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(path).To(Equal(descendantTarg))
+			g.Expect(fileOps.Files[filepath.Join(startDir, "targs.go")]).To(BeNil(),
+				"should not create a new targ file when one exists in descendants")
+		})
+	})
+
+	// Property: AddTargetToFile adds target to targ.Register in init block.
+	t.Run("AddTargetToFileUpdatesRegister", func(t *testing.T) {
+		t.Parallel()
+		rapid.Check(t, func(t *rapid.T) {
+			g := NewWithT(t)
+
+			dirName := rapid.StringMatching(`[a-z]{3,10}`).Draw(t, "dirName")
+			targetName := rapid.StringMatching(`[a-z][a-z0-9]{2,8}`).Draw(t, "targetName")
+
+			fileOps := NewMemoryFileOps()
+			path := filepath.Join(dirName, "targets.go")
+
+			initial := `//go:build targ
+
+package build
+
+import "github.com/toejough/targ"
+
+var Existing = targ.Targ(func() {}).Name("existing")
+
+func init() {
+	targ.Register(
+		Existing,
+	)
+}
+`
+			fileOps.Files[path] = []byte(initial)
+			fileOps.Dirs[dirName] = []fs.DirEntry{
+				memDirEntry{name: "targets.go", isDir: false},
+			}
+
+			err := runner.AddTargetToFileWithFileOps(fileOps, path, runner.CreateOptions{
+				Name:     targetName,
+				ShellCmd: "echo hello",
+			})
+			g.Expect(err).NotTo(HaveOccurred())
+
+			content := string(fileOps.Files[path])
+			registerArgs := findRegisterArgsInTest(content)
+			g.Expect(registerArgs).To(ContainElement(runner.PathToPascal([]string{targetName})))
 		})
 	})
 
@@ -909,3 +990,52 @@ func (m *mockFileInfo) Name() string { return m.name }
 func (m *mockFileInfo) Size() int64 { return m.size }
 
 func (m *mockFileInfo) Sys() any { return nil }
+
+func findRegisterArgsInTest(content string) []string {
+	fset := token.NewFileSet()
+
+	file, err := parser.ParseFile(fset, "", content, 0)
+	if err != nil {
+		return nil
+	}
+
+	for _, decl := range file.Decls {
+		funcDecl, ok := decl.(*ast.FuncDecl)
+		if !ok || funcDecl.Name.Name != "init" || funcDecl.Recv != nil {
+			continue
+		}
+
+		for _, stmt := range funcDecl.Body.List {
+			exprStmt, ok := stmt.(*ast.ExprStmt)
+			if !ok {
+				continue
+			}
+
+			call, ok := exprStmt.X.(*ast.CallExpr)
+			if !ok {
+				continue
+			}
+
+			selector, ok := call.Fun.(*ast.SelectorExpr)
+			if !ok {
+				continue
+			}
+
+			pkgIdent, ok := selector.X.(*ast.Ident)
+			if !ok || pkgIdent.Name != "targ" || selector.Sel.Name != "Register" {
+				continue
+			}
+
+			args := make([]string, 0, len(call.Args))
+			for _, arg := range call.Args {
+				if ident, ok := arg.(*ast.Ident); ok {
+					args = append(args, ident.Name)
+				}
+			}
+
+			return args
+		}
+	}
+
+	return nil
+}

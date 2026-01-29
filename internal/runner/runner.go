@@ -214,6 +214,16 @@ func AddTargetToFileWithFileOps(fileOps FileOps, path string, opts CreateOptions
 
 	newContent := modifiedContent + result.code + groupMods.newCode
 
+	registerVar := varName
+	if len(opts.Path) > 0 {
+		registerVar = PathToPascal(opts.Path[:1])
+	}
+
+	newContent, err = addRegisterArgToInit(newContent, registerVar)
+	if err != nil {
+		return err
+	}
+
 	err = fileOps.WriteFile(path, []byte(newContent), filePermissionsForCode)
 	if err != nil {
 		return fmt.Errorf("writing file: %w", err)
@@ -520,29 +530,17 @@ func FindOrCreateTargFile(startDir string) (string, error) {
 
 // FindOrCreateTargFileWithFileOps finds or creates a targ file using injected file operations.
 func FindOrCreateTargFileWithFileOps(fileOps FileOps, startDir string) (string, error) {
-	// Look for existing targ files in the current directory
-	entries, err := fileOps.ReadDir(startDir)
+	// Look for existing targ files in the current directory or descendants.
+	path, found, err := findTargFileInTree(fileOps, startDir)
 	if err != nil {
-		return "", fmt.Errorf("reading directory: %w", err)
+		return "", err
 	}
 
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-
-		name := entry.Name()
-		if !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
-			continue
-		}
-		// Check if it has the targ build tag
-		path := filepath.Join(startDir, name)
-		if HasTargBuildTagWithFileOps(fileOps, path) {
-			return path, nil
-		}
+	if found {
+		return path, nil
 	}
 
-	// No existing targ file found, create a new one
+	// No existing targ file found, create a new one.
 	targFile := filepath.Join(startDir, "targs.go")
 	pkgName := filepath.Base(startDir)
 	// Sanitize package name (remove invalid characters)
@@ -2002,6 +2000,35 @@ func addDeregisterFromToInit(file *ast.File, packagePath string) {
 	file.Decls = slices.Insert(file.Decls, insertIdx, ast.Decl(initFunc))
 }
 
+func addRegisterArgToInit(content, registerVar string) (string, error) {
+	fset := token.NewFileSet()
+
+	file, err := parser.ParseFile(fset, "", content, parser.ParseComments)
+	if err != nil {
+		return "", fmt.Errorf("parsing file: %w", err)
+	}
+
+	call := findRegisterCall(file)
+	if call == nil {
+		return content, nil
+	}
+
+	if registerArgExists(call.Args, registerVar) {
+		return content, nil
+	}
+
+	call.Args = append(call.Args, ast.NewIdent(registerVar))
+
+	var buf bytes.Buffer
+
+	err = format.Node(&buf, fset, file)
+	if err != nil {
+		return "", fmt.Errorf("formatting file: %w", err)
+	}
+
+	return buf.String(), nil
+}
+
 // addTimeImport adds "time" to the import block in generated Go source.
 func addTimeImport(content string) string {
 	// Case 1: single import — convert to grouped
@@ -2953,6 +2980,41 @@ func findModCacheDir(modulePath, version string) (string, bool) {
 	return "", false
 }
 
+func findRegisterCall(file *ast.File) *ast.CallExpr {
+	for _, decl := range file.Decls {
+		funcDecl, ok := decl.(*ast.FuncDecl)
+		if !ok || funcDecl.Name.Name != "init" || funcDecl.Recv != nil {
+			continue
+		}
+
+		if call := findRegisterCallInInit(funcDecl); call != nil {
+			return call
+		}
+	}
+
+	return nil
+}
+
+func findRegisterCallInInit(funcDecl *ast.FuncDecl) *ast.CallExpr {
+	for _, stmt := range funcDecl.Body.List {
+		exprStmt, ok := stmt.(*ast.ExprStmt)
+		if !ok {
+			continue
+		}
+
+		call, ok := exprStmt.X.(*ast.CallExpr)
+		if !ok {
+			continue
+		}
+
+		if isTargRegisterCall(call) {
+			return call
+		}
+	}
+
+	return nil
+}
+
 // findStringTarget searches for a target with a string argument in targ.Targ().
 func findStringTarget(file *ast.File, targetName string) *stringTargetInfo {
 	for _, decl := range file.Decls {
@@ -2979,6 +3041,44 @@ func findStringTarget(file *ast.File, targetName string) *stringTargetInfo {
 	}
 
 	return nil
+}
+
+func findTargFileInEntries(fileOps FileOps, dir string, entries []fs.DirEntry) (string, bool) {
+	for _, entry := range entries {
+		if path, ok := targFilePath(fileOps, dir, entry); ok {
+			return path, true
+		}
+	}
+
+	return "", false
+}
+
+func findTargFileInTree(fileOps FileOps, dir string) (string, bool, error) {
+	entries, err := fileOps.ReadDir(dir)
+	if err != nil {
+		return "", false, fmt.Errorf("reading directory: %w", err)
+	}
+
+	if path, found := findTargFileInEntries(fileOps, dir, entries); found {
+		return path, true, nil
+	}
+
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+
+		path, found, err := findTargFileInTree(fileOps, filepath.Join(dir, entry.Name()))
+		if err != nil {
+			return "", false, err
+		}
+
+		if found {
+			return path, true, nil
+		}
+	}
+
+	return "", false, nil
 }
 
 // findTargFiles finds all files with the targ build tag in the given directory.
@@ -3237,6 +3337,20 @@ func isIncludableModuleFile(name string) bool {
 	return strings.HasSuffix(name, ".go") && !strings.HasSuffix(name, "_test.go")
 }
 
+func isTargRegisterCall(call *ast.CallExpr) bool {
+	selector, ok := call.Fun.(*ast.SelectorExpr)
+	if !ok {
+		return false
+	}
+
+	pkgIdent, ok := selector.X.(*ast.Ident)
+	if !ok || pkgIdent.Name != buildTag || selector.Sel.Name != "Register" {
+		return false
+	}
+
+	return true
+}
+
 // isTargTargCall checks if call is targ.Targ().
 func isTargTargCall(call *ast.CallExpr) bool {
 	sel, ok := call.Fun.(*ast.SelectorExpr)
@@ -3464,6 +3578,16 @@ func queryModuleCommands(binaryPath string) ([]commandInfo, error) {
 	return result.Commands, nil
 }
 
+func registerArgExists(args []ast.Expr, name string) bool {
+	for _, arg := range args {
+		if ident, ok := arg.(*ast.Ident); ok && ident.Name == name {
+			return true
+		}
+	}
+
+	return false
+}
+
 // remapPackageInfosToIsolated creates new package infos with paths pointing to isolated dir.
 // Returns the remapped infos and a mapping from new paths to original paths.
 func remapPackageInfosToIsolated(
@@ -3677,6 +3801,24 @@ func targCacheDir() string {
 	}
 
 	return filepath.Join(home, ".cache", "targ")
+}
+
+func targFilePath(fileOps FileOps, dir string, entry fs.DirEntry) (string, bool) {
+	if entry.IsDir() {
+		return "", false
+	}
+
+	name := entry.Name()
+	if !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+		return "", false
+	}
+
+	path := filepath.Join(dir, name)
+	if HasTargBuildTagWithFileOps(fileOps, path) {
+		return path, true
+	}
+
+	return "", false
 }
 
 // targetMatchesName checks if a target variable matches the given CLI name.

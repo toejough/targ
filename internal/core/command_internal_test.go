@@ -1,37 +1,46 @@
 package core
 
-import "testing"
+import (
+	"path/filepath"
+	"testing"
 
-func TestCompletionExampleWithGetenv(t *testing.T) {
+	. "github.com/onsi/gomega"
+	"pgregory.net/rapid"
+)
+
+func TestProperty_CompletionExampleWithGetenv(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
-		name   string
-		shell  string
-		expect string
-	}{
-		{name: "Zsh", shell: "/bin/zsh", expect: "source <(targ --completion)"},
-		{name: "Fish", shell: "/usr/bin/fish", expect: "targ --completion | source"},
-		{name: "BashDefault", shell: "", expect: "eval \"$(targ --completion)\""},
-		{name: "OtherShellFallsBack", shell: "/bin/nu", expect: "eval \"$(targ --completion)\""},
-	}
+	rapid.Check(t, func(t *rapid.T) {
+		g := NewWithT(t)
 
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
+		shell := rapid.StringMatching(`[a-z]+`).Draw(t, "shell")
+		if shell == bashShell {
+			shell = zshShell
+		}
 
-			getenv := func(key string) string {
-				if key == "SHELL" {
-					return tc.shell
-				}
+		fullPath := filepath.Join("/bin", shell)
+		expect := "eval \"$(targ --completion)\""
 
-				return ""
+		switch shell {
+		case zshShell:
+			expect = "source <(targ --completion)"
+		case fishShell:
+			expect = "targ --completion | source"
+		}
+
+		getenv := func(key string) string {
+			if key == "SHELL" {
+				return fullPath
 			}
 
-			example := completionExampleWithGetenv(getenv)
-			if example.Code != tc.expect {
-				t.Fatalf("expected %q, got %q", tc.expect, example.Code)
-			}
-		})
-	}
+			return ""
+		}
+
+		example := completionExampleWithGetenv(getenv)
+		g.Expect(example.Code).To(Equal(expect))
+
+		emptyGetenv := func(_ string) string { return "" }
+		g.Expect(detectCurrentShell(emptyGetenv)).To(Equal(bashShell))
+	})
 }
