@@ -66,8 +66,8 @@ github.com/toejough/go-reorder v0.0.0-20260123033158-812dc6e76018 h1:8miflSkc2Vs
 github.com/toejough/go-reorder v0.0.0-20260123033158-812dc6e76018/go.mod h1:RPG0RKzyzlpkYcX8YNsX4QpOJzt87lGdeRFA1NoOwFk=
 github.com/toejough/imptest v0.0.0-20260117221357-f34620dc692d h1:xON/y7imsGpT/cy504Ktb//qzjaw5e4FrIgT65dthak=
 github.com/toejough/imptest v0.0.0-20260117221357-f34620dc692d/go.mod h1:x4rLasfjuQKaImCrhpmhQGQEINF7ShZkd9Yt6GBMnzk=
-github.com/toejough/testredundancy v0.0.0-20260124221312-2fc176dc7f01 h1:MwpCq5xHImSNQJwqguz+Qy/Bk1pvsTkxdlMObTs1fZk=
-github.com/toejough/testredundancy v0.0.0-20260124221312-2fc176dc7f01/go.mod h1:BJ1ra8Pt6ouZE4yvgRt1j9HkH+yzusi0jlNrNTmZY6M=
+github.com/toejough/testredundancy v0.0.0-20260129180558-09d0fdc0bb61 h1:q2kh5K7BzSky2Fw0ZnsGYG6YBJzvQA8uaWBkfILkCh8=
+github.com/toejough/testredundancy v0.0.0-20260129180558-09d0fdc0bb61/go.mod h1:BJ1ra8Pt6ouZE4yvgRt1j9HkH+yzusi0jlNrNTmZY6M=
 github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e h1:JVG44RsyaB9T2KIHavMF/ppJZNG9ZpyihvCd0w101no=
 github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e/go.mod h1:RbqR21r5mrJuqunuUZ/Dhy/avygyECGrLceyNeo4LiM=
 go.uber.org/automaxprocs v1.6.0 h1:O3y2/QNTOdbF+e/dpXNNW7Rx2hZ4sTIPyybbxyNqTUs=

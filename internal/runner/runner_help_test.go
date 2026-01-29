@@ -22,34 +22,6 @@ func TestContainsHelpFlag(t *testing.T) {
 	g.Expect(runner.ContainsHelpFlag([]string{})).To(BeFalse())
 }
 
-func TestCreateHelp(t *testing.T) {
-	t.Parallel()
-	g := NewWithT(t)
-
-	var buf strings.Builder
-	runner.PrintCreateHelp(&buf)
-	output := buf.String()
-
-	// Deterministic content checks
-	g.Expect(output).To(ContainSubstring("Create a new target"))
-	g.Expect(output).To(ContainSubstring("Positionals:"))
-	g.Expect(output).To(ContainSubstring("group"))
-	g.Expect(output).To(ContainSubstring("name"))
-	g.Expect(output).To(ContainSubstring("shell-command"))
-	g.Expect(output).To(ContainSubstring("Flags:"))
-	g.Expect(output).To(ContainSubstring("--deps"))
-	g.Expect(output).To(ContainSubstring("--cache"))
-	g.Expect(output).To(ContainSubstring("--watch"))
-	g.Expect(output).To(ContainSubstring("--timeout"))
-	g.Expect(output).To(ContainSubstring("--times"))
-	g.Expect(output).To(ContainSubstring("--retry"))
-	g.Expect(output).To(ContainSubstring("--backoff"))
-	g.Expect(output).To(ContainSubstring("--dep-mode"))
-	g.Expect(output).To(ContainSubstring("Formats:"))
-	g.Expect(output).To(ContainSubstring("duration"))
-	g.Expect(output).To(ContainSubstring("Examples:"))
-}
-
 func TestProperty_HelpOutputStructure(t *testing.T) {
 	t.Parallel()
 
@@ -114,51 +86,6 @@ func TestProperty_HelpOutputStructure(t *testing.T) {
 			})
 		})
 	}
-}
-
-func TestSyncHelp(t *testing.T) {
-	t.Parallel()
-	g := NewWithT(t)
-
-	var buf strings.Builder
-	runner.PrintSyncHelp(&buf)
-	output := buf.String()
-
-	g.Expect(output).To(ContainSubstring("Sync targets from a remote package"))
-	g.Expect(output).To(ContainSubstring("Usage:"))
-	g.Expect(output).To(ContainSubstring("--sync"))
-	g.Expect(output).To(ContainSubstring("package-path"))
-	g.Expect(output).To(ContainSubstring("Examples:"))
-}
-
-func TestToFuncHelp(t *testing.T) {
-	t.Parallel()
-	g := NewWithT(t)
-
-	var buf strings.Builder
-	runner.PrintToFuncHelp(&buf)
-	output := buf.String()
-
-	g.Expect(output).To(ContainSubstring("Convert a string target to a function target"))
-	g.Expect(output).To(ContainSubstring("Usage:"))
-	g.Expect(output).To(ContainSubstring("--to-func"))
-	g.Expect(output).To(ContainSubstring("target-name"))
-	g.Expect(output).To(ContainSubstring("Examples:"))
-}
-
-func TestToStringHelp(t *testing.T) {
-	t.Parallel()
-	g := NewWithT(t)
-
-	var buf strings.Builder
-	runner.PrintToStringHelp(&buf)
-	output := buf.String()
-
-	g.Expect(output).To(ContainSubstring("Convert a function target to a string target"))
-	g.Expect(output).To(ContainSubstring("Usage:"))
-	g.Expect(output).To(ContainSubstring("--to-string"))
-	g.Expect(output).To(ContainSubstring("target-name"))
-	g.Expect(output).To(ContainSubstring("Examples:"))
 }
 
 // helpSpec describes the expected sections in help output for property tests.

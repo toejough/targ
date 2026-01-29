@@ -9,14 +9,6 @@ import (
 	"github.com/toejough/targ/internal/help"
 )
 
-func TestStripANSIWithEmptyString(t *testing.T) {
-	t.Parallel()
-	g := NewWithT(t)
-
-	result := help.StripANSI("")
-	g.Expect(result).To(Equal(""))
-}
-
 func TestStripANSIWithEscapeCodes(t *testing.T) {
 	t.Parallel()
 	g := NewWithT(t)
@@ -24,24 +16,6 @@ func TestStripANSIWithEscapeCodes(t *testing.T) {
 	// ANSI escape for bold: \x1b[1m ... \x1b[0m
 	input := "\x1b[1mhello\x1b[0m world"
 	result := help.StripANSI(input)
-	g.Expect(result).To(Equal("hello world"))
-}
-
-func TestStripANSIWithMultipleEscapeCodes(t *testing.T) {
-	t.Parallel()
-	g := NewWithT(t)
-
-	// Multiple ANSI codes
-	input := "\x1b[1m\x1b[36mhello\x1b[0m \x1b[33mworld\x1b[0m"
-	result := help.StripANSI(input)
-	g.Expect(result).To(Equal("hello world"))
-}
-
-func TestStripANSIWithPlainText(t *testing.T) {
-	t.Parallel()
-	g := NewWithT(t)
-
-	result := help.StripANSI("hello world")
 	g.Expect(result).To(Equal("hello world"))
 }
 
@@ -80,30 +54,6 @@ func TestWriteFlagLineFormatsCorrectly(t *testing.T) {
 	g.Expect(output).To(ContainSubstring("--timeout"))
 	g.Expect(output).To(ContainSubstring("<duration>"))
 	g.Expect(output).To(ContainSubstring("Set timeout"))
-}
-
-func TestWriteFlagLineWithShortForm(t *testing.T) {
-	t.Parallel()
-	g := NewWithT(t)
-
-	var buf strings.Builder
-	help.WriteFlagLine(&buf, "help", "h", "", "Show help")
-	output := buf.String()
-
-	g.Expect(output).To(ContainSubstring("--help"))
-	g.Expect(output).To(ContainSubstring("-h"))
-}
-
-func TestWriteFormatLineFormatsCorrectly(t *testing.T) {
-	t.Parallel()
-	g := NewWithT(t)
-
-	var buf strings.Builder
-	help.WriteFormatLine(&buf, "duration", "<int><unit>")
-	output := buf.String()
-
-	g.Expect(output).To(ContainSubstring("duration"))
-	g.Expect(output).To(ContainSubstring("<int><unit>"))
 }
 
 func TestWriteHeaderContainsText(t *testing.T) {
