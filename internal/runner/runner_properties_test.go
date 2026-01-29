@@ -854,6 +854,10 @@ import (
 			file1 := rapid.StringMatching(`[a-z]{3,8}`).Draw(t, "file1")
 			file2 := rapid.StringMatching(`[a-z]{3,8}`).Draw(t, "file2")
 
+			if subDir1 == subDir2 || file1 == file2 || file1 == subDir2 || file2 == subDir2 {
+				t.Skip("avoid duplicate namespace compression cases")
+			}
+
 			files := []string{
 				rootDir + "/tools/" + subDir1 + "/" + subDir1 + ".go",
 				rootDir + "/tools/" + subDir2 + "/" + file1 + ".go",

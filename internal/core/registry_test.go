@@ -112,11 +112,11 @@ func TestProperty_ApplyDeregistrations_RemovesGroupsFromDeregisteredPackages(t *
 
 // TestProperty_CleanRegistryPassesResolution verifies that a registry with no
 // deregistrations and no conflicts resolves successfully.
-//
-//nolint:paralleltest // Cannot run in parallel - modifies global registry state
 func TestProperty_CleanRegistryPassesResolution(t *testing.T) {
+	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {
 		g := NewWithT(t)
+		state := NewRegistryState()
 
 		// Generate unique target names
 		numTargets := rapid.IntRange(1, 10).Draw(t, "numTargets")
@@ -142,12 +142,12 @@ func TestProperty_CleanRegistryPassesResolution(t *testing.T) {
 		}
 
 		// Set up globals - no deregistrations
-		SetRegistry(reg)
-		ResetDeregistrations()
-		ResetResolved()
+		state.SetRegistry(reg)
+		state.ResetDeregistrations()
+		state.ResetResolved()
 
 		// Resolve registry
-		result, _, err := resolveRegistry()
+		result, _, err := state.resolveRegistry()
 
 		// Should succeed
 		g.Expect(err).ToNot(HaveOccurred(),
@@ -164,19 +164,19 @@ func TestProperty_CleanRegistryPassesResolution(t *testing.T) {
 		}
 
 		// Cleanup
-		SetRegistry(nil)
-		ResetDeregistrations()
-		ResetResolved()
+		state.SetRegistry(nil)
+		state.ResetDeregistrations()
+		state.ResetResolved()
 	})
 }
 
 // TestProperty_ClearLocalTargetSources_ClearsGroupsFromMainModule verifies that
 // groups from the main module have their sourcePkg cleared.
-//
-//nolint:paralleltest // Cannot run in parallel - modifies global state via mainModuleProvider
 func TestProperty_ClearLocalTargetSources_ClearsGroupsFromMainModule(t *testing.T) {
+	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {
 		g := NewWithT(t)
+		state := NewRegistryState()
 
 		// Generate main module path
 		mainModule := rapid.StringMatching(`github\.com/[a-z][a-z0-9-]*/[a-z][a-z0-9-]*`).
@@ -191,17 +191,17 @@ func TestProperty_ClearLocalTargetSources_ClearsGroupsFromMainModule(t *testing.
 		registry := []any{localGroup}
 
 		// Inject main module provider
-		SetMainModuleForTest(func() (string, bool) {
+		state.SetMainModuleProvider(func() (string, bool) {
 			return mainModule, true
 		})
-		t.Cleanup(func() { SetMainModuleForTest(nil) })
+		t.Cleanup(func() { state.SetMainModuleProvider(nil) })
 
 		// Verify sourcePkg BEFORE clearing
 		g.Expect(localGroup.GetSource()).To(Equal(mainModule),
 			"local group should have mainModule as sourcePkg before clearing")
 
 		// Call clearLocalTargetSources
-		clearLocalTargetSources(registry)
+		clearLocalTargetSources(registry, state.mainModuleProvider)
 
 		// Verify the group's sourcePkg was cleared
 		g.Expect(localGroup.GetSource()).To(BeEmpty(),
@@ -211,11 +211,11 @@ func TestProperty_ClearLocalTargetSources_ClearsGroupsFromMainModule(t *testing.
 
 // TestProperty_ClearLocalTargetSources_MixedTargetsAndGroups verifies that
 // both targets and groups from the main module are cleared.
-//
-//nolint:paralleltest // Cannot run in parallel - modifies global state via mainModuleProvider
 func TestProperty_ClearLocalTargetSources_MixedTargetsAndGroups(t *testing.T) {
+	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {
 		g := NewWithT(t)
+		state := NewRegistryState()
 
 		// Generate main module and external module paths (must be different)
 		mainModule := rapid.StringMatching(`github\.com/[a-z][a-z0-9-]*/[a-z][a-z0-9-]*`).
@@ -242,13 +242,13 @@ func TestProperty_ClearLocalTargetSources_MixedTargetsAndGroups(t *testing.T) {
 		registry := []any{localTarget, remoteTarget, localGroup, remoteGroup}
 
 		// Inject main module provider
-		SetMainModuleForTest(func() (string, bool) {
+		state.SetMainModuleProvider(func() (string, bool) {
 			return mainModule, true
 		})
-		t.Cleanup(func() { SetMainModuleForTest(nil) })
+		t.Cleanup(func() { state.SetMainModuleProvider(nil) })
 
 		// Call clearLocalTargetSources
-		clearLocalTargetSources(registry)
+		clearLocalTargetSources(registry, state.mainModuleProvider)
 
 		// Verify local items have empty sourcePkg
 		g.Expect(localTarget.GetSource()).To(BeEmpty(),
@@ -264,13 +264,45 @@ func TestProperty_ClearLocalTargetSources_MixedTargetsAndGroups(t *testing.T) {
 	})
 }
 
-// TestProperty_ClearLocalTargetSources_PreservesRemoteGroups verifies that
-// groups from external modules retain their sourcePkg.
-//
-//nolint:paralleltest // Cannot run in parallel - modifies global state via mainModuleProvider
-func TestProperty_ClearLocalTargetSources_PreservesRemoteGroups(t *testing.T) {
+// TestProperty_ClearLocalTargetSources_NoMainModuleNoChange verifies that a missing
+// main module leaves sources untouched.
+func TestProperty_ClearLocalTargetSources_NoMainModuleNoChange(t *testing.T) {
+	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {
 		g := NewWithT(t)
+
+		module := rapid.StringMatching(`github\.com/[a-z][a-z0-9-]*/[a-z][a-z0-9-]*`).
+			Draw(t, "module")
+
+		target := Targ(func() {}).Name("local-target")
+		target.SetSourceForTest(module)
+
+		group := Group("local-group", target)
+		group.SetSourceForTest(module)
+
+		registry := []any{target, group}
+
+		clearLocalTargetSources(registry, nil)
+		g.Expect(target.GetSource()).To(Equal(module),
+			"target source should remain when main module is unknown")
+		g.Expect(group.GetSource()).To(Equal(module),
+			"group source should remain when main module is unknown")
+
+		clearLocalTargetSources(registry, func() (string, bool) { return "", false })
+		g.Expect(target.GetSource()).To(Equal(module),
+			"target source should remain when main module is empty")
+		g.Expect(group.GetSource()).To(Equal(module),
+			"group source should remain when main module is empty")
+	})
+}
+
+// TestProperty_ClearLocalTargetSources_PreservesRemoteGroups verifies that
+// groups from external modules retain their sourcePkg.
+func TestProperty_ClearLocalTargetSources_PreservesRemoteGroups(t *testing.T) {
+	t.Parallel()
+	rapid.Check(t, func(t *rapid.T) {
+		g := NewWithT(t)
+		state := NewRegistryState()
 
 		// Generate main module and external module paths (must be different)
 		mainModule := rapid.StringMatching(`github\.com/[a-z][a-z0-9-]*/[a-z][a-z0-9-]*`).
@@ -288,17 +320,17 @@ func TestProperty_ClearLocalTargetSources_PreservesRemoteGroups(t *testing.T) {
 		registry := []any{remoteGroup}
 
 		// Inject main module provider
-		SetMainModuleForTest(func() (string, bool) {
+		state.SetMainModuleProvider(func() (string, bool) {
 			return mainModule, true
 		})
-		t.Cleanup(func() { SetMainModuleForTest(nil) })
+		t.Cleanup(func() { state.SetMainModuleProvider(nil) })
 
 		// Verify sourcePkg BEFORE clearing
 		g.Expect(remoteGroup.GetSource()).To(Equal(externalModule),
 			"remote group should have externalModule as sourcePkg before clearing")
 
 		// Call clearLocalTargetSources
-		clearLocalTargetSources(registry)
+		clearLocalTargetSources(registry, state.mainModuleProvider)
 
 		// Verify the group's sourcePkg was PRESERVED
 		g.Expect(remoteGroup.GetSource()).To(Equal(externalModule),
@@ -344,11 +376,11 @@ func TestProperty_DeregisteredPackageFullyRemoved(t *testing.T) {
 
 // TestProperty_DeregistrationBeforeConflictCheck verifies that deregistering one side
 // of a conflict resolves it, confirming deregistration happens before conflict detection.
-//
-//nolint:paralleltest // Cannot run in parallel - modifies global registry state
 func TestProperty_DeregistrationBeforeConflictCheck(t *testing.T) {
+	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {
 		g := NewWithT(t)
+		state := NewRegistryState()
 
 		// Generate target name
 		name := rapid.StringMatching(`[a-z][a-z0-9-]*`).Draw(t, "name")
@@ -376,15 +408,15 @@ func TestProperty_DeregistrationBeforeConflictCheck(t *testing.T) {
 		}
 
 		// Set up globals - deregister pkg1 to resolve conflict
-		SetRegistry(reg)
-		ResetDeregistrations()
-		ResetResolved()
+		state.SetRegistry(reg)
+		state.ResetDeregistrations()
+		state.ResetResolved()
 
-		err := DeregisterFrom(pkg1)
+		err := state.DeregisterFrom(pkg1)
 		g.Expect(err).ToNot(HaveOccurred(), "queueing deregistration should succeed")
 
 		// Resolve registry
-		result, _, err := resolveRegistry()
+		result, _, err := state.resolveRegistry()
 
 		// Should succeed - conflict was resolved by deregistration
 		g.Expect(err).ToNot(HaveOccurred(),
@@ -398,13 +430,13 @@ func TestProperty_DeregistrationBeforeConflictCheck(t *testing.T) {
 			"remaining target should be from non-deregistered package")
 
 		// Deregistration queue should be cleared
-		g.Expect(GetDeregistrations()).To(BeEmpty(),
+		g.Expect(state.GetDeregistrations()).To(BeEmpty(),
 			"deregistration queue should be cleared after resolution")
 
 		// Cleanup
-		SetRegistry(nil)
-		ResetDeregistrations()
-		ResetResolved()
+		state.SetRegistry(nil)
+		state.ResetDeregistrations()
+		state.ResetResolved()
 	})
 }
 
@@ -431,11 +463,11 @@ func TestProperty_DeregistrationErrorMessage(t *testing.T) {
 
 // TestProperty_DeregistrationErrorStopsResolution verifies that a bad deregistration
 // (package not found) returns error and prevents conflict check from running.
-//
-//nolint:paralleltest // Cannot run in parallel - modifies global registry state
 func TestProperty_DeregistrationErrorStopsResolution(t *testing.T) {
+	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {
 		g := NewWithT(t)
+		state := NewRegistryState()
 
 		// Generate two different package paths
 		pkgGen := rapid.StringMatching(`[a-z]+\.[a-z]+/[a-z][a-z0-9-]*/[a-z][a-z0-9-]*`)
@@ -454,15 +486,15 @@ func TestProperty_DeregistrationErrorStopsResolution(t *testing.T) {
 		}
 
 		// Set up globals - try to deregister unknown package
-		SetRegistry(reg)
-		ResetDeregistrations()
-		ResetResolved()
+		state.SetRegistry(reg)
+		state.ResetDeregistrations()
+		state.ResetResolved()
 
-		err := DeregisterFrom(unknownPkg)
+		err := state.DeregisterFrom(unknownPkg)
 		g.Expect(err).ToNot(HaveOccurred(), "queueing deregistration should succeed")
 
 		// Resolve registry
-		_, _, err = resolveRegistry()
+		_, _, err = state.resolveRegistry()
 
 		// Should return DeregistrationError
 		g.Expect(err).To(HaveOccurred(),
@@ -479,13 +511,13 @@ func TestProperty_DeregistrationErrorStopsResolution(t *testing.T) {
 			"error should contain the unknown package path")
 
 		// Deregistration queue should still be cleared even on error
-		g.Expect(GetDeregistrations()).To(BeEmpty(),
+		g.Expect(state.GetDeregistrations()).To(BeEmpty(),
 			"deregistration queue should be cleared even after error")
 
 		// Cleanup
-		SetRegistry(nil)
-		ResetDeregistrations()
-		ResetResolved()
+		state.SetRegistry(nil)
+		state.ResetDeregistrations()
+		state.ResetResolved()
 	})
 }
 
@@ -1004,11 +1036,11 @@ func TestProperty_OtherPackagesUntouched(t *testing.T) {
 
 // TestProperty_QueueClearedAfterResolution verifies that the deregistration queue
 // is cleared after resolveRegistry completes, whether it succeeds or fails.
-//
-//nolint:paralleltest // Cannot run in parallel - modifies global registry state
 func TestProperty_QueueClearedAfterResolution(t *testing.T) {
+	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {
 		g := NewWithT(t)
+		state := NewRegistryState()
 
 		// Generate package path
 		pkg := rapid.StringMatching(`[a-z]+\.[a-z]+/[a-z][a-z0-9-]*/[a-z][a-z0-9-]*`).
@@ -1025,29 +1057,29 @@ func TestProperty_QueueClearedAfterResolution(t *testing.T) {
 		}
 
 		// Set up globals - deregister the package
-		SetRegistry(reg)
-		ResetDeregistrations()
-		ResetResolved()
+		state.SetRegistry(reg)
+		state.ResetDeregistrations()
+		state.ResetResolved()
 
-		err := DeregisterFrom(pkg)
+		err := state.DeregisterFrom(pkg)
 		g.Expect(err).ToNot(HaveOccurred(), "queueing deregistration should succeed")
 
 		// Verify queue has entry before resolution
-		g.Expect(GetDeregistrations()).To(HaveLen(1),
+		g.Expect(state.GetDeregistrations()).To(HaveLen(1),
 			"deregistration queue should have entry before resolution")
 
 		// Resolve registry
-		_, _, err = resolveRegistry()
+		_, _, err = state.resolveRegistry()
 		g.Expect(err).ToNot(HaveOccurred(), "resolution should succeed")
 
 		// Queue should be cleared
-		g.Expect(GetDeregistrations()).To(BeEmpty(),
+		g.Expect(state.GetDeregistrations()).To(BeEmpty(),
 			"deregistration queue should be cleared after successful resolution")
 
 		// Cleanup
-		SetRegistry(nil)
-		ResetDeregistrations()
-		ResetResolved()
+		state.SetRegistry(nil)
+		state.ResetDeregistrations()
+		state.ResetResolved()
 	})
 }
 
