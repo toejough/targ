@@ -2,10 +2,14 @@ package core
 
 // Exported variables.
 var (
-	CallerPackagePathForTest  = callerPackagePath
-	ExtractPackagePathForTest = extractPackagePath
-	ParseGroupLikeForTest     = parseGroupLike
-	ParseTargetLikeForTest    = parseTargetLike
+	BuildPositionalPartsForTest  = buildPositionalParts
+	CallerPackagePathForTest     = callerPackagePath
+	ConvertExamplesForTest       = convertExamples
+	ExtractPackagePathForTest    = extractPackagePath
+	ParseGroupLikeForTest        = parseGroupLike
+	ParseTargetLikeForTest       = parseTargetLike
+	PositionalDisplayNameForTest = positionalDisplayName
+	ResolveMoreInfoTextForTest   = resolveMoreInfoText
 )
 
 // Test-only exports for use by core_test package tests.
@@ -13,6 +17,9 @@ var (
 
 // CommandNodeForTest is a type alias for the unexported commandNode type.
 type CommandNodeForTest = commandNode
+
+// PositionalHelpForTest is a type alias for the unexported positionalHelp type.
+type PositionalHelpForTest = positionalHelp
 
 // NewTargetForTest creates a Target with unexported fields set for testing.
 func NewTargetForTest(name, desc, sourcePkg string, nameOverridden bool) *Target {

@@ -426,7 +426,7 @@ type Def struct {
 4. `TakesValue` determines whether to show `<placeholder>` after flag name
 5. `Desc` provides description text
 
-**Enforcement:** All help output MUST derive from `flags.All` registry. Manual flag documentation is prohibited.
+**Enforcement:** All help output MUST derive from `flags.All()` registry. Manual flag documentation is prohibited.
 
 ### DES-020: Help Validation Testing
 **Traces to:** REQ-004 (objective code review), REQ-005 (self-contained help)

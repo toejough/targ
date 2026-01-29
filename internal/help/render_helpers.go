@@ -100,5 +100,8 @@ func WriteValueLine(w io.Writer, name, desc string) {
 	_, _ = fmt.Fprintf(w, "  %s: %s\n", styles.Placeholder.Render(name), desc)
 }
 
-//nolint:gochecknoglobals // Read-only styles initialized once for terminal rendering.
-var styles = DefaultStyles()
+// unexported variables.
+var (
+	//nolint:gochecknoglobals // Shared default styles for helper formatting.
+	styles = DefaultStyles()
+)

@@ -48,7 +48,7 @@ func AppendBuiltinExamples(custom ...Example) []Example {
 // BuiltinExamples returns the default targ examples (completion setup, chaining).
 func BuiltinExamples() []Example {
 	return []Example{
-		completionExample(),
+		completionExampleWithGetenv(os.Getenv),
 		chainExample(nil),
 	}
 }
@@ -150,7 +150,7 @@ func (n *commandNode) executeWithParents(
 	opts RunOptions,
 ) ([]string, error) {
 	if opts.HelpOnly {
-		w := getStdout(opts)
+		w := opts.Stdout
 		printCommandHelp(w, n, opts)
 		_, _ = fmt.Fprintln(w)
 	}
@@ -305,7 +305,18 @@ func applyTagOptionsOverride(
 	field reflect.StructField,
 	opts TagOptions,
 ) (TagOptions, error) {
-	method := tagOptionsMethod(inst)
+	// Get TagOptions method - inline of tagOptionsMethod
+	var method reflect.Value
+
+	if inst.IsValid() {
+		target := inst
+		if inst.Kind() != reflect.Ptr && inst.CanAddr() {
+			target = inst.Addr()
+		}
+
+		method = target.MethodByName("TagOptions")
+	}
+
 	if !method.IsValid() {
 		return opts, nil
 	}
@@ -320,7 +331,21 @@ func applyTagOptionsOverride(
 		reflect.ValueOf(opts),
 	})
 
-	return extractTagOptionsResult(results, opts)
+	// Results are validated by validateTagOptionsSignature to have exactly 2 elements
+	// with types (TagOptions, error). This check satisfies the nil-checker.
+	if len(results) < 2 { //nolint:mnd // 2 is the validated return count
+		return opts, nil
+	}
+
+	if !results[1].IsNil() {
+		// Type assertion is safe because validateTagOptionsSignature ensures error type
+		//nolint:forcetypeassert // validated by validateTagOptionsSignature
+		return opts, results[1].Interface().(error)
+	}
+
+	// Type assertion is safe because validateTagOptionsSignature ensures TagOptions type
+	//nolint:forcetypeassert // validated by validateTagOptionsSignature
+	return results[0].Interface().(TagOptions), nil
 }
 
 func applyTagPart(opts *TagOptions, p string) {
@@ -350,6 +375,33 @@ func applyTagPart(opts *TagOptions, p string) {
 	}
 }
 
+func buildExecInfo(lines []string) *help.ExecutionInfo {
+	if len(lines) == 0 {
+		return nil
+	}
+
+	execInfo := &help.ExecutionInfo{}
+
+	for _, line := range lines {
+		switch {
+		case strings.HasPrefix(line, "Deps:"):
+			execInfo.Deps = strings.TrimPrefix(line, "Deps: ")
+		case strings.HasPrefix(line, "Cache:"):
+			execInfo.CachePatterns = strings.TrimPrefix(line, "Cache: ")
+		case strings.HasPrefix(line, "Watch:"):
+			execInfo.WatchPatterns = strings.TrimPrefix(line, "Watch: ")
+		case strings.HasPrefix(line, "Timeout:"):
+			execInfo.Timeout = strings.TrimPrefix(line, "Timeout: ")
+		case strings.HasPrefix(line, "Times:"):
+			execInfo.Times = strings.TrimPrefix(line, "Times: ")
+		case strings.HasPrefix(line, "Retry:"):
+			execInfo.Retry = strings.TrimPrefix(line, "Retry: ")
+		}
+	}
+
+	return execInfo
+}
+
 // --- Help output ---
 
 // buildCommandPath builds the full command path from root to this node.
@@ -376,9 +428,8 @@ func buildPositionalParts(node *commandNode) ([]string, error) {
 	}
 
 	parts := make([]string, 0, len(positionals))
-
 	for _, item := range positionals {
-		name := positionalName(item)
+		name := positionalDisplayName(item)
 		if item.Required {
 			parts = append(parts, name)
 		} else {
@@ -447,14 +498,6 @@ func buildUsageParts(node *commandNode) ([]string, error) {
 	return parts, nil
 }
 
-// builtinExamplesForNodesWithGetenv returns examples using injected getenv.
-func builtinExamplesForNodesWithGetenv(getenv func(string) string, nodes []*commandNode) []Example {
-	return []Example{
-		completionExampleWithGetenv(getenv),
-		chainExample(nodes),
-	}
-}
-
 // callFunctionWithArgs calls a function with context and/or struct args.
 // / Handles: func(), func(ctx), func(args), func(ctx, args)
 //
@@ -472,7 +515,7 @@ func callFunctionWithArgs(ctx context.Context, fn, argsInst reflect.Value) error
 		paramType := ft.In(i)
 
 		// Check if this param is context.Context
-		if isContextType(paramType) {
+		if paramType == reflect.TypeFor[context.Context]() {
 			callArgs = append(callArgs, reflect.ValueOf(ctx))
 			continue
 		}
@@ -566,7 +609,7 @@ func chainExample(nodes []*commandNode) Example {
 	seenSources := make(map[string]bool)
 
 	for _, node := range nodes {
-		source := getNodeSourceFile(node)
+		source := node.SourceFile
 		if !seenSources[source] && len(names) < 2 {
 			names = append(names, node.Name)
 			seenSources[source] = true
@@ -639,7 +682,7 @@ func collectFlagHelp(node *commandNode) ([]flagHelp, error) {
 	}
 
 	typ := node.Type
-	inst := tagOptionsInstance(node)
+	inst := reflect.New(node.Type).Elem()
 
 	var flags []flagHelp
 
@@ -681,13 +724,29 @@ func collectFlagHelpChain(node *commandNode) ([]flagHelp, error) {
 	return flags, nil
 }
 
+func collectHelpSubcommands(node *commandNode) []help.Subcommand {
+	if len(node.Subcommands) == 0 {
+		return nil
+	}
+
+	var helpSubs []help.Subcommand
+
+	for _, name := range sortedKeys(node.Subcommands) {
+		if sub := node.Subcommands[name]; sub != nil {
+			helpSubs = append(helpSubs, help.Subcommand{Name: name, Desc: sub.Description})
+		}
+	}
+
+	return helpSubs
+}
+
 func collectPositionalHelp(node *commandNode) ([]positionalHelp, error) {
 	if node.Type == nil {
 		return nil, nil
 	}
 
 	typ := node.Type
-	inst := tagOptionsInstance(node)
+	inst := reflect.New(node.Type).Elem()
 
 	positionals := make([]positionalHelp, 0, typ.NumField())
 
@@ -722,12 +781,6 @@ func collectPositionalHelp(node *commandNode) ([]positionalHelp, error) {
 	return positionals, nil
 }
 
-// completionExample returns a shell-specific completion setup example.
-// Uses os.Getenv - call this only from exported API functions.
-func completionExample() Example {
-	return completionExampleWithGetenv(os.Getenv)
-}
-
 // completionExampleWithGetenv returns a shell-specific completion setup example using injected getenv.
 func completionExampleWithGetenv(getenv func(string) string) Example {
 	shell := detectCurrentShell(getenv)
@@ -747,6 +800,38 @@ func completionExampleWithGetenv(getenv func(string) string) Example {
 		Title: "Enable shell completion",
 		Code:  code,
 	}
+}
+
+func convertExamples(examples []Example) []help.Example {
+	if examples == nil {
+		return nil
+	}
+
+	helpExamples := make([]help.Example, 0, len(examples))
+	for _, e := range examples {
+		helpExamples = append(helpExamples, help.Example{Title: e.Title, Code: e.Code})
+	}
+
+	return helpExamples
+}
+
+func convertFlagHelps(flagHelps []flagHelp) []help.Flag {
+	helpFlags := make([]help.Flag, 0, len(flagHelps))
+	for _, f := range flagHelps {
+		hf := help.Flag{
+			Long:        "--" + f.Name,
+			Desc:        f.Usage,
+			Placeholder: f.Placeholder,
+			Required:    f.Required,
+		}
+		if f.Short != "" {
+			hf.Short = "-" + f.Short
+		}
+
+		helpFlags = append(helpFlags, hf)
+	}
+
+	return helpFlags
 }
 
 // detectCurrentShell returns the name of the current shell using the provided getenv function.
@@ -909,7 +994,7 @@ func executeShellCommand(
 	parsed := parseShellCommandArgs(args, node.ShellVars)
 
 	if parsed.helpRequested {
-		printCommandHelp(getStdout(opts), node, opts)
+		printCommandHelp(opts.Stdout, node, opts)
 		return nil, nil
 	}
 
@@ -1049,24 +1134,6 @@ func extractShellVars(cmd string) []string {
 	return vars
 }
 
-func extractTagOptionsResult(results []reflect.Value, fallback TagOptions) (TagOptions, error) {
-	// Results are validated by validateTagOptionsSignature to have exactly 2 elements
-	// with types (TagOptions, error). This check satisfies the nil-checker.
-	if len(results) < 2 { //nolint:mnd // 2 is the validated return count
-		return fallback, nil
-	}
-
-	if !results[1].IsNil() {
-		// Type assertion is safe because validateTagOptionsSignature ensures error type
-		//nolint:forcetypeassert // validated by validateTagOptionsSignature
-		return fallback, results[1].Interface().(error)
-	}
-
-	// Type assertion is safe because validateTagOptionsSignature ensures TagOptions type
-	//nolint:forcetypeassert // validated by validateTagOptionsSignature
-	return results[0].Interface().(TagOptions), nil
-}
-
 // findMatchingSubcommands finds all subcommands matching a glob pattern.
 func findMatchingSubcommands(node *commandNode, pattern string) []*commandNode {
 	matches := make([]*commandNode, 0)
@@ -1197,17 +1264,6 @@ func functionName(v reflect.Value) string {
 	return name
 }
 
-// getNodeSourceFile returns the source file for a node.
-func getNodeSourceFile(node *commandNode) string {
-	return node.SourceFile
-}
-
-// getStdout returns the stdout writer from options.
-// Callers must ensure opts.Stdout is set (RunWithEnv sets it from env.Stdout()).
-func getStdout(opts RunOptions) io.Writer {
-	return opts.Stdout
-}
-
 // groupNodesBySource groups nodes by their source file, preserving order.
 func groupNodesBySource(nodes []*commandNode, opts RunOptions) []struct {
 	source string
@@ -1223,7 +1279,7 @@ func groupNodesBySource(nodes []*commandNode, opts RunOptions) []struct {
 	getwd := optsGetwd(opts)
 
 	for _, node := range nodes {
-		source := relativeSourcePathWithGetwd(getNodeSourceFile(node), getwd)
+		source := relativeSourcePathWithGetwd(node.SourceFile, getwd)
 		if source == "" {
 			source = "(unknown)"
 		}
@@ -1240,14 +1296,6 @@ func groupNodesBySource(nodes []*commandNode, opts RunOptions) []struct {
 	}
 
 	return groups
-}
-
-func isContextType(t reflect.Type) bool {
-	return t == reflect.TypeFor[context.Context]()
-}
-
-func isErrorType(t reflect.Type) bool {
-	return t.Implements(reflect.TypeFor[error]())
 }
 
 // isGlobPatternCmd checks if a string contains glob metacharacters.
@@ -1598,7 +1646,7 @@ func parseTargetLikeFunc(target TargetLike, fn any) (*commandNode, error) {
 	ft := fv.Type()
 
 	// Validate return type
-	if ft.NumOut() > 1 || (ft.NumOut() == 1 && !isErrorType(ft.Out(0))) {
+	if ft.NumOut() > 1 || (ft.NumOut() == 1 && !ft.Out(0).Implements(reflect.TypeFor[error]())) {
 		return nil, errFuncMustReturnError
 	}
 
@@ -1618,7 +1666,7 @@ func parseTargetLikeFunc(target TargetLike, fn any) (*commandNode, error) {
 	// Check for struct argument (for flag parsing)
 	for i := range ft.NumIn() {
 		paramType := ft.In(i)
-		if isContextType(paramType) {
+		if paramType == reflect.TypeFor[context.Context]() {
 			continue
 		}
 		// Non-context parameter - if it's a struct, set up node.Type for flag parsing
@@ -1664,8 +1712,7 @@ func parseTargetLikeString(target TargetLike, cmd string) *commandNode {
 	return node
 }
 
-// positionalName returns the display name for a positional argument.
-func positionalName(item positionalHelp) string {
+func positionalDisplayName(item positionalHelp) string {
 	if item.Placeholder != "" {
 		return item.Placeholder
 	}
@@ -1675,88 +1722,6 @@ func positionalName(item positionalHelp) string {
 	}
 
 	return "ARG"
-}
-
-func convertFlagHelps(flagHelps []flagHelp) []help.Flag {
-	helpFlags := make([]help.Flag, 0, len(flagHelps))
-	for _, f := range flagHelps {
-		hf := help.Flag{Long: "--" + f.Name, Desc: f.Usage, Placeholder: f.Placeholder, Required: f.Required}
-		if f.Short != "" {
-			hf.Short = "-" + f.Short
-		}
-
-		helpFlags = append(helpFlags, hf)
-	}
-
-	return helpFlags
-}
-
-func collectHelpSubcommands(node *commandNode) []help.Subcommand {
-	if len(node.Subcommands) == 0 {
-		return nil
-	}
-
-	var helpSubs []help.Subcommand
-
-	for _, name := range sortedKeys(node.Subcommands) {
-		if sub := node.Subcommands[name]; sub != nil {
-			helpSubs = append(helpSubs, help.Subcommand{Name: name, Desc: sub.Description})
-		}
-	}
-
-	return helpSubs
-}
-
-func buildExecInfo(lines []string) *help.ExecutionInfo {
-	if len(lines) == 0 {
-		return nil
-	}
-
-	execInfo := &help.ExecutionInfo{}
-
-	for _, line := range lines {
-		switch {
-		case strings.HasPrefix(line, "Deps:"):
-			execInfo.Deps = strings.TrimPrefix(line, "Deps: ")
-		case strings.HasPrefix(line, "Cache:"):
-			execInfo.CachePatterns = strings.TrimPrefix(line, "Cache: ")
-		case strings.HasPrefix(line, "Watch:"):
-			execInfo.WatchPatterns = strings.TrimPrefix(line, "Watch: ")
-		case strings.HasPrefix(line, "Timeout:"):
-			execInfo.Timeout = strings.TrimPrefix(line, "Timeout: ")
-		case strings.HasPrefix(line, "Times:"):
-			execInfo.Times = strings.TrimPrefix(line, "Times: ")
-		case strings.HasPrefix(line, "Retry:"):
-			execInfo.Retry = strings.TrimPrefix(line, "Retry: ")
-		}
-	}
-
-	return execInfo
-}
-
-func convertExamples(examples []Example) []help.Example {
-	if examples == nil {
-		return nil
-	}
-
-	helpExamples := make([]help.Example, 0, len(examples))
-	for _, e := range examples {
-		helpExamples = append(helpExamples, help.Example{Title: e.Title, Code: e.Code})
-	}
-
-	return helpExamples
-}
-
-func resolveMoreInfoText(opts RunOptions) string {
-	if opts.MoreInfoText != "" {
-		return opts.MoreInfoText
-	}
-
-	if opts.RepoURL != "" {
-		return opts.RepoURL
-	}
-
-	return DetectRepoURL()
 }
 
 func printCommandHelp(w io.Writer, node *commandNode, opts RunOptions) {
@@ -1812,7 +1777,10 @@ func printUsage(w io.Writer, nodes []*commandNode, opts RunOptions) {
 	// Convert examples
 	examples := opts.Examples
 	if examples == nil {
-		examples = builtinExamplesForNodesWithGetenv(optsGetenv(opts), nodes)
+		examples = []Example{
+			completionExampleWithGetenv(optsGetenv(opts)),
+			chainExample(nodes),
+		}
 	}
 
 	helpExamples := make([]help.Example, 0, len(examples))
@@ -1863,6 +1831,18 @@ func relativeSourcePathWithGetwd(absPath string, getwd func() (string, error)) s
 	}
 
 	return relPath
+}
+
+func resolveMoreInfoText(opts RunOptions) string {
+	if opts.MoreInfoText != "" {
+		return opts.MoreInfoText
+	}
+
+	if opts.RepoURL != "" {
+		return opts.RepoURL
+	}
+
+	return DetectRepoURL()
 }
 
 func resolvePlaceholder(opts TagOptions, kind reflect.Kind) string {
@@ -2043,32 +2023,12 @@ func tagOptionsForField(inst reflect.Value, field reflect.StructField) (TagOptio
 	return overridden, nil
 }
 
-func tagOptionsInstance(node *commandNode) reflect.Value {
-	// Callers have already checked node.Type != nil before calling this function.
-	return reflect.New(node.Type).Elem()
-}
-
-func tagOptionsMethod(inst reflect.Value) reflect.Value {
-	if !inst.IsValid() {
-		return reflect.Value{}
-	}
-
-	target := inst
-	if inst.Kind() != reflect.Ptr {
-		if inst.CanAddr() {
-			target = inst.Addr()
-		}
-	}
-
-	return target.MethodByName("TagOptions")
-}
-
 func validateFuncType(typ reflect.Type) error {
 	if typ.NumIn() > 1 {
 		return errFuncTooManyInputs
 	}
 
-	if typ.NumIn() == 1 && !isContextType(typ.In(0)) {
+	if typ.NumIn() == 1 && typ.In(0) != reflect.TypeFor[context.Context]() {
 		return errFuncMustAcceptContext
 	}
 
@@ -2076,7 +2036,7 @@ func validateFuncType(typ reflect.Type) error {
 		return nil
 	}
 
-	if typ.NumOut() == 1 && isErrorType(typ.Out(0)) {
+	if typ.NumOut() == 1 && typ.Out(0).Implements(reflect.TypeFor[error]()) {
 		return nil
 	}
 
@@ -2131,7 +2091,8 @@ func validateTagOptionsSignature(method reflect.Value) error {
 		return errTagOptsInvalidInput
 	}
 
-	if mtype.Out(0) != reflect.TypeFor[TagOptions]() || !isErrorType(mtype.Out(1)) {
+	if mtype.Out(0) != reflect.TypeFor[TagOptions]() ||
+		!mtype.Out(1).Implements(reflect.TypeFor[error]()) {
 		return errTagOptsInvalidOutput
 	}
 

@@ -169,6 +169,37 @@ type helpSpec struct {
 	hasFormats     bool
 }
 
+func validateFlagsSection(g Gomega, lines []string) {
+	inFlags := false
+
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+
+		if strings.Contains(line, "Flags:") {
+			inFlags = true
+			continue
+		}
+
+		if !inFlags || trimmed == "" {
+			continue
+		}
+
+		// Stop at next section (ends with colon, not a flag)
+		if strings.HasSuffix(trimmed, ":") && !strings.Contains(trimmed, "--") {
+			inFlags = false
+			continue
+		}
+
+		// Skip subsection headers like "Global Flags:" or "Command Flags:"
+		if strings.HasSuffix(trimmed, ":") {
+			continue
+		}
+
+		g.Expect(line).To(ContainSubstring("--"),
+			"flag line should contain --: %q", trimmed)
+	}
+}
+
 // validateHelpOutput checks structural invariants of help output.
 func validateHelpOutput(g Gomega, output string, spec helpSpec) {
 	g.Expect(output).NotTo(BeEmpty(), "help output should not be empty")
@@ -240,36 +271,5 @@ func validateHelpOutput(g Gomega, output string, spec helpSpec) {
 	// If Flags: section exists, every flag line contains --
 	if spec.hasFlags {
 		validateFlagsSection(g, lines)
-	}
-}
-
-func validateFlagsSection(g Gomega, lines []string) {
-	inFlags := false
-
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-
-		if strings.Contains(line, "Flags:") {
-			inFlags = true
-			continue
-		}
-
-		if !inFlags || trimmed == "" {
-			continue
-		}
-
-		// Stop at next section (ends with colon, not a flag)
-		if strings.HasSuffix(trimmed, ":") && !strings.Contains(trimmed, "--") {
-			inFlags = false
-			continue
-		}
-
-		// Skip subsection headers like "Global Flags:" or "Command Flags:"
-		if strings.HasSuffix(trimmed, ":") {
-			continue
-		}
-
-		g.Expect(line).To(ContainSubstring("--"),
-			"flag line should contain --: %q", trimmed)
 	}
 }

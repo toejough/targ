@@ -182,90 +182,6 @@ func AddImportToTargFileWithFileOps(fileOps FileOps, path, packagePath string) e
 	return nil
 }
 
-// AddTargetToFileWithFileOps adds a target using injected file operations.
-type targetCodeResult struct {
-	code            string
-	needsTimeImport bool
-}
-
-func buildDepsCode(opts CreateOptions) string {
-	if len(opts.Deps) == 0 {
-		return ""
-	}
-
-	depVars := make([]string, len(opts.Deps))
-	for i, dep := range opts.Deps {
-		depVars[i] = KebabToPascal(dep)
-	}
-
-	depsArgs := strings.Join(depVars, ", ")
-	if opts.DepMode == "parallel" {
-		depsArgs += ", targ.DepModeParallel"
-	}
-
-	return fmt.Sprintf(".Deps(%s)", depsArgs)
-}
-
-func buildPatternsCode(method string, patterns []string) string {
-	if len(patterns) == 0 {
-		return ""
-	}
-
-	quoted := make([]string, len(patterns))
-	for i, p := range patterns {
-		quoted[i] = fmt.Sprintf("%q", p)
-	}
-
-	return fmt.Sprintf(".%s(%s)", method, strings.Join(quoted, ", "))
-}
-
-func buildTargetCode(varName string, opts CreateOptions) (targetCodeResult, error) {
-	var code strings.Builder
-
-	needsTimeImport := false
-
-	code.WriteString(fmt.Sprintf("\n// %s runs: %s\n", varName, opts.ShellCmd))
-	code.WriteString(fmt.Sprintf("var %s = targ.Targ(%q)", varName, escapeGoString(opts.ShellCmd)))
-	code.WriteString(fmt.Sprintf(".Name(%q)", opts.Name))
-	code.WriteString(buildDepsCode(opts))
-	code.WriteString(buildPatternsCode("Cache", opts.Cache))
-	code.WriteString(buildPatternsCode("Watch", opts.Watch))
-
-	if opts.Timeout != "" {
-		durCode, err := durationToGoCode(opts.Timeout)
-		if err != nil {
-			return targetCodeResult{}, fmt.Errorf("invalid timeout: %w", err)
-		}
-
-		code.WriteString(fmt.Sprintf(".Timeout(%s)", durCode))
-
-		needsTimeImport = true
-	}
-
-	if opts.Times > 0 {
-		code.WriteString(fmt.Sprintf(".Times(%d)", opts.Times))
-	}
-
-	if opts.Retry {
-		code.WriteString(".Retry()")
-	}
-
-	if opts.Backoff != "" {
-		backoffCode, err := backoffToGoCode(opts.Backoff)
-		if err != nil {
-			return targetCodeResult{}, fmt.Errorf("invalid backoff: %w", err)
-		}
-
-		code.WriteString(fmt.Sprintf(".Backoff(%s)", backoffCode))
-
-		needsTimeImport = true
-	}
-
-	code.WriteString("\n")
-
-	return targetCodeResult{code: code.String(), needsTimeImport: needsTimeImport}, nil
-}
-
 // AddTargetToFileWithFileOps adds a target variable to an existing targ file using injected file ops.
 func AddTargetToFileWithFileOps(fileOps FileOps, path string, opts CreateOptions) error {
 	content, err := fileOps.ReadFile(path)
@@ -754,133 +670,6 @@ func NamespacePaths(files []string, root string) (map[string][]string, error) {
 	return compressNamespacePaths(trimmed), nil
 }
 
-// ParseCreateArgs parses arguments after --create into CreateOptions.
-// Format: [path...] <name> [--deps dep1 dep2...] [--cache/--watch pattern1...] [flags...] "shell-command"
-// collectListArg collects non-flag arguments into a slice until the next flag or end.
-func collectListArg(remaining []string, i int) ([]string, int) {
-	var values []string
-	for i < len(remaining) && !strings.HasPrefix(remaining[i], "--") {
-		values = append(values, remaining[i])
-		i++
-	}
-
-	return values, i
-}
-
-// parseSingleValueArg parses a single-value flag, returning the value and new index.
-func parseSingleValueArg(remaining []string, i int, flagName string) (string, int, error) {
-	if i >= len(remaining) {
-		return "", i, fmt.Errorf("%w: %s requires a value", errCreateUsage, flagName)
-	}
-
-	return remaining[i], i + 1, nil
-}
-
-// createArgParser holds state for parsing create arguments.
-type createArgParser struct {
-	opts        CreateOptions
-	pathAndName []string
-	remaining   []string
-	i           int
-}
-
-func (p *createArgParser) parseListFlag(target *[]string) {
-	p.i++
-	values, newI := collectListArg(p.remaining, p.i)
-	*target = values
-	p.i = newI
-}
-
-func (p *createArgParser) parseSingleFlag(flagName string, target *string) error {
-	p.i++
-
-	val, newI, err := parseSingleValueArg(p.remaining, p.i, flagName)
-	if err != nil {
-		return err
-	}
-
-	*target = val
-	p.i = newI
-
-	return nil
-}
-
-func (p *createArgParser) parsePositionalOrUnknown(arg string) error {
-	if strings.HasPrefix(arg, "--") {
-		return fmt.Errorf("%w: %s", errUnknownCreateFlag, arg)
-	}
-
-	p.pathAndName = append(p.pathAndName, arg)
-	p.i++
-
-	return nil
-}
-
-func (p *createArgParser) parseArg() error {
-	arg := p.remaining[p.i]
-
-	switch arg {
-	case "--deps":
-		p.parseListFlag(&p.opts.Deps)
-	case "--cache":
-		p.parseListFlag(&p.opts.Cache)
-	case "--watch":
-		p.parseListFlag(&p.opts.Watch)
-	case "--timeout":
-		return p.parseSingleFlag("--timeout", &p.opts.Timeout)
-	case "--times":
-		return p.parseTimesFlag()
-	case "--retry":
-		p.opts.Retry = true
-		p.i++
-	case "--backoff":
-		return p.parseSingleFlag("--backoff", &p.opts.Backoff)
-	case "--dep-mode":
-		return p.parseDepModeFlag()
-	default:
-		return p.parsePositionalOrUnknown(arg)
-	}
-
-	return nil
-}
-
-func (p *createArgParser) parseTimesFlag() error {
-	p.i++
-
-	val, newI, err := parseSingleValueArg(p.remaining, p.i, "--times")
-	if err != nil {
-		return err
-	}
-
-	n, err := strconv.Atoi(val)
-	if err != nil {
-		return fmt.Errorf("%w: --times value must be an integer", errCreateUsage)
-	}
-
-	p.opts.Times = n
-	p.i = newI
-
-	return nil
-}
-
-func (p *createArgParser) parseDepModeFlag() error {
-	p.i++
-
-	mode, newI, err := parseSingleValueArg(p.remaining, p.i, "--dep-mode")
-	if err != nil {
-		return err
-	}
-
-	if mode != "serial" && mode != "parallel" {
-		return fmt.Errorf("%w: --dep-mode must be serial or parallel", errCreateUsage)
-	}
-
-	p.opts.DepMode = mode
-	p.i = newI
-
-	return nil
-}
-
 // ParseCreateArgs parses arguments for --create; the shell command is always the last argument.
 func ParseCreateArgs(args []string) (CreateOptions, error) {
 	var opts CreateOptions
@@ -1139,11 +928,11 @@ func main() {
 
 // unexported variables.
 var (
-	errCreateUsage = errors.New(
+	errBackoffFormat = errors.New("backoff must be duration,multiplier (e.g. 1s,2.0)")
+	errCreateUsage   = errors.New(
 		"usage: targ --create [group...] <name> [--deps ...] [--cache/--watch ...]" +
 			" [--timeout/--times/--retry/--backoff/--dep-mode] \"<shell-command>\"",
 	)
-	errBackoffFormat      = errors.New("backoff must be duration,multiplier (e.g. 1s,2.0)")
 	errDuplicateTarget    = errors.New("target already exists")
 	errInvalidDependency  = errors.New("invalid dependency name")
 	errInvalidGroup       = errors.New("invalid group name")
@@ -1208,9 +997,120 @@ type buildContext struct {
 	importRoot    string
 }
 
+// printMultiModuleHelp prints aggregated help for all modules.
+type cmdEntry struct {
+	name        string
+	description string
+}
+
 type commandInfo struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
+}
+
+// createArgParser holds state for parsing create arguments.
+type createArgParser struct {
+	opts        CreateOptions
+	pathAndName []string
+	remaining   []string
+	i           int
+}
+
+func (p *createArgParser) parseArg() error {
+	arg := p.remaining[p.i]
+
+	switch arg {
+	case "--deps":
+		p.parseListFlag(&p.opts.Deps)
+	case "--cache":
+		p.parseListFlag(&p.opts.Cache)
+	case "--watch":
+		p.parseListFlag(&p.opts.Watch)
+	case "--timeout":
+		return p.parseSingleFlag("--timeout", &p.opts.Timeout)
+	case "--times":
+		return p.parseTimesFlag()
+	case "--retry":
+		p.opts.Retry = true
+		p.i++
+	case "--backoff":
+		return p.parseSingleFlag("--backoff", &p.opts.Backoff)
+	case "--dep-mode":
+		return p.parseDepModeFlag()
+	default:
+		return p.parsePositionalOrUnknown(arg)
+	}
+
+	return nil
+}
+
+func (p *createArgParser) parseDepModeFlag() error {
+	p.i++
+
+	mode, newI, err := parseSingleValueArg(p.remaining, p.i, "--dep-mode")
+	if err != nil {
+		return err
+	}
+
+	if mode != "serial" && mode != "parallel" {
+		return fmt.Errorf("%w: --dep-mode must be serial or parallel", errCreateUsage)
+	}
+
+	p.opts.DepMode = mode
+	p.i = newI
+
+	return nil
+}
+
+func (p *createArgParser) parseListFlag(target *[]string) {
+	p.i++
+	values, newI := collectListArg(p.remaining, p.i)
+	*target = values
+	p.i = newI
+}
+
+func (p *createArgParser) parsePositionalOrUnknown(arg string) error {
+	if strings.HasPrefix(arg, "--") {
+		return fmt.Errorf("%w: %s", errUnknownCreateFlag, arg)
+	}
+
+	p.pathAndName = append(p.pathAndName, arg)
+	p.i++
+
+	return nil
+}
+
+func (p *createArgParser) parseSingleFlag(flagName string, target *string) error {
+	p.i++
+
+	val, newI, err := parseSingleValueArg(p.remaining, p.i, flagName)
+	if err != nil {
+		return err
+	}
+
+	*target = val
+	p.i = newI
+
+	return nil
+}
+
+func (p *createArgParser) parseTimesFlag() error {
+	p.i++
+
+	val, newI, err := parseSingleValueArg(p.remaining, p.i, "--times")
+	if err != nil {
+		return err
+	}
+
+	n, err := strconv.Atoi(val)
+	if err != nil {
+		return fmt.Errorf("%w: --times value must be an integer", errCreateUsage)
+	}
+
+	p.opts.Times = n
+	p.i = newI
+
+	return nil
 }
 
 // funcTargetInfo holds info about a function-based target found during search.
@@ -1428,6 +1328,21 @@ func (r *targRunner) discoverPackages() ([]discover.PackageInfo, error) {
 	return infos, nil
 }
 
+func (r *targRunner) dispatchFlagCommand(flagLong string, remaining []string) (int, bool) {
+	switch flagLong {
+	case "create":
+		return r.handleCreateFlag(remaining), true
+	case "sync":
+		return r.handleSyncFlag(remaining), true
+	case "to-func":
+		return r.handleToFuncFlag(remaining), true
+	case "to-string":
+		return r.handleToStringFlag(remaining), true
+	}
+
+	return 0, false
+}
+
 func (r *targRunner) executeBuild(buildDir, binaryPath, tempFile string, isolated bool) error {
 	buildArgs := []string{"build", "-tags", buildTag, "-o", binaryPath}
 	if isolated {
@@ -1518,21 +1433,6 @@ func (r *targRunner) handleCreateFlag(args []string) int {
 	fmt.Printf("Created target %q in %s\n", strings.Join(fullPath, "/"), targFile)
 
 	return 0
-}
-
-func (r *targRunner) dispatchFlagCommand(flagLong string, remaining []string) (int, bool) {
-	switch flagLong {
-	case "create":
-		return r.handleCreateFlag(remaining), true
-	case "sync":
-		return r.handleSyncFlag(remaining), true
-	case "to-func":
-		return r.handleToFuncFlag(remaining), true
-	case "to-string":
-		return r.handleToStringFlag(remaining), true
-	}
-
-	return 0, false
 }
 
 func (r *targRunner) handleEarlyFlags() (exitCode int, done bool) {
@@ -2002,6 +1902,12 @@ func (r *targRunner) validateSourceDir(path string) (string, error) {
 	return absPath, nil
 }
 
+// AddTargetToFileWithFileOps adds a target using injected file operations.
+type targetCodeResult struct {
+	code            string
+	needsTimeImport bool
+}
+
 // targetConverter converts a target in a file. Returns true if conversion was performed.
 type targetConverter func(filePath, targetName string) (bool, error)
 
@@ -2189,6 +2095,24 @@ func buildBootstrapData(
 	return builder.buildResult(), nil
 }
 
+func buildDepsCode(opts CreateOptions) string {
+	if len(opts.Deps) == 0 {
+		return ""
+	}
+
+	depVars := make([]string, len(opts.Deps))
+	for i, dep := range opts.Deps {
+		depVars[i] = KebabToPascal(dep)
+	}
+
+	depsArgs := strings.Join(depVars, ", ")
+	if opts.DepMode == "parallel" {
+		depsArgs += ", targ.DepModeParallel"
+	}
+
+	return fmt.Sprintf(".Deps(%s)", depsArgs)
+}
+
 // buildModuleBinary builds a single module's binary and queries its commands.
 func buildModuleBinary(
 	mt moduleTargets,
@@ -2271,6 +2195,19 @@ func buildMultiModuleBinaries(
 	return registry, nil
 }
 
+func buildPatternsCode(method string, patterns []string) string {
+	if len(patterns) == 0 {
+		return ""
+	}
+
+	quoted := make([]string, len(patterns))
+	for i, p := range patterns {
+		quoted[i] = fmt.Sprintf("%q", p)
+	}
+
+	return fmt.Sprintf(".%s(%s)", method, strings.Join(quoted, ", "))
+}
+
 func buildSourceRoot() (string, bool) {
 	_, file, _, ok := runtime.Caller(0)
 	if !ok || file == "" {
@@ -2293,6 +2230,53 @@ func buildSourceRoot() (string, bool) {
 	}
 
 	return "", false
+}
+
+func buildTargetCode(varName string, opts CreateOptions) (targetCodeResult, error) {
+	var code strings.Builder
+
+	needsTimeImport := false
+
+	code.WriteString(fmt.Sprintf("\n// %s runs: %s\n", varName, opts.ShellCmd))
+	code.WriteString(fmt.Sprintf("var %s = targ.Targ(%q)", varName, escapeGoString(opts.ShellCmd)))
+	code.WriteString(fmt.Sprintf(".Name(%q)", opts.Name))
+	code.WriteString(buildDepsCode(opts))
+	code.WriteString(buildPatternsCode("Cache", opts.Cache))
+	code.WriteString(buildPatternsCode("Watch", opts.Watch))
+
+	if opts.Timeout != "" {
+		durCode, err := durationToGoCode(opts.Timeout)
+		if err != nil {
+			return targetCodeResult{}, fmt.Errorf("invalid timeout: %w", err)
+		}
+
+		code.WriteString(fmt.Sprintf(".Timeout(%s)", durCode))
+
+		needsTimeImport = true
+	}
+
+	if opts.Times > 0 {
+		code.WriteString(fmt.Sprintf(".Times(%d)", opts.Times))
+	}
+
+	if opts.Retry {
+		code.WriteString(".Retry()")
+	}
+
+	if opts.Backoff != "" {
+		backoffCode, err := backoffToGoCode(opts.Backoff)
+		if err != nil {
+			return targetCodeResult{}, fmt.Errorf("invalid backoff: %w", err)
+		}
+
+		code.WriteString(fmt.Sprintf(".Backoff(%s)", backoffCode))
+
+		needsTimeImport = true
+	}
+
+	code.WriteString("\n")
+
+	return targetCodeResult{code: code.String(), needsTimeImport: needsTimeImport}, nil
 }
 
 // cleanupStaleModSymlinks removes stale go.mod/go.sum symlinks from before the fix.
@@ -2321,6 +2305,19 @@ func collectFilePaths(infos []discover.PackageInfo) []string {
 	}
 
 	return filePaths
+}
+
+// ParseCreateArgs parses arguments after --create into CreateOptions.
+// Format: [path...] <name> [--deps dep1 dep2...] [--cache/--watch pattern1...] [flags...] "shell-command"
+// collectListArg collects non-flag arguments into a slice until the next flag or end.
+func collectListArg(remaining []string, i int) ([]string, int) {
+	var values []string
+	for i < len(remaining) && !strings.HasPrefix(remaining[i], "--") {
+		values = append(values, remaining[i])
+		i++
+	}
+
+	return values, i
 }
 
 func collectModuleFiles(moduleRoot string) ([]discover.TaggedFile, error) {
@@ -2378,6 +2375,25 @@ func collectModuleTaggedFiles(mt moduleTargets) ([]discover.TaggedFile, error) {
 	}
 
 	return files, nil
+}
+
+func collectSortedCommands(registry []moduleRegistry) []cmdEntry {
+	totalCmds := 0
+	for _, reg := range registry {
+		totalCmds += len(reg.Commands)
+	}
+
+	allCmds := make([]cmdEntry, 0, totalCmds)
+
+	for _, reg := range registry {
+		for _, cmd := range reg.Commands {
+			allCmds = append(allCmds, cmdEntry{cmd.Name, cmd.Description})
+		}
+	}
+
+	sort.Slice(allCmds, func(i, j int) bool { return allCmds[i].name < allCmds[j].name })
+
+	return allCmds
 }
 
 func commonPrefix(a, b []string) []string {
@@ -3308,6 +3324,15 @@ func parseModulePath(content string) string {
 	return ""
 }
 
+// parseSingleValueArg parses a single-value flag, returning the value and new index.
+func parseSingleValueArg(remaining []string, i int, flagName string) (string, int, error) {
+	if i >= len(remaining) {
+		return "", i, fmt.Errorf("%w: %s requires a value", errCreateUsage, flagName)
+	}
+
+	return remaining[i], i + 1, nil
+}
+
 // prepareBuildContext determines build roots and handles fallback module setup.
 func prepareBuildContext(
 	mt moduleTargets,
@@ -3330,31 +3355,6 @@ func prepareBuildContext(
 	}
 
 	return ctx, nil
-}
-
-// printMultiModuleHelp prints aggregated help for all modules.
-type cmdEntry struct {
-	name        string
-	description string
-}
-
-func collectSortedCommands(registry []moduleRegistry) []cmdEntry {
-	totalCmds := 0
-	for _, reg := range registry {
-		totalCmds += len(reg.Commands)
-	}
-
-	allCmds := make([]cmdEntry, 0, totalCmds)
-
-	for _, reg := range registry {
-		for _, cmd := range reg.Commands {
-			allCmds = append(allCmds, cmdEntry{cmd.Name, cmd.Description})
-		}
-	}
-
-	sort.Slice(allCmds, func(i, j int) bool { return allCmds[i].name < allCmds[j].name })
-
-	return allCmds
 }
 
 func printCommandList(allCmds []cmdEntry) {

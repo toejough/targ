@@ -5,7 +5,7 @@ import (
 
 	. "github.com/onsi/gomega"
 
-	"github.com/toejough/targ/internal/flags"
+	flags "github.com/toejough/targ/internal/flags"
 )
 
 func TestBackoffFlagHasDurationPlaceholder(t *testing.T) {
@@ -77,7 +77,7 @@ func TestFlagsWithValueHavePlaceholders(t *testing.T) {
 	t.Parallel()
 	g := NewWithT(t)
 
-	for _, f := range flags.All {
+	for _, f := range flags.All() {
 		if f.TakesValue && f.Removed == "" && !f.Hidden {
 			g.Expect(f.Placeholder).NotTo(BeNil(),
 				"flag --%s takes a value but has no placeholder", f.Long)
@@ -91,7 +91,7 @@ func TestFlagsWithoutValueHaveNoPlaceholder(t *testing.T) {
 	t.Parallel()
 	g := NewWithT(t)
 
-	for _, f := range flags.All {
+	for _, f := range flags.All() {
 		if !f.TakesValue && f.Removed == "" {
 			g.Expect(f.Placeholder).To(BeNil(),
 				"flag --%s doesn't take a value but has placeholder", f.Long)

@@ -6,68 +6,6 @@ import (
 )
 
 // Render produces the final help string with all sections in canonical order.
-// Section order:
-//   - Description
-//   - Source (target help only)
-//   - Command (shell targets only)
-//   - Usage
-//   - Targ flags (grouped: Global, Root-only)
-//   - Values (root help only)
-//   - Formats
-//   - Positionals (flag-command help)
-//   - Flags (target-specific flags)
-//   - Subcommands (target help)
-//   - Commands (root help)
-//   - Execution (target help)
-//   - Examples
-//   - More info
-func (cb *ContentBuilder) renderHeaderSections() []string {
-	var sections []string
-
-	if cb.description != "" {
-		sections = append(sections, cb.description)
-	}
-
-	if cb.sourceFile != "" {
-		sections = append(sections, "Source: "+cb.sourceFile)
-	}
-
-	if cb.shellCommand != "" {
-		sections = append(sections, "Command: "+cb.shellCommand)
-	}
-
-	return sections
-}
-
-func (cb *ContentBuilder) renderDynamicSections(styles Styles) []string {
-	renderers := []func(Styles) string{
-		cb.renderTargFlags,
-		cb.renderValues,
-		cb.renderFormats,
-		cb.renderPositionals,
-		cb.renderCommandFlags,
-		cb.renderSubcommands,
-		cb.renderCommandGroups,
-		cb.renderExecutionInfo,
-		cb.renderExamples,
-	}
-
-	var sections []string
-
-	for _, render := range renderers {
-		if s := render(styles); s != "" {
-			sections = append(sections, s)
-		}
-	}
-
-	if cb.moreInfoText != "" {
-		sections = append(sections, cb.renderMoreInfo(styles))
-	}
-
-	return sections
-}
-
-// Render produces the final help string with all sections in canonical order.
 func (cb *ContentBuilder) Render() string {
 	styles := DefaultStyles()
 	sections := cb.renderHeaderSections()
@@ -129,6 +67,34 @@ func (cb *ContentBuilder) renderCommandGroups(styles Styles) string {
 	}
 
 	return sb.String()
+}
+
+func (cb *ContentBuilder) renderDynamicSections(styles Styles) []string {
+	renderers := []func(Styles) string{
+		cb.renderTargFlags,
+		cb.renderValues,
+		cb.renderFormats,
+		cb.renderPositionals,
+		cb.renderCommandFlags,
+		cb.renderSubcommands,
+		cb.renderCommandGroups,
+		cb.renderExecutionInfo,
+		cb.renderExamples,
+	}
+
+	var sections []string
+
+	for _, render := range renderers {
+		if s := render(styles); s != "" {
+			sections = append(sections, s)
+		}
+	}
+
+	if cb.moreInfoText != "" {
+		sections = append(sections, cb.renderMoreInfo(styles))
+	}
+
+	return sections
 }
 
 func (cb *ContentBuilder) renderExamples(styles Styles) string {
@@ -260,6 +226,40 @@ func (cb *ContentBuilder) renderFormats(styles Styles) string {
 	}
 
 	return sb.String()
+}
+
+// Render produces the final help string with all sections in canonical order.
+// Section order:
+//   - Description
+//   - Source (target help only)
+//   - Command (shell targets only)
+//   - Usage
+//   - Targ flags (grouped: Global, Root-only)
+//   - Values (root help only)
+//   - Formats
+//   - Positionals (flag-command help)
+//   - Flags (target-specific flags)
+//   - Subcommands (target help)
+//   - Commands (root help)
+//   - Execution (target help)
+//   - Examples
+//   - More info
+func (cb *ContentBuilder) renderHeaderSections() []string {
+	var sections []string
+
+	if cb.description != "" {
+		sections = append(sections, cb.description)
+	}
+
+	if cb.sourceFile != "" {
+		sections = append(sections, "Source: "+cb.sourceFile)
+	}
+
+	if cb.shellCommand != "" {
+		sections = append(sections, "Command: "+cb.shellCommand)
+	}
+
+	return sections
 }
 
 func (cb *ContentBuilder) renderMoreInfo(styles Styles) string {

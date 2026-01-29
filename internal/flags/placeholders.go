@@ -1,19 +1,5 @@
 package flags
 
-// Placeholder constants for flag help text.
-//
-//nolint:gochecknoglobals // Read-only placeholder constants.
-var (
-	PlaceholderCmd          = Placeholder{Name: "<cmd>"}
-	PlaceholderDir          = Placeholder{Name: "<dir>"}
-	PlaceholderDuration     = Placeholder{Name: "<duration>", Format: "time value like 30s, 5m, 1h"}
-	PlaceholderDurationMult = Placeholder{Name: "<duration,mult>", Format: "duration and multiplier like 1s,2.0"}
-	PlaceholderGlob         = Placeholder{Name: "<glob>", Format: "glob pattern like **/*.go, src/**"}
-	PlaceholderMode         = Placeholder{Name: "{serial|parallel}"}
-	PlaceholderN            = Placeholder{Name: "<n>"}
-	PlaceholderShell        = Placeholder{Name: "{bash|zsh|fish}"}
-)
-
 // Placeholder describes a value format for flag arguments.
 type Placeholder struct {
 	Name   string // Display name in help, e.g., "<duration>"
@@ -46,4 +32,42 @@ func PlaceholdersUsedByFlags(defs []Def) []Placeholder {
 	}
 
 	return result
+}
+
+func placeholderCmd() Placeholder {
+	return Placeholder{Name: "<cmd>"}
+}
+
+func placeholderDir() Placeholder {
+	return Placeholder{Name: "<dir>"}
+}
+
+func placeholderDuration() Placeholder {
+	return Placeholder{Name: "<duration>", Format: "time value like 30s, 5m, 1h"}
+}
+
+func placeholderDurationMult() Placeholder {
+	return Placeholder{
+		Name:   "<duration,mult>",
+		Format: "duration and multiplier like 1s,2.0",
+	}
+}
+
+func placeholderGlob() Placeholder {
+	return Placeholder{
+		Name:   "<glob>",
+		Format: "glob pattern like **/*.go, src/**",
+	}
+}
+
+func placeholderMode() Placeholder {
+	return Placeholder{Name: "{serial|parallel}"}
+}
+
+func placeholderN() Placeholder {
+	return Placeholder{Name: "<n>"}
+}
+
+func placeholderShell() Placeholder {
+	return Placeholder{Name: "{bash|zsh|fish}"}
 }
