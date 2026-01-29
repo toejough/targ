@@ -6,3 +6,5 @@ coverage.out
 .claude/settings.local.json
 .targ-cache/
 test/testdata/
+# Rapid/property test artifacts
+testdata/

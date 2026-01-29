@@ -4,14 +4,30 @@ import (
 	"testing"
 
 	. "github.com/onsi/gomega"
+	"pgregory.net/rapid"
 
 	flags "github.com/toejough/targ/internal/flags"
 )
 
-func TestFindReturnsNilForUnknownShortFlag(t *testing.T) {
+func TestProperty_FindUnknownShortReturnsNil(t *testing.T) {
 	t.Parallel()
-	g := NewWithT(t)
 
-	def := flags.Find("-z")
-	g.Expect(def).To(BeNil())
+	defs := flags.All()
+
+	known := make(map[string]bool, len(defs))
+	for _, def := range defs {
+		if def.Short != "" {
+			known[def.Short] = true
+		}
+	}
+
+	rapid.Check(t, func(t *rapid.T) {
+		g := NewWithT(t)
+
+		short := rapid.StringMatching(`[a-zA-Z]`).Filter(func(s string) bool {
+			return !known[s]
+		}).Draw(t, "short")
+
+		g.Expect(flags.Find("-" + short)).To(BeNil())
+	})
 }

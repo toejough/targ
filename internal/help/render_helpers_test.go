@@ -5,77 +5,38 @@ import (
 	"testing"
 
 	. "github.com/onsi/gomega"
+	"pgregory.net/rapid"
 
 	"github.com/toejough/targ/internal/help"
 )
 
-func TestStripANSIWithEscapeCodes(t *testing.T) {
+func TestProperty_StripANSI_RemovesEscapeBytes(t *testing.T) {
 	t.Parallel()
-	g := NewWithT(t)
 
-	// ANSI escape for bold: \x1b[1m ... \x1b[0m
-	input := "\x1b[1mhello\x1b[0m world"
-	result := help.StripANSI(input)
-	g.Expect(result).To(Equal("hello world"))
+	rapid.Check(t, func(t *rapid.T) {
+		g := NewWithT(t)
+
+		input := rapid.String().Draw(t, "input")
+		result := help.StripANSI(input)
+
+		g.Expect(strings.Contains(result, "\x1b")).To(BeFalse())
+	})
 }
 
-func TestWriteExampleWithTitle(t *testing.T) {
+func TestProperty_StripANSI_RemovesWellFormedSequences(t *testing.T) {
 	t.Parallel()
-	g := NewWithT(t)
 
-	var buf strings.Builder
-	help.WriteExample(&buf, "Basic usage", "targ build")
-	output := buf.String()
+	rapid.Check(t, func(t *rapid.T) {
+		g := NewWithT(t)
 
-	g.Expect(output).To(ContainSubstring("Basic usage:"))
-	g.Expect(output).To(ContainSubstring("targ build"))
-}
+		plain := rapid.StringMatching("[^\\x1b]*").Draw(t, "plain")
+		prefix := rapid.StringMatching("[^\\x1b]*").Draw(t, "prefix")
+		suffix := rapid.StringMatching("[^\\x1b]*").Draw(t, "suffix")
 
-func TestWriteExampleWithoutTitle(t *testing.T) {
-	t.Parallel()
-	g := NewWithT(t)
+		input := prefix + "\x1b[1m" + plain + "\x1b[0m" + suffix
+		result := help.StripANSI(input)
 
-	var buf strings.Builder
-	help.WriteExample(&buf, "", "targ build")
-	output := buf.String()
-
-	g.Expect(output).To(ContainSubstring("targ build"))
-	g.Expect(output).NotTo(ContainSubstring(":"))
-}
-
-func TestWriteFlagLineFormatsCorrectly(t *testing.T) {
-	t.Parallel()
-	g := NewWithT(t)
-
-	var buf strings.Builder
-	help.WriteFlagLine(&buf, "timeout", "", "<duration>", "Set timeout")
-	output := buf.String()
-
-	g.Expect(output).To(ContainSubstring("--timeout"))
-	g.Expect(output).To(ContainSubstring("<duration>"))
-	g.Expect(output).To(ContainSubstring("Set timeout"))
-}
-
-func TestWriteHeaderContainsText(t *testing.T) {
-	t.Parallel()
-	g := NewWithT(t)
-
-	var buf strings.Builder
-	help.WriteHeader(&buf, "Test:")
-	output := buf.String()
-
-	g.Expect(output).To(ContainSubstring("Test:"))
-	g.Expect(output).To(HaveSuffix("\n"))
-}
-
-func TestWriteValueLineFormatsCorrectly(t *testing.T) {
-	t.Parallel()
-	g := NewWithT(t)
-
-	var buf strings.Builder
-	help.WriteValueLine(&buf, "shell", "bash, zsh, fish")
-	output := buf.String()
-
-	g.Expect(output).To(ContainSubstring("shell"))
-	g.Expect(output).To(ContainSubstring("bash, zsh, fish"))
+		g.Expect(result).To(Equal(prefix + plain + suffix))
+		g.Expect(strings.Contains(result, "\x1b")).To(BeFalse())
+	})
 }

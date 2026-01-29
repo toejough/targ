@@ -6,43 +6,60 @@ import (
 	. "github.com/onsi/gomega"
 	"pgregory.net/rapid"
 
+	"github.com/toejough/targ/internal/flags"
 	"github.com/toejough/targ/internal/help"
 )
 
-func TestAddGlobalFlagsFromRegistryHandlesUnknownFlagGracefully(t *testing.T) {
+func TestProperty_AddGlobalFlagsFromRegistryIgnoresUnknownAndIsChainable(t *testing.T) {
 	t.Parallel()
-	g := NewWithT(t)
 
-	// Unknown flags should be silently ignored (no panic)
-	cb := help.New("test").WithDescription("desc").AddGlobalFlagsFromRegistry("--nonexistent")
-	g.Expect(cb).NotTo(BeNil())
-}
+	defs := flags.All()
+	known := make([]string, 0, len(defs))
+	defByName := make(map[string]flags.Def, len(defs))
 
-func TestAddGlobalFlagsFromRegistryIsChainable(t *testing.T) {
-	t.Parallel()
-	g := NewWithT(t)
+	for _, def := range defs {
+		long := "--" + def.Long
+		known = append(known, long)
 
-	cb := help.New("test").
-		WithDescription("desc").
-		AddGlobalFlagsFromRegistry("--timeout", "--parallel")
-	g.Expect(cb).NotTo(BeNil())
-}
+		defByName[long] = def
+		if def.Short != "" {
+			short := "-" + def.Short
+			known = append(known, short)
+			defByName[short] = def
+		}
+	}
 
-func TestAddRootOnlyFlagsIsChainable(t *testing.T) {
-	t.Parallel()
-	g := NewWithT(t)
+	rapid.Check(t, func(t *rapid.T) {
+		g := NewWithT(t)
 
-	cb := help.New("test").WithDescription("desc").AddRootOnlyFlags(
-		help.Flag{Long: "--source", Desc: "Set source directory"},
-	)
-	g.Expect(cb).NotTo(BeNil())
-}
+		count := rapid.IntRange(0, 6).Draw(t, "count")
 
-func TestNewBuilderPanicsOnEmptyName(t *testing.T) {
-	t.Parallel()
-	g := NewWithT(t)
+		names := make([]string, 0, count)
+		for range count {
+			if rapid.Bool().Draw(t, "useKnown") && len(known) > 0 {
+				idx := rapid.IntRange(0, len(known)-1).Draw(t, "knownIdx")
+				names = append(names, known[idx])
+			} else {
+				unknown := "--unknown-" + rapid.StringMatching(`[a-z]{3,6}`).Draw(t, "unknown")
+				names = append(names, unknown)
+			}
+		}
 
-	g.Expect(func() { help.New("") }).To(Panic())
+		cb := help.New("test").WithDescription("desc")
+		cb2 := cb.AddGlobalFlagsFromRegistry(names...)
+
+		g.Expect(cb2).To(BeIdenticalTo(cb))
+
+		output := cb.Render()
+
+		for _, name := range names {
+			if def, ok := defByName[name]; ok {
+				g.Expect(output).To(ContainSubstring("--" + def.Long))
+			} else {
+				g.Expect(output).NotTo(ContainSubstring(name))
+			}
+		}
+	})
 }
 
 func TestProperty_AddPositionalsAccumulates(t *testing.T) {
@@ -57,6 +74,31 @@ func TestProperty_AddPositionalsAccumulates(t *testing.T) {
 	})
 }
 
+func TestProperty_AddRootOnlyFlagsAppendsAndIsChainable(t *testing.T) {
+	t.Parallel()
+
+	rapid.Check(t, func(t *rapid.T) {
+		g := NewWithT(t)
+
+		count := rapid.IntRange(0, 5).Draw(t, "count")
+
+		flgs := make([]help.Flag, 0, count)
+		for range count {
+			name := "--" + rapid.StringMatching(`[a-z]{3,8}`).Draw(t, "name")
+			flgs = append(flgs, help.Flag{Long: name, Desc: "desc"})
+		}
+
+		cb := help.New("test").WithDescription("desc").SetRoot(true)
+		cb2 := cb.AddRootOnlyFlags(flgs...)
+		g.Expect(cb2).To(BeIdenticalTo(cb))
+
+		output := cb.Render()
+		for _, f := range flgs {
+			g.Expect(output).To(ContainSubstring(f.Long))
+		}
+	})
+}
+
 func TestProperty_NewBuilderAcceptsAnyNonEmptyCommandName(t *testing.T) {
 	t.Parallel()
 
@@ -66,6 +108,17 @@ func TestProperty_NewBuilderAcceptsAnyNonEmptyCommandName(t *testing.T) {
 		}).Draw(t, "commandName")
 		b := help.New(name)
 		_ = b // Builder created successfully
+	})
+}
+
+func TestProperty_NewBuilderPanicsOnEmptyName(t *testing.T) {
+	t.Parallel()
+
+	rapid.Check(t, func(t *rapid.T) {
+		g := NewWithT(t)
+		_ = t
+
+		g.Expect(func() { help.New("") }).To(Panic())
 	})
 }
 

@@ -12,7 +12,7 @@ import (
 
 // TestDeregisterFromDelegatesToInternal verifies that the public API
 // delegates to the internal implementation with the same behavior.
-func TestDeregisterFromDelegatesToInternal(t *testing.T) {
+func TestProperty_DeregisterFromDelegatesToInternal(t *testing.T) {
 	t.Parallel()
 
 	rapid.Check(t, func(t *rapid.T) {

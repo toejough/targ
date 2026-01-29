@@ -9,6 +9,36 @@ import (
 	"github.com/toejough/targ/internal/help"
 )
 
+func TestProperty_RenderIncludesValuesWhenPresent(t *testing.T) {
+	t.Parallel()
+
+	rapid.Check(t, func(t *rapid.T) {
+		g := NewWithT(t)
+
+		count := rapid.IntRange(1, 4).Draw(t, "count")
+
+		values := make([]help.Value, 0, count)
+		for range count {
+			name := rapid.StringMatching(`[a-z]{3,8}`).Draw(t, "name")
+			desc := rapid.String().Draw(t, "desc")
+			values = append(values, help.Value{Name: name, Desc: desc})
+		}
+
+		output := help.New("test").
+			WithDescription("desc").
+			AddValues(values...).
+			AddExamples(help.Example{Title: "Basic", Code: "test run"}).
+			Render()
+
+		g.Expect(output).To(ContainSubstring("Values:"))
+
+		for _, v := range values {
+			g.Expect(output).To(ContainSubstring(v.Name))
+			g.Expect(output).To(ContainSubstring(v.Desc))
+		}
+	})
+}
+
 func TestProperty_RenderSectionOrderIsCorrect(t *testing.T) {
 	t.Parallel()
 
@@ -21,6 +51,7 @@ func TestProperty_RenderSectionOrderIsCorrect(t *testing.T) {
 			AddGlobalFlags(help.Flag{Long: "--help", Desc: "Show help"}).
 			AddCommandFlags(help.Flag{Long: "--verbose"}).
 			AddFormats(help.Format{Name: "fmt"}).
+			AddValues(help.Value{Name: "shell", Desc: "bash"}).
 			AddSubcommands(help.Subcommand{Name: "sub"}).
 			AddExamples(help.Example{Title: "ex", Code: "test"}).
 			Render()
@@ -30,6 +61,7 @@ func TestProperty_RenderSectionOrderIsCorrect(t *testing.T) {
 		descIdx := indexOf(output, "description")
 		usageIdx := indexOf(output, "Usage:")
 		targFlagsIdx := indexOf(output, "Targ flags:")
+		valuesIdx := indexOf(output, "Values:")
 		formatsIdx := indexOf(output, "Formats:")
 		posIdx := indexOf(output, "Positionals:")
 		flagsIdx := indexOf(output, "Flags:")
@@ -38,27 +70,13 @@ func TestProperty_RenderSectionOrderIsCorrect(t *testing.T) {
 
 		g.Expect(descIdx).To(BeNumerically("<", usageIdx), "description before usage")
 		g.Expect(usageIdx).To(BeNumerically("<", targFlagsIdx), "usage before targ flags")
-		g.Expect(targFlagsIdx).To(BeNumerically("<", formatsIdx), "targ flags before formats")
+		g.Expect(targFlagsIdx).To(BeNumerically("<", valuesIdx), "targ flags before values")
+		g.Expect(valuesIdx).To(BeNumerically("<", formatsIdx), "values before formats")
 		g.Expect(formatsIdx).To(BeNumerically("<", posIdx), "formats before positionals")
 		g.Expect(posIdx).To(BeNumerically("<", flagsIdx), "positionals before flags")
 		g.Expect(flagsIdx).To(BeNumerically("<", subsIdx), "flags before subcommands")
 		g.Expect(subsIdx).To(BeNumerically("<", examplesIdx), "subcommands before examples")
 	})
-}
-
-func TestRenderIncludesValuesWhenPresent(t *testing.T) {
-	t.Parallel()
-	g := NewWithT(t)
-
-	output := help.New("test").
-		WithDescription("desc").
-		AddValues(help.Value{Name: "shell", Desc: "bash, zsh, or fish"}).
-		AddExamples(help.Example{Title: "Basic", Code: "test run"}).
-		Render()
-
-	g.Expect(output).To(ContainSubstring("Values:"))
-	g.Expect(output).To(ContainSubstring("shell"))
-	g.Expect(output).To(ContainSubstring("bash, zsh, or fish"))
 }
 
 // Helper to find index of substring

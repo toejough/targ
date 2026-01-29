@@ -14,7 +14,7 @@ import (
 // returns an error after resolveRegistry has run.
 //
 //nolint:paralleltest // Cannot run in parallel - modifies global registry state
-func TestDeregisterFromAfterResolutionErrors(t *testing.T) {
+func TestProperty_DeregisterFromAfterResolutionErrors(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		g := NewWithT(t)
 

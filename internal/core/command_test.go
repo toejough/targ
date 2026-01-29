@@ -4,23 +4,63 @@ import (
 	"testing"
 
 	. "github.com/onsi/gomega"
+	"pgregory.net/rapid"
 
 	"github.com/toejough/targ/internal/core"
 )
 
-func TestConvertExamples_Empty(t *testing.T) {
+func TestProperty_ConvertExamplesPreservesShape(t *testing.T) {
 	t.Parallel()
-	g := NewWithT(t)
 
-	result := core.ConvertExamplesForTest([]core.Example{})
-	g.Expect(result).To(BeEmpty())
+	rapid.Check(t, func(t *rapid.T) {
+		g := NewWithT(t)
+
+		useNil := rapid.Bool().Draw(t, "useNil")
+
+		var examples []core.Example
+
+		if !useNil {
+			count := rapid.IntRange(0, 5).Draw(t, "count")
+
+			examples = make([]core.Example, 0, count)
+			for range count {
+				ex := core.Example{
+					Title: rapid.String().Draw(t, "title"),
+					Code:  rapid.String().Draw(t, "code"),
+				}
+				examples = append(examples, ex)
+			}
+		}
+
+		result := core.ConvertExamplesForTest(examples)
+		if examples == nil {
+			g.Expect(result).To(BeNil())
+			return
+		}
+
+		g.Expect(result).To(HaveLen(len(examples)))
+
+		for i, ex := range examples {
+			g.Expect(result[i].Title).To(Equal(ex.Title))
+			g.Expect(result[i].Code).To(Equal(ex.Code))
+		}
+	})
 }
 
-func TestResolveMoreInfoText_MoreInfoTextSet(t *testing.T) {
+func TestProperty_ResolveMoreInfoTextPrefersMoreInfoText(t *testing.T) {
 	t.Parallel()
-	g := NewWithT(t)
 
-	opts := core.RunOptions{MoreInfoText: "https://example.com/docs"}
-	result := core.ResolveMoreInfoTextForTest(opts)
-	g.Expect(result).To(Equal("https://example.com/docs"))
+	rapid.Check(t, func(t *rapid.T) {
+		g := NewWithT(t)
+
+		moreInfo := rapid.String().
+			Filter(func(s string) bool { return s != "" }).
+			Draw(t, "moreInfo")
+		repoURL := rapid.String().Draw(t, "repoURL")
+
+		opts := core.RunOptions{MoreInfoText: moreInfo, RepoURL: repoURL}
+		result := core.ResolveMoreInfoTextForTest(opts)
+
+		g.Expect(result).To(Equal(moreInfo))
+	})
 }
