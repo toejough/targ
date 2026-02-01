@@ -1,3 +1,6 @@
+// TEST-030: Command internal properties - validates completion examples
+// traces: ARCH-010
+
 package core
 
 import (

@@ -1,14 +1,87 @@
+// TEST-007: Runner help properties - validates CLI help output for runner commands
+// traces: ARCH-007
+
 package runner_test
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	. "github.com/onsi/gomega"
 	"pgregory.net/rapid"
 
+	"github.com/toejough/targ/internal/help"
 	"github.com/toejough/targ/internal/runner"
 )
+
+// TestGoldenFile_HelpOutput compares help output against golden files.
+// Set TARG_UPDATE_GOLDEN=1 to regenerate golden files.
+func TestGoldenFile_HelpOutput(t *testing.T) {
+	t.Parallel()
+
+	type goldenTest struct {
+		name       string
+		fn         func(*strings.Builder)
+		goldenFile string
+	}
+
+	tests := []goldenTest{
+		{
+			name:       "create",
+			fn:         func(b *strings.Builder) { runner.PrintCreateHelp(b) },
+			goldenFile: "create.golden",
+		},
+		{
+			name:       "sync",
+			fn:         func(b *strings.Builder) { runner.PrintSyncHelp(b) },
+			goldenFile: "sync.golden",
+		},
+		{
+			name:       "to-func",
+			fn:         func(b *strings.Builder) { runner.PrintToFuncHelp(b) },
+			goldenFile: "to-func.golden",
+		},
+		{
+			name:       "to-string",
+			fn:         func(b *strings.Builder) { runner.PrintToStringHelp(b) },
+			goldenFile: "to-string.golden",
+		},
+	}
+
+	updateGolden := os.Getenv("TARG_UPDATE_GOLDEN") == "1"
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			g := NewWithT(t)
+
+			var buf strings.Builder
+			tt.fn(&buf)
+
+			// Strip ANSI codes for comparison (allows styling changes without test failures)
+			actual := help.StripANSI(buf.String())
+
+			goldenPath := filepath.Join("testdata", "golden", tt.goldenFile)
+
+			if updateGolden {
+				err := os.WriteFile(goldenPath, []byte(actual), 0o644)
+				g.Expect(err).NotTo(HaveOccurred(), "failed to write golden file")
+				t.Logf("Updated golden file: %s", goldenPath)
+
+				return
+			}
+
+			expected, err := os.ReadFile(goldenPath)
+			g.Expect(err).NotTo(HaveOccurred(), "failed to read golden file %s", goldenPath)
+
+			g.Expect(actual).To(Equal(string(expected)),
+				"help output does not match golden file %s\n"+
+					"Run with TARG_UPDATE_GOLDEN=1 to update", goldenPath)
+		})
+	}
+}
 
 func TestProperty_ContainsHelpFlagMatchesArgs(t *testing.T) {
 	t.Parallel()

@@ -1,3 +1,6 @@
+// TEST-002: Execution properties - validates target builder pattern and invocation
+// traces: ARCH-002, ARCH-011
+
 // Package targ_test contains property-based tests for targ.
 // The test functions have many subtests which triggers maintidx warnings,
 // but this is the intended structure for property-based testing.

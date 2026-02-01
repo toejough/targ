@@ -1,3 +1,6 @@
+// TEST-012: Shell properties - validates shell command execution and help output
+// traces: ARCH-002, ARCH-007
+
 package targ_test
 
 import (

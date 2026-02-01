@@ -1,3 +1,6 @@
+// TEST-020: Source location properties - validates caller package path discovery
+// traces: ARCH-005
+
 package core_test
 
 import (

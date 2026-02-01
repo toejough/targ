@@ -1,3 +1,6 @@
+// TEST-027: Argument fuzz tests - validates robustness of argument parsing
+// traces: ARCH-001
+
 package targ_test
 
 import (

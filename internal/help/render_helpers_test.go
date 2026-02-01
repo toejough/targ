@@ -1,3 +1,6 @@
+// TEST-023: Render helpers properties - validates ANSI stripping and rendering utilities
+// traces: ARCH-007
+
 package help_test
 
 import (

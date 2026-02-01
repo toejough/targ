@@ -1,6 +1,6 @@
 // TEST-024: Runner properties - validates target scaffolding and sync operations
 // traces: ARCH-008, ARCH-009
-//
+
 //nolint:maintidx,cyclop // Test functions with many subtests have high complexity by design
 package runner_test
 

@@ -1,3 +1,6 @@
+// TEST-019: Registry internals - validates deregistration and group preservation
+// traces: ARCH-003
+
 //nolint:testpackage // Testing unexported applyDeregistrations function
 package core
 
@@ -598,6 +601,34 @@ func TestProperty_DetectConflicts_CatchesGroupNameConflicts(t *testing.T) {
 			"conflict should contain the group name")
 		g.Expect(conflictErr.Conflicts[0].Sources).To(ConsistOf(pkg1, pkg2),
 			"conflict should contain both package paths")
+	})
+}
+
+// TestProperty_DuplicateDeregistrationIsIdempotent verifies that calling DeregisterFrom
+// twice with the same package path is idempotent (second call is a no-op).
+func TestProperty_DuplicateDeregistrationIsIdempotent(t *testing.T) {
+	t.Parallel()
+
+	rapid.Check(t, func(t *rapid.T) {
+		g := NewWithT(t)
+
+		state := NewRegistryState()
+
+		// Generate package path
+		pkg := rapid.StringMatching(`[a-z]+\.[a-z]+/[a-z][a-z0-9-]*/[a-z][a-z0-9-]*`).
+			Draw(t, "pkg")
+
+		// First deregistration should succeed
+		err := state.DeregisterFrom(pkg)
+		g.Expect(err).ToNot(HaveOccurred(), "first deregistration should succeed")
+		g.Expect(state.GetDeregistrations()).To(HaveLen(1),
+			"should have one deregistration entry")
+
+		// Second deregistration of same package should be idempotent
+		err = state.DeregisterFrom(pkg)
+		g.Expect(err).ToNot(HaveOccurred(), "duplicate deregistration should succeed (idempotent)")
+		g.Expect(state.GetDeregistrations()).To(HaveLen(1),
+			"should still have only one deregistration entry (no duplicate)")
 	})
 }
 

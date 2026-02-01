@@ -1,3 +1,6 @@
+// TEST-008: Flag registry properties - validates flag definitions and lookup
+// traces: ARCH-001
+
 package flags_test
 
 import (

@@ -1,3 +1,6 @@
+// TEST-017: Command core properties - validates command execution and examples
+// traces: ARCH-011, ARCH-007
+
 package core_test
 
 import (

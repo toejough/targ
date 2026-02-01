@@ -1,3 +1,6 @@
+// TEST-001: Argument parsing properties - validates struct-based argument definition
+// traces: ARCH-001
+
 //nolint:maintidx // Test functions with many subtests have low maintainability index by design
 package targ_test
 

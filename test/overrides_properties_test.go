@@ -1,3 +1,6 @@
+// TEST-011: Override properties - validates CLI flag overrides for execution config
+// traces: ARCH-002, ARCH-011
+
 //nolint:maintidx // Test functions with many subtests have low maintainability index by design
 package targ_test
 

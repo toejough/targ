@@ -1,3 +1,6 @@
+// TEST-009: Discovery properties - validates build tag file discovery
+// traces: ARCH-005
+//
 //nolint:maintidx // Test functions with many subtests have low maintainability index by design
 package discover_test
 

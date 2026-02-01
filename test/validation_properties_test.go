@@ -1,3 +1,6 @@
+// TEST-014: Validation properties - validates usage line and help output structure
+// traces: ARCH-007, ARCH-001
+
 package targ_test
 
 import (

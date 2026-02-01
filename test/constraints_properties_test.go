@@ -1,3 +1,6 @@
+// TEST-013: Constraint properties - validates invariants and error handling
+// traces: ARCH-001, ARCH-002
+
 //nolint:maintidx // Test functions with many subtests have low maintainability index by design
 package targ_test
 

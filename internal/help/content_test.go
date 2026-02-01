@@ -1,3 +1,6 @@
+// TEST-021: Help content data structures - validates example and content types
+// traces: ARCH-007
+
 package help_test
 
 import (

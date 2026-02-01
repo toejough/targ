@@ -1,3 +1,6 @@
+// TEST-004: Shell completion properties - validates tab completion generation
+// traces: ARCH-010
+
 //nolint:maintidx // Test functions with many subtests have low maintainability index by design
 package targ_test
 

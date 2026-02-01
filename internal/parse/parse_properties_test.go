@@ -1,3 +1,6 @@
+// TEST-010: Parsing properties - validates source code parsing for targ discovery
+// traces: ARCH-005
+//
 //nolint:gocognit,cyclop,maintidx // Test functions with many subtests have high complexity by design
 package parse_test
 

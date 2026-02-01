@@ -1,3 +1,6 @@
+// TEST-003: Hierarchy properties - validates group-based namespace and path traversal
+// traces: ARCH-003, ARCH-004
+
 //nolint:maintidx // Test functions with many subtests have low maintainability index by design
 package targ_test
 

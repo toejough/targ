@@ -1,3 +1,6 @@
+// TEST-016: Target core properties - validates target builder internals
+// traces: ARCH-002
+
 package core_test
 
 import (
