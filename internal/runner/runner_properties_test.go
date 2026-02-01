@@ -1,3 +1,6 @@
+// TEST-024: Runner properties - validates target scaffolding and sync operations
+// traces: ARCH-008, ARCH-009
+//
 //nolint:maintidx,cyclop // Test functions with many subtests have high complexity by design
 package runner_test
 
@@ -367,6 +370,71 @@ func init() {
 			content, ok := fileOps.Files[path]
 			g.Expect(ok).To(BeTrue())
 			g.Expect(string(content)).To(HavePrefix("//go:build targ"))
+		})
+	})
+
+	// Property: FindOrCreateTargFile creates file with explicit registration pattern
+	// ISSUE-021: New targ files must use init() with targ.Register(), not var _ = targ.Targ
+	t.Run("CreatesNewTargFileWithExplicitRegistration", func(t *testing.T) {
+		t.Parallel()
+		rapid.Check(t, func(t *rapid.T) {
+			g := NewWithT(t)
+			dirName := rapid.StringMatching(`[a-z]{3,10}`).Draw(t, "dirName")
+
+			fileOps := NewMemoryFileOps()
+			fileOps.Dirs[dirName] = []fs.DirEntry{} // Empty directory
+
+			path, err := runner.FindOrCreateTargFileWithFileOps(fileOps, dirName)
+			g.Expect(err).NotTo(HaveOccurred())
+
+			content := string(fileOps.Files[path])
+
+			// Property: New file must have init() function
+			g.Expect(content).To(ContainSubstring("func init()"),
+				"new targ file must have init() function for explicit registration")
+
+			// Property: New file must have targ.Register() call
+			g.Expect(content).To(ContainSubstring("targ.Register("),
+				"new targ file must use targ.Register() for explicit registration")
+
+			// Property: New file must NOT use the old var _ = targ.Targ pattern
+			g.Expect(content).NotTo(ContainSubstring("var _ = targ.Targ"),
+				"new targ file must not use deprecated var _ = targ.Targ pattern")
+		})
+	})
+
+	// Property: AddTargetToFile creates init with targ.Register if missing
+	// ISSUE-021: Adding target to file without init() should create one
+	t.Run("AddTargetCreatesInitIfMissing", func(t *testing.T) {
+		t.Parallel()
+		rapid.Check(t, func(t *rapid.T) {
+			g := NewWithT(t)
+
+			fileOps := NewMemoryFileOps()
+			targetName := rapid.StringMatching(`[a-z][a-z0-9]{2,10}`).Draw(t, "targetName")
+			shellCmd := rapid.StringMatching(`[a-z]+ [a-z]+`).Draw(t, "shellCmd")
+
+			// File without init() or targ.Register()
+			initial := "//go:build targ\n\npackage build\n\nimport \"github.com/toejough/targ\"\n"
+			fileOps.Files["targs.go"] = []byte(initial)
+
+			err := runner.AddTargetToFileWithFileOps(fileOps, "targs.go", runner.CreateOptions{
+				Name:     targetName,
+				ShellCmd: shellCmd,
+			})
+			g.Expect(err).NotTo(HaveOccurred())
+
+			content := string(fileOps.Files["targs.go"])
+
+			// Property: File must have init() after adding target
+			g.Expect(content).To(ContainSubstring("func init()"),
+				"file must have init() function after adding target")
+
+			// Property: File must have targ.Register() with the new target
+			registerArgs := findRegisterArgsInTest(content)
+			expectedVar := runner.KebabToPascal(targetName)
+			g.Expect(registerArgs).To(ContainElement(expectedVar),
+				"targ.Register() must contain the new target %s", expectedVar)
 		})
 	})
 

@@ -557,8 +557,9 @@ package %s
 
 import "github.com/toejough/targ"
 
-// Ensure targ import is used
-var _ = targ.Targ
+func init() {
+	targ.Register()
+}
 `, pkgName)
 
 	err = fileOps.WriteFile(targFile, []byte(content), filePermissionsForCode)
@@ -2010,7 +2011,9 @@ func addRegisterArgToInit(content, registerVar string) (string, error) {
 
 	call := findRegisterCall(file)
 	if call == nil {
-		return content, nil
+		// No init() with targ.Register() found - create one
+		initBlock := fmt.Sprintf("\nfunc init() {\n\ttarg.Register(%s)\n}\n", registerVar)
+		return content + initBlock, nil
 	}
 
 	if registerArgExists(call.Args, registerVar) {
