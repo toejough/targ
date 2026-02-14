@@ -2035,12 +2035,39 @@ func sortedKeys(m map[string]*commandNode) []string {
 
 // --- Tag options ---
 
+// toKebabCase converts CamelCase to kebab-case.
+// Examples: MinRetrievals → min-retrievals, HTTPPort → http-port
+func toKebabCase(s string) string {
+	if s == "" {
+		return ""
+	}
+
+	var result strings.Builder
+	result.Grow(len(s) + 3) // Estimate: original length + a few hyphens
+
+	for i, r := range s {
+		if i > 0 && unicode.IsUpper(r) {
+			// Insert hyphen before uppercase letter if:
+			// 1. Previous char was lowercase (camelCase boundary)
+			// 2. Previous char was uppercase AND next char is lowercase (acronym end)
+			if unicode.IsLower(rune(s[i-1])) {
+				result.WriteRune('-')
+			} else if i+1 < len(s) && unicode.IsLower(rune(s[i+1])) {
+				result.WriteRune('-')
+			}
+		}
+		result.WriteRune(unicode.ToLower(r))
+	}
+
+	return result.String()
+}
+
 func tagOptionsForField(inst reflect.Value, field reflect.StructField) (TagOptions, error) {
 	tag := field.Tag.Get("targ")
 
 	opts := TagOptions{
 		Kind: TagKindFlag,
-		Name: strings.ToLower(field.Name),
+		Name: toKebabCase(field.Name),
 	}
 	if strings.TrimSpace(tag) == "" {
 		overridden, err := applyTagOptionsOverride(inst, field, opts)

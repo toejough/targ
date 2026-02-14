@@ -116,8 +116,8 @@ type CoverageCheckArgs struct {
 
 // RedundantTestArgs configures findRedundantTests.
 type RedundantTestArgs struct {
-	BaselinePattern   string  `targ:"flag,desc=Test name pattern for baseline tests (default: TestProperty_)"`
-	CoverageThreshold float64 `targ:"flag,desc=Minimum coverage percentage (default: 80)"`
+	BaselinePattern   string  `targ:"flag,name=baselinepattern,desc=Test name pattern for baseline tests (default: TestProperty_)"`
+	CoverageThreshold float64 `targ:"flag,name=coveragethreshold,desc=Minimum coverage percentage (default: 80)"`
 }
 
 // unexported variables.
