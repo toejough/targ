@@ -179,6 +179,7 @@ func (cb *ContentBuilder) WithUsage(usage string) *ContentBuilder {
 // TargFlagFilter controls which targ flags to include.
 type TargFlagFilter struct {
 	IsRoot            bool
+	BinaryMode        bool // When true, hide runtime flags (--timeout, --parallel, etc.)
 	DisableCompletion bool
 	DisableHelp       bool
 	DisableTimeout    bool
@@ -204,6 +205,17 @@ func FlagFromDef(def *flags.Def) Flag {
 func shouldSkipTargFlag(f flags.Def, filter TargFlagFilter) bool {
 	if f.RootOnly && !filter.IsRoot {
 		return true
+	}
+
+	// In binary mode, only show --help and --completion
+	if filter.BinaryMode {
+		switch f.Long {
+		case "help", "completion":
+			// Keep these flags in binary mode
+		default:
+			// Hide all other flags (runtime and targ-specific)
+			return true
+		}
 	}
 
 	switch f.Long {

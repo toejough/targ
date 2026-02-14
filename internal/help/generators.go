@@ -34,9 +34,15 @@ type TargetHelpOpts struct {
 
 // WriteRootHelp writes the root-level help (targ --help) to w.
 func WriteRootHelp(w io.Writer, opts RootHelpOpts) {
+	// Use "[flags...]" in binary mode, "[targ flags...]" otherwise
+	usageFlags := "[targ flags...]"
+	if opts.Filter.BinaryMode {
+		usageFlags = "[flags...]"
+	}
+
 	b := New(opts.BinaryName).
 		WithDescription(opts.Description).
-		WithUsage(opts.BinaryName + " [targ flags...] [<command>...]").
+		WithUsage(opts.BinaryName + " " + usageFlags + " [<command>...]").
 		SetRoot(true).
 		AddTargFlagsFiltered(opts.Filter)
 
@@ -88,7 +94,12 @@ func WriteTargetHelp(w io.Writer, opts TargetHelpOpts) {
 	if opts.Usage != "" {
 		b.WithUsage(opts.Usage)
 	} else {
-		b.WithUsage(fmt.Sprintf("%s [targ flags...] %s [flags...]", opts.BinaryName, opts.Name))
+		// Use "[flags...]" in binary mode, "[targ flags...]" otherwise
+		usageFlags := "[targ flags...]"
+		if opts.Filter.BinaryMode {
+			usageFlags = "[flags...]"
+		}
+		b.WithUsage(fmt.Sprintf("%s %s %s [flags...]", opts.BinaryName, usageFlags, opts.Name))
 	}
 
 	// Targ flags (non-root level)
