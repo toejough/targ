@@ -106,4 +106,32 @@ func TestBinaryModeHelpOutput(t *testing.T) {
 		g.Expect(output).ToNot(ContainSubstring("targ test"),
 			"examples should use binary name, not 'targ'")
 	})
+
+	t.Run("BinaryModeUsessFlagMode", func(t *testing.T) {
+		g := NewWithT(t)
+
+		var buf bytes.Buffer
+
+		opts := help.RootHelpOpts{
+			BinaryName:  "myapp",
+			Description: "My application",
+			Filter: help.TargFlagFilter{
+				IsRoot:     true,
+				BinaryMode: true,
+			},
+		}
+
+		help.WriteRootHelp(&buf, opts)
+		output := buf.String()
+
+		// Should show FlagModeAll flags
+		g.Expect(output).To(ContainSubstring("--help"))
+		g.Expect(output).To(ContainSubstring("--completion"))
+
+		// Should NOT show FlagModeTargOnly flags
+		g.Expect(output).ToNot(ContainSubstring("--source"))
+		g.Expect(output).ToNot(ContainSubstring("--create"))
+		g.Expect(output).ToNot(ContainSubstring("--no-binary-cache"))
+		g.Expect(output).ToNot(ContainSubstring("--dep-mode"))
+	})
 }
