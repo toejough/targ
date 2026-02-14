@@ -1828,18 +1828,13 @@ func printUsage(w io.Writer, nodes []*commandNode, opts RunOptions) {
 		cmdGroups = append(cmdGroups, help.CommandGroup{Source: g.source, Commands: cmds})
 	}
 
-	// Convert examples
-	examples := opts.Examples
-	if examples == nil {
-		examples = []Example{
-			completionExampleWithGetenv(optsGetenv(opts)),
-			chainExample(nodes),
+	// Convert examples (let WriteRootHelp auto-generate if not provided)
+	var helpExamples []help.Example
+	if opts.Examples != nil {
+		helpExamples = make([]help.Example, 0, len(opts.Examples))
+		for _, e := range opts.Examples {
+			helpExamples = append(helpExamples, help.Example{Title: e.Title, Code: e.Code})
 		}
-	}
-
-	helpExamples := make([]help.Example, 0, len(examples))
-	for _, e := range examples {
-		helpExamples = append(helpExamples, help.Example{Title: e.Title, Code: e.Code})
 	}
 
 	// Get more info text

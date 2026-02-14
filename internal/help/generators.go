@@ -5,6 +5,39 @@ import (
 	"io"
 )
 
+// GenerateRootExamples creates examples from command metadata.
+func GenerateRootExamples(binaryName string, groups []CommandGroup, binaryMode bool) []Example {
+	// Collect all command names
+	var cmdNames []string
+	for _, g := range groups {
+		for _, c := range g.Commands {
+			cmdNames = append(cmdNames, c.Name)
+		}
+	}
+
+	if len(cmdNames) == 0 {
+		return nil
+	}
+
+	var examples []Example
+
+	// Basic: run a command
+	examples = append(examples, Example{
+		Title: "Run a command",
+		Code:  binaryName + " " + cmdNames[0],
+	})
+
+	// Chain: run multiple commands (targ mode only, 2+ commands needed)
+	if !binaryMode && len(cmdNames) >= 2 {
+		examples = append(examples, Example{
+			Title: "Chain commands",
+			Code:  binaryName + " " + cmdNames[0] + " " + cmdNames[1],
+		})
+	}
+
+	return examples
+}
+
 // RootHelpOpts contains options for generating root-level help.
 type RootHelpOpts struct {
 	BinaryName           string
@@ -49,9 +82,13 @@ func WriteRootHelp(w io.Writer, opts RootHelpOpts) {
 	// Commands grouped by source
 	b.AddCommandGroups(opts.CommandGroups...)
 
-	// Examples
-	if len(opts.Examples) > 0 {
-		b.AddExamples(opts.Examples...)
+	// Examples (auto-generate if not provided by user)
+	examples := opts.Examples
+	if len(examples) == 0 {
+		examples = GenerateRootExamples(opts.BinaryName, opts.CommandGroups, opts.Filter.BinaryMode)
+	}
+	if len(examples) > 0 {
+		b.AddExamples(examples...)
 	}
 
 	// More info
