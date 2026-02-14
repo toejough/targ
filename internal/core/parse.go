@@ -766,6 +766,12 @@ func setFieldByKind(fieldVal reflect.Value, value string, pos *int) error {
 		return setIntField(fieldVal, value)
 	case reflect.Bool:
 		return setBoolField(fieldVal, value)
+	case reflect.Float64:
+		v, err := strconv.ParseFloat(value, 64)
+		if err != nil {
+			return fmt.Errorf("invalid float64 value %q: %w", value, err)
+		}
+		fieldVal.SetFloat(v)
 	case reflect.Slice:
 		return setSliceField(fieldVal, value, pos)
 	case reflect.Map:
