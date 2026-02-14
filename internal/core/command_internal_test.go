@@ -94,3 +94,29 @@ func TestProperty_StructFieldNameToKebabCase(t *testing.T) {
 		g.Expect(opts.Name).To(Equal("coverage-threshold"))
 	})
 }
+
+// TestProperty_UnrecognizedTagKeyError validates that unknown struct tag keys
+// produce an error at registration time (GH-7).
+func TestProperty_UnrecognizedTagKeyError(t *testing.T) {
+	t.Parallel()
+
+	rapid.Check(t, func(t *rapid.T) {
+		g := NewWithT(t)
+
+		type testStruct struct {
+			// Using "arg" instead of "positional" - unknown key
+			Cmd string `targ:"arg,required"`
+		}
+
+		inst := testStruct{}
+		val := reflect.ValueOf(inst)
+		typ := val.Type()
+
+		field, _ := typ.FieldByName("Cmd")
+		_, err := tagOptionsForField(val, field)
+
+		// Should return an error for unknown key "arg"
+		g.Expect(err).To(HaveOccurred())
+		g.Expect(err.Error()).To(ContainSubstring("arg"))
+	})
+}

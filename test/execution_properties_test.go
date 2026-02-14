@@ -998,7 +998,7 @@ func TestProperty_Execution(t *testing.T) {
 
 		type Args struct {
 			Required string `targ:"positional,required"`
-			Optional string `targ:"positional,optional"`
+			Optional string `targ:"positional"`
 		}
 
 		var captured Args

@@ -368,7 +368,9 @@ func applyTagOptionsOverride(
 	return results[0].Interface().(TagOptions), nil
 }
 
-func applyTagPart(opts *TagOptions, p string) {
+// applyTagPart applies a single tag part to options and returns whether it was recognized.
+// Returns true if the part was recognized (e.g., "required", "name=value"), false otherwise.
+func applyTagPart(opts *TagOptions, p string) bool {
 	setters := []struct {
 		prefix string
 		apply  func(opts *TagOptions, val string)
@@ -386,13 +388,17 @@ func applyTagPart(opts *TagOptions, p string) {
 	for _, setter := range setters {
 		if after, ok := strings.CutPrefix(p, setter.prefix); ok {
 			setter.apply(opts, after)
-			return
+			return true
 		}
 	}
 
 	if p == "required" {
 		opts.Required = true
+		return true
 	}
+
+	// Part is not recognized
+	return false
 }
 
 func buildExecInfo(lines []string) *help.ExecutionInfo {
@@ -1566,11 +1572,33 @@ func parseShellShortFlag(
 	return skip, true
 }
 
-func parseTagParts(opts *TagOptions, tag string) {
+// parseTagParts parses tag parts and returns an error if unknown keys are found.
+func parseTagParts(opts *TagOptions, tag string) error {
 	parts := strings.SplitSeq(tag, ",")
+	var unknownKeys []string
+
 	for p := range parts {
-		applyTagPart(opts, strings.TrimSpace(p))
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+
+		// Skip keywords handled elsewhere
+		if p == "flag" || p == "positional" {
+			continue
+		}
+
+		// Check if this part is recognized
+		if !applyTagPart(opts, p) {
+			unknownKeys = append(unknownKeys, p)
+		}
 	}
+
+	if len(unknownKeys) > 0 {
+		return fmt.Errorf("unrecognized struct tag keys: %s (valid: name, short, env, default, enum, placeholder, desc, description, required, positional, flag)", strings.Join(unknownKeys, ", "))
+	}
+
+	return nil
 }
 
 // --- Parsing targets ---
@@ -2079,7 +2107,9 @@ func tagOptionsForField(inst reflect.Value, field reflect.StructField) (TagOptio
 	}
 
 	detectTagKind(&opts, tag, field.Name)
-	parseTagParts(&opts, tag)
+	if err := parseTagParts(&opts, tag); err != nil {
+		return TagOptions{}, fmt.Errorf("invalid tag for field %s: %w", field.Name, err)
+	}
 
 	overridden, err := applyTagOptionsOverride(inst, field, opts)
 	if err != nil {

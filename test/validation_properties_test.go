@@ -39,7 +39,7 @@ func TestProperty_UsageLine(t *testing.T) {
 
 		type Args struct {
 			Required string `targ:"positional"`
-			Optional string `targ:"positional,optional"`
+			Optional string `targ:"positional"`
 		}
 
 		target := targ.Targ(func(_ Args) {}).Name("cmd")
