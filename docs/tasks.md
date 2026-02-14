@@ -15,7 +15,7 @@
 
 **Files:** Modify: `go.mod`, `go.sum`
 **Dependencies:** None
-**Traceability:** REQ-001, REQ-002, DES-001, ARCH-002
+**Traces to:** REQ-001, REQ-002, DES-001, ARCH-002
 
 ---
 
@@ -35,7 +35,7 @@
 
 **Files:** Create: `internal/help/builder.go`, `internal/help/content.go`, `internal/help/render.go`, `internal/help/styles.go`, `internal/help/formats.go`
 **Dependencies:** None
-**Traceability:** ARCH-003, ARCH-012
+**Traces to:** ARCH-003, ARCH-007
 
 ---
 
@@ -57,7 +57,7 @@
 
 **Files:** Modify: `internal/help/content.go`
 **Dependencies:** TASK-002
-**Traceability:** REQ-001, REQ-012, ARCH-012
+**Traces to:** REQ-001, REQ-012, ARCH-007
 
 **Test Properties:**
 - Struct fields have correct types
@@ -79,7 +79,7 @@
 
 **Files:** Modify: `internal/help/content.go`
 **Dependencies:** TASK-003
-**Traceability:** REQ-012, ARCH-012
+**Traces to:** REQ-012, ARCH-007
 
 **Test Properties:**
 - All expected fields present
@@ -108,7 +108,7 @@
 
 **Files:** Modify: `internal/help/styles.go`
 **Dependencies:** TASK-001
-**Traceability:** REQ-001, REQ-002, DES-001, DES-007, ARCH-002, ARCH-013
+**Traces to:** REQ-001, REQ-002, DES-001, DES-007, ARCH-002
 
 **Test Properties:**
 - Each style renders with correct ANSI escape sequences
@@ -134,7 +134,7 @@
 
 **Files:** Modify: `internal/help/builder.go`
 **Dependencies:** TASK-004
-**Traceability:** REQ-011, ARCH-001, ARCH-004, ARCH-014
+**Traces to:** REQ-011, ARCH-001, ARCH-004
 
 **Test Properties:**
 - NewBuilder panics when commandName is empty string
@@ -157,7 +157,7 @@
 
 **Files:** Modify: `internal/help/builder.go`
 **Dependencies:** TASK-006
-**Traceability:** REQ-001, ARCH-001, ARCH-004
+**Traces to:** REQ-001, ARCH-001, ARCH-004
 
 **Test Properties:**
 - WithDescription returns *ContentBuilder type
@@ -179,7 +179,7 @@
 
 **Files:** Modify: `internal/help/builder.go`
 **Dependencies:** TASK-007
-**Traceability:** REQ-001, REQ-012, ARCH-004, ARCH-014
+**Traces to:** REQ-001, REQ-012, ARCH-004, ARCH-004
 
 **Test Properties:**
 - WithUsage returns *ContentBuilder (chainable)
@@ -202,7 +202,7 @@
 
 **Files:** Modify: `internal/help/builder.go`
 **Dependencies:** TASK-007, TASK-003
-**Traceability:** REQ-001, REQ-012, ARCH-004, ARCH-014
+**Traces to:** REQ-001, REQ-012, ARCH-004, ARCH-004
 
 **Test Properties:**
 - AddPositionals returns *ContentBuilder (chainable)
@@ -227,7 +227,7 @@
 
 **Files:** Modify: `internal/help/builder.go`
 **Dependencies:** TASK-007, TASK-003
-**Traceability:** REQ-007, REQ-010, REQ-013, ARCH-008, ARCH-014, ARCH-015
+**Traces to:** REQ-007, REQ-010, REQ-013, ARCH-008, ARCH-004, ARCH-008
 
 **Test Properties:**
 - AddGlobalFlags returns *ContentBuilder (chainable)
@@ -251,7 +251,7 @@
 
 **Files:** Modify: `internal/help/builder.go`
 **Dependencies:** TASK-007, TASK-003
-**Traceability:** REQ-007, REQ-013, ARCH-004, ARCH-014
+**Traces to:** REQ-007, REQ-013, ARCH-004, ARCH-004
 
 **Test Properties:**
 - AddCommandFlags returns *ContentBuilder (chainable)
@@ -275,7 +275,7 @@
 
 **Files:** Modify: `internal/help/builder.go`
 **Dependencies:** TASK-007, TASK-003
-**Traceability:** REQ-008, REQ-014, REQ-027, ARCH-007, ARCH-014
+**Traces to:** REQ-008, REQ-014, REQ-027, ARCH-007, ARCH-004
 
 **Test Properties:**
 - AddFormats returns *ContentBuilder (chainable)
@@ -299,7 +299,7 @@
 
 **Files:** Modify: `internal/help/builder.go`
 **Dependencies:** TASK-007, TASK-003
-**Traceability:** REQ-017, REQ-021, ARCH-009, ARCH-014
+**Traces to:** REQ-017, REQ-021, ARCH-009, ARCH-004
 
 **Test Properties:**
 - AddSubcommands returns *ContentBuilder (chainable)
@@ -324,7 +324,7 @@
 
 **Files:** Modify: `internal/help/builder.go`
 **Dependencies:** TASK-007, TASK-003
-**Traceability:** REQ-009, REQ-015, REQ-023, ARCH-009, ARCH-014
+**Traces to:** REQ-009, REQ-015, REQ-023, ARCH-009, ARCH-004
 
 **Test Properties:**
 - AddExamples panics when called with zero arguments
@@ -350,7 +350,7 @@
 
 **Files:** Modify: `internal/help/render.go`
 **Dependencies:** TASK-004
-**Traceability:** REQ-001, REQ-012, ARCH-005, ARCH-016
+**Traces to:** REQ-001, REQ-012, ARCH-005, ARCH-007
 
 **Test Properties:**
 - Non-empty description renders as single line with trailing newline
@@ -374,7 +374,7 @@
 
 **Files:** Modify: `internal/help/render.go`
 **Dependencies:** TASK-005, TASK-004
-**Traceability:** REQ-001, REQ-012, DES-008, ARCH-005, ARCH-016
+**Traces to:** REQ-001, REQ-012, DES-008, ARCH-005, ARCH-007
 
 **Test Properties:**
 - Output starts with bold ANSI code for "Usage:"
@@ -399,7 +399,7 @@
 
 **Files:** Modify: `internal/help/render.go`
 **Dependencies:** TASK-005, TASK-004
-**Traceability:** REQ-012, REQ-019, DES-010, ARCH-005, ARCH-006, ARCH-016
+**Traces to:** REQ-012, REQ-019, DES-010, ARCH-005, ARCH-006, ARCH-007
 
 **Test Properties:**
 - Empty positionals list returns empty string
@@ -420,14 +420,14 @@
 - [ ] Returns "Flags:" header (bold) when flags exist
 - [ ] Shows "Global Flags:" subsection (bold, indented) if global flags present
 - [ ] Shows "Command Flags:" subsection (bold, indented) if command flags present
-- [ ] Global subsection always before Command subsection (REQ-026)
+- [ ] Global subsection always before Command subsection
 - [ ] Flag entries rendered with cyan flag names, yellow placeholders
 - [ ] 4-space flag entry indent
 - [ ] Property tests validate subsection ordering and omission
 
 **Files:** Modify: `internal/help/render.go`
 **Dependencies:** TASK-005, TASK-004
-**Traceability:** REQ-007, REQ-013, REQ-019, REQ-026, DES-006, DES-007, ARCH-006, ARCH-008, ARCH-016
+**Traces to:** REQ-007, REQ-013, REQ-019, DES-006, DES-007, ARCH-006, ARCH-008, ARCH-007
 
 **Test Properties:**
 - Empty flags returns empty string
@@ -454,7 +454,7 @@
 
 **Files:** Modify: `internal/help/render.go`
 **Dependencies:** TASK-005, TASK-004
-**Traceability:** REQ-008, REQ-014, REQ-020, REQ-027, DES-011, ARCH-006, ARCH-007, ARCH-016
+**Traces to:** REQ-008, REQ-014, REQ-020, REQ-027, DES-011, ARCH-006, ARCH-007, ARCH-007
 
 **Test Properties:**
 - Empty formats returns empty string
@@ -478,7 +478,7 @@
 
 **Files:** Modify: `internal/help/render.go`
 **Dependencies:** TASK-005, TASK-004
-**Traceability:** REQ-017, REQ-021, REQ-024, DES-012, ARCH-006, ARCH-016
+**Traces to:** REQ-017, REQ-021, REQ-024, DES-012, ARCH-006, ARCH-007
 
 **Test Properties:**
 - Empty subcommands returns empty string
@@ -503,7 +503,7 @@
 
 **Files:** Modify: `internal/help/render.go`
 **Dependencies:** TASK-005, TASK-004
-**Traceability:** REQ-009, REQ-015, REQ-016, DES-009, ARCH-005, ARCH-009, ARCH-016
+**Traces to:** REQ-009, REQ-015, REQ-016, DES-009, ARCH-005, ARCH-009, ARCH-007
 
 **Test Properties:**
 - Output includes "Examples:" header
@@ -528,7 +528,7 @@
 
 **Files:** Modify: `internal/help/builder.go`, `internal/help/render.go`
 **Dependencies:** TASK-015, TASK-016, TASK-017, TASK-018, TASK-019, TASK-020, TASK-021
-**Traceability:** REQ-001, REQ-012, REQ-025, DES-004, ARCH-005, ARCH-006, ARCH-016
+**Traces to:** REQ-001, REQ-012, REQ-025, DES-004, ARCH-005, ARCH-006, ARCH-007
 
 **Test Properties:**
 - Render panics if examples not set
@@ -553,7 +553,7 @@
 
 **Files:** Modify: `internal/help/formats.go`
 **Dependencies:** TASK-003
-**Traceability:** REQ-008, REQ-014, REQ-027, REQ-028, ARCH-007
+**Traces to:** REQ-008, REQ-014, REQ-027, REQ-028, ARCH-007
 
 **Test Properties:**
 - AllFormats is non-empty
@@ -577,7 +577,7 @@
 
 **Files:** Modify: `internal/help/formats.go`
 **Dependencies:** TASK-023
-**Traceability:** REQ-027, ARCH-007
+**Traces to:** REQ-027, ARCH-007
 
 **Test Properties:**
 - FormatNames panics for unknown format name
@@ -603,7 +603,7 @@
 
 **Files:** Modify: `go.mod`, `go.sum`, Create: `internal/help/builder_test.go`
 **Dependencies:** TASK-002
-**Traceability:** ARCH-010, ARCH-011
+**Traces to:** ARCH-010, ARCH-011
 
 ---
 
@@ -622,7 +622,7 @@
 
 **Files:** Modify: `internal/help/builder_test.go`
 **Dependencies:** TASK-025, TASK-022
-**Traceability:** REQ-012, REQ-025, DES-004, ARCH-005, ARCH-010, ARCH-011
+**Traces to:** REQ-012, REQ-025, DES-004, ARCH-005, ARCH-010, ARCH-011
 
 **Test Properties:**
 - Description appears before Usage
@@ -649,7 +649,7 @@
 
 **Files:** Modify: `internal/help/builder_test.go`
 **Dependencies:** TASK-025, TASK-022
-**Traceability:** REQ-001, REQ-002, DES-007, ARCH-002, ARCH-010
+**Traces to:** REQ-001, REQ-002, DES-007, ARCH-002, ARCH-010
 
 **Test Properties:**
 - Count of `\x1b[` sequences matches count of `\x1b[0m` resets
@@ -672,7 +672,7 @@
 
 **Files:** Modify: `internal/help/builder_test.go`
 **Dependencies:** TASK-025, TASK-022
-**Traceability:** REQ-001, DES-003, ARCH-010
+**Traces to:** REQ-001, DES-003, ARCH-010
 
 **Test Properties:**
 - No line ends with space or tab
@@ -695,7 +695,7 @@
 
 **Files:** Modify: `internal/help/builder_test.go`
 **Dependencies:** TASK-025, TASK-021
-**Traceability:** REQ-015, REQ-016, DES-009, ARCH-009, ARCH-010
+**Traces to:** REQ-015, REQ-016, DES-009, ARCH-009, ARCH-010
 
 **Test Properties:**
 - All examples start with "targ "
@@ -717,7 +717,7 @@
 
 **Files:** Modify: `internal/help/builder_test.go`
 **Dependencies:** TASK-025, TASK-018
-**Traceability:** REQ-013, REQ-026, DES-006, ARCH-006, ARCH-008, ARCH-010
+**Traces to:** REQ-013, DES-006, ARCH-006, ARCH-008, ARCH-010
 
 **Test Properties:**
 - When both subsections present, Global Flags index < Command Flags index
@@ -742,7 +742,7 @@
 
 **Files:** Modify: `internal/help/builder_test.go`
 **Dependencies:** TASK-025, TASK-022
-**Traceability:** REQ-019, REQ-020, REQ-021, ARCH-006, ARCH-010
+**Traces to:** REQ-019, REQ-020, REQ-021, ARCH-006, ARCH-010
 
 **Test Properties:**
 - Empty positionals → no "Positionals:" in output
@@ -770,7 +770,7 @@
 
 **Files:** Modify: `internal/runner/runner.go`
 **Dependencies:** TASK-022
-**Traceability:** REQ-015, DES-014, ARCH-009
+**Traces to:** REQ-015, DES-014, ARCH-009
 
 ---
 
@@ -788,7 +788,7 @@
 
 **Files:** Modify: `internal/runner/runner.go`
 **Dependencies:** TASK-022
-**Traceability:** REQ-015, DES-015, ARCH-009
+**Traces to:** REQ-015, DES-015, ARCH-009
 
 ---
 
@@ -806,7 +806,7 @@
 
 **Files:** Modify: `internal/runner/runner.go`
 **Dependencies:** TASK-022
-**Traceability:** REQ-015, DES-016, ARCH-009
+**Traces to:** REQ-015, DES-016, ARCH-009
 
 ---
 
@@ -824,7 +824,7 @@
 
 **Files:** Modify: `internal/runner/runner.go`
 **Dependencies:** TASK-022
-**Traceability:** REQ-015, DES-017, ARCH-009
+**Traces to:** REQ-015, DES-017, ARCH-009
 
 ---
 
@@ -841,7 +841,7 @@
 
 **Files:** Modify: `internal/runner/runner.go`
 **Dependencies:** TASK-032
-**Traceability:** DES-014, ARCH-009
+**Traces to:** DES-014, ARCH-009
 
 ---
 
@@ -858,7 +858,7 @@
 
 **Files:** Modify: `internal/runner/runner.go`
 **Dependencies:** TASK-033
-**Traceability:** DES-015, ARCH-009
+**Traces to:** DES-015, ARCH-009
 
 ---
 
@@ -875,7 +875,7 @@
 
 **Files:** Modify: `internal/runner/runner.go`
 **Dependencies:** TASK-034
-**Traceability:** DES-016, ARCH-009
+**Traces to:** DES-016, ARCH-009
 
 ---
 
@@ -892,7 +892,7 @@
 
 **Files:** Modify: `internal/runner/runner.go`
 **Dependencies:** TASK-035
-**Traceability:** DES-017, ARCH-009
+**Traces to:** DES-017, ARCH-009
 
 ---
 
@@ -909,7 +909,7 @@
 
 **Files:** Modify: `internal/runner/runner_help_test.go`, Create: `internal/runner/testdata/*.golden`
 **Dependencies:** TASK-036, TASK-037, TASK-038, TASK-039
-**Traceability:** REQ-004, DES-020, ARCH-010
+**Traces to:** REQ-004, DES-020, ARCH-010
 
 ---
 
@@ -928,7 +928,7 @@
 
 **Files:** Modify: `internal/core/command.go`
 **Dependencies:** TASK-022
-**Traceability:** REQ-001, REQ-006, DES-013, ARCH-009
+**Traces to:** REQ-001, REQ-006, DES-013, ARCH-009
 
 ---
 
@@ -945,7 +945,7 @@
 
 **Files:** Modify: `internal/core/command.go`
 **Dependencies:** TASK-022
-**Traceability:** REQ-001, REQ-006, DES-018, ARCH-009
+**Traces to:** REQ-001, REQ-006, DES-018, ARCH-009
 
 ---
 
@@ -965,7 +965,7 @@
 
 **Files:** Modify: `internal/help/builder.go`, `internal/help/content.go`, `internal/help/render.go`, `internal/help/styles.go`, `internal/help/formats.go`
 **Dependencies:** TASK-022
-**Traceability:** REQ-011, ARCH-004
+**Traces to:** REQ-011, ARCH-004
 
 ---
 
@@ -982,7 +982,7 @@
 
 **Files:** Create/Modify: `.golangci.yml` or linting configuration
 **Dependencies:** TASK-022
-**Traceability:** ARCH-002, ARCH-013
+**Traces to:** ARCH-002, ARCH-002
 
 ---
 
@@ -1000,7 +1000,7 @@
 
 **Files:** N/A (validation step)
 **Dependencies:** TASK-040, TASK-041, TASK-042, TASK-043, TASK-044
-**Traceability:** REQ-004, ARCH-010
+**Traces to:** REQ-004, ARCH-010
 
 ---
 
