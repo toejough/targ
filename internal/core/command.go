@@ -1938,7 +1938,21 @@ func runTargetWithOverrides(
 ) error {
 	// Run dependencies first (if Target with deps is available)
 	if node.Target != nil && len(node.Target.depGroups) > 0 {
-		err := node.Target.runDeps(ctx)
+		target := node.Target
+
+		// Apply --dep-mode override: flatten all groups into one
+		if opts.Overrides.DepMode != "" {
+			var mode DepMode
+			if opts.Overrides.DepMode == "parallel" {
+				mode = DepModeParallel
+			}
+			allDeps := target.GetDeps()
+			if len(allDeps) > 0 {
+				target.depGroups = []depGroup{{targets: allDeps, mode: mode}}
+			}
+		}
+
+		err := target.runDeps(ctx)
 		if err != nil {
 			return err
 		}
