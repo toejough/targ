@@ -92,7 +92,7 @@ Maps requirements to architecture. Coverage: Necessary (inherent), Needs design,
 | Failure         | Source - `func Name() error`         | [Source](#source)       |
 | Cancellation    | Source - `func Name(ctx) error`      | [Source](#source)       |
 | Dependencies    | Execution - `.Deps()`                | [Execution](#execution) |
-| Parallel        | Execution - `.Deps(..., DepModeParallel)`        | [Execution](#execution) |
+| Parallel        | Execution - `.Deps(..., DepModeParallel)`, chain for mixed groups | [Execution](#execution) |
 | Serial          | Execution - `.Deps()` (default)      | [Execution](#execution) |
 | Help text       | Execution - `.Description()`         | [Execution](#execution) |
 | Arguments       | Arguments - struct parameter         | [Arguments](#arguments) |
@@ -158,6 +158,10 @@ Maps requirements to architecture. Coverage: Necessary (inherent), Needs design,
 
 ## Arguments
 
+### ARCH-001: Struct-Based Argument Definition
+
+**Traces to:** REQ-008, REQ-009, REQ-010, REQ-011, DES-002, DES-018, DES-021, TASK-006, TASK-007
+
 What CLI inputs the target accepts. Defined by a struct parameter with tags.
 
 ```go
@@ -222,6 +226,10 @@ targ reflects on the function signature, finds the args struct, reads its tags.
 
 ## Execution
 
+### ARCH-002: Target Builder Pattern
+
+**Traces to:** REQ-004, REQ-005, REQ-006, REQ-007, REQ-013, REQ-014, REQ-015, REQ-016, REQ-017, REQ-018, DES-006, DES-009, DES-010, TASK-001, TASK-005, TASK-027, TASK-044
+
 How the target runs. Defined by the Target Builder.
 
 ```go
@@ -229,7 +237,8 @@ targ.Targ(fn)                     // wrap a function
 targ.Targ("cmd $arg ...")         // shell command (runs in calling shell)
 
     .Deps(targets...)             // dependencies (serial by default)
-    .DepMode(targ.Parallel)       // run deps in parallel
+    .Deps(targets..., targ.DepModeParallel)  // parallel deps
+    .Deps(a).Deps(b, c, targ.DepModeParallel).Deps(d)  // chain for mixed serial/parallel
     .Cache(patterns...)           // skip if inputs unchanged
     .Watch(patterns...)           // file patterns that trigger re-run
     .Times(n)                     // run up to N times, stop on failure
@@ -241,7 +250,7 @@ targ.Targ("cmd $arg ...")         // shell command (runs in calling shell)
     .Description(s)               // help text
 ```
 
-`.Deps()` accepts raw functions and `*Target`. `.DepMode()` takes `targ.Serial` (default) or `targ.Parallel`.
+`.Deps()` accepts raw functions and `*Target`. Pass `targ.DepModeParallel` as the last argument for parallel execution. Chain `.Deps()` calls to create mixed serial/parallel dependency groups.
 
 Shell command strings run in the calling shell (bash, fish, zsh, etc.) so aliases and functions work.
 
@@ -346,6 +355,10 @@ func Build(ctx context.Context, args BuildArgs) error {
 
 ## Hierarchy
 
+### ARCH-003: Group-Based Namespace
+
+**Traces to:** REQ-012, REQ-019, REQ-020, REQ-021, REQ-022, DES-003, DES-023, TASK-002
+
 Where the target appears in the CLI namespace. Defined by Group membership.
 
 ```go
@@ -378,7 +391,9 @@ Groups are non-executable (pure namespace). Functions are the only executable ta
 
 Hierarchy is discovered when groups are registered via `targ.Register()` in an init function. See [Source](#source).
 
-### Path Specification
+### ARCH-004: Stack-Based Path Traversal
+
+**Traces to:** REQ-024, REQ-025, REQ-027, REQ-028, REQ-029, REQ-030, REQ-031, DES-004, TASK-006, TASK-007, TASK-008, TASK-009, TASK-010, TASK-011, TASK-012, TASK-013, TASK-014, TASK-043
 
 Stack-based traversal with glob support. Same syntax for all operations (run, inspect, modify, delete).
 
@@ -412,6 +427,10 @@ Group names must be explicit because:
 2. Nested groups are values - no way to derive "lint" from `lintGroup`
 
 ## Source
+
+### ARCH-005: Build Tag Discovery
+
+**Traces to:** REQ-001, REQ-002, REQ-003, REQ-019, REQ-032, DES-011, TASK-015, TASK-016, TASK-017, TASK-021, TASK-022, TASK-026
 
 Which file contains the implementation. The function's location in the codebase.
 
@@ -467,7 +486,9 @@ targ -s ./dev/targs.go build         # short form
 2. Use first `go.mod` found
 3. No `go.mod` → create temporary module in temp build dir
 
-### CLI Binary Transition
+### ARCH-006: CLI Binary Transition
+
+**Traces to:** REQ-023, TASK-017, TASK-018, TASK-019, TASK-020, TASK-022, TASK-030, TASK-031
 
 To convert targ targets to a standalone CLI binary:
 
@@ -481,6 +502,10 @@ To convert targ targets to a standalone CLI binary:
 ---
 
 # Inspect
+
+### ARCH-007: Help Output Format
+
+**Traces to:** REQ-053, REQ-059, REQ-060, REQ-061, DES-001, DES-005, DES-012, DES-013, DES-014, DES-015, DES-016, DES-017, DES-019, DES-020, DES-022, DES-024, DES-027, DES-028, DES-030, DES-031, DES-032, TASK-002, TASK-003, TASK-004, TASK-012, TASK-015, TASK-016, TASK-017, TASK-018, TASK-019, TASK-020, TASK-021, TASK-022, TASK-023, TASK-024
 
 Running a group with no arguments (or `--help`) prints its tree with descriptions:
 
@@ -525,6 +550,10 @@ Execution:
 
 # Run
 
+### ARCH-011: Target Invocation
+
+**Traces to:** REQ-039, REQ-040, REQ-041, REQ-042, REQ-043, REQ-044, REQ-045, REQ-046, REQ-047, REQ-048, REQ-049, DES-002, DES-004, DES-006, DES-009, DES-019, DES-029, TASK-025, TASK-026
+
 ## Arguments
 
 Parse CLI flags and positionals into the args struct.
@@ -543,7 +572,7 @@ Parse CLI flags and positionals into the args struct.
 
 Order of operations:
 
-1. **Deps**: Run dependencies (serial or parallel per `.Deps()`/`.Deps(..., DepModeParallel)`)
+1. **Deps**: Run dependencies (serial or parallel per `.Deps()`/`.Deps(..., DepModeParallel)`). Chained calls create groups that execute sequentially with per-group modes.
 2. **Cache check**: Skip if cached and inputs unchanged
 3. **Function**: Invoke the target function
 4. **Retry**: On failure, retry with backoff if configured
@@ -574,6 +603,10 @@ Resolve target path using stack traversal (see [Path Specification](#path-specif
 
 ## Shell Integration
 
+### ARCH-010: Tab Completion
+
+**Traces to:** REQ-062, REQ-063, DES-008, TASK-025, TASK-026, TASK-027, TASK-028, TASK-029, TASK-030, TASK-031, TASK-040, TASK-045
+
 Tab completion for targets, flags, and enum values.
 
 **Setup**:
@@ -601,6 +634,10 @@ targ --completion fish | source
 ---
 
 # Create
+
+### ARCH-008: Target Scaffolding
+
+**Traces to:** REQ-037, REQ-038, DES-007, DES-025, TASK-010, TASK-018, TASK-030
 
 Scaffold new targets from shell commands.
 
@@ -656,6 +693,10 @@ targ --create --watch "**/*.go" dev "go build"
 
 # Sync
 
+### ARCH-009: Remote Target Import
+
+**Traces to:** REQ-033, REQ-034, REQ-035, REQ-036, REQ-056, REQ-057, REQ-058, DES-026, TASK-013, TASK-014, TASK-021, TASK-029, TASK-032, TASK-033, TASK-034, TASK-035, TASK-036, TASK-037, TASK-038, TASK-039, TASK-041, TASK-042
+
 Import targets from remote repositories.
 
 ```
@@ -688,7 +729,7 @@ func init() {
 
 # Implementation Status
 
-Verified 2026-01-23.
+Verified 2026-01-30.
 
 ## Global Flags
 
@@ -741,7 +782,6 @@ Verified 2026-01-23.
 | `targ.Register()` | ✅ | Registration API |
 | `targ.Run()` | ✅ | CLI binary entry point |
 | Path traversal | ✅ | Stack-based |
-| Glob patterns | ⚠️ Gap | `*` and `**` not supported |
 
 ## Inspect (--help output)
 
@@ -751,12 +791,7 @@ Verified 2026-01-23.
 | Usage line | ✅ | With targ flags |
 | Flags | ✅ | Shows all flags |
 | Subcommands | ✅ | Listed for groups |
-| Source location | ⚠️ Gap | Not shown per target |
-| Execution info | ⚠️ Gap | Deps/Cache/Retry not shown |
+| Source location | ✅ | `Source: path` shown in target help |
+| Execution info | ✅ | `Execution:` section shows Deps/Cache/Retry |
 
-## Gaps Summary
-
-1. **Glob patterns in paths** - `targ dev *` and `targ **` not implemented
-2. **Source location in --help** - Per-target source file:line not shown
-3. **Execution info in --help** - Deps, Cache, Retry settings not shown
 

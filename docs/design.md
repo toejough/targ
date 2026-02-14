@@ -1,13 +1,150 @@
-# Help System Consistency - Design Specification
+# Targ Design Specification
 
-## Overview
+Project-level design decisions for the targ CLI tool.
 
-This design specification defines the visual and structural design for targ CLI help output using the Rich styling approach. Every design element is assigned a DES-NNN traceability ID linked to upstream REQ-NNN requirements.
+## CLI Interface
 
-## Design System
+### DES-001: Help Text Structure
 
-### DES-001: Color Palette
-**Traces to:** REQ-001 (structural consistency), REQ-002 (predictable locations), REQ-018 (consistent terminology)
+**Traces to:** REQ-007, REQ-053, REQ-060, REQ-061
+
+Help output follows a consistent structure:
+1. One-line description
+2. Usage line with flag placeholders
+3. Flags section (Global and Root-only subsections)
+4. Formats section explaining placeholders
+5. Commands section with source locations
+6. Examples section
+
+### DES-002: Flag Organization
+
+**Traces to:** REQ-008, REQ-039, REQ-040, REQ-041
+
+Flags are organized into two categories:
+- **Global flags:** Apply to any invocation (`--timeout`, `--parallel`, `--retry`, etc.)
+- **Root-only flags:** Only valid at the top level (`--create`, `--sync`, `--completion`)
+
+Short flags use single letters: `-h`, `-p`, `-s`.
+
+### DES-003: Command Discovery Display
+
+**Traces to:** REQ-019, REQ-020, REQ-060
+
+Commands are displayed with their source file location:
+```
+  Source: dev/targets.go
+  check    Run all checks & fixes
+  lint     Lint codebase
+```
+
+This helps users understand where targets are defined.
+
+### DES-004: Path Stack Syntax
+
+**Traces to:** REQ-024, REQ-025, REQ-029, REQ-030
+
+Path traversal uses a stack-based syntax:
+- Words traverse into groups until reaching a target
+- After hitting a target, next word continues from current group level
+- `--` resets to root for accessing top-level targets after nested ones
+
+```
+targ dev build test     # dev/build, dev/test
+targ dev build -- prod  # dev/build, then prod (at root)
+```
+
+## Output Formatting
+
+### DES-005: Error Message Format
+
+**Traces to:** REQ-002
+
+Errors are prefixed with "Error:" and written to stderr:
+```
+Error: no target files found
+Error: unknown flag: --invalid
+```
+
+### DES-006: Progress Indication
+
+**Traces to:** REQ-004, REQ-005, REQ-014
+
+When running targets:
+- Dependencies are run before the target
+- Parallel execution shows concurrent progress
+- Watch mode indicates file change triggers
+
+## Interactive Patterns
+
+### DES-007: Non-Interactive by Default
+
+**Traces to:** REQ-037, REQ-038
+
+The CLI is non-interactive by default:
+- `--create` generates code without prompts
+- No confirmation dialogs for operations
+- Errors fail fast with clear messages
+
+### DES-008: Shell Completion Integration
+
+**Traces to:** REQ-062, REQ-063
+
+Shell completion is installed via:
+```bash
+source <(targ --completion)        # Auto-detect shell
+source <(targ --completion bash)   # Explicit shell
+```
+
+Completes: target names, flag names, flag values.
+
+## Execution Patterns
+
+### DES-009: Modifier Flag Syntax
+
+**Traces to:** REQ-042, REQ-043, REQ-044, REQ-045, REQ-046
+
+Execution modifiers use consistent flag patterns:
+- `--times N` - repeat N times
+- `--retry` - continue on failure
+- `--backoff D,M` - exponential backoff (duration, multiplier)
+- `--watch GLOB` - file watch patterns (repeatable)
+- `--cache GLOB` - cache key patterns (repeatable)
+- `--while CMD` - condition command
+
+### DES-010: Dependency Mode Selection
+
+**Traces to:** REQ-004, REQ-005, REQ-006
+
+Dependencies can run serial (default) or parallel. Chain calls for mixed serial/parallel groups:
+- Code: `.Deps(..., DepModeParallel)` or `.Deps(a).Deps(b, c, DepModeParallel).Deps(d)`
+- CLI: `--dep-mode parallel` (overrides all groups)
+
+### DES-011: Source Resolution
+
+**Traces to:** REQ-019, REQ-032, REQ-033
+
+Source files are discovered automatically:
+- Recursive search from cwd
+- Files with `//go:build targ` tag
+- `--source` overrides for explicit paths
+
+## Traceability Matrix
+
+| Design ID | Design Element | Requirements Traced |
+|-----------|----------------|---------------------|
+| DES-001 | Help Text Structure | REQ-007, REQ-053, REQ-060, REQ-061 |
+| DES-002 | Flag Organization | REQ-008, REQ-039, REQ-040, REQ-041 |
+| DES-003 | Command Discovery Display | REQ-019, REQ-020, REQ-060 |
+| DES-004 | Path Stack Syntax | REQ-024, REQ-025, REQ-029, REQ-030 |
+| DES-005 | Error Message Format | REQ-002 |
+| DES-006 | Progress Indication | REQ-004, REQ-005, REQ-014 |
+| DES-007 | Non-Interactive by Default | REQ-037, REQ-038 |
+| DES-008 | Shell Completion Integration | REQ-062, REQ-063 |
+| DES-009 | Modifier Flag Syntax | REQ-042, REQ-043, REQ-044, REQ-045, REQ-046 |
+| DES-010 | Dependency Mode Selection | REQ-004, REQ-005, REQ-006 |
+| DES-011 | Source Resolution | REQ-019, REQ-032, REQ-033 |
+### DES-012: Color Palette
+**Traces to:** REQ-007
 
 The Rich styling approach uses ANSI color codes for terminal output:
 
@@ -21,19 +158,19 @@ The Rich styling approach uses ANSI color codes for terminal output:
 
 **Color accessibility:** All colors have sufficient contrast against standard terminal backgrounds (both light and dark modes). Bold text is used for headers to ensure visibility without color.
 
-### DES-002: Typography Scale
-**Traces to:** REQ-001 (structural consistency), REQ-006 (same structure)
+### DES-013: Typography Scale
+**Traces to:** REQ-007
 
 Terminal output uses monospace fonts with the following hierarchy:
 
 - **Section Headers**: Bold, title case with colon (e.g., "Usage:", "Flags:")
 - **Subsection Headers**: Bold, title case with colon (e.g., "Global Flags:", "Command Flags:")
 - **Body Text**: Regular weight, sentence case
-- **Code Elements**: Inline, styled per DES-001 (flags in cyan, placeholders in yellow)
+- **Code Elements**: Inline, styled per DES-012 (flags in cyan, placeholders in yellow)
 - **Indentation**: 2 spaces for section content, 4 spaces for nested content
 
-### DES-003: Spacing System
-**Traces to:** REQ-001 (structural consistency), REQ-012 (section order)
+### DES-014: Spacing System
+**Traces to:** REQ-007
 
 Vertical rhythm:
 
@@ -47,8 +184,8 @@ Horizontal spacing:
 - **Content indentation**: 2 spaces from left margin
 - **Flag descriptions**: Aligned after flag name with sufficient padding (varies by longest flag name)
 
-### DES-004: Section Structure
-**Traces to:** REQ-012 (exact section order), REQ-025 (section order invariant)
+### DES-015: Section Structure
+**Traces to:** REQ-007
 
 All help pages follow this canonical section order:
 
@@ -64,8 +201,8 @@ Sections are omitted if empty (REQ-019, REQ-020, REQ-021).
 
 ## Components
 
-### DES-005: Section Header Component
-**Traces to:** REQ-001 (structural consistency), REQ-018 (consistent terminology)
+### DES-016: Section Header Component
+**Traces to:** REQ-007
 
 **Structure:**
 ```
@@ -87,8 +224,8 @@ Sections are omitted if empty (REQ-019, REQ-020, REQ-021).
 
 **Implementation note:** Uses `\x1b[1m` for bold, `\x1b[0m` for reset.
 
-### DES-006: Subsection Header Component
-**Traces to:** REQ-013 (Global/Command Flags subsections), REQ-026 (Global before Command invariant)
+### DES-017: Subsection Header Component
+**Traces to:** REQ-007
 
 **Structure:**
 ```
@@ -105,10 +242,10 @@ Sections are omitted if empty (REQ-019, REQ-020, REQ-021).
 - Global Flags:
 - Command Flags:
 
-**Ordering rule:** Global Flags must always appear before Command Flags when both exist (REQ-026).
+**Ordering rule:** Global Flags must always appear before Command Flags when both exist.
 
-### DES-007: Flag Entry Component
-**Traces to:** REQ-007 (distinguish global vs command-specific), REQ-013 (subsections)
+### DES-018: Flag Entry Component
+**Traces to:** REQ-007, REQ-008
 
 **Structure for boolean flags:**
 ```
@@ -133,8 +270,8 @@ Sections are omitted if empty (REQ-019, REQ-020, REQ-021).
     --help, -h              Show help
 ```
 
-### DES-008: Usage Line Component
-**Traces to:** REQ-001 (structural consistency), REQ-012 (Usage section)
+### DES-019: Usage Line Component
+**Traces to:** REQ-007
 
 **Structure:**
 ```
@@ -153,8 +290,8 @@ Usage: targ <COMMAND_CONTEXT> [<CYAN>flags</CYAN>...]
 - Target execution: `targ [flags...] <target> [args...]`
 - Subcommands: `targ <command> [flags...] [subcommand]`
 
-### DES-009: Example Entry Component
-**Traces to:** REQ-014 (2-3 examples), REQ-015 (command-specific), REQ-016 (command-specific examples)
+### DES-020: Example Entry Component
+**Traces to:** REQ-007
 
 **Structure:**
 ```
@@ -174,8 +311,8 @@ Usage: targ <COMMAND_CONTEXT> [<CYAN>flags</CYAN>...]
 
 **Count:** 2-3 examples per command (REQ-014), minimum 1 acceptable (REQ-023).
 
-### DES-010: Positionals Entry Component
-**Traces to:** REQ-001 (structural consistency)
+### DES-021: Positionals Entry Component
+**Traces to:** REQ-007, REQ-008
 
 **Structure:**
 ```
@@ -196,8 +333,8 @@ Positionals:
   shell-command    Shell command to execute (always last argument)
 ```
 
-### DES-011: Format Entry Component
-**Traces to:** REQ-014 (Formats section for relevant commands), REQ-027 (subset of formats), REQ-028 (document supported formats)
+### DES-022: Format Entry Component
+**Traces to:** REQ-007
 
 **Structure:**
 ```
@@ -218,8 +355,8 @@ Formats:
   plain      Plain text output (default)
 ```
 
-### DES-012: Subcommands Entry Component
-**Traces to:** REQ-017 (Subcommands section), REQ-021 (omit if none), REQ-024 (leaf nodes don't hint)
+### DES-023: Subcommands Entry Component
+**Traces to:** REQ-007, REQ-012
 
 **Structure:**
 ```
@@ -236,8 +373,8 @@ Formats:
 
 ## Screens (Help Pages)
 
-### DES-013: Root Help Screen
-**Traces to:** REQ-022 (root command shows available commands)
+### DES-024: Root Help Screen
+**Traces to:** REQ-007
 
 **Command:** `targ --help` or `targ help`
 
@@ -276,8 +413,8 @@ Examples:
 
 **Node ID:** N/A (text output only, no .pen file)
 
-### DES-014: --create Help Screen
-**Traces to:** REQ-001, REQ-006, REQ-012, REQ-015
+### DES-025: --create Help Screen
+**Traces to:** REQ-007, REQ-037
 
 **Command:** `targ --create --help`
 
@@ -299,8 +436,8 @@ Examples:
 
 **Node ID:** N/A (text output only, no .pen file)
 
-### DES-015: --sync Help Screen
-**Traces to:** REQ-001, REQ-006, REQ-012, REQ-015
+### DES-026: --sync Help Screen
+**Traces to:** REQ-007, REQ-033
 
 **Command:** `targ --sync --help`
 
@@ -321,8 +458,8 @@ Examples:
 
 **Node ID:** N/A (text output only, no .pen file)
 
-### DES-016: --to-func Help Screen
-**Traces to:** REQ-001, REQ-006, REQ-012, REQ-015
+### DES-027: --to-func Help Screen
+**Traces to:** REQ-007
 
 **Command:** `targ --to-func --help`
 
@@ -343,8 +480,8 @@ Examples:
 
 **Node ID:** N/A (text output only, no .pen file)
 
-### DES-017: --to-string Help Screen
-**Traces to:** REQ-001, REQ-006, REQ-012, REQ-015
+### DES-028: --to-string Help Screen
+**Traces to:** REQ-007
 
 **Command:** `targ --to-string --help`
 
@@ -365,8 +502,8 @@ Examples:
 
 **Node ID:** N/A (text output only, no .pen file)
 
-### DES-018: Target Execution Help (Future)
-**Traces to:** REQ-001, REQ-006, REQ-007, REQ-013
+### DES-029: Target Execution Help (Future)
+**Traces to:** REQ-007, REQ-053, REQ-061
 
 **Command:** `targ help <target>` or `targ <target> --help`
 
@@ -400,8 +537,8 @@ Examples:
 
 ## Implementation Mapping
 
-### DES-019: Flag Registry Integration
-**Traces to:** REQ-003 (automatic conformance), REQ-004 (objective code review), REQ-010 (single source of truth)
+### DES-030: Flag Registry Integration
+**Traces to:** REQ-007, REQ-008
 
 **Source:** `/Users/joe/repos/personal/targ/internal/flags/flags.go`
 
@@ -428,8 +565,8 @@ type Def struct {
 
 **Enforcement:** All help output MUST derive from `flags.All()` registry. Manual flag documentation is prohibited.
 
-### DES-020: Help Validation Testing
-**Traces to:** REQ-004 (objective code review), REQ-005 (self-contained help)
+### DES-031: Help Validation Testing
+**Traces to:** REQ-007
 
 **Source:** `/Users/joe/repos/personal/targ/internal/runner/runner_help_test.go`
 
@@ -456,8 +593,8 @@ func validateHelpOutput(g Gomega, output string, spec helpSpec) {
 
 **Enforcement:** CI runs these tests; PRs with failing help tests are blocked.
 
-### DES-021: Help Rendering Architecture
-**Traces to:** REQ-003 (automatic conformance), REQ-011 (easy path is right path)
+### DES-032: Help Rendering Architecture
+**Traces to:** REQ-007
 
 **Design decision:** Structured help builder (future implementation):
 
@@ -491,7 +628,7 @@ func (h *HelpBuilder) Render() string {
 ## Design Rules
 
 ### DR-001: Section Order Invariant
-**Traces to:** REQ-012, REQ-025
+**Traces to:** REQ-007
 
 **Rule:** All help pages MUST render sections in this exact order:
 
@@ -506,7 +643,7 @@ func (h *HelpBuilder) Render() string {
 **Enforcement:** Property tests validate section index ordering. `HelpBuilder` enforces at compile time.
 
 ### DR-002: Flag Subsection Order
-**Traces to:** REQ-013, REQ-026
+**Traces to:** REQ-007
 
 **Rule:** When both Global Flags and Command Flags exist, Global Flags MUST appear first.
 
@@ -515,7 +652,7 @@ func (h *HelpBuilder) Render() string {
 **Enforcement:** `HelpBuilder.Render()` always emits Global Flags before Command Flags.
 
 ### DR-003: Section Omission
-**Traces to:** REQ-019, REQ-020, REQ-021
+**Traces to:** REQ-007
 
 **Rule:** Empty sections MUST be omitted entirely. Do not render section headers with no content.
 
@@ -526,7 +663,7 @@ func (h *HelpBuilder) Render() string {
 - No Subcommands section if command has no subcommands (REQ-021)
 
 ### DR-004: Example Requirements
-**Traces to:** REQ-014, REQ-015, REQ-016, REQ-023
+**Traces to:** REQ-007
 
 **Rule:** Every command MUST have 2-3 examples showing progressive complexity. Minimum 1 example is acceptable.
 
@@ -539,7 +676,7 @@ func (h *HelpBuilder) Render() string {
 **Enforcement:** Code review checklist; help validation tests check for "Examples:" section.
 
 ### DR-005: Terminology Consistency
-**Traces to:** REQ-018
+**Traces to:** REQ-007
 
 **Standard terms:**
 - "Flags" (not "Options")
@@ -551,7 +688,7 @@ func (h *HelpBuilder) Render() string {
 **Enforcement:** Grep-based linting; property tests validate section header text.
 
 ### DR-006: Self-Contained Help
-**Traces to:** REQ-005, REQ-008
+**Traces to:** REQ-007
 
 **Rule:** Each command's help page should be self-contained. Users should not need to run `targ help formats` separately.
 
@@ -563,9 +700,9 @@ func (h *HelpBuilder) Render() string {
 **Trade-off:** Some duplication between per-command help and `targ help formats`, but improves discoverability.
 
 ### DR-007: Styling Consistency
-**Traces to:** REQ-001, REQ-002
+**Traces to:** REQ-007
 
-**Rule:** All help output MUST use Rich styling as defined in DES-001.
+**Rule:** All help output MUST use Rich styling as defined in DES-023.
 
 **Application:**
 - Section headers: Bold
@@ -576,83 +713,6 @@ func (h *HelpBuilder) Render() string {
 - Format names: Yellow
 
 **Implementation note:** Use ANSI escape codes; reset after each styled element to prevent bleed.
-
-## Traceability Matrix
-
-| Design ID | Design Element | Requirements Traced |
-|-----------|----------------|---------------------|
-| DES-001 | Color Palette | REQ-001, REQ-002, REQ-018 |
-| DES-002 | Typography Scale | REQ-001, REQ-006 |
-| DES-003 | Spacing System | REQ-001, REQ-012 |
-| DES-004 | Section Structure | REQ-012, REQ-025 |
-| DES-005 | Section Header Component | REQ-001, REQ-018 |
-| DES-006 | Subsection Header Component | REQ-013, REQ-026 |
-| DES-007 | Flag Entry Component | REQ-007, REQ-013 |
-| DES-008 | Usage Line Component | REQ-001, REQ-012 |
-| DES-009 | Example Entry Component | REQ-009, REQ-014, REQ-015, REQ-016 |
-| DES-010 | Positionals Entry Component | REQ-001 |
-| DES-011 | Format Entry Component | REQ-014, REQ-027, REQ-028 |
-| DES-012 | Subcommands Entry Component | REQ-017, REQ-021, REQ-024 |
-| DES-013 | Root Help Screen | REQ-022 |
-| DES-014 | --create Help Screen | REQ-001, REQ-006, REQ-012, REQ-015 |
-| DES-015 | --sync Help Screen | REQ-001, REQ-006, REQ-012, REQ-015 |
-| DES-016 | --to-func Help Screen | REQ-001, REQ-006, REQ-012, REQ-015 |
-| DES-017 | --to-string Help Screen | REQ-001, REQ-006, REQ-012, REQ-015 |
-| DES-018 | Target Execution Help | REQ-001, REQ-006, REQ-007, REQ-013 |
-| DES-019 | Flag Registry Integration | REQ-003, REQ-004, REQ-010 |
-| DES-020 | Help Validation Testing | REQ-004, REQ-005 |
-| DES-021 | Help Rendering Architecture | REQ-003, REQ-011 |
-| DR-001 | Section Order Invariant | REQ-012, REQ-025 |
-| DR-002 | Flag Subsection Order | REQ-013, REQ-026 |
-| DR-003 | Section Omission | REQ-019, REQ-020, REQ-021 |
-| DR-004 | Example Requirements | REQ-014, REQ-015, REQ-016, REQ-023 |
-| DR-005 | Terminology Consistency | REQ-018 |
-| DR-006 | Self-Contained Help | REQ-005, REQ-008 |
-| DR-007 | Styling Consistency | REQ-001, REQ-002 |
-
-## Requirements Coverage
-
-All requirements from `requirements.md` are addressed:
-
-### Success Criteria
-- ✅ SC-01 (REQ-001): Covered by DES-004, DR-001, DR-007
-- ✅ SC-02 (REQ-002): Covered by DES-001, DES-003, DR-007
-- ✅ SC-03 (REQ-003): Covered by DES-019, DES-021
-- ✅ SC-04 (REQ-004): Covered by DES-019, DES-020
-- ✅ SC-05 (REQ-005): Covered by DES-020, DR-006
-
-### User Stories
-- ✅ US-01 (REQ-006): Covered by DES-002, DES-014-018
-- ✅ US-02 (REQ-007): Covered by DES-007, DES-018
-- ✅ US-03 (REQ-008): Covered by DR-006
-- ✅ US-04 (REQ-009): Covered by DES-009, DR-004
-- ✅ US-05 (REQ-010): Covered by DES-019
-- ✅ US-06 (REQ-011): Covered by DES-021
-
-### Acceptance Criteria
-- ✅ AC-01 (REQ-012): Covered by DES-004, DR-001
-- ✅ AC-02 (REQ-013): Covered by DES-006, DR-002
-- ✅ AC-03 (REQ-014): Covered by DES-011, DR-004
-- ✅ AC-04 (REQ-015): Covered by DES-009, DR-004
-- ✅ AC-05 (REQ-016): Covered by DES-009, DR-004
-- ✅ AC-06 (REQ-017): Covered by DES-012
-- ✅ AC-07 (REQ-018): Covered by DES-005, DR-005
-
-### Edge Cases
-- ✅ REQ-019: Covered by DR-003
-- ✅ REQ-020: Covered by DR-003
-- ✅ REQ-021: Covered by DR-003, DES-012
-
-### Boundary Conditions
-- ✅ REQ-022: Covered by DES-013
-- ✅ REQ-023: Covered by DR-004
-- ✅ REQ-024: Covered by DES-012
-
-### Invariants
-- ✅ INV-01 (REQ-025): Covered by DES-004, DR-001
-- ✅ INV-02 (REQ-026): Covered by DES-006, DR-002
-- ✅ INV-03 (REQ-027): Covered by DES-011
-- ✅ INV-04 (REQ-028): Covered by DES-011
 
 ## Implementation Notes
 
@@ -701,7 +761,7 @@ None. All design decisions are finalized based on user's Rich styling preference
 
 ## Summary
 
-This design specification defines a complete visual and structural design for targ CLI help output using the Rich styling approach. All 28 requirements are covered with traceability. The design prioritizes:
+This design specification defines a complete visual and structural design for targ CLI help output using the Rich styling approach. The design prioritizes:
 
 1. **Consistency:** All help pages follow the same structure and styling
 2. **Discoverability:** Predictable section ordering helps users find information

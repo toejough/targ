@@ -1,4 +1,4 @@
-# Target Manipulation: Problem Specification
+# Target Manipulation: Requirements
 
 ## Model
 
@@ -6,34 +6,121 @@ What exists and how it's structured.
 
 ### Targets
 
-**Requirements:**
+**Design Principles:**
 
 - Start as simply as possible
 - Add capabilities incrementally as needed
 - Each capability has minimal syntax overhead
 
-**Progressive capabilities:**
+**Progressive Capabilities:**
 
-| Capability      | What it enables                           |
-| --------------- | ----------------------------------------- |
-| Basic           | Executable behavior                       |
-| Failure         | Indicate success/failure                  |
-| Cancellation    | Respond to interrupt/timeout              |
-| Dependencies    | Run other targets first, exactly once     |
-| Parallel        | Run multiple targets concurrently         |
-| Serial          | Run multiple targets sequentially         |
-| Help text       | Documentation in CLI                      |
-| Arguments       | Accept flags/positionals from CLI         |
-| Repeated args   | Accumulate multiple values for same flag  |
-| Map args        | Key=value syntax for structured input     |
-| Variadic args   | Trailing positional captures remaining    |
-| Subcommands     | Nested command hierarchy                  |
-| Result caching  | Skip if inputs unchanged                  |
-| Watch mode      | Re-run on file changes                    |
-| Retry           | Re-run on failure (with optional backoff) |
-| Repetition      | Run N times regardless of outcome         |
-| Time-bounded    | Run until duration elapsed                |
-| Condition-based | Run until predicate is true               |
+### REQ-001: Basic
+
+Executable behavior.
+
+**Category:** Capability
+
+### REQ-002: Failure
+
+Indicate success/failure.
+
+**Category:** Capability
+
+### REQ-003: Cancellation
+
+Respond to interrupt/timeout.
+
+**Category:** Capability
+
+### REQ-004: Dependencies
+
+Run other targets first, exactly once.
+
+**Category:** Capability
+
+### REQ-005: Parallel
+
+Run multiple targets concurrently. Supports chaining with serial groups for mixed execution modes.
+
+**Category:** Capability
+
+### REQ-006: Serial
+
+Run multiple targets sequentially.
+
+**Category:** Capability
+
+### REQ-007: Help text
+
+Documentation in CLI.
+
+**Category:** Capability
+
+### REQ-008: Arguments
+
+Accept flags/positionals from CLI.
+
+**Category:** Capability
+
+### REQ-009: Repeated args
+
+Accumulate multiple values for same flag.
+
+**Category:** Capability
+
+### REQ-010: Map args
+
+Key=value syntax for structured input.
+
+**Category:** Capability
+
+### REQ-011: Variadic args
+
+Trailing positional captures remaining.
+
+**Category:** Capability
+
+### REQ-012: Subcommands
+
+Nested command hierarchy.
+
+**Category:** Capability
+
+### REQ-013: Result caching
+
+Skip if inputs unchanged.
+
+**Category:** Capability
+
+### REQ-014: Watch mode
+
+Re-run on file changes.
+
+**Category:** Capability
+
+### REQ-015: Retry
+
+Re-run on failure (with optional backoff).
+
+**Category:** Capability
+
+### REQ-016: Repetition
+
+Run N times regardless of outcome.
+
+**Category:** Capability
+
+### REQ-017: Time-bounded
+
+Run until duration elapsed.
+
+**Category:** Capability
+
+### REQ-018: Condition-based
+
+Run until predicate is true.
+
+**Category:** Capability
 
 ### Hierarchy
 
@@ -53,37 +140,115 @@ What exists and how it's structured.
 - Namespace nodes can exist without targets (pure organizational)
 - No empty namespace nodes at the conclusion of any user operation (transient only)
 
-**Organization requirements:**
+**Organization:**
 
-- Simplest possible definition (write a function, it's discovered)
-- Targets can live near relevant code (close context)
-- Scales to complex hierarchies when needed
-- Namespacing to avoid collisions at scale
-- Easy transition to dedicated CLI binary (from `targ lint` to `./myapp lint`)
+### REQ-019: Simple Definition
 
-**Addressing requirements:**
+Simplest possible definition (write a function, it's discovered).
 
-- Uniquely identify any point in the hierarchy (variable depth)
-- Specify multiple locations in a single operation
-- Select targets by pattern without naming each explicitly
-- User intent is unambiguous (or has clear defaults per operation)
-- User-facing and internal representations convert losslessly
-- Path traversal continues from current group after hitting a target
-- `--` resets path to root for accessing top-level targets after nested ones
-- Name collisions between top-level targets and groups error at registration
+**Category:** Organization
+
+### REQ-020: Close Context
+
+Targets can live near relevant code.
+
+**Category:** Organization
+
+### REQ-021: Scalable Hierarchies
+
+Scales to complex hierarchies when needed.
+
+**Category:** Organization
+
+### REQ-022: Namespacing
+
+Namespacing to avoid collisions at scale.
+
+**Category:** Organization
+
+### REQ-023: CLI Binary Transition
+
+Easy transition to dedicated CLI binary (from `targ lint` to `./myapp lint`).
+
+**Category:** Organization
+
+**Addressing:**
+
+### REQ-024: Unique Identification
+
+Uniquely identify any point in the hierarchy (variable depth).
+
+**Category:** Addressing
+
+### REQ-025: Multiple Locations
+
+Specify multiple locations in a single operation.
+
+**Category:** Addressing
+
+### REQ-027: Unambiguous Intent
+
+User intent is unambiguous (or has clear defaults per operation).
+
+**Category:** Addressing
+
+### REQ-028: Lossless Conversion
+
+User-facing and internal representations convert losslessly.
+
+**Category:** Addressing
+
+### REQ-029: Path Continuation
+
+Path traversal continues from current group after hitting a target.
+
+**Category:** Addressing
+
+### REQ-030: Root Reset
+
+`--` resets path to root for accessing top-level targets after nested ones.
+
+**Category:** Addressing
+
+### REQ-031: Collision Detection
+
+Name collisions between top-level targets and groups error at registration.
+
+**Category:** Addressing
 
 ### Sources
 
 Where targets come from.
 
-**Local:** Defined in the current repository.
+### REQ-032: Local Targets
 
-**Remote:**
+Local targets defined in the current repository.
 
-- Add targets from another repository
-- Track which targets came from which source
-- Sync/update when remote definitions change (add, modify, remove)
-- Only modify/remove targets originally from that source
+**Category:** Sources
+
+### REQ-033: Remote Targets
+
+Add targets from another repository (remote).
+
+**Category:** Sources
+
+### REQ-034: Source Tracking
+
+Track which targets came from which source.
+
+**Category:** Sources
+
+### REQ-035: Remote Sync
+
+Sync/update when remote definitions change (add, modify, remove).
+
+**Category:** Sources
+
+### REQ-036: Source Isolation
+
+Only modify/remove targets originally from that source.
+
+**Category:** Sources
 
 ## Operations
 
@@ -95,75 +260,198 @@ What users do.
 
 Scaffold a target from a shell command.
 
-- Creates the simplest possible target (Basic capability only)
-- User adds capabilities in code as needed
+### REQ-037: Simple Scaffold
+
+Creates the simplest possible target (Basic capability only).
+
+**Category:** Create
+
+### REQ-038: Code Extension
+
+User adds capabilities in code as needed.
+
+**Category:** Create
 
 ### Invoke
 
 Run targets.
 
-**CLI invocation:** Run targets from command line.
+**CLI invocation:**
 
-- Single target: `targ lint`
-- Multiple targets: `targ build test deploy` (runs in sequence, shared dependency state)
-- With arguments: `targ deploy --env prod`
+### REQ-039: Single Target
+
+Single target: `targ lint`.
+
+**Category:** Invoke
+
+### REQ-040: Multiple Targets
+
+Multiple targets: `targ build test deploy` (runs in sequence, shared dependency state).
+
+**Category:** Invoke
+
+### REQ-041: With Arguments
+
+With arguments: `targ deploy --env prod`.
+
+**Category:** Invoke
 
 **Invocation modifiers:**
 
-- Watch mode: Re-run on file changes
-- Retry: Re-run on failure
-- Repetition: Run N times
-- Time-bounded: Run until duration elapsed
-- Condition-based: Run until predicate is true
+### REQ-042: Watch Modifier
+
+Watch mode: Re-run on file changes.
+
+**Category:** Invoke Modifier
+
+### REQ-043: Retry Modifier
+
+Retry: Re-run on failure.
+
+**Category:** Invoke Modifier
+
+### REQ-044: Repetition Modifier
+
+Repetition: Run N times.
+
+**Category:** Invoke Modifier
+
+### REQ-045: Time-bounded Modifier
+
+Time-bounded: Run until duration elapsed.
+
+**Category:** Invoke Modifier
+
+### REQ-046: Condition Modifier
+
+Condition-based: Run until predicate is true.
+
+**Category:** Invoke Modifier
 
 **Programmatic invocation:**
 
-- Call targets from other code
-- Express dependencies between targets
-- Dependencies run exactly once per execution
+### REQ-047: Code Invocation
+
+Call targets from other code.
+
+**Category:** Programmatic
+
+### REQ-048: Dependency Expression
+
+Express dependencies between targets.
+
+**Category:** Programmatic
+
+### REQ-049: Once-Only Dependencies
+
+Dependencies run exactly once per execution.
+
+**Category:** Programmatic
 
 ### Transform
 
 Change targets. **Users edit source directly** - the model is simple enough that CLI tooling is unnecessary.
 
-| Transformation | What it does                                           |
-| -------------- | ------------------------------------------------------ |
-| Rename         | Change a target's path (includes move, nest, flatten)  |
-| Relocate       | Move implementation to different file (path unchanged) |
-| Delete         | Remove a target entirely                               |
+### REQ-050: Rename
+
+Change a target's path (includes move, nest, flatten).
+
+**Category:** Transform
+
+### REQ-051: Relocate
+
+Move implementation to different file (path unchanged).
+
+**Category:** Transform
+
+### REQ-052: Delete
+
+Remove a target entirely.
+
+**Category:** Transform
 
 ### Manage Dependencies
 
 Modify relationships between targets. **Users edit source directly** - the model is simple enough that CLI tooling is unnecessary.
 
-- List dependencies of a target (via `--help`)
-- Add/remove dependencies (edit source)
-- Change execution mode (edit source)
+### REQ-053: List Dependencies
+
+List dependencies of a target (via `--help`).
+
+**Category:** Dependencies
+
+### REQ-054: Add/Remove Dependencies
+
+Add/remove dependencies (edit source).
+
+**Category:** Dependencies
+
+### REQ-055: Change Execution Mode
+
+Change execution mode (edit source).
+
+**Category:** Dependencies
 
 ### Sync
 
 Manage remote targets.
 
-- Add targets from a remote repository
-- Update targets when remote changes
-- Remove targets no longer in remote (if originally from that source)
+### REQ-056: Add Remote
+
+Add targets from a remote repository.
+
+**Category:** Sync
+
+### REQ-057: Update Remote
+
+Update targets when remote changes.
+
+**Category:** Sync
+
+### REQ-058: Remove Stale
+
+Remove targets no longer in remote (if originally from that source).
+
+**Category:** Sync
 
 ### Inspect
 
 Query information about targets.
 
-| Query | What it answers              |
-| ----- | ---------------------------- |
-| Where | Source location of a target  |
-| Tree  | Full hierarchy visualization |
-| Deps  | Dependencies of a target     |
+### REQ-059: Where Query
+
+Source location of a target.
+
+**Category:** Inspect
+
+### REQ-060: Tree Query
+
+Full hierarchy visualization.
+
+**Category:** Inspect
+
+### REQ-061: Deps Query
+
+Dependencies of a target.
+
+**Category:** Inspect
 
 ### Shell Integration
 
 Generate shell completion scripts for tab-completion of targets and flags.
 
-- Supports bash, zsh, fish
-- Completes target names, flag names, and enum values
+### REQ-062: Shell Support
+
+Supports bash, zsh, fish.
+
+**Category:** Shell Integration
+
+### REQ-063: Completion Scope
+
+Completes target names, flag names, and enum values.
+
+**Category:** Shell Integration
+
 
 ## Constraints
 
@@ -193,58 +481,54 @@ What must hold true across operations:
 
 ## Implementation Status
 
-Verified 2026-01-23.
+Verified 2026-01-30.
 
 ### Target Capabilities
 
 | Capability      | Status | Implementation |
 | --------------- | ------ | -------------- |
-| Basic           | ✅ | `func Name()` |
-| Failure         | ✅ | `func Name() error` |
-| Cancellation    | ✅ | `func Name(ctx context.Context) error` |
-| Dependencies    | ✅ | `.Deps()` |
-| Parallel        | ✅ | `.Deps(..., DepModeParallel)`, `--parallel/-p` |
-| Serial          | ✅ | `.Deps()` (default) |
-| Help text       | ✅ | `.Description()` |
-| Arguments       | ✅ | Struct parameter with `targ:` tags |
-| Repeated args   | ✅ | `[]T` field type |
-| Map args        | ✅ | `map[K]V` field type |
-| Variadic args   | ✅ | Trailing `[]T` positional |
-| Subcommands     | ✅ | `targ.Group()` |
-| Result caching  | ✅ | `.Cache()` |
-| Watch mode      | ✅ | `.Watch()` |
-| Retry           | ✅ | `.Retry()`, `.Backoff()` |
-| Repetition      | ✅ | `.Times()` |
-| Time-bounded    | ✅ | `.Timeout()` |
-| Condition-based | ✅ | `.While()` |
+| REQ-001 Basic           | ✅ | `func Name()` |
+| REQ-002 Failure         | ✅ | `func Name() error` |
+| REQ-003 Cancellation    | ✅ | `func Name(ctx context.Context) error` |
+| REQ-004 Dependencies    | ✅ | `.Deps()` |
+| REQ-005 Parallel        | ✅ | `.Deps(..., DepModeParallel)`, chain calls for mixed groups, `--parallel/-p` |
+| REQ-006 Serial          | ✅ | `.Deps()` (default) |
+| REQ-007 Help text       | ✅ | `.Description()` |
+| REQ-008 Arguments       | ✅ | Struct parameter with `targ:` tags |
+| REQ-009 Repeated args   | ✅ | `[]T` field type |
+| REQ-010 Map args        | ✅ | `map[K]V` field type |
+| REQ-011 Variadic args   | ✅ | Trailing `[]T` positional |
+| REQ-012 Subcommands     | ✅ | `targ.Group()` |
+| REQ-013 Result caching  | ✅ | `.Cache()` |
+| REQ-014 Watch mode      | ✅ | `.Watch()` |
+| REQ-015 Retry           | ✅ | `.Retry()`, `.Backoff()` |
+| REQ-016 Repetition      | ✅ | `.Times()` |
+| REQ-017 Time-bounded    | ✅ | `.Timeout()` |
+| REQ-018 Condition-based | ✅ | `.While()` |
 
 ### Hierarchy
 
 | Requirement | Status | Notes |
 | ----------- | ------ | ----- |
-| Namespace nodes | ✅ | `targ.Group()` |
-| Target nodes | ✅ | `targ.Targ(fn)` |
-| Path addressing | ✅ | Stack-based traversal |
-| Glob patterns (`*`, `**`) | ⚠️ Gap | Not implemented |
-| `--` resets to root | ✅ | Implemented |
-| Name collision errors | ✅ | At registration |
+| REQ-019–022 Organization | ✅ | `targ.Group()`, discovery |
+| REQ-023 CLI binary | ✅ | `targ.Run()` entry point |
+| REQ-024–025 Addressing | ✅ | Stack-based traversal |
+| REQ-027–028 Representations | ✅ | Lossless conversion |
+| REQ-029–030 Path traversal | ✅ | Implemented |
+| REQ-031 Name collisions | ✅ | Error at registration |
 
 ### Operations
 
 | Requirement | Status | Notes |
 | ----------- | ------ | ----- |
-| Create (scaffold) | ✅ | `--create` with `--deps`, `--cache` |
-| Invoke: CLI | ✅ | `targ <target>` |
-| Invoke: modifiers | ✅ | `--watch`, `--cache`, `--timeout`, etc. |
-| Invoke: programmatic | ✅ | `target.Run(ctx)` |
-| Transform | ✅ | Users edit source (by design) |
-| Manage Dependencies | ✅ | Users edit source (by design) |
-| Sync (remote) | ✅ | `--sync` |
-| Inspect: Where | ✅ | `Source: path:line` in `--help` |
-| Inspect: Tree | ✅ | Group shows hierarchy |
-| Inspect: Deps | ✅ | `Execution:` section in `--help` |
-| Shell Integration | ✅ | `--completion` for bash/zsh/fish |
-
-### Gaps Summary
-
-1. **Glob patterns in paths** - `targ dev *` and `targ **` not supported
+| REQ-037–038 Create | ✅ | `--create` with `--deps`, `--cache` |
+| REQ-039–041 Invoke CLI | ✅ | `targ <target>` |
+| REQ-042–046 Invoke modifiers | ✅ | `--watch`, `--cache`, `--timeout`, etc. |
+| REQ-047–049 Invoke programmatic | ✅ | `target.Run(ctx)` |
+| REQ-050–052 Transform | ✅ | Users edit source (by design) |
+| REQ-053–055 Manage Dependencies | ✅ | Users edit source (by design) |
+| REQ-056–058 Sync | ✅ | `--sync` |
+| REQ-059 Inspect: Where | ✅ | `Source: path:line` in `--help` |
+| REQ-060 Inspect: Tree | ✅ | Group shows hierarchy |
+| REQ-061 Inspect: Deps | ✅ | `Execution:` section in `--help` |
+| REQ-062–063 Shell Integration | ✅ | `--completion` for bash/zsh/fish |

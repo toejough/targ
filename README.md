@@ -204,7 +204,7 @@ var Build = targ.Targ(build).
 |--------|-------------|
 | `.Name(s)` | Override CLI command name |
 | `.Description(s)` | Help text |
-| `.Deps(targets..., mode)` | Dependencies (serial default, pass `targ.DepModeParallel` for parallel) |
+| `.Deps(targets..., mode)` | Dependencies (serial default, pass `targ.DepModeParallel` for parallel). Chain calls for mixed serial/parallel groups. |
 | `.Cache(patterns...)` | Skip if files unchanged |
 | `.CacheDir(dir)` | Cache checksum directory |
 | `.Watch(patterns...)` | Re-run on file changes |
@@ -336,6 +336,13 @@ Use `.Deps()` to declare dependencies that run before a target:
 ```go
 targ.Targ(test).Deps(build)                            // serial (default)
 targ.Targ(ci).Deps(test, lint, targ.DepModeParallel)   // parallel
+```
+
+Chain `.Deps()` calls to mix serial and parallel groups:
+
+```go
+// Run generate, then lint+test in parallel, then deploy
+targ.Targ(ci).Deps(generate).Deps(lint, test, targ.DepModeParallel).Deps(deploy)
 ```
 
 Deps-only targets run dependencies without their own function:
@@ -484,6 +491,12 @@ var CI = targ.Targ().Name("ci").Deps(Generate, Build, Lint, Test)
 
 // Or with parallel execution for independent targets:
 var CI = targ.Targ().Name("ci").Deps(Generate, Build, Lint, Test, targ.DepModeParallel)
+
+// Or chain serial and parallel groups for optimal pipeline:
+var CI = targ.Targ().Name("ci").
+    Deps(Generate).                              // Generate first
+    Deps(Build, Lint, Test, targ.DepModeParallel). // Build/lint/test in parallel
+    Deps(Deploy)                                  // Deploy after all pass
 ```
 
 ### Testing Commands
