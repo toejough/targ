@@ -153,6 +153,50 @@ func TestProperty_HelpOutput(t *testing.T) {
 		// Positional name appears in usage line
 		g.Expect(result.Output).To(ContainSubstring("Source"))
 	})
+
+	t.Run("SingleSerialGroupShowsInHelp", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		a := targ.Targ(func() {}).Name("a")
+		b := targ.Targ(func() {}).Name("b")
+		main := targ.Targ(func() {}).Name("main").Deps(a, b)
+
+		result, err := targ.Execute([]string{"app", "main", "--help"}, main)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(result.Output).To(ContainSubstring("Deps: a, b (serial)"))
+	})
+
+	t.Run("SingleParallelGroupShowsInHelp", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		a := targ.Targ(func() {}).Name("a")
+		b := targ.Targ(func() {}).Name("b")
+		main := targ.Targ(func() {}).Name("main").Deps(a, b, targ.DepModeParallel)
+
+		result, err := targ.Execute([]string{"app", "main", "--help"}, main)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(result.Output).To(ContainSubstring("Deps: a, b (parallel)"))
+	})
+
+	t.Run("ChainedGroupsShowWithArrowSeparator", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		a := targ.Targ(func() {}).Name("a")
+		b := targ.Targ(func() {}).Name("b")
+		c := targ.Targ(func() {}).Name("c")
+		d := targ.Targ(func() {}).Name("d")
+		main := targ.Targ(func() {}).Name("main").
+			Deps(a).
+			Deps(b, c, targ.DepModeParallel).
+			Deps(d)
+
+		result, err := targ.Execute([]string{"app", "main", "--help"}, main)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(result.Output).To(ContainSubstring("Deps: a → b, c (parallel) → d"))
+	})
 }
 
 // TestProperty_NameDerivation tests automatic name derivation from function names.

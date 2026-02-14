@@ -100,6 +100,12 @@ type commandInstance struct {
 	value reflect.Value
 }
 
+// DepGroupDisplay holds display information for a dependency group.
+type DepGroupDisplay struct {
+	Names []string
+	Mode  string
+}
+
 type commandNode struct {
 	Name        string
 	Type        reflect.Type
@@ -122,13 +128,12 @@ type commandNode struct {
 	CacheDisabled bool
 
 	// Execution configuration for help display
-	Deps            []string      // Names of dependencies
-	DepMode         string        // "serial" or "parallel"
-	Timeout         time.Duration // execution timeout
-	Times           int           // number of times to run
-	Retry           bool          // continue on failure
-	BackoffInitial  time.Duration // initial backoff delay
-	BackoffMultiply float64       // backoff multiplier
+	DepGroups       []DepGroupDisplay // Dependency groups with modes
+	Timeout         time.Duration     // execution timeout
+	Times           int               // number of times to run
+	Retry           bool              // continue on failure
+	BackoffInitial  time.Duration     // initial backoff delay
+	BackoffMultiply float64           // backoff multiplier
 
 	// Target reference for dep execution
 	Target *Target
@@ -213,16 +218,31 @@ type shellArgParseResult struct {
 }
 
 func appendDepsLine(lines []string, node *commandNode) []string {
-	if len(node.Deps) == 0 {
+	if len(node.DepGroups) == 0 {
 		return lines
 	}
 
-	mode := node.DepMode
-	if mode == "" {
-		mode = DepModeSerial.String()
+	// Single group — use original format for backward compatibility
+	if len(node.DepGroups) == 1 {
+		g := node.DepGroups[0]
+		mode := g.Mode
+		if mode == "" {
+			mode = DepModeSerial.String()
+		}
+		return append(lines, fmt.Sprintf("Deps: %s (%s)", strings.Join(g.Names, ", "), mode))
 	}
 
-	return append(lines, fmt.Sprintf("Deps: %s (%s)", strings.Join(node.Deps, ", "), mode))
+	// Multiple groups — use arrow separator
+	var parts []string
+	for _, g := range node.DepGroups {
+		part := strings.Join(g.Names, ", ")
+		if g.Mode == DepModeParallel.String() {
+			part += " (parallel)"
+		}
+		parts = append(parts, part)
+	}
+
+	return append(lines, "Deps: "+strings.Join(parts, " → "))
 }
 
 func appendPatternsLine(lines []string, label string, patterns []string) []string {
@@ -1614,12 +1634,17 @@ func parseTargetLike(target TargetLike) (*commandNode, error) {
 
 	// Extract execution config if available (for help display and dep execution)
 	if execTarget, ok := target.(TargetExecutionLike); ok {
-		deps := execTarget.GetDeps()
-		for _, d := range deps {
-			node.Deps = append(node.Deps, d.GetName())
+		for _, g := range execTarget.GetDepGroups() {
+			var names []string
+			for _, d := range g.Targets {
+				names = append(names, d.GetName())
+			}
+			node.DepGroups = append(node.DepGroups, DepGroupDisplay{
+				Names: names,
+				Mode:  g.Mode.String(),
+			})
 		}
 
-		node.DepMode = execTarget.GetDepMode().String()
 		node.Timeout = execTarget.GetTimeout()
 		node.Times = execTarget.GetTimes()
 		node.Retry = execTarget.GetRetry()
