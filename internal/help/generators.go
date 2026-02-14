@@ -3,6 +3,7 @@ package help
 import (
 	"fmt"
 	"io"
+	"strings"
 )
 
 // GenerateRootExamples creates examples from command metadata.
@@ -158,12 +159,13 @@ func WriteTargetHelp(w io.Writer, opts TargetHelpOpts) {
 		b.WithExecutionInfo(*opts.ExecutionInfo)
 	}
 
-	// Examples (only if explicitly provided)
+	// Examples (auto-generate if not provided by user)
 	if len(opts.Examples) > 0 {
 		b.AddExamples(opts.Examples...)
 	} else {
-		// Mark as explicitly empty to omit Examples section
-		b.AddExamples()
+		// Always generate at least basic usage example
+		generated := GenerateTargetExamples(opts.BinaryName, opts.Name, opts.Flags, opts.Filter.BinaryMode)
+		b.AddExamples(generated...)
 	}
 
 	// More info
@@ -173,4 +175,64 @@ func WriteTargetHelp(w io.Writer, opts TargetHelpOpts) {
 
 	output := b.Render()
 	_, _ = fmt.Fprint(w, output)
+}
+
+// GenerateTargetExamples creates examples from target metadata.
+func GenerateTargetExamples(binaryName, targetName string, cmdFlags []Flag, binaryMode bool) []Example {
+	prefix := binaryName + " " + targetName
+	if binaryMode {
+		prefix = binaryName
+		if targetName != "" {
+			prefix += " " + targetName
+		}
+	}
+
+	var examples []Example
+
+	// Basic usage
+	examples = append(examples, Example{
+		Title: "Basic usage",
+		Code:  prefix,
+	})
+
+	// With options (if there are non-required flags)
+	var optionalFlags []Flag
+	for _, f := range cmdFlags {
+		if !f.Required {
+			optionalFlags = append(optionalFlags, f)
+		}
+	}
+
+	if len(optionalFlags) > 0 {
+		var code strings.Builder
+		code.WriteString(prefix)
+		// Show up to 2 optional flags
+		limit := min(2, len(optionalFlags))
+		for _, f := range optionalFlags[:limit] {
+			code.WriteString(" " + f.Long)
+			if f.Placeholder != "" {
+				code.WriteString(" " + exampleValueForPlaceholder(f.Placeholder))
+			}
+		}
+
+		examples = append(examples, Example{
+			Title: "With options",
+			Code:  code.String(),
+		})
+	}
+
+	return examples
+}
+
+func exampleValueForPlaceholder(placeholder string) string {
+	switch strings.ToLower(placeholder) {
+	case "n":
+		return "10"
+	case "duration":
+		return "30s"
+	case "d,m":
+		return "1s,2.0"
+	default:
+		return strings.ToLower(placeholder)
+	}
 }
