@@ -432,51 +432,51 @@ func (t *Target) iterationCount() int {
 
 // runDeps executes dependencies according to the configured mode.
 func (t *Target) runDeps(ctx context.Context) error {
-	if t.GetDepMode() == DepModeParallel {
-		return t.runDepsParallel(ctx)
+	for _, group := range t.depGroups {
+		var err error
+		if group.mode == DepModeParallel {
+			err = runGroupParallel(ctx, group.targets)
+		} else {
+			err = runGroupSerial(ctx, group.targets)
+		}
+		if err != nil {
+			return err
+		}
 	}
-
-	return t.runDepsSerial(ctx)
+	return nil
 }
 
-// runDepsParallel executes all dependencies concurrently.
-// On first error, cancels remaining deps and returns immediately.
-func (t *Target) runDepsParallel(ctx context.Context) error {
-	deps := t.GetDeps()
+func runGroupParallel(ctx context.Context, targets []*Target) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	errs := make(chan error, len(deps))
+	errs := make(chan error, len(targets))
 
-	for _, dep := range deps {
+	for _, dep := range targets {
 		go func(d *Target) {
 			errs <- d.Run(ctx)
 		}(dep)
 	}
 
 	var firstErr error
-
-	for range deps {
+	for range targets {
 		err := <-errs
 		if err != nil && firstErr == nil {
 			firstErr = err
-
-			cancel() // Cancel remaining deps on first error
+			cancel()
 		}
 	}
 
 	return firstErr
 }
 
-// runDepsSerial executes dependencies one at a time in order.
-func (t *Target) runDepsSerial(ctx context.Context) error {
-	for _, dep := range t.GetDeps() {
+func runGroupSerial(ctx context.Context, targets []*Target) error {
+	for _, dep := range targets {
 		err := dep.Run(ctx)
 		if err != nil {
 			return err
 		}
 	}
-
 	return nil
 }
 

@@ -11,6 +11,7 @@ package targ_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -323,6 +324,70 @@ func TestProperty_Execution(t *testing.T) {
 		err := <-errCh
 		g.Expect(err).NotTo(HaveOccurred())
 		g.Expect(completedCount.Load()).To(Equal(int32(2)))
+	})
+
+	t.Run("DependencyChainedGroupExecution", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		var mu sync.Mutex
+		var order []string
+
+		a := targ.Targ(func() {
+			mu.Lock()
+			order = append(order, "a")
+			mu.Unlock()
+		}).Name("a")
+
+		b := targ.Targ(func() {
+			mu.Lock()
+			order = append(order, "b")
+			mu.Unlock()
+		}).Name("b")
+
+		c := targ.Targ(func() {
+			mu.Lock()
+			order = append(order, "c")
+			mu.Unlock()
+		}).Name("c")
+
+		main := targ.Targ(func() {
+			mu.Lock()
+			order = append(order, "main")
+			mu.Unlock()
+		}).Deps(a).Deps(b, c, targ.DepModeParallel)
+
+		err := main.Run(context.Background())
+		g.Expect(err).NotTo(HaveOccurred())
+
+		// a must come first (serial group 1), then b and c (parallel group 2), then main
+		g.Expect(order[0]).To(Equal("a"))
+		g.Expect(order[len(order)-1]).To(Equal("main"))
+		// b and c are in the middle (parallel, order may vary)
+		g.Expect(order[1:3]).To(ConsistOf("b", "c"))
+	})
+
+	t.Run("DependencyChainedGroupError", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		executed := false
+
+		a := targ.Targ(func() error {
+			return fmt.Errorf("fail in group 1")
+		}).Name("a")
+
+		b := targ.Targ(func() {
+			executed = true
+		}).Name("b")
+
+		main := targ.Targ(func() {}).
+			Deps(a).
+			Deps(b, targ.DepModeParallel)
+
+		err := main.Run(context.Background())
+		g.Expect(err).To(HaveOccurred())
+		g.Expect(executed).To(BeFalse(), "group 2 should not run if group 1 fails")
 	})
 
 	t.Run("TimeoutEnforcesLimit", func(t *testing.T) {
