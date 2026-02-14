@@ -115,6 +115,7 @@ type TagOptions struct {
 type TargetExecutionLike interface {
 	GetDeps() []*Target
 	GetDepMode() DepMode
+	GetDepGroups() []DepGroup
 	GetTimeout() time.Duration
 	GetTimes() int
 	GetRetry() bool

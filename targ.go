@@ -16,6 +16,8 @@ const (
 	DepModeParallel = core.DepModeParallel
 	// DepModeSerial executes dependencies one at a time in order.
 	DepModeSerial = core.DepModeSerial
+	// DepModeMixed indicates a target has multiple dependency groups with different modes.
+	DepModeMixed = core.DepModeMixed
 	// Disabled is a sentinel value for Target builder methods that indicates
 	// the setting should be controlled by CLI flags rather than compile-time config.
 	// Example: targ.Targ(Build).Watch(targ.Disabled) allows --watch flag to control watching.
@@ -38,6 +40,9 @@ type ChangeSet = internalfile.ChangeSet
 
 // DepMode controls how dependencies are executed (parallel or serial).
 type DepMode = core.DepMode
+
+// DepGroup is the exported view of a dependency group.
+type DepGroup = core.DepGroup
 
 // Example represents a usage example shown in help text.
 type Example = core.Example

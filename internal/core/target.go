@@ -22,15 +22,31 @@ const (
 	DepModeSerial DepMode = iota
 	// DepModeParallel executes all dependencies concurrently.
 	DepModeParallel
+	// DepModeMixed indicates a target has multiple dependency groups with different modes.
+	DepModeMixed
 )
 
 // String returns the string representation of the dependency mode.
 func (m DepMode) String() string {
-	if m == DepModeParallel {
+	switch m {
+	case DepModeParallel:
 		return depModeParallelStr
+	case DepModeMixed:
+		return depModeMixedStr
+	default:
+		return depModeSerialStr
 	}
+}
 
-	return depModeSerialStr
+type depGroup struct {
+	targets []*Target
+	mode    DepMode
+}
+
+// DepGroup is the exported view of a dependency group.
+type DepGroup struct {
+	Targets []*Target
+	Mode    DepMode
 }
 
 // Target represents a build target that can be invoked from the CLI.
@@ -38,8 +54,7 @@ type Target struct {
 	fn              any           // func(...) or string (shell command)
 	name            string        // CLI name override
 	description     string        // help text
-	deps            []*Target     // dependencies to run before this target
-	depMode         DepMode       // serial or parallel dependency execution
+	depGroups       []depGroup    // dependency groups with execution modes
 	timeout         time.Duration // execution timeout (0 = no timeout)
 	cache           []string      // file patterns for cache invalidation
 	cacheDir        string        // directory to store cache files
@@ -100,15 +115,28 @@ func (t *Target) CacheDir(dir string) *Target {
 //	targ.Targ(build).Deps(generate, compile)           // serial (default)
 //	targ.Targ(build).Deps(lint, test, targ.Parallel)   // parallel
 func (t *Target) Deps(args ...any) *Target {
-	t.depMode = DepModeSerial
+	mode := DepModeSerial
+	var targets []*Target
 
 	for _, arg := range args {
 		switch v := arg.(type) {
 		case *Target:
-			t.deps = append(t.deps, v)
+			targets = append(targets, v)
 		case DepMode:
-			t.depMode = v
+			mode = v
 		}
+	}
+
+	if len(targets) == 0 {
+		return t
+	}
+
+	// Coalesce with last group if same mode
+	if len(t.depGroups) > 0 && t.depGroups[len(t.depGroups)-1].mode == mode {
+		t.depGroups[len(t.depGroups)-1].targets = append(
+			t.depGroups[len(t.depGroups)-1].targets, targets...)
+	} else {
+		t.depGroups = append(t.depGroups, depGroup{targets: targets, mode: mode})
 	}
 
 	return t
@@ -139,12 +167,35 @@ func (t *Target) GetConfig() ([]string, []string, bool, bool) {
 
 // GetDepMode returns the dependency execution mode.
 func (t *Target) GetDepMode() DepMode {
-	return t.depMode
+	if len(t.depGroups) == 0 {
+		return DepModeSerial
+	}
+
+	mode := t.depGroups[0].mode
+	for _, g := range t.depGroups[1:] {
+		if g.mode != mode {
+			return DepModeMixed
+		}
+	}
+	return mode
 }
 
 // GetDeps returns the target's dependencies.
 func (t *Target) GetDeps() []*Target {
-	return t.deps
+	var all []*Target
+	for _, g := range t.depGroups {
+		all = append(all, g.targets...)
+	}
+	return all
+}
+
+// GetDepGroups returns the dependency groups with their execution modes.
+func (t *Target) GetDepGroups() []DepGroup {
+	groups := make([]DepGroup, len(t.depGroups))
+	for i, g := range t.depGroups {
+		groups[i] = DepGroup{Targets: g.targets, Mode: g.mode}
+	}
+	return groups
 }
 
 // GetDescription returns the configured description, or empty if not set.
@@ -381,7 +432,7 @@ func (t *Target) iterationCount() int {
 
 // runDeps executes dependencies according to the configured mode.
 func (t *Target) runDeps(ctx context.Context) error {
-	if t.depMode == DepModeParallel {
+	if t.GetDepMode() == DepModeParallel {
 		return t.runDepsParallel(ctx)
 	}
 
@@ -391,12 +442,13 @@ func (t *Target) runDeps(ctx context.Context) error {
 // runDepsParallel executes all dependencies concurrently.
 // On first error, cancels remaining deps and returns immediately.
 func (t *Target) runDepsParallel(ctx context.Context) error {
+	deps := t.GetDeps()
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	errs := make(chan error, len(t.deps))
+	errs := make(chan error, len(deps))
 
-	for _, dep := range t.deps {
+	for _, dep := range deps {
 		go func(d *Target) {
 			errs <- d.Run(ctx)
 		}(dep)
@@ -404,7 +456,7 @@ func (t *Target) runDepsParallel(ctx context.Context) error {
 
 	var firstErr error
 
-	for range t.deps {
+	for range deps {
 		err := <-errs
 		if err != nil && firstErr == nil {
 			firstErr = err
@@ -418,7 +470,7 @@ func (t *Target) runDepsParallel(ctx context.Context) error {
 
 // runDepsSerial executes dependencies one at a time in order.
 func (t *Target) runDepsSerial(ctx context.Context) error {
-	for _, dep := range t.deps {
+	for _, dep := range t.GetDeps() {
 		err := dep.Run(ctx)
 		if err != nil {
 			return err
@@ -439,7 +491,7 @@ func (t *Target) runOnce(ctx context.Context, args []any) error {
 	}
 
 	// Run dependencies first
-	if len(t.deps) > 0 {
+	if len(t.depGroups) > 0 {
 		err := t.runDeps(ctx)
 		if err != nil {
 			return err
@@ -565,6 +617,7 @@ func Targ(fn ...any) *Target {
 const (
 	depModeParallelStr = "parallel"
 	depModeSerialStr   = "serial"
+	depModeMixedStr    = "mixed"
 )
 
 type repetitionState struct {

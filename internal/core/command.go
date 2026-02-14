@@ -865,7 +865,7 @@ func executeDepsOnlyTarget(
 	}
 
 	// Run dependencies
-	if len(node.Target.deps) > 0 {
+	if len(node.Target.depGroups) > 0 {
 		err := node.Target.runDeps(ctx)
 		if err != nil {
 			return nil, err
@@ -1912,7 +1912,7 @@ func runTargetWithOverrides(
 	opts RunOptions,
 ) error {
 	// Run dependencies first (if Target with deps is available)
-	if node.Target != nil && len(node.Target.deps) > 0 {
+	if node.Target != nil && len(node.Target.depGroups) > 0 {
 		err := node.Target.runDeps(ctx)
 		if err != nil {
 			return err
