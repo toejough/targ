@@ -178,9 +178,9 @@ func TestProperty_CodeGeneration(t *testing.T) {
 
 			content := string(fileOps.Files["targs.go"])
 
-			// Property: Output contains the variable declaration
-			expectedVar := "var " + runner.KebabToPascal(targetName) + " = targ.Targ"
-			g.Expect(content).To(ContainSubstring(expectedVar))
+			// Property: Output contains inline targ.Targ() in Register() (ISSUE-021)
+			g.Expect(content).To(ContainSubstring("targ.Register(targ.Targ"),
+				"should contain inline targ.Targ() expression")
 
 			// Property: Output contains the Name() call
 			g.Expect(content).To(ContainSubstring(`.Name("` + targetName + `")`))
@@ -347,8 +347,11 @@ func init() {
 			g.Expect(err).NotTo(HaveOccurred())
 
 			content := string(fileOps.Files[path])
-			registerArgs := findRegisterArgsInTest(content)
-			g.Expect(registerArgs).To(ContainElement(runner.PathToPascal([]string{targetName})))
+			// New pattern uses inline targ.Targ() expression (may be mixed with existing vars)
+			g.Expect(content).To(ContainSubstring("targ.Targ(\"echo hello\")"),
+				"should contain inline targ.Targ() expression")
+			g.Expect(content).To(ContainSubstring(fmt.Sprintf(".Name(%q)", targetName)),
+				"inline expression must contain .Name(%q)", targetName)
 		})
 	})
 
@@ -430,11 +433,12 @@ func init() {
 			g.Expect(content).To(ContainSubstring("func init()"),
 				"file must have init() function after adding target")
 
-			// Property: File must have targ.Register() with the new target
-			registerArgs := findRegisterArgsInTest(content)
-			expectedVar := runner.KebabToPascal(targetName)
-			g.Expect(registerArgs).To(ContainElement(expectedVar),
-				"targ.Register() must contain the new target %s", expectedVar)
+			// Property: File must have targ.Register() with inline expression (ISSUE-021)
+			// New pattern: targ.Register(targ.Targ("cmd").Name("name"))
+			g.Expect(content).To(ContainSubstring("targ.Register(targ.Targ"),
+				"targ.Register() must contain inline targ.Targ() expression")
+			g.Expect(content).To(ContainSubstring(fmt.Sprintf(".Name(%q)", targetName)),
+				"inline expression must contain .Name(%q)", targetName)
 		})
 	})
 

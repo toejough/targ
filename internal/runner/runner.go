@@ -192,7 +192,10 @@ func AddTargetToFileWithFileOps(fileOps FileOps, path string, opts CreateOptions
 	fullPath := append(opts.Path, opts.Name) //nolint:gocritic // intentional copy
 	varName := PathToPascal(fullPath)
 
-	if strings.Contains(string(content), fmt.Sprintf("var %s = ", varName)) {
+	// Check for duplicates - either var declaration (old pattern) or .Name("targetname") (new inline pattern)
+	contentStr := string(content)
+	if strings.Contains(contentStr, fmt.Sprintf("var %s = ", varName)) ||
+		strings.Contains(contentStr, fmt.Sprintf(`.Name("%s")`, opts.Name)) {
 		return fmt.Errorf("%w: %s", errDuplicateTarget, strings.Join(fullPath, "/"))
 	}
 
@@ -208,18 +211,29 @@ func AddTargetToFileWithFileOps(fileOps FileOps, path string, opts CreateOptions
 		modifiedContent = strings.Replace(modifiedContent, patch.Old, patch.New, 1)
 	}
 
-	if result.needsTimeImport && !strings.Contains(modifiedContent, `"time"`) {
+	// Build inline targ expression for Register() instead of using var
+	targExpr, err := buildTargetExpression(opts)
+	if err != nil {
+		return err
+	}
+
+	// Check if we need time import based on opts
+	needsTimeImport := opts.Timeout != "" || opts.Backoff != ""
+	if needsTimeImport && !strings.Contains(modifiedContent, `"time"`) {
 		modifiedContent = addTimeImport(modifiedContent)
 	}
 
-	newContent := modifiedContent + result.code + groupMods.newCode
-
-	registerVar := varName
+	registerArg := targExpr
 	if len(opts.Path) > 0 {
-		registerVar = PathToPascal(opts.Path[:1])
+		// For nested groups, we still register the top-level group var
+		registerArg = PathToPascal(opts.Path[:1])
+		// But we need to keep the var declaration for group members
+		modifiedContent = modifiedContent + result.code
 	}
 
-	newContent, err = addRegisterArgToInit(newContent, registerVar)
+	newContent := modifiedContent + groupMods.newCode
+
+	newContent, err = addRegisterArgToInit(newContent, registerArg)
 	if err != nil {
 		return err
 	}
@@ -2266,6 +2280,45 @@ func buildSourceRoot() (string, bool) {
 	}
 
 	return "", false
+}
+
+// buildTargetExpression builds just the targ.Targ() expression without var declaration.
+func buildTargetExpression(opts CreateOptions) (string, error) {
+	var expr strings.Builder
+
+	expr.WriteString(fmt.Sprintf("targ.Targ(%q)", escapeGoString(opts.ShellCmd)))
+	expr.WriteString(fmt.Sprintf(".Name(%q)", opts.Name))
+	expr.WriteString(buildDepsCode(opts))
+	expr.WriteString(buildPatternsCode("Cache", opts.Cache))
+	expr.WriteString(buildPatternsCode("Watch", opts.Watch))
+
+	if opts.Timeout != "" {
+		durCode, err := durationToGoCode(opts.Timeout)
+		if err != nil {
+			return "", fmt.Errorf("invalid timeout: %w", err)
+		}
+
+		expr.WriteString(fmt.Sprintf(".Timeout(%s)", durCode))
+	}
+
+	if opts.Times > 0 {
+		expr.WriteString(fmt.Sprintf(".Times(%d)", opts.Times))
+	}
+
+	if opts.Retry {
+		expr.WriteString(".Retry()")
+	}
+
+	if opts.Backoff != "" {
+		backoffCode, err := backoffToGoCode(opts.Backoff)
+		if err != nil {
+			return "", fmt.Errorf("invalid backoff: %w", err)
+		}
+
+		expr.WriteString(fmt.Sprintf(".Backoff(%s)", backoffCode))
+	}
+
+	return expr.String(), nil
 }
 
 func buildTargetCode(varName string, opts CreateOptions) (targetCodeResult, error) {
