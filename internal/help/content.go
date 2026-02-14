@@ -32,6 +32,7 @@ type ContentBuilder struct {
 	examples      []Example
 	moreInfoText  string
 	isRoot        bool
+	binaryMode    bool // true for compiled binary mode, false for targ CLI mode
 	examplesSet   bool // distinguishes nil (use defaults) from empty (no examples)
 }
 

@@ -133,17 +133,17 @@ func TestProperty_GlobalFlagsBeforeCommandFlags(t *testing.T) {
 			AddCommandFlags(help.Flag{Long: commandFlag, Desc: "A command flag"}).
 			Render()
 
-		// "Targ flags:" section (contains global flags) should appear before "Flags:" section
-		targFlagsIdx := indexOf(output, "Targ flags:")
+		// "Global flags:" section (contains global flags) should appear before "Flags:" section
+		globalFlagsIdx := indexOf(output, "Global flags:")
 		flagsIdx := indexOf(output, "Flags:")
 
 		// Both sections should exist
-		g.Expect(targFlagsIdx).To(BeNumerically(">=", 0), "Targ flags section should exist")
+		g.Expect(globalFlagsIdx).To(BeNumerically(">=", 0), "Global flags section should exist")
 		g.Expect(flagsIdx).To(BeNumerically(">=", 0), "Flags section should exist")
 
-		// Targ flags should come before Flags
-		g.Expect(targFlagsIdx).To(BeNumerically("<", flagsIdx),
-			"Targ flags (global) section should appear before Flags (command) section")
+		// Global flags should come before Flags
+		g.Expect(globalFlagsIdx).To(BeNumerically("<", flagsIdx),
+			"Global flags section should appear before Flags (command) section")
 	})
 }
 
@@ -231,7 +231,7 @@ func TestProperty_RenderSectionOrderIsCorrect(t *testing.T) {
 		g := NewWithT(t)
 		descIdx := indexOf(output, "description")
 		usageIdx := indexOf(output, "Usage:")
-		targFlagsIdx := indexOf(output, "Targ flags:")
+		globalFlagsIdx := indexOf(output, "Global flags:")
 		valuesIdx := indexOf(output, "Values:")
 		formatsIdx := indexOf(output, "Formats:")
 		posIdx := indexOf(output, "Positionals:")
@@ -240,8 +240,8 @@ func TestProperty_RenderSectionOrderIsCorrect(t *testing.T) {
 		examplesIdx := indexOf(output, "Examples:")
 
 		g.Expect(descIdx).To(BeNumerically("<", usageIdx), "description before usage")
-		g.Expect(usageIdx).To(BeNumerically("<", targFlagsIdx), "usage before targ flags")
-		g.Expect(targFlagsIdx).To(BeNumerically("<", valuesIdx), "targ flags before values")
+		g.Expect(usageIdx).To(BeNumerically("<", globalFlagsIdx), "usage before global flags")
+		g.Expect(globalFlagsIdx).To(BeNumerically("<", valuesIdx), "global flags before values")
 		g.Expect(valuesIdx).To(BeNumerically("<", formatsIdx), "values before formats")
 		g.Expect(formatsIdx).To(BeNumerically("<", posIdx), "formats before positionals")
 		g.Expect(posIdx).To(BeNumerically("<", flagsIdx), "positionals before flags")

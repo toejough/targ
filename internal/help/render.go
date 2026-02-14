@@ -327,25 +327,40 @@ func (cb *ContentBuilder) renderTargFlags(styles Styles) string {
 	}
 
 	var sb strings.Builder
-	sb.WriteString(styles.Header.Render("Targ flags:"))
 
-	if hasGlobal {
-		sb.WriteString("\n  ")
-		sb.WriteString(styles.Subsection.Render("Global:"))
-
+	if cb.binaryMode {
+		// Binary mode: flat "Flags:" section (no subsections, only FlagModeAll flags present)
+		sb.WriteString(styles.Header.Render("Flags:"))
 		for _, f := range cb.globalFlags {
 			sb.WriteString("\n")
-			sb.WriteString(cb.renderFlagWithIndent(f, styles, "    "))
+			sb.WriteString(cb.renderFlag(f, styles))
 		}
-	}
-
-	if hasRootOnly && cb.isRoot {
-		sb.WriteString("\n  ")
-		sb.WriteString(styles.Subsection.Render("Root only:"))
-
 		for _, f := range cb.rootOnlyFlags {
 			sb.WriteString("\n")
-			sb.WriteString(cb.renderFlagWithIndent(f, styles, "    "))
+			sb.WriteString(cb.renderFlag(f, styles))
+		}
+	} else {
+		// Targ CLI mode: "Global flags:" with subsections
+		sb.WriteString(styles.Header.Render("Global flags:"))
+
+		if hasGlobal {
+			sb.WriteString("\n  ")
+			sb.WriteString(styles.Subsection.Render("Global:"))
+
+			for _, f := range cb.globalFlags {
+				sb.WriteString("\n")
+				sb.WriteString(cb.renderFlagWithIndent(f, styles, "    "))
+			}
+		}
+
+		if hasRootOnly && cb.isRoot {
+			sb.WriteString("\n  ")
+			sb.WriteString(styles.Subsection.Render("Root only:"))
+
+			for _, f := range cb.rootOnlyFlags {
+				sb.WriteString("\n")
+				sb.WriteString(cb.renderFlagWithIndent(f, styles, "    "))
+			}
 		}
 	}
 

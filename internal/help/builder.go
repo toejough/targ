@@ -106,6 +106,8 @@ func (cb *ContentBuilder) AddSubcommands(subs ...Subcommand) *ContentBuilder {
 // AddTargFlagsFiltered adds targ's built-in flags, filtered and grouped.
 // Also automatically adds Formats for any placeholders that need explanation.
 func (cb *ContentBuilder) AddTargFlagsFiltered(filter TargFlagFilter) *ContentBuilder {
+	cb.binaryMode = filter.BinaryMode
+
 	var includedDefs []flags.Def
 
 	for _, def := range flags.VisibleFlags() {

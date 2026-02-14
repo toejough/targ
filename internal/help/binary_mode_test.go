@@ -135,3 +135,42 @@ func TestBinaryModeHelpOutput(t *testing.T) {
 		g.Expect(output).ToNot(ContainSubstring("--dep-mode"))
 	})
 }
+
+func TestFlagSectionLabel(t *testing.T) {
+	t.Parallel()
+
+	t.Run("TargModeShowsGlobalFlags", func(t *testing.T) {
+		g := NewWithT(t)
+		var buf bytes.Buffer
+
+		opts := help.RootHelpOpts{
+			BinaryName:  "targ",
+			Description: "Build tool",
+			Filter:      help.TargFlagFilter{IsRoot: true},
+		}
+
+		help.WriteRootHelp(&buf, opts)
+		output := buf.String()
+
+		g.Expect(output).To(ContainSubstring("Global flags:"))
+		g.Expect(output).ToNot(ContainSubstring("Targ flags:"))
+	})
+
+	t.Run("BinaryModeShowsFlags", func(t *testing.T) {
+		g := NewWithT(t)
+		var buf bytes.Buffer
+
+		opts := help.RootHelpOpts{
+			BinaryName:  "myapp",
+			Description: "My app",
+			Filter:      help.TargFlagFilter{IsRoot: true, BinaryMode: true},
+		}
+
+		help.WriteRootHelp(&buf, opts)
+		output := buf.String()
+
+		g.Expect(output).To(ContainSubstring("Flags:"))
+		g.Expect(output).ToNot(ContainSubstring("Global flags:"))
+		g.Expect(output).ToNot(ContainSubstring("Targ flags:"))
+	})
+}
