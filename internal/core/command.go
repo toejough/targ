@@ -1806,6 +1806,7 @@ func printCommandHelp(w io.Writer, node *commandNode, opts RunOptions) {
 		MoreInfoText:  resolveMoreInfoText(opts),
 		Filter: help.TargFlagFilter{
 			IsRoot:            false,
+			BinaryMode:        opts.BinaryMode,
 			DisableCompletion: opts.DisableCompletion,
 			DisableHelp:       opts.DisableHelp,
 			DisableTimeout:    opts.DisableTimeout,
@@ -1860,6 +1861,7 @@ func printUsage(w io.Writer, nodes []*commandNode, opts RunOptions) {
 		MoreInfoText:         moreInfo,
 		Filter: help.TargFlagFilter{
 			IsRoot:            true,
+			BinaryMode:        opts.BinaryMode,
 			DisableCompletion: opts.DisableCompletion,
 			DisableHelp:       opts.DisableHelp,
 			DisableTimeout:    opts.DisableTimeout,

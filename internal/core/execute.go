@@ -71,7 +71,11 @@ func GetRegistry() []any {
 // Main runs the given targets as a CLI application.
 func Main(targets ...any) {
 	RegisterTarget(targets...)
-	ExecuteRegistered()
+	env := osRunEnv{}
+	_ = ExecuteWithResolution(env, RunOptions{
+		AllowDefault: true,
+		BinaryMode:   true,
+	})
 }
 
 // RegisterTarget adds targets to the global registry for later execution.
