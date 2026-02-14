@@ -956,6 +956,34 @@ import (
 		})
 	})
 
+	// Codegen for dep groups: Single-group codegen is sufficient for targ create.
+	// Users needing chained groups (e.g., .Deps(a).Deps(b, c, parallel).Deps(d))
+	// can manually edit generated code. The generated single-group code is
+	// compatible with the new group-based dep system.
+	t.Run("DepGroupCodeGenSingleGroup", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		fileOps := NewMemoryFileOps()
+		initial := "//go:build targ\n\npackage build\n\nimport \"github.com/toejough/targ\"\n"
+		fileOps.Files["targs.go"] = []byte(initial)
+
+		// Generate a target with serial deps
+		err := runner.AddTargetToFileWithFileOps(fileOps, "targs.go", runner.CreateOptions{
+			Name:     "main",
+			ShellCmd: "go build",
+			Deps:     []string{"dep-one", "dep-two"},
+			DepMode:  "serial",
+		})
+		g.Expect(err).NotTo(HaveOccurred())
+
+		content := string(fileOps.Files["targs.go"])
+		// Should generate single .Deps() call (creates single dep group)
+		g.Expect(content).To(ContainSubstring(".Deps(DepOne, DepTwo)"))
+		// Serial is default, so no mode specified
+		g.Expect(content).NotTo(ContainSubstring("DepModeParallel"))
+	})
+
 	// Property: ParseSyncArgs validates package paths
 	t.Run("ParseSyncArgsValidatesPath", func(t *testing.T) {
 		t.Parallel()

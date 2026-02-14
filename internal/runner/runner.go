@@ -2125,6 +2125,12 @@ func buildBootstrapData(
 	return builder.buildResult(), nil
 }
 
+// buildDepsCode generates a single .Deps() call for the target's dependencies.
+//
+// Note: This generates single-group deps (e.g., .Deps(A, B, targ.DepModeParallel)).
+// Chained dependency groups (e.g., .Deps(A).Deps(B, C, parallel).Deps(D)) are not
+// supported in code generation since targ create is designed for simple targets.
+// Users needing chained groups can manually edit the generated code.
 func buildDepsCode(opts CreateOptions) string {
 	if len(opts.Deps) == 0 {
 		return ""
