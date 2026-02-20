@@ -183,6 +183,8 @@ func AddImportToTargFileWithFileOps(fileOps FileOps, path, packagePath string) e
 }
 
 // AddTargetToFileWithFileOps adds a target variable to an existing targ file using injected file ops.
+//
+//nolint:cyclop // sequential pipeline with error handling at each step
 func AddTargetToFileWithFileOps(fileOps FileOps, path string, opts CreateOptions) error {
 	content, err := fileOps.ReadFile(path)
 	if err != nil {
@@ -228,7 +230,7 @@ func AddTargetToFileWithFileOps(fileOps FileOps, path string, opts CreateOptions
 		// For nested groups, we still register the top-level group var
 		registerArg = PathToPascal(opts.Path[:1])
 		// But we need to keep the var declaration for group members
-		modifiedContent = modifiedContent + result.code
+		modifiedContent += result.code
 	}
 
 	newContent := modifiedContent + groupMods.newCode
@@ -371,7 +373,6 @@ func ConvertStringTargetToFunc(filePath, targetName string) (bool, error) {
 func CreateGroupMemberPatch(content, groupVarName, newMember string) *ContentPatch {
 	// Find the group declaration: var GroupName = targ.Group("name", member1, member2)
 	// We need to add newMember before the closing parenthesis
-
 	// Find the start of the group declaration
 	pattern := fmt.Sprintf("var %s = targ.Group(", groupVarName)
 
@@ -643,6 +644,7 @@ func NamespacePaths(files []string, root string) (map[string][]string, error) {
 	raw := make(map[string][]string, len(files))
 
 	paths := make([][]string, 0, len(files))
+
 	for _, file := range files {
 		rel, err := filepath.Rel(root, file)
 		if err != nil {
@@ -671,6 +673,7 @@ func NamespacePaths(files []string, root string) (map[string][]string, error) {
 	}
 
 	trimmed := make(map[string][]string, len(files))
+
 	for file, parts := range raw {
 		if len(common) >= len(parts) {
 			trimmed[file] = nil
@@ -1227,6 +1230,7 @@ func (n *namespaceNode) sortedChildren() []*namespaceNode {
 	sort.Strings(names)
 
 	children := make([]*namespaceNode, 0, len(names))
+
 	for _, name := range names {
 		if child := n.Children[name]; child != nil {
 			children = append(children, child)
@@ -1917,8 +1921,7 @@ func (r *targRunner) validateSourceDir(path string) (string, error) {
 
 // AddTargetToFileWithFileOps adds a target using injected file operations.
 type targetCodeResult struct {
-	code            string
-	needsTimeImport bool
+	code string
 }
 
 // targetConverter converts a target in a file. Returns true if conversion was performed.
@@ -2265,6 +2268,7 @@ func buildSourceRoot() (string, bool) {
 	}
 
 	dir := filepath.Dir(file)
+
 	for {
 		_, err := os.Stat(filepath.Join(dir, "go.mod"))
 		if err == nil {
@@ -2280,6 +2284,47 @@ func buildSourceRoot() (string, bool) {
 	}
 
 	return "", false
+}
+
+func buildTargetCode(varName string, opts CreateOptions) (targetCodeResult, error) {
+	var code strings.Builder
+
+	code.WriteString(fmt.Sprintf("\n// %s runs: %s\n", varName, opts.ShellCmd))
+	code.WriteString(fmt.Sprintf("var %s = targ.Targ(%q)", varName, escapeGoString(opts.ShellCmd)))
+	code.WriteString(fmt.Sprintf(".Name(%q)", opts.Name))
+	code.WriteString(buildDepsCode(opts))
+	code.WriteString(buildPatternsCode("Cache", opts.Cache))
+	code.WriteString(buildPatternsCode("Watch", opts.Watch))
+
+	if opts.Timeout != "" {
+		durCode, err := durationToGoCode(opts.Timeout)
+		if err != nil {
+			return targetCodeResult{}, fmt.Errorf("invalid timeout: %w", err)
+		}
+
+		code.WriteString(fmt.Sprintf(".Timeout(%s)", durCode))
+	}
+
+	if opts.Times > 0 {
+		code.WriteString(fmt.Sprintf(".Times(%d)", opts.Times))
+	}
+
+	if opts.Retry {
+		code.WriteString(".Retry()")
+	}
+
+	if opts.Backoff != "" {
+		backoffCode, err := backoffToGoCode(opts.Backoff)
+		if err != nil {
+			return targetCodeResult{}, fmt.Errorf("invalid backoff: %w", err)
+		}
+
+		code.WriteString(fmt.Sprintf(".Backoff(%s)", backoffCode))
+	}
+
+	code.WriteString("\n")
+
+	return targetCodeResult{code: code.String()}, nil
 }
 
 // buildTargetExpression builds just the targ.Targ() expression without var declaration.
@@ -2319,53 +2364,6 @@ func buildTargetExpression(opts CreateOptions) (string, error) {
 	}
 
 	return expr.String(), nil
-}
-
-func buildTargetCode(varName string, opts CreateOptions) (targetCodeResult, error) {
-	var code strings.Builder
-
-	needsTimeImport := false
-
-	code.WriteString(fmt.Sprintf("\n// %s runs: %s\n", varName, opts.ShellCmd))
-	code.WriteString(fmt.Sprintf("var %s = targ.Targ(%q)", varName, escapeGoString(opts.ShellCmd)))
-	code.WriteString(fmt.Sprintf(".Name(%q)", opts.Name))
-	code.WriteString(buildDepsCode(opts))
-	code.WriteString(buildPatternsCode("Cache", opts.Cache))
-	code.WriteString(buildPatternsCode("Watch", opts.Watch))
-
-	if opts.Timeout != "" {
-		durCode, err := durationToGoCode(opts.Timeout)
-		if err != nil {
-			return targetCodeResult{}, fmt.Errorf("invalid timeout: %w", err)
-		}
-
-		code.WriteString(fmt.Sprintf(".Timeout(%s)", durCode))
-
-		needsTimeImport = true
-	}
-
-	if opts.Times > 0 {
-		code.WriteString(fmt.Sprintf(".Times(%d)", opts.Times))
-	}
-
-	if opts.Retry {
-		code.WriteString(".Retry()")
-	}
-
-	if opts.Backoff != "" {
-		backoffCode, err := backoffToGoCode(opts.Backoff)
-		if err != nil {
-			return targetCodeResult{}, fmt.Errorf("invalid backoff: %w", err)
-		}
-
-		code.WriteString(fmt.Sprintf(".Backoff(%s)", backoffCode))
-
-		needsTimeImport = true
-	}
-
-	code.WriteString("\n")
-
-	return targetCodeResult{code: code.String(), needsTimeImport: needsTimeImport}, nil
 }
 
 // cleanupStaleModSymlinks removes stale go.mod/go.sum symlinks from before the fix.
@@ -2747,6 +2745,7 @@ func dispatchCompletion(registry []moduleRegistry, args []string) error {
 			line = strings.TrimSpace(line)
 			if line != "" && !seen[line] {
 				seen[line] = true
+
 				fmt.Println(line)
 			}
 		}
@@ -3207,6 +3206,7 @@ func generateGroupModifications(
 
 		newCode.WriteString(fmt.Sprintf("var %s = targ.Group(%q, %s)\n",
 			groupVarName, groupName, childVarName))
+
 		childVarName = groupVarName
 	}
 
@@ -3690,6 +3690,7 @@ func remapPackageInfosToIsolated(
 
 		// Remap file paths
 		newFiles := make([]discover.FileInfo, 0, len(info.Files))
+
 		for _, f := range info.Files {
 			newPath := filepath.Join(newDir, filepath.Base(f.Path))
 			pathMapping[newPath] = f.Path // Track original path

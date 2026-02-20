@@ -71,6 +71,7 @@ func GetRegistry() []any {
 // Main runs the given targets as a CLI application.
 func Main(targets ...any) {
 	RegisterTarget(targets...)
+
 	env := osRunEnv{}
 	_ = ExecuteWithResolution(env, RunOptions{
 		AllowDefault: true,

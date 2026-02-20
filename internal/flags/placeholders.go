@@ -28,6 +28,7 @@ func PlaceholdersUsedByFlags(defs []Def) []Placeholder {
 		}
 
 		seen[def.Placeholder.Name] = true
+
 		result = append(result, *def.Placeholder)
 	}
 

@@ -11,7 +11,6 @@ package targ_test
 import (
 	"context"
 	"errors"
-	"fmt"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -331,31 +330,40 @@ func TestProperty_Execution(t *testing.T) {
 		g := NewWithT(t)
 
 		var mu sync.Mutex
+
 		var order []string
 
 		a := targ.Targ(func() {
 			mu.Lock()
+
 			order = append(order, "a")
+
 			mu.Unlock()
 		}).Name("a")
 
 		b := targ.Targ(func() {
 			mu.Lock()
+
 			order = append(order, "b")
+
 			mu.Unlock()
 		}).Name("b")
 
-		c := targ.Targ(func() {
+		depC := targ.Targ(func() {
 			mu.Lock()
+
 			order = append(order, "c")
+
 			mu.Unlock()
 		}).Name("c")
 
 		main := targ.Targ(func() {
 			mu.Lock()
+
 			order = append(order, "main")
+
 			mu.Unlock()
-		}).Deps(a).Deps(b, c, targ.DepModeParallel)
+		}).Deps(a).Deps(b, depC, targ.DepModeParallel)
 
 		err := main.Run(context.Background())
 		g.Expect(err).NotTo(HaveOccurred())
@@ -374,7 +382,7 @@ func TestProperty_Execution(t *testing.T) {
 		executed := false
 
 		a := targ.Targ(func() error {
-			return fmt.Errorf("fail in group 1")
+			return errors.New("fail in group 1")
 		}).Name("a")
 
 		b := targ.Targ(func() {

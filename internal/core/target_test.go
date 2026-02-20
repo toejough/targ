@@ -12,6 +12,39 @@ import (
 	"github.com/toejough/targ/internal/core"
 )
 
+func TestDepModeString(t *testing.T) {
+	t.Parallel()
+
+	t.Run("Serial", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		g.Expect(core.DepModeSerial.String()).To(Equal("serial"))
+	})
+
+	t.Run("Parallel", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		g.Expect(core.DepModeParallel.String()).To(Equal("parallel"))
+	})
+
+	t.Run("Mixed", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		g.Expect(core.DepModeMixed.String()).To(Equal("mixed"))
+	})
+
+	t.Run("DefaultFallsBackToSerial", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		unknown := core.DepMode(999)
+		g.Expect(unknown.String()).To(Equal("serial"))
+	})
+}
+
 func TestProperty_DefaultIsNotRenamed(t *testing.T) {
 	t.Parallel()
 
@@ -39,6 +72,118 @@ func TestProperty_DefaultSourceIsEmpty(t *testing.T) {
 		// Verify GetSource() returns empty string
 		g.Expect(target.GetSource()).To(BeEmpty(),
 			"new targets should have empty GetSource()")
+	})
+}
+
+func TestProperty_DepGroupChaining(t *testing.T) {
+	t.Parallel()
+
+	t.Run("SingleSerialGroup", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		a := core.Targ(func() {})
+		b := core.Targ(func() {})
+		main := core.Targ(func() {}).Deps(a, b)
+
+		groups := main.GetDepGroups()
+		g.Expect(groups).To(HaveLen(1))
+		g.Expect(groups[0].Targets).To(Equal([]*core.Target{a, b}))
+		g.Expect(groups[0].Mode).To(Equal(core.DepModeSerial))
+		g.Expect(main.GetDepMode()).To(Equal(core.DepModeSerial))
+	})
+
+	t.Run("SingleParallelGroup", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		a := core.Targ(func() {})
+		b := core.Targ(func() {})
+		main := core.Targ(func() {}).Deps(a, b, core.DepModeParallel)
+
+		groups := main.GetDepGroups()
+		g.Expect(groups).To(HaveLen(1))
+		g.Expect(groups[0].Targets).To(Equal([]*core.Target{a, b}))
+		g.Expect(groups[0].Mode).To(Equal(core.DepModeParallel))
+		g.Expect(main.GetDepMode()).To(Equal(core.DepModeParallel))
+	})
+
+	t.Run("CoalescesSameMode", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		a := core.Targ(func() {})
+		b := core.Targ(func() {})
+		main := core.Targ(func() {}).Deps(a).Deps(b)
+
+		groups := main.GetDepGroups()
+		g.Expect(groups).To(HaveLen(1))
+		g.Expect(groups[0].Targets).To(Equal([]*core.Target{a, b}))
+		g.Expect(groups[0].Mode).To(Equal(core.DepModeSerial))
+	})
+
+	t.Run("CoalescesSameModeParallel", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		a := core.Targ(func() {})
+		b := core.Targ(func() {})
+		main := core.Targ(func() {}).Deps(a, core.DepModeParallel).Deps(b, core.DepModeParallel)
+
+		groups := main.GetDepGroups()
+		g.Expect(groups).To(HaveLen(1))
+		g.Expect(groups[0].Targets).To(Equal([]*core.Target{a, b}))
+		g.Expect(groups[0].Mode).To(Equal(core.DepModeParallel))
+	})
+
+	t.Run("MixedModeCreatesMultipleGroups", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		targetA := core.Targ(func() {})
+		targetB := core.Targ(func() {})
+		targetC := core.Targ(func() {})
+		targetD := core.Targ(func() {})
+		main := core.Targ(func() {}).
+			Deps(targetA).
+			Deps(targetB, targetC, core.DepModeParallel).
+			Deps(targetD)
+
+		groups := main.GetDepGroups()
+		g.Expect(groups).To(HaveLen(3))
+		g.Expect(groups[0].Targets).To(Equal([]*core.Target{targetA}))
+		g.Expect(groups[0].Mode).To(Equal(core.DepModeSerial))
+		g.Expect(groups[1].Targets).To(Equal([]*core.Target{targetB, targetC}))
+		g.Expect(groups[1].Mode).To(Equal(core.DepModeParallel))
+		g.Expect(groups[2].Targets).To(Equal([]*core.Target{targetD}))
+		g.Expect(groups[2].Mode).To(Equal(core.DepModeSerial))
+		g.Expect(main.GetDepMode()).To(Equal(core.DepModeMixed))
+	})
+
+	t.Run("GetDepsFlattensAllGroups", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		depA := core.Targ(func() {})
+		depB := core.Targ(func() {})
+		depC := core.Targ(func() {})
+		main := core.Targ(func() {}).
+			Deps(depA).
+			Deps(depB, core.DepModeParallel).
+			Deps(depC)
+
+		g.Expect(main.GetDeps()).To(Equal([]*core.Target{depA, depB, depC}))
+	})
+
+	t.Run("NoDepsReturnsEmptyGroups", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		main := core.Targ(func() {})
+
+		g.Expect(main.GetDepGroups()).To(BeEmpty())
+		g.Expect(main.GetDeps()).To(BeEmpty())
+		g.Expect(main.GetDepMode()).To(Equal(core.DepModeSerial))
 	})
 }
 
@@ -142,117 +287,5 @@ func TestProperty_ShellCommandTargetIsNotRenamed(t *testing.T) {
 		// Verify nameOverridden flag is false
 		g.Expect(target.IsRenamed()).To(BeFalse(),
 			"shell command targets should have IsRenamed() false")
-	})
-}
-
-func TestProperty_DepGroupChaining(t *testing.T) {
-	t.Parallel()
-
-	t.Run("SingleSerialGroup", func(t *testing.T) {
-		t.Parallel()
-		g := NewWithT(t)
-
-		a := core.Targ(func() {})
-		b := core.Targ(func() {})
-		main := core.Targ(func() {}).Deps(a, b)
-
-		groups := main.GetDepGroups()
-		g.Expect(groups).To(HaveLen(1))
-		g.Expect(groups[0].Targets).To(Equal([]*core.Target{a, b}))
-		g.Expect(groups[0].Mode).To(Equal(core.DepModeSerial))
-		g.Expect(main.GetDepMode()).To(Equal(core.DepModeSerial))
-	})
-
-	t.Run("SingleParallelGroup", func(t *testing.T) {
-		t.Parallel()
-		g := NewWithT(t)
-
-		a := core.Targ(func() {})
-		b := core.Targ(func() {})
-		main := core.Targ(func() {}).Deps(a, b, core.DepModeParallel)
-
-		groups := main.GetDepGroups()
-		g.Expect(groups).To(HaveLen(1))
-		g.Expect(groups[0].Targets).To(Equal([]*core.Target{a, b}))
-		g.Expect(groups[0].Mode).To(Equal(core.DepModeParallel))
-		g.Expect(main.GetDepMode()).To(Equal(core.DepModeParallel))
-	})
-
-	t.Run("CoalescesSameMode", func(t *testing.T) {
-		t.Parallel()
-		g := NewWithT(t)
-
-		a := core.Targ(func() {})
-		b := core.Targ(func() {})
-		main := core.Targ(func() {}).Deps(a).Deps(b)
-
-		groups := main.GetDepGroups()
-		g.Expect(groups).To(HaveLen(1))
-		g.Expect(groups[0].Targets).To(Equal([]*core.Target{a, b}))
-		g.Expect(groups[0].Mode).To(Equal(core.DepModeSerial))
-	})
-
-	t.Run("CoalescesSameModeParallel", func(t *testing.T) {
-		t.Parallel()
-		g := NewWithT(t)
-
-		a := core.Targ(func() {})
-		b := core.Targ(func() {})
-		main := core.Targ(func() {}).Deps(a, core.DepModeParallel).Deps(b, core.DepModeParallel)
-
-		groups := main.GetDepGroups()
-		g.Expect(groups).To(HaveLen(1))
-		g.Expect(groups[0].Targets).To(Equal([]*core.Target{a, b}))
-		g.Expect(groups[0].Mode).To(Equal(core.DepModeParallel))
-	})
-
-	t.Run("MixedModeCreatesMultipleGroups", func(t *testing.T) {
-		t.Parallel()
-		g := NewWithT(t)
-
-		a := core.Targ(func() {})
-		b := core.Targ(func() {})
-		c := core.Targ(func() {})
-		d := core.Targ(func() {})
-		main := core.Targ(func() {}).
-			Deps(a).
-			Deps(b, c, core.DepModeParallel).
-			Deps(d)
-
-		groups := main.GetDepGroups()
-		g.Expect(groups).To(HaveLen(3))
-		g.Expect(groups[0].Targets).To(Equal([]*core.Target{a}))
-		g.Expect(groups[0].Mode).To(Equal(core.DepModeSerial))
-		g.Expect(groups[1].Targets).To(Equal([]*core.Target{b, c}))
-		g.Expect(groups[1].Mode).To(Equal(core.DepModeParallel))
-		g.Expect(groups[2].Targets).To(Equal([]*core.Target{d}))
-		g.Expect(groups[2].Mode).To(Equal(core.DepModeSerial))
-		g.Expect(main.GetDepMode()).To(Equal(core.DepModeMixed))
-	})
-
-	t.Run("GetDepsFlattensAllGroups", func(t *testing.T) {
-		t.Parallel()
-		g := NewWithT(t)
-
-		a := core.Targ(func() {})
-		b := core.Targ(func() {})
-		c := core.Targ(func() {})
-		main := core.Targ(func() {}).
-			Deps(a).
-			Deps(b, core.DepModeParallel).
-			Deps(c)
-
-		g.Expect(main.GetDeps()).To(Equal([]*core.Target{a, b, c}))
-	})
-
-	t.Run("NoDepsReturnsEmptyGroups", func(t *testing.T) {
-		t.Parallel()
-		g := NewWithT(t)
-
-		main := core.Targ(func() {})
-
-		g.Expect(main.GetDepGroups()).To(BeEmpty())
-		g.Expect(main.GetDeps()).To(BeEmpty())
-		g.Expect(main.GetDepMode()).To(Equal(core.DepModeSerial))
 	})
 }

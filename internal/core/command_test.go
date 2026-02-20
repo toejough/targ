@@ -12,6 +12,52 @@ import (
 	"github.com/toejough/targ/internal/core"
 )
 
+func TestChainExample(t *testing.T) {
+	t.Parallel()
+
+	t.Run("NilNodesReturnsFallback", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		result := core.ChainExampleForTest(nil)
+		g.Expect(result.Code).To(ContainSubstring("build"))
+		g.Expect(result.Code).To(ContainSubstring("test"))
+	})
+
+	t.Run("NestedGroupShowsCaretSyntax", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		sub := &core.CommandNodeForTest{Name: "sub"}
+		group := &core.CommandNodeForTest{
+			Name:        "infra",
+			Subcommands: map[string]*core.CommandNodeForTest{"sub": sub},
+		}
+		other := &core.CommandNodeForTest{Name: "test"}
+
+		nodes := []*core.CommandNodeForTest{group, other}
+
+		result := core.ChainExampleForTest(nodes)
+		g.Expect(result.Code).To(ContainSubstring("^"))
+		g.Expect(result.Code).To(ContainSubstring("infra"))
+		g.Expect(result.Code).To(ContainSubstring("test"))
+	})
+
+	t.Run("FlatTwoSourcesShowsBothNames", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		a := &core.CommandNodeForTest{Name: "build", SourceFile: "build.go"}
+		b := &core.CommandNodeForTest{Name: "lint", SourceFile: "lint.go"}
+
+		nodes := []*core.CommandNodeForTest{a, b}
+
+		result := core.ChainExampleForTest(nodes)
+		g.Expect(result.Code).To(ContainSubstring("build"))
+		g.Expect(result.Code).To(ContainSubstring("lint"))
+	})
+}
+
 func TestProperty_ConvertExamplesPreservesShape(t *testing.T) {
 	t.Parallel()
 
@@ -26,6 +72,7 @@ func TestProperty_ConvertExamplesPreservesShape(t *testing.T) {
 			count := rapid.IntRange(0, 5).Draw(t, "count")
 
 			examples = make([]core.Example, 0, count)
+
 			for range count {
 				ex := core.Example{
 					Title: rapid.String().Draw(t, "title"),

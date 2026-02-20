@@ -9,7 +9,6 @@ import (
 	"os"
 	"os/signal"
 	"strings"
-	"sync"
 	"syscall"
 	"time"
 )
@@ -167,6 +166,11 @@ func RunWithEnv(env RunEnv, opts RunOptions, targets ...any) error {
 	opts.Stdout = env.Stdout()
 	opts.BinaryName = env.BinaryName()
 
+	// Set the print output to the environment's stdout so parallel output
+	// goes to the test buffer (or os.Stdout in production).
+	SetPrintOutput(opts.Stdout)
+	defer SetPrintOutput(nil)
+
 	if opts.Getenv == nil {
 		opts.Getenv = env.Getenv
 	}
@@ -199,8 +203,7 @@ func RunWithEnv(env RunEnv, opts RunOptions, targets ...any) error {
 
 // unexported constants.
 const (
-	globExpansionMultiplier = 10 // Extra capacity for glob expansions in parallel mode
-	minArgsWithCommand      = 2
+	minArgsWithCommand = 2
 )
 
 // unexported variables.
@@ -279,48 +282,121 @@ func (e *runExecutor) executeDefault() error {
 }
 
 // executeDefaultParallel runs targets in parallel for default (single root) mode.
+//
+//nolint:cyclop,funlen // sequential pipeline with error handling at each step
 func (e *runExecutor) executeDefaultParallel() error {
-	// Create cancellable context for fail-fast behavior
 	ctx, cancel := context.WithCancel(e.ctx)
 	defer cancel()
 
-	var wg sync.WaitGroup
-
-	errCh := make(chan error, len(e.rest))
+	// Collect target names for prefix alignment
+	var targetNames []string
 
 	for _, arg := range e.rest {
-		// Skip flags
+		if !strings.HasPrefix(arg, "-") {
+			targetNames = append(targetNames, arg)
+		}
+	}
+
+	maxNameLen := 0
+	for _, name := range targetNames {
+		if len(name) > maxNameLen {
+			maxNameLen = len(name)
+		}
+	}
+
+	// Set up printer for parallel output
+	const printerBufferMultiplier = 10
+
+	printer := NewPrinter(printOutput, len(targetNames)*printerBufferMultiplier)
+
+	type targetResultMsg struct {
+		index    int
+		err      error
+		duration time.Duration
+	}
+
+	resultCh := make(chan targetResultMsg, len(targetNames))
+	results := make([]TargetResult, len(targetNames))
+
+	idx := 0
+
+	for _, arg := range e.rest {
 		if strings.HasPrefix(arg, "-") {
 			continue
 		}
 
-		wg.Add(1)
+		results[idx].Name = arg
 
-		go func(cmdName string) {
-			defer wg.Done()
+		go func(i int, cmdName string) {
+			tctx := WithExecInfo(ctx, ExecInfo{
+				Parallel:   true,
+				Name:       cmdName,
+				MaxNameLen: maxNameLen,
+				Printer:    printer,
+			})
+
+			Print(tctx, "starting...\n")
+
+			start := time.Now()
 
 			_, err := e.roots[0].executeWithParents(
-				ctx,
+				tctx,
 				[]string{cmdName},
 				nil,
 				map[string]bool{},
 				false,
 				e.opts,
 			)
-			if err != nil {
-				errCh <- fmt.Errorf("%s: %w", cmdName, err)
 
-				cancel() // Cancel siblings on first error
-			}
-		}(arg)
+			duration := time.Since(start)
+			resultCh <- targetResultMsg{index: i, err: err, duration: duration}
+		}(idx, arg)
+
+		idx++
 	}
 
-	wg.Wait()
-	close(errCh)
+	var firstErr error
 
-	// Return first error
-	for err := range errCh {
-		e.env.Printf("Error: %v\n", err)
+	firstErrIdx := -1
+
+	for range targetNames {
+		targetResult := <-resultCh
+		results[targetResult.index].Err = targetResult.err
+		results[targetResult.index].Duration = targetResult.duration
+
+		if targetResult.err != nil && firstErr == nil {
+			firstErr = targetResult.err
+			firstErrIdx = targetResult.index
+
+			cancel()
+		}
+	}
+
+	// Classify results and print stop messages
+	for i := range results {
+		isFirst := i == firstErrIdx
+		results[i].Status = ClassifyResult(results[i].Err, isFirst)
+
+		tctx := WithExecInfo(ctx, ExecInfo{
+			Parallel:   true,
+			Name:       results[i].Name,
+			MaxNameLen: maxNameLen,
+			Printer:    printer,
+		})
+
+		Printf(tctx, "%s (%s)\n", results[i].Status, results[i].Duration.Round(time.Millisecond))
+	}
+
+	// Drain printer and print summary
+	printer.Close()
+
+	summary := FormatSummary(results)
+	if summary != "" {
+		_, _ = fmt.Fprintln(printOutput, "\n"+summary)
+	}
+
+	if firstErr != nil {
+		e.env.Printf("Error: %v\n", firstErr)
 		return ExitError{Code: 1}
 	}
 
@@ -408,13 +484,19 @@ func (e *runExecutor) executeMultiRoot() error {
 }
 
 // executeMultiRootParallel runs targets in parallel for multi-root mode.
+//
+//nolint:cyclop,funlen // sequential pipeline with error handling at each step
 func (e *runExecutor) executeMultiRootParallel() error {
 	ctx, cancel := context.WithCancel(e.ctx)
 	defer cancel()
 
-	var wg sync.WaitGroup
+	// First pass: resolve all target names for prefix alignment
+	type resolvedTarget struct {
+		node *commandNode
+		name string
+	}
 
-	errCh := make(chan error, len(e.rest)*globExpansionMultiplier)
+	var targets []resolvedTarget
 
 	for _, arg := range e.rest {
 		if strings.HasPrefix(arg, "-") {
@@ -422,9 +504,14 @@ func (e *runExecutor) executeMultiRootParallel() error {
 		}
 
 		if isGlobPattern(arg) {
-			err := e.launchGlobTargets(ctx, arg, &wg, errCh, cancel)
-			if err != nil {
-				return err
+			matches := e.findMatchingRootsGlob(arg)
+			if len(matches) == 0 {
+				e.env.Printf("No targets match pattern: %s\n", arg)
+				return ExitError{Code: 1}
+			}
+
+			for _, matched := range matches {
+				targets = append(targets, resolvedTarget{node: matched, name: matched.Name})
 			}
 
 			continue
@@ -438,14 +525,94 @@ func (e *runExecutor) executeMultiRootParallel() error {
 			return ExitError{Code: 1}
 		}
 
-		e.launchTarget(ctx, matched, arg, &wg, errCh, cancel)
+		targets = append(targets, resolvedTarget{node: matched, name: arg})
 	}
 
-	wg.Wait()
-	close(errCh)
+	maxNameLen := 0
+	for _, t := range targets {
+		if len(t.name) > maxNameLen {
+			maxNameLen = len(t.name)
+		}
+	}
 
-	for err := range errCh {
-		e.env.Printf("Error: %v\n", err)
+	// Set up printer for parallel output
+	const printerBufferMultiplier = 10
+
+	printer := NewPrinter(printOutput, len(targets)*printerBufferMultiplier)
+
+	type targetResultMsg struct {
+		index    int
+		err      error
+		duration time.Duration
+	}
+
+	resultCh := make(chan targetResultMsg, len(targets))
+	results := make([]TargetResult, len(targets))
+
+	for i, t := range targets {
+		results[i].Name = t.name
+
+		go func(idx int, node *commandNode, targetName string) {
+			tctx := WithExecInfo(ctx, ExecInfo{
+				Parallel:   true,
+				Name:       targetName,
+				MaxNameLen: maxNameLen,
+				Printer:    printer,
+			})
+
+			Print(tctx, "starting...\n")
+
+			start := time.Now()
+
+			_, err := node.executeWithParents(tctx, nil, nil, map[string]bool{}, true, e.opts)
+
+			duration := time.Since(start)
+			resultCh <- targetResultMsg{index: idx, err: err, duration: duration}
+		}(i, t.node, t.name)
+	}
+
+	var firstErr error
+
+	firstErrIdx := -1
+
+	for range targets {
+		resultMsg := <-resultCh
+		results[resultMsg.index].Err = resultMsg.err
+		results[resultMsg.index].Duration = resultMsg.duration
+
+		if resultMsg.err != nil && firstErr == nil {
+			firstErr = resultMsg.err
+			firstErrIdx = resultMsg.index
+
+			cancel()
+		}
+	}
+
+	// Classify results and print stop messages
+	for i := range results {
+		isFirst := i == firstErrIdx
+		results[i].Status = ClassifyResult(results[i].Err, isFirst)
+
+		tctx := WithExecInfo(ctx, ExecInfo{
+			Parallel:   true,
+			Name:       results[i].Name,
+			MaxNameLen: maxNameLen,
+			Printer:    printer,
+		})
+
+		Printf(tctx, "%s (%s)\n", results[i].Status, results[i].Duration.Round(time.Millisecond))
+	}
+
+	// Drain printer and print summary
+	printer.Close()
+
+	summary := FormatSummary(results)
+	if summary != "" {
+		_, _ = fmt.Fprintln(printOutput, "\n"+summary)
+	}
+
+	if firstErr != nil {
+		e.env.Printf("Error: %v\n", firstErr)
 		return ExitError{Code: 1}
 	}
 
@@ -606,46 +773,6 @@ func (e *runExecutor) handleSpecialCommands() (bool, error) {
 	return e.handleCompletionFlag()
 }
 
-// launchGlobTargets launches parallel execution for all targets matching a glob pattern.
-func (e *runExecutor) launchGlobTargets(
-	ctx context.Context,
-	pattern string,
-	wg *sync.WaitGroup,
-	errCh chan<- error,
-	cancel context.CancelFunc,
-) error {
-	matches := e.findMatchingRootsGlob(pattern)
-	if len(matches) == 0 {
-		e.env.Printf("No targets match pattern: %s\n", pattern)
-		return ExitError{Code: 1}
-	}
-
-	for _, matched := range matches {
-		e.launchTarget(ctx, matched, matched.Name, wg, errCh, cancel)
-	}
-
-	return nil
-}
-
-// launchTarget launches a single target in a goroutine for parallel execution.
-func (e *runExecutor) launchTarget(
-	ctx context.Context,
-	node *commandNode,
-	name string,
-	wg *sync.WaitGroup,
-	errCh chan<- error,
-	cancel context.CancelFunc,
-) {
-	wg.Go(func() {
-		_, err := node.executeWithParents(ctx, nil, nil, map[string]bool{}, true, e.opts)
-		if err != nil {
-			errCh <- fmt.Errorf("%s: %w", name, err)
-
-			cancel()
-		}
-	})
-}
-
 // parseTargets parses all targets into command nodes.
 func (e *runExecutor) parseTargets(targets []any) error {
 	e.roots = make([]*commandNode, 0, len(targets))
@@ -665,6 +792,7 @@ func (e *runExecutor) parseTargets(targets []any) error {
 		}
 
 		seenNames[node.Name] = true
+
 		e.roots = append(e.roots, node)
 	}
 

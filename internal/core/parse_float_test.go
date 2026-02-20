@@ -13,6 +13,8 @@ func TestFloat64FlagParsing(t *testing.T) {
 	t.Parallel()
 
 	t.Run("ParsesFloat64Flag", func(t *testing.T) {
+		t.Parallel()
+
 		g := NewWithT(t)
 
 		// Define struct with float64 field
@@ -21,6 +23,7 @@ func TestFloat64FlagParsing(t *testing.T) {
 		}
 
 		var receivedArgs Args
+
 		fn := func(args Args) {
 			receivedArgs = args
 		}

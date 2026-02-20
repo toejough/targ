@@ -25,6 +25,7 @@ func TestProperty_AddGlobalFlagsFromRegistryIgnoresUnknownAndIsChainable(t *test
 		known = append(known, long)
 
 		defByName[long] = def
+
 		if def.Short != "" {
 			short := "-" + def.Short
 			known = append(known, short)
@@ -38,6 +39,7 @@ func TestProperty_AddGlobalFlagsFromRegistryIgnoresUnknownAndIsChainable(t *test
 		count := rapid.IntRange(0, 6).Draw(t, "count")
 
 		names := make([]string, 0, count)
+
 		for range count {
 			if rapid.Bool().Draw(t, "useKnown") && len(known) > 0 {
 				idx := rapid.IntRange(0, len(known)-1).Draw(t, "knownIdx")
@@ -86,6 +88,7 @@ func TestProperty_AddRootOnlyFlagsAppendsAndIsChainable(t *testing.T) {
 		count := rapid.IntRange(0, 5).Draw(t, "count")
 
 		flgs := make([]help.Flag, 0, count)
+
 		for range count {
 			name := "--" + rapid.StringMatching(`[a-z]{3,8}`).Draw(t, "name")
 			flgs = append(flgs, help.Flag{Long: name, Desc: "desc"})

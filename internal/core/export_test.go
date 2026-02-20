@@ -4,6 +4,7 @@ package core
 var (
 	BuildPositionalPartsForTest  = buildPositionalParts
 	CallerPackagePathForTest     = callerPackagePath
+	ChainExampleForTest          = chainExample
 	ConvertExamplesForTest       = convertExamples
 	ExtractPackagePathForTest    = extractPackagePath
 	ParseGroupLikeForTest        = parseGroupLike

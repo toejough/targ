@@ -215,6 +215,7 @@ func appendInterleavedElement(
 	}
 
 	posField.SetInt(int64(*pos))
+
 	*pos++
 
 	fieldVal.Set(reflect.Append(fieldVal, elem))
@@ -253,6 +254,7 @@ func buildSpecMaps(specs []*flagSpec) (map[string]*flagSpec, map[string]*flagSpe
 
 	for _, spec := range specs {
 		specByLong[spec.name] = spec
+
 		if spec.short != "" {
 			specByShort[spec.short] = spec
 		}
@@ -298,6 +300,7 @@ func collectFlagSpecs(chain []commandInstance) ([]*flagSpec, map[string]bool, er
 
 		for _, spec := range instSpecs {
 			longNames[spec.name] = true
+
 			specs = append(specs, spec)
 		}
 	}
@@ -771,6 +774,7 @@ func setFieldByKind(fieldVal reflect.Value, value string, pos *int) error {
 		if err != nil {
 			return fmt.Errorf("invalid float64 value %q: %w", value, err)
 		}
+
 		fieldVal.SetFloat(v)
 	case reflect.Slice:
 		return setSliceField(fieldVal, value, pos)

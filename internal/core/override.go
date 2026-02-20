@@ -530,7 +530,7 @@ func handleDepModeFlag(
 		}
 
 		mode := args[index+1]
-		if mode != "serial" && mode != "parallel" {
+		if mode != depModeSerialStr && mode != depModeParallelStr {
 			return true, errDepModeInvalid
 		}
 
@@ -541,7 +541,7 @@ func handleDepModeFlag(
 	}
 
 	if after, ok := strings.CutPrefix(arg, "--dep-mode="); ok {
-		if after != "serial" && after != "parallel" {
+		if after != depModeSerialStr && after != depModeParallelStr {
 			return true, errDepModeInvalid
 		}
 

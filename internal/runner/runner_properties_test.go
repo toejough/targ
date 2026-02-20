@@ -7,9 +7,6 @@ package runner_test
 import (
 	"errors"
 	"fmt"
-	"go/ast"
-	"go/parser"
-	"go/token"
 	"io/fs"
 	"path/filepath"
 	"strconv"
@@ -1090,52 +1087,3 @@ func (m *mockFileInfo) Name() string { return m.name }
 func (m *mockFileInfo) Size() int64 { return m.size }
 
 func (m *mockFileInfo) Sys() any { return nil }
-
-func findRegisterArgsInTest(content string) []string {
-	fset := token.NewFileSet()
-
-	file, err := parser.ParseFile(fset, "", content, 0)
-	if err != nil {
-		return nil
-	}
-
-	for _, decl := range file.Decls {
-		funcDecl, ok := decl.(*ast.FuncDecl)
-		if !ok || funcDecl.Name.Name != "init" || funcDecl.Recv != nil {
-			continue
-		}
-
-		for _, stmt := range funcDecl.Body.List {
-			exprStmt, ok := stmt.(*ast.ExprStmt)
-			if !ok {
-				continue
-			}
-
-			call, ok := exprStmt.X.(*ast.CallExpr)
-			if !ok {
-				continue
-			}
-
-			selector, ok := call.Fun.(*ast.SelectorExpr)
-			if !ok {
-				continue
-			}
-
-			pkgIdent, ok := selector.X.(*ast.Ident)
-			if !ok || pkgIdent.Name != "targ" || selector.Sel.Name != "Register" {
-				continue
-			}
-
-			args := make([]string, 0, len(call.Args))
-			for _, arg := range call.Args {
-				if ident, ok := arg.(*ast.Ident); ok {
-					args = append(args, ident.Name)
-				}
-			}
-
-			return args
-		}
-	}
-
-	return nil
-}

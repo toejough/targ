@@ -58,6 +58,7 @@ func TestGoldenFile_HelpOutput(t *testing.T) {
 			g := NewWithT(t)
 
 			var buf strings.Builder
+
 			tt.fn(&buf)
 
 			// Strip ANSI codes for comparison (allows styling changes without test failures)
@@ -92,6 +93,7 @@ func TestProperty_ContainsHelpFlagMatchesArgs(t *testing.T) {
 		count := rapid.IntRange(0, 8).Draw(t, "count")
 
 		args := make([]string, 0, count)
+
 		for range count {
 			arg := rapid.String().Draw(t, "arg")
 			args = append(args, arg)
@@ -169,6 +171,7 @@ func TestProperty_HelpOutputStructure(t *testing.T) {
 				g := NewWithT(t)
 
 				var buf strings.Builder
+
 				h.fn(&buf)
 				validateHelpOutput(g, buf.String(), h.spec)
 			})

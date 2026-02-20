@@ -14,6 +14,8 @@ func TestBinaryModeHelpOutput(t *testing.T) {
 	t.Parallel()
 
 	t.Run("RootHelpInBinaryMode", func(t *testing.T) {
+		t.Parallel()
+
 		g := NewWithT(t)
 
 		var buf bytes.Buffer
@@ -57,6 +59,8 @@ func TestBinaryModeHelpOutput(t *testing.T) {
 	})
 
 	t.Run("TargetHelpInBinaryMode", func(t *testing.T) {
+		t.Parallel()
+
 		g := NewWithT(t)
 
 		var buf bytes.Buffer
@@ -82,6 +86,8 @@ func TestBinaryModeHelpOutput(t *testing.T) {
 	})
 
 	t.Run("ExamplesUseBinaryName", func(t *testing.T) {
+		t.Parallel()
+
 		g := NewWithT(t)
 
 		var buf bytes.Buffer
@@ -108,6 +114,8 @@ func TestBinaryModeHelpOutput(t *testing.T) {
 	})
 
 	t.Run("BinaryModeUsessFlagMode", func(t *testing.T) {
+		t.Parallel()
+
 		g := NewWithT(t)
 
 		var buf bytes.Buffer
@@ -140,7 +148,10 @@ func TestFlagSectionLabel(t *testing.T) {
 	t.Parallel()
 
 	t.Run("TargModeShowsGlobalFlags", func(t *testing.T) {
+		t.Parallel()
+
 		g := NewWithT(t)
+
 		var buf bytes.Buffer
 
 		opts := help.RootHelpOpts{
@@ -157,7 +168,10 @@ func TestFlagSectionLabel(t *testing.T) {
 	})
 
 	t.Run("BinaryModeShowsFlags", func(t *testing.T) {
+		t.Parallel()
+
 		g := NewWithT(t)
+
 		var buf bytes.Buffer
 
 		opts := help.RootHelpOpts{
