@@ -436,6 +436,7 @@ type positionalCounter struct {
 func (c *positionalCounter) countPositionals() {
 	for c.index < len(c.args) {
 		c.processArg()
+
 		c.index++
 	}
 }
@@ -614,6 +615,7 @@ func completionFlagSpecs(chain []commandInstance) (map[string]completionFlagSpec
 		}
 
 		inst := current.value
+
 		for i := range current.node.Type.NumField() {
 			field := current.node.Type.Field(i)
 
@@ -650,6 +652,7 @@ func completionParse(
 	chainNodes := nodeChain(node)
 
 	chain := make([]commandInstance, 0, len(chainNodes))
+
 	for _, current := range chainNodes {
 		inst := nodeInstance(current)
 		chain = append(chain, commandInstance{node: current, value: inst})

@@ -12,12 +12,29 @@ import (
 	flags "github.com/toejough/targ/internal/flags"
 )
 
+func TestAllFlagsHaveExplicitMode(t *testing.T) {
+	t.Parallel()
+	g := NewWithT(t)
+
+	for _, f := range flags.All() {
+		// Every flag must have been consciously classified.
+		// FlagModeAll (0) is valid for help/completion.
+		// FlagModeTargOnly (1) is valid for everything else.
+		// We verify by checking that only "help" and "completion" use FlagModeAll.
+		if f.Mode == flags.FlagModeAll {
+			g.Expect(f.Long).To(BeElementOf("help", "completion"),
+				"only help and completion should be FlagModeAll, got: "+f.Long)
+		}
+	}
+}
+
 func TestProperty_FindUnknownShortReturnsNil(t *testing.T) {
 	t.Parallel()
 
 	defs := flags.All()
 
 	known := make(map[string]bool, len(defs))
+
 	for _, def := range defs {
 		if def.Short != "" {
 			known[def.Short] = true
@@ -33,20 +50,4 @@ func TestProperty_FindUnknownShortReturnsNil(t *testing.T) {
 
 		g.Expect(flags.Find("-" + short)).To(BeNil())
 	})
-}
-
-func TestAllFlagsHaveExplicitMode(t *testing.T) {
-	t.Parallel()
-	g := NewWithT(t)
-
-	for _, f := range flags.All() {
-		// Every flag must have been consciously classified.
-		// FlagModeAll (0) is valid for help/completion.
-		// FlagModeTargOnly (1) is valid for everything else.
-		// We verify by checking that only "help" and "completion" use FlagModeAll.
-		if f.Mode == flags.FlagModeAll {
-			g.Expect(f.Long).To(BeElementOf("help", "completion"),
-				"only help and completion should be FlagModeAll, got: "+f.Long)
-		}
-	}
 }

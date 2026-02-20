@@ -92,6 +92,7 @@ func TestProperty_ApplyDeregistrations_RemovesGroupsFromDeregisteredPackages(t *
 		numGroups := rapid.IntRange(1, 10).Draw(t, "numGroups")
 
 		registry := make([]any, numGroups)
+
 		for i := range numGroups {
 			target := Targ(func() {})
 			group := Group("test-group", target)
@@ -357,6 +358,7 @@ func TestProperty_DeregisteredPackageFullyRemoved(t *testing.T) {
 		numTargets := rapid.IntRange(1, 10).Draw(t, "numTargets")
 
 		registry := make([]any, numTargets)
+
 		for i := range numTargets {
 			target := Targ(func() {})
 			target.sourcePkg = deregPkg
@@ -504,6 +506,7 @@ func TestProperty_DeregistrationErrorStopsResolution(t *testing.T) {
 			"resolving registry should fail for unknown package deregistration")
 
 		var deregErr *DeregistrationError
+
 		g.Expect(err).To(BeAssignableToTypeOf(deregErr),
 			"error should be *DeregistrationError")
 
@@ -648,6 +651,7 @@ func TestProperty_EmptyDeregistrationsNoOp(t *testing.T) {
 		numTargets := rapid.IntRange(0, 10).Draw(t, "numTargets")
 
 		registry := make([]any, numTargets)
+
 		for i := range numTargets {
 			target := Targ(func() {})
 			target.sourcePkg = pkg
@@ -976,6 +980,7 @@ func TestProperty_NonTargetItemsPreserved(t *testing.T) {
 
 		// Add non-Target items (strings as stand-ins for group markers)
 		expectedOther := make([]string, 0, numOther)
+
 		for range numOther {
 			marker := rapid.String().Draw(t, "marker")
 			registry = append(registry, marker)
@@ -1155,6 +1160,7 @@ func TestProperty_SameNameDifferentSourceConflicts(t *testing.T) {
 			"same name from different packages should conflict")
 
 		var conflictErr *ConflictError
+
 		g.Expect(err).To(BeAssignableToTypeOf(conflictErr),
 			"error should be *ConflictError")
 
@@ -1261,6 +1267,7 @@ func TestProperty_UnknownPackageErrors(t *testing.T) {
 		numTargets := rapid.IntRange(1, 5).Draw(t, "numTargets")
 
 		registry := make([]any, numTargets)
+
 		for i := range numTargets {
 			target := Targ(func() {})
 			target.sourcePkg = existingPkg
@@ -1276,6 +1283,7 @@ func TestProperty_UnknownPackageErrors(t *testing.T) {
 		g.Expect(err).To(HaveOccurred(), "deregistering unknown package should error")
 
 		var deregErr *DeregistrationError
+
 		g.Expect(err).To(BeAssignableToTypeOf(deregErr),
 			"error should be *DeregistrationError")
 

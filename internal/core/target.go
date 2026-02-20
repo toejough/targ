@@ -29,6 +29,8 @@ const (
 // String returns the string representation of the dependency mode.
 func (m DepMode) String() string {
 	switch m {
+	case DepModeSerial:
+		return depModeSerialStr
 	case DepModeParallel:
 		return depModeParallelStr
 	case DepModeMixed:
@@ -36,11 +38,6 @@ func (m DepMode) String() string {
 	default:
 		return depModeSerialStr
 	}
-}
-
-type depGroup struct {
-	targets []*Target
-	mode    DepMode
 }
 
 // DepGroup is the exported view of a dependency group.
@@ -68,6 +65,10 @@ type Target struct {
 	// Disabled flags - when true, CLI flags control the setting
 	watchDisabled bool
 	cacheDisabled bool
+
+	// Lifecycle hooks for parallel output
+	onStart func(ctx context.Context, name string)
+	onStop  func(ctx context.Context, name string, result Result, duration time.Duration)
 
 	// Source attribution
 	sourcePkg      string // package that registered this target
@@ -116,6 +117,7 @@ func (t *Target) CacheDir(dir string) *Target {
 //	targ.Targ(build).Deps(lint, test, targ.Parallel)   // parallel
 func (t *Target) Deps(args ...any) *Target {
 	mode := DepModeSerial
+
 	var targets []*Target
 
 	for _, arg := range args {
@@ -165,6 +167,16 @@ func (t *Target) GetConfig() ([]string, []string, bool, bool) {
 	return t.watch, t.cache, t.watchDisabled, t.cacheDisabled
 }
 
+// GetDepGroups returns the dependency groups with their execution modes.
+func (t *Target) GetDepGroups() []DepGroup {
+	groups := make([]DepGroup, len(t.depGroups))
+	for i, g := range t.depGroups {
+		groups[i] = DepGroup{Targets: g.targets, Mode: g.mode}
+	}
+
+	return groups
+}
+
 // GetDepMode returns the dependency execution mode.
 func (t *Target) GetDepMode() DepMode {
 	if len(t.depGroups) == 0 {
@@ -177,25 +189,23 @@ func (t *Target) GetDepMode() DepMode {
 			return DepModeMixed
 		}
 	}
+
 	return mode
 }
 
 // GetDeps returns the target's dependencies.
 func (t *Target) GetDeps() []*Target {
-	var all []*Target
+	total := 0
+	for _, g := range t.depGroups {
+		total += len(g.targets)
+	}
+
+	all := make([]*Target, 0, total)
 	for _, g := range t.depGroups {
 		all = append(all, g.targets...)
 	}
-	return all
-}
 
-// GetDepGroups returns the dependency groups with their execution modes.
-func (t *Target) GetDepGroups() []DepGroup {
-	groups := make([]DepGroup, len(t.depGroups))
-	for i, g := range t.depGroups {
-		groups[i] = DepGroup{Targets: g.targets, Mode: g.mode}
-	}
-	return groups
+	return all
 }
 
 // GetDescription returns the configured description, or empty if not set.
@@ -221,6 +231,16 @@ func (t *Target) GetName() string {
 	}
 
 	return camelToKebab(name)
+}
+
+// GetOnStart returns the configured OnStart hook, or nil if not set.
+func (t *Target) GetOnStart() func(ctx context.Context, name string) {
+	return t.onStart
+}
+
+// GetOnStop returns the configured OnStop hook, or nil if not set.
+func (t *Target) GetOnStop() func(ctx context.Context, name string, result Result, duration time.Duration) {
+	return t.onStop
 }
 
 // GetRetry returns whether retry is enabled.
@@ -258,6 +278,18 @@ func (t *Target) Name(s string) *Target {
 		t.nameOverridden = true
 	}
 
+	return t
+}
+
+// OnStart sets a hook that fires when the target begins execution in parallel mode.
+func (t *Target) OnStart(fn func(ctx context.Context, name string)) *Target {
+	t.onStart = fn
+	return t
+}
+
+// OnStop sets a hook that fires when the target completes execution in parallel mode.
+func (t *Target) OnStop(fn func(ctx context.Context, name string, result Result, duration time.Duration)) *Target {
+	t.onStop = fn
 	return t
 }
 
@@ -439,44 +471,12 @@ func (t *Target) runDeps(ctx context.Context) error {
 		} else {
 			err = runGroupSerial(ctx, group.targets)
 		}
+
 		if err != nil {
 			return err
 		}
 	}
-	return nil
-}
 
-func runGroupParallel(ctx context.Context, targets []*Target) error {
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
-	errs := make(chan error, len(targets))
-
-	for _, dep := range targets {
-		go func(d *Target) {
-			errs <- d.Run(ctx)
-		}(dep)
-	}
-
-	var firstErr error
-	for range targets {
-		err := <-errs
-		if err != nil && firstErr == nil {
-			firstErr = err
-			cancel()
-		}
-	}
-
-	return firstErr
-}
-
-func runGroupSerial(ctx context.Context, targets []*Target) error {
-	for _, dep := range targets {
-		err := dep.Run(ctx)
-		if err != nil {
-			return err
-		}
-	}
 	return nil
 }
 
@@ -569,6 +569,34 @@ func (t *Target) shouldContinueLoop(ctx context.Context, state *repetitionState)
 	}
 }
 
+// RunContext executes a command with context support, routing output through
+// the parallel printer when running in parallel mode.
+func RunContext(ctx context.Context, name string, args ...string) error {
+	env, pw := parallelShellEnv(ctx)
+
+	err := internalsh.RunContextWithIO(ctx, env, name, args)
+
+	if pw != nil {
+		pw.Flush()
+	}
+
+	return err
+}
+
+// RunContextV executes a command, prints it first, with context support.
+// Routes output through the parallel printer when in parallel mode.
+func RunContextV(ctx context.Context, name string, args ...string) error {
+	env, pw := parallelShellEnv(ctx)
+
+	err := internalsh.RunContextV(ctx, env, name, args)
+
+	if pw != nil {
+		pw.Flush()
+	}
+
+	return err
+}
+
 // Targ creates a Target from a function or shell command string.
 //
 // Function targets:
@@ -615,10 +643,15 @@ func Targ(fn ...any) *Target {
 
 // unexported constants.
 const (
+	depModeMixedStr    = "mixed"
 	depModeParallelStr = "parallel"
 	depModeSerialStr   = "serial"
-	depModeMixedStr    = "mixed"
 )
+
+type depGroup struct {
+	targets []*Target
+	mode    DepMode
+}
 
 type repetitionState struct {
 	lastErr      error
@@ -673,10 +706,150 @@ func callFunc(ctx context.Context, fn any, args []any) error {
 	return nil
 }
 
+// parallelShellEnv returns a ShellEnv with PrefixWriter-wrapped stdout/stderr
+// if running in parallel mode, or nil for serial mode.
+func parallelShellEnv(ctx context.Context) (*internalsh.ShellEnv, *PrefixWriter) {
+	info, ok := GetExecInfo(ctx)
+	if !ok || !info.Parallel || info.Printer == nil {
+		return nil, nil
+	}
+
+	prefix := FormatPrefix(info.Name, info.MaxNameLen)
+	prefixWriter := NewPrefixWriter(prefix, info.Printer)
+
+	env := internalsh.DefaultShellEnv()
+	env.Stdout = prefixWriter
+	env.Stderr = prefixWriter
+
+	return env, prefixWriter
+}
+
+//nolint:cyclop,funlen // sequential pipeline with error handling at each step
+func runGroupParallel(ctx context.Context, targets []*Target) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	// Compute max target name length for prefix alignment
+	maxNameLen := 0
+	for _, dep := range targets {
+		if n := len(dep.GetName()); n > maxNameLen {
+			maxNameLen = n
+		}
+	}
+
+	// Set up printer for parallel output
+	const printerBufferMultiplier = 10
+
+	printer := NewPrinter(printOutput, len(targets)*printerBufferMultiplier)
+
+	type targetResult struct {
+		index    int
+		err      error
+		duration time.Duration
+	}
+
+	resultCh := make(chan targetResult, len(targets))
+	results := make([]TargetResult, len(targets))
+
+	for i, dep := range targets {
+		name := dep.GetName()
+		results[i].Name = name
+
+		go func(idx int, d *Target, targetName string) {
+			tctx := WithExecInfo(ctx, ExecInfo{
+				Parallel:   true,
+				Name:       targetName,
+				MaxNameLen: maxNameLen,
+				Printer:    printer,
+			})
+
+			// Fire OnStart hook (or default)
+			if d.onStart != nil {
+				d.onStart(tctx, targetName)
+			} else {
+				Print(tctx, "starting...\n")
+			}
+
+			start := time.Now()
+			err := d.Run(tctx)
+			duration := time.Since(start)
+
+			resultCh <- targetResult{index: idx, err: err, duration: duration}
+		}(i, dep, name)
+	}
+
+	var firstErr error
+
+	firstErrIdx := -1
+
+	for range targets {
+		resultMsg := <-resultCh
+		results[resultMsg.index].Err = resultMsg.err
+		results[resultMsg.index].Duration = resultMsg.duration
+
+		if resultMsg.err != nil && firstErr == nil {
+			firstErr = resultMsg.err
+			firstErrIdx = resultMsg.index
+
+			cancel()
+		}
+	}
+
+	// Classify results and fire OnStop hooks
+	for i := range results {
+		isFirst := i == firstErrIdx
+		results[i].Status = ClassifyResult(results[i].Err, isFirst)
+
+		name := results[i].Name
+		tctx := WithExecInfo(ctx, ExecInfo{
+			Parallel:   true,
+			Name:       name,
+			MaxNameLen: maxNameLen,
+			Printer:    printer,
+		})
+		target := targets[i]
+
+		if target.onStop != nil {
+			target.onStop(tctx, name, results[i].Status, results[i].Duration)
+		} else {
+			Printf(tctx, "%s (%s)\n", results[i].Status, results[i].Duration.Round(time.Millisecond))
+		}
+	}
+
+	// Drain printer and print summary
+	printer.Close()
+
+	summary := FormatSummary(results)
+	if summary != "" {
+		_, _ = fmt.Fprintln(printOutput, "\n"+summary)
+	}
+
+	return firstErr
+}
+
+func runGroupSerial(ctx context.Context, targets []*Target) error {
+	for _, dep := range targets {
+		err := dep.Run(ctx)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 // runShellCommand executes a shell command string.
 // The command is run via the user's shell (sh -c on Unix).
+// In parallel mode, stdout/stderr are routed through a PrefixWriter.
 func runShellCommand(ctx context.Context, cmd string) error {
-	err := internalsh.RunContextWithIO(ctx, nil, "sh", []string{"-c", cmd})
+	env, pw := parallelShellEnv(ctx)
+
+	err := internalsh.RunContextWithIO(ctx, env, "sh", []string{"-c", cmd})
+
+	if pw != nil {
+		pw.Flush()
+	}
+
 	if err != nil {
 		return fmt.Errorf("shell command failed: %w", err)
 	}

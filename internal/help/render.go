@@ -15,6 +15,21 @@ func (cb *ContentBuilder) Render() string {
 	return strings.Join(sections, "\n\n") + "\n"
 }
 
+// renderBinaryModeFlags writes a flat "Flags:" section for binary mode.
+func (cb *ContentBuilder) renderBinaryModeFlags(sb *strings.Builder, styles Styles) {
+	sb.WriteString(styles.Header.Render("Flags:"))
+
+	for _, f := range cb.globalFlags {
+		sb.WriteString("\n")
+		sb.WriteString(cb.renderFlag(f, styles))
+	}
+
+	for _, f := range cb.rootOnlyFlags {
+		sb.WriteString("\n")
+		sb.WriteString(cb.renderFlag(f, styles))
+	}
+}
+
 // renderCommandFlags renders target-specific flags.
 func (cb *ContentBuilder) renderCommandFlags(styles Styles) string {
 	if len(cb.commandFlags) == 0 {
@@ -22,6 +37,7 @@ func (cb *ContentBuilder) renderCommandFlags(styles Styles) string {
 	}
 
 	var sb strings.Builder
+
 	sb.WriteString(styles.Header.Render("Flags:"))
 
 	for _, f := range cb.commandFlags {
@@ -38,6 +54,7 @@ func (cb *ContentBuilder) renderCommandGroups(styles Styles) string {
 	}
 
 	var sb strings.Builder
+
 	sb.WriteString(styles.Header.Render("Commands:"))
 
 	for i, group := range cb.commandGroups {
@@ -108,6 +125,7 @@ func (cb *ContentBuilder) renderExamples(styles Styles) string {
 	}
 
 	var sb strings.Builder
+
 	sb.WriteString(styles.Header.Render("Examples:"))
 
 	for _, e := range cb.examples {
@@ -161,6 +179,7 @@ func (cb *ContentBuilder) renderExecutionInfo(styles Styles) string {
 	}
 
 	var sb strings.Builder
+
 	sb.WriteString(styles.Header.Render("Execution:"))
 
 	for _, line := range lines {
@@ -213,6 +232,7 @@ func (cb *ContentBuilder) renderFormats(styles Styles) string {
 	}
 
 	var sb strings.Builder
+
 	sb.WriteString(styles.Header.Render("Formats:"))
 
 	for _, f := range cb.formats {
@@ -264,6 +284,7 @@ func (cb *ContentBuilder) renderHeaderSections() []string {
 
 func (cb *ContentBuilder) renderMoreInfo(styles Styles) string {
 	var sb strings.Builder
+
 	sb.WriteString(styles.Header.Render("More info:"))
 	sb.WriteString("\n  ")
 	sb.WriteString(cb.moreInfoText)
@@ -277,6 +298,7 @@ func (cb *ContentBuilder) renderPositionals(styles Styles) string {
 	}
 
 	var sb strings.Builder
+
 	sb.WriteString(styles.Header.Render("Positionals:"))
 
 	for _, p := range cb.positionals {
@@ -302,6 +324,7 @@ func (cb *ContentBuilder) renderSubcommands(styles Styles) string {
 	}
 
 	var sb strings.Builder
+
 	sb.WriteString(styles.Header.Render("Subcommands:"))
 
 	for _, s := range cb.subcommands {
@@ -329,46 +352,42 @@ func (cb *ContentBuilder) renderTargFlags(styles Styles) string {
 	var sb strings.Builder
 
 	if cb.binaryMode {
-		// Binary mode: flat "Flags:" section (no subsections, only FlagModeAll flags present)
-		sb.WriteString(styles.Header.Render("Flags:"))
-		for _, f := range cb.globalFlags {
-			sb.WriteString("\n")
-			sb.WriteString(cb.renderFlag(f, styles))
-		}
-		for _, f := range cb.rootOnlyFlags {
-			sb.WriteString("\n")
-			sb.WriteString(cb.renderFlag(f, styles))
-		}
+		cb.renderBinaryModeFlags(&sb, styles)
 	} else {
-		// Targ CLI mode: "Global flags:" with subsections
-		sb.WriteString(styles.Header.Render("Global flags:"))
-
-		if hasGlobal {
-			sb.WriteString("\n  ")
-			sb.WriteString(styles.Subsection.Render("Global:"))
-
-			for _, f := range cb.globalFlags {
-				sb.WriteString("\n")
-				sb.WriteString(cb.renderFlagWithIndent(f, styles, "    "))
-			}
-		}
-
-		if hasRootOnly && cb.isRoot {
-			sb.WriteString("\n  ")
-			sb.WriteString(styles.Subsection.Render("Root only:"))
-
-			for _, f := range cb.rootOnlyFlags {
-				sb.WriteString("\n")
-				sb.WriteString(cb.renderFlagWithIndent(f, styles, "    "))
-			}
-		}
+		cb.renderTargModeFlags(&sb, styles, hasGlobal, hasRootOnly)
 	}
 
 	return sb.String()
 }
 
+// renderTargModeFlags writes "Global flags:" with subsections for targ CLI mode.
+func (cb *ContentBuilder) renderTargModeFlags(sb *strings.Builder, styles Styles, hasGlobal, hasRootOnly bool) {
+	sb.WriteString(styles.Header.Render("Global flags:"))
+
+	if hasGlobal {
+		sb.WriteString("\n  ")
+		sb.WriteString(styles.Subsection.Render("Global:"))
+
+		for _, f := range cb.globalFlags {
+			sb.WriteString("\n")
+			sb.WriteString(cb.renderFlagWithIndent(f, styles, "    "))
+		}
+	}
+
+	if hasRootOnly && cb.isRoot {
+		sb.WriteString("\n  ")
+		sb.WriteString(styles.Subsection.Render("Root only:"))
+
+		for _, f := range cb.rootOnlyFlags {
+			sb.WriteString("\n")
+			sb.WriteString(cb.renderFlagWithIndent(f, styles, "    "))
+		}
+	}
+}
+
 func (cb *ContentBuilder) renderUsage(styles Styles) string {
 	var sb strings.Builder
+
 	sb.WriteString(styles.Header.Render("Usage:"))
 	sb.WriteString("\n")
 
@@ -389,6 +408,7 @@ func (cb *ContentBuilder) renderValues(styles Styles) string {
 	}
 
 	var sb strings.Builder
+
 	sb.WriteString(styles.Header.Render("Values:"))
 
 	for _, v := range cb.values {

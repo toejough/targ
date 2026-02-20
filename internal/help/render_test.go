@@ -189,6 +189,7 @@ func TestProperty_RenderIncludesValuesWhenPresent(t *testing.T) {
 		count := rapid.IntRange(1, 4).Draw(t, "count")
 
 		values := make([]help.Value, 0, count)
+
 		for range count {
 			name := rapid.StringMatching(`[a-z]{3,8}`).Draw(t, "name")
 			desc := rapid.String().Draw(t, "desc")

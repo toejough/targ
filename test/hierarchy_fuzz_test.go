@@ -108,6 +108,7 @@ func FuzzMixedRoots_TargetsAndGroups(f *testing.F) {
 		numRoots := rapid.IntRange(1, 5).Draw(t, "numRoots")
 
 		roots := make([]any, 0, numRoots)
+
 		for range numRoots {
 			name := rapid.StringMatching(`[a-z]{3,10}`).Draw(t, "name")
 
@@ -134,6 +135,7 @@ func FuzzMultipleRoots_ArbitraryNames(f *testing.F) {
 		numRoots := rapid.IntRange(1, 5).Draw(t, "numRoots")
 
 		roots := make([]any, 0, numRoots)
+
 		for range numRoots {
 			name := rapid.StringMatching(`[a-z]{3,10}`).Draw(t, "name")
 			roots = append(roots, targ.Targ(func() {}).Name(name))

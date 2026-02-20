@@ -13,6 +13,30 @@ import (
 	"github.com/toejough/targ/internal/core"
 )
 
+func TestExecuteEnvGetenv(t *testing.T) {
+	t.Parallel()
+
+	t.Run("ReturnsValueFromEnvMap", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		env := core.NewExecuteEnv([]string{"app"})
+		env.SetEnv("MY_KEY", "my-value")
+
+		g.Expect(env.Getenv("MY_KEY")).To(Equal("my-value"))
+	})
+
+	t.Run("FallsBackToOsGetenv", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		// PATH is always set in the OS environment
+		env := core.NewExecuteEnv([]string{"app"})
+
+		g.Expect(env.Getenv("PATH")).ToNot(BeEmpty())
+	})
+}
+
 // TestDeregisterFromAfterResolutionErrors verifies that DeregisterFrom
 // returns an error after resolveRegistry has run.
 func TestProperty_DeregisterFromAfterResolutionErrors(t *testing.T) {

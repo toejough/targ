@@ -198,13 +198,13 @@ func analyzeThinness(path string) ([]thinViolation, error) {
 	return violations, nil
 }
 
-func check(_ context.Context) error {
-	fmt.Println("Checking...")
+func check(ctx context.Context) error {
+	targ.Print(ctx, "Checking...\n")
 	return nil // deps handled by target definition
 }
 
 func checkCoverage(ctx context.Context, args CoverageCheckArgs) error {
-	fmt.Println("Checking coverage...")
+	targ.Print(ctx, "Checking coverage...\n")
 	// Test runs as dep before this function
 
 	threshold := args.Threshold
@@ -267,7 +267,7 @@ func checkCoverage(ctx context.Context, args CoverageCheckArgs) error {
 		sortedLines[i] = linesAndCoverage[i].line
 	}
 
-	fmt.Println(strings.Join(sortedLines, "\n"))
+	targ.Printf(ctx, "%s\n", strings.Join(sortedLines, "\n"))
 
 	if lc.coverage < threshold {
 		return fmt.Errorf("function coverage was less than the limit of %.1f:\n  %s", threshold, lc.line)
@@ -277,7 +277,7 @@ func checkCoverage(ctx context.Context, args CoverageCheckArgs) error {
 }
 
 func checkCoverageForFail(ctx context.Context, args CoverageCheckArgs) error {
-	fmt.Println("Checking coverage...")
+	targ.Print(ctx, "Checking coverage...\n")
 
 	threshold := args.Threshold
 	if threshold == 0 {
@@ -328,16 +328,16 @@ func checkCoverageForFail(ctx context.Context, args CoverageCheckArgs) error {
 		return fmt.Errorf("function coverage was less than the limit of %.1f:\n  %s", threshold, minLine)
 	}
 
-	fmt.Printf("Coverage OK (min: %.1f%%)\n", minCoverage)
+	targ.Printf(ctx, "Coverage OK (min: %.1f%%)\n", minCoverage)
 
 	return nil
 }
 
-func checkForFail() {
+func checkForFail(ctx context.Context) {
 	// Deps handle all parallel execution:
 	// - CheckCoverageForFail (which depends on TestForFail)
 	// - ReorderDeclsCheck, LintFast, LintForFail, Deadcode, CheckThinAPI, CheckNilsForFail
-	fmt.Println("All checks passed!")
+	targ.Print(ctx, "All checks passed!\n")
 }
 
 // Helper Functions
@@ -387,12 +387,12 @@ func checkNils(_ context.Context) error {
 }
 
 func checkNilsFix(ctx context.Context) error {
-	fmt.Println("Fixing nil issues...")
+	targ.Print(ctx, "Fixing nil issues...\n")
 	return targ.RunContext(ctx, "nilaway", "-fix", "./...")
 }
 
 func checkNilsForFail(ctx context.Context) error {
-	fmt.Println("Checking for nil issues...")
+	targ.Print(ctx, "Checking for nil issues...\n")
 	return targ.RunContext(ctx, "nilaway", "./...")
 }
 
@@ -454,7 +454,7 @@ func checkSpecThinness(fset *token.FileSet, path string, tok token.Token, spec a
 }
 
 func checkThinAPI(ctx context.Context) error {
-	fmt.Println("Checking public API is thin wrappers...")
+	targ.Print(ctx, "Checking public API is thin wrappers...\n")
 
 	// Find all non-internal, non-test Go files
 	var files []string
@@ -540,7 +540,7 @@ func checkThinAPI(ctx context.Context) error {
 	}
 
 	if len(violations) == 0 {
-		fmt.Printf("All %d public API files are thin wrappers.\n", len(files))
+		targ.Printf(ctx, "All %d public API files are thin wrappers.\n", len(files))
 
 		return nil
 	}
@@ -552,12 +552,12 @@ func checkThinAPI(ctx context.Context) error {
 	}
 
 	// Print violations grouped by file
-	fmt.Printf("\nFound %d non-thin declarations in %d files:\n", len(violations), len(byFile))
+	targ.Printf(ctx, "\nFound %d non-thin declarations in %d files:\n", len(violations), len(byFile))
 
 	for file, fileViolations := range byFile {
-		fmt.Printf("\n%s:\n", file)
+		targ.Printf(ctx, "\n%s:\n", file)
 		for _, v := range fileViolations {
-			fmt.Printf("  %d: %s - %s\n", v.Line, v.Name, v.Reason)
+			targ.Printf(ctx, "  %d: %s - %s\n", v.Line, v.Name, v.Reason)
 		}
 	}
 
@@ -640,8 +640,8 @@ func checkValueSpecThinness(fset *token.FileSet, path string, tok token.Token, v
 	return nil
 }
 
-func clean() {
-	fmt.Println("Cleaning...")
+func clean(ctx context.Context) {
+	targ.Print(ctx, "Cleaning...\n")
 	os.Remove("coverage.out")
 }
 
@@ -653,7 +653,7 @@ func coverage(args CoverageArgs) error {
 }
 
 func deadcode(ctx context.Context) error {
-	fmt.Println("Checking for dead code...")
+	targ.Print(ctx, "Checking for dead code...\n")
 
 	out, err := targ.OutputContext(ctx, "deadcode", "-test", "./...")
 	if err != nil {
@@ -676,6 +676,10 @@ func deadcode(ctx context.Context) error {
 			if isPublicAPIEntryPoint(filePath) {
 				continue
 			}
+			// Skip internal packages (may be used by public API wrapper)
+			if isInternalFile(filePath) {
+				continue
+			}
 			// Skip example files (standalone demos, not part of the binary)
 			if strings.HasPrefix(filePath, "examples/") {
 				continue
@@ -686,7 +690,7 @@ func deadcode(ctx context.Context) error {
 	}
 
 	if len(filteredLines) > 0 {
-		fmt.Println(strings.Join(filteredLines, "\n"))
+		targ.Printf(ctx, "%s\n", strings.Join(filteredLines, "\n"))
 
 		return errors.New("found dead code")
 	}
@@ -694,7 +698,7 @@ func deadcode(ctx context.Context) error {
 	return nil
 }
 
-func deleteDeadFunctionsFromFile(filename string, funcs []deadFunc) (int, error) {
+func deleteDeadFunctionsFromFile(ctx context.Context, filename string, funcs []deadFunc) (int, error) {
 	content, err := os.ReadFile(filename)
 	if err != nil {
 		return 0, fmt.Errorf("failed to read file: %w", err)
@@ -780,13 +784,13 @@ func deleteDeadFunctionsFromFile(filename string, funcs []deadFunc) (int, error)
 		return 0, fmt.Errorf("failed to write file: %w", err)
 	}
 
-	fmt.Printf("  %s: deleted %d declarations\n", filename, deleted)
+	targ.Printf(ctx, "  %s: deleted %d declarations\n", filename, deleted)
 
 	return deleted, nil
 }
 
 func deleteDeadcode(ctx context.Context) error {
-	fmt.Println("Deleting dead code...")
+	targ.Print(ctx, "Deleting dead code...\n")
 
 	out, err := output(ctx, "deadcode", "-test", "./...")
 	if err != nil {
@@ -850,9 +854,9 @@ func deleteDeadcode(ctx context.Context) error {
 	totalDeleted := 0
 
 	for file, funcs := range fileToFuncs {
-		deleted, err := deleteDeadFunctionsFromFile(file, funcs)
+		deleted, err := deleteDeadFunctionsFromFile(ctx, file, funcs)
 		if err != nil {
-			fmt.Printf("Warning: failed to process %s: %v\n", file, err)
+			targ.Printf(ctx, "Warning: failed to process %s: %v\n", file, err)
 
 			continue
 		}
@@ -860,7 +864,7 @@ func deleteDeadcode(ctx context.Context) error {
 		totalDeleted += deleted
 	}
 
-	fmt.Printf("Deleted %d unreachable functions from %d files\n", totalDeleted, len(fileToFuncs))
+	targ.Printf(ctx, "Deleted %d unreachable functions from %d files\n", totalDeleted, len(fileToFuncs))
 
 	return nil
 }
@@ -889,7 +893,7 @@ func findRedundantTests(args RedundantTestArgs) error {
 }
 
 func fmtCode(ctx context.Context) error {
-	fmt.Println("Formatting...")
+	targ.Print(ctx, "Formatting...\n")
 	return targ.RunContext(ctx, "golangci-lint", "run", "-c", "dev/golangci-fmt.toml")
 }
 
@@ -913,8 +917,8 @@ func funcDeclName(fn *ast.FuncDecl) string {
 	return fn.Name.Name
 }
 
-func fuzz() error {
-	fmt.Println("Running fuzz tests...")
+func fuzz(ctx context.Context) error {
+	targ.Print(ctx, "Running fuzz tests...\n")
 
 	// Find all test files
 	testFiles, err := globs(".", []string{".go"})
@@ -954,15 +958,15 @@ func fuzz() error {
 	}
 
 	if len(fuzzTests) == 0 {
-		fmt.Println("No fuzz tests found.")
+		targ.Print(ctx, "No fuzz tests found.\n")
 		return nil
 	}
 
-	fmt.Printf("Found %d fuzz tests.\n", len(fuzzTests))
+	targ.Printf(ctx, "Found %d fuzz tests.\n", len(fuzzTests))
 
 	// Run each fuzz test
 	for _, test := range fuzzTests {
-		fmt.Printf("  Fuzzing %s in %s...\n", test.name, test.dir)
+		targ.Printf(ctx, "  Fuzzing %s in %s...\n", test.name, test.dir)
 
 		err := targ.Run("go", "test", test.dir, "-run=^$", "-fuzz=^"+test.name+"$", "-fuzztime=1000x")
 		if err != nil {
@@ -970,13 +974,13 @@ func fuzz() error {
 		}
 	}
 
-	fmt.Println("All fuzz tests passed.")
+	targ.Print(ctx, "All fuzz tests passed.\n")
 
 	return nil
 }
 
 func generate(ctx context.Context) error {
-	fmt.Println("Generating...")
+	targ.Print(ctx, "Generating...\n")
 
 	return targ.RunContext(ctx, "go", "generate", "./...")
 }
@@ -1079,8 +1083,8 @@ func hasRelevantChanges(changes targ.ChangeSet) bool {
 	return false
 }
 
-func installTools() error {
-	fmt.Println("Installing development tools...")
+func installTools(ctx context.Context) error {
+	targ.Print(ctx, "Installing development tools...\n")
 	return targ.Run("./dev/dev-install.sh")
 }
 
@@ -1320,12 +1324,12 @@ func isSimpleErrorWrapper(stmts []ast.Stmt) bool {
 }
 
 func lint(ctx context.Context) error {
-	fmt.Println("Linting...")
+	targ.Print(ctx, "Linting...\n")
 	return targ.RunContext(ctx, "golangci-lint", "run", "-c", "dev/golangci-lint.toml")
 }
 
 func lintFast(ctx context.Context) error {
-	fmt.Println("Running fast linters...")
+	targ.Print(ctx, "Running fast linters...\n")
 
 	return targ.RunContext(ctx,
 		"golangci-lint", "run",
@@ -1335,7 +1339,7 @@ func lintFast(ctx context.Context) error {
 }
 
 func lintForFail(ctx context.Context) error {
-	fmt.Println("Linting to check for overall pass/fail...")
+	targ.Print(ctx, "Linting to check for overall pass/fail...\n")
 
 	return targ.RunContext(ctx,
 		"golangci-lint", "run",
@@ -1404,14 +1408,14 @@ func mergeCoverageBlocks(coverageFile string) error {
 }
 
 func modernize(ctx context.Context) error {
-	fmt.Println("Modernizing codebase...")
+	targ.Print(ctx, "Modernizing codebase...\n")
 
 	return targ.RunContext(ctx, "go", "run", "golang.org/x/tools/go/analysis/passes/modernize/cmd/modernize@latest",
 		"-fix", "./...")
 }
 
-func mutate() error {
-	fmt.Println("Running mutation tests...")
+func mutate(ctx context.Context) error {
+	targ.Print(ctx, "Running mutation tests...\n")
 	// CheckForFail runs as dep before this function
 
 	return targ.Run(
@@ -1505,8 +1509,7 @@ func parseCoverageBlock(line string) (coverageBlock, error) {
 }
 
 func reorderDecls(ctx context.Context) error {
-	_ = ctx // Reserved for future cancellation support
-	fmt.Println("Reordering declarations...")
+	targ.Print(ctx, "Reordering declarations...\n")
 
 	files, err := globs(".", []string{".go"})
 	if err != nil {
@@ -1548,7 +1551,7 @@ func reorderDecls(ctx context.Context) error {
 		// Reorder
 		reordered, err := reorder.Source(string(content))
 		if err != nil {
-			fmt.Printf("Warning: failed to reorder %s: %v\n", file, err)
+			targ.Printf(ctx, "Warning: failed to reorder %s: %v\n", file, err)
 
 			continue
 		}
@@ -1560,18 +1563,18 @@ func reorderDecls(ctx context.Context) error {
 				return fmt.Errorf("failed to write %s: %w", file, err)
 			}
 
-			fmt.Printf("  Reordered: %s\n", file)
+			targ.Printf(ctx, "  Reordered: %s\n", file)
 			reorderedCount++
 		}
 	}
 
-	fmt.Printf("Reordered %d file(s).\n", reorderedCount)
+	targ.Printf(ctx, "Reordered %d file(s).\n", reorderedCount)
 
 	return nil
 }
 
 func reorderDeclsCheck(ctx context.Context) error {
-	fmt.Println("Checking declaration order...")
+	targ.Print(ctx, "Checking declaration order...\n")
 
 	files, err := globs(".", []string{".go"})
 	if err != nil {
@@ -1619,7 +1622,7 @@ func reorderDeclsCheck(ctx context.Context) error {
 		// Analyze section order
 		sectionOrder, err := reorder.AnalyzeSectionOrder(string(content))
 		if err != nil {
-			fmt.Printf("Warning: failed to analyze %s: %v\n", file, err)
+			targ.Printf(ctx, "Warning: failed to analyze %s: %v\n", file, err)
 
 			continue
 		}
@@ -1629,7 +1632,7 @@ func reorderDeclsCheck(ctx context.Context) error {
 		// Get reordered version
 		reordered, err := reorder.Source(string(content))
 		if err != nil {
-			fmt.Printf("Warning: failed to reorder %s: %v\n", file, err)
+			targ.Printf(ctx, "Warning: failed to reorder %s: %v\n", file, err)
 
 			continue
 		}
@@ -1637,10 +1640,10 @@ func reorderDeclsCheck(ctx context.Context) error {
 		// Check if reordering would change the file
 		if string(content) != reordered {
 			outOfOrderFiles++
-			fmt.Printf("\n%s:\n", file)
+			targ.Printf(ctx, "\n%s:\n", file)
 
 			// Print section analysis
-			fmt.Println("  Current order:")
+			targ.Print(ctx, "  Current order:\n")
 
 			for i, section := range sectionOrder.Sections {
 				posStr := fmt.Sprintf("%d", i+1)
@@ -1650,7 +1653,7 @@ func reorderDeclsCheck(ctx context.Context) error {
 					expectedNote = fmt.Sprintf(" <- should be #%d", section.Expected)
 				}
 
-				fmt.Printf("    %s. %-24s%s\n", posStr, section.Name, expectedNote)
+				targ.Printf(ctx, "    %s. %-24s%s\n", posStr, section.Name, expectedNote)
 			}
 
 			// Identify sections that are out of place
@@ -1664,30 +1667,30 @@ func reorderDeclsCheck(ctx context.Context) error {
 			}
 
 			if len(outOfPlace) > 0 {
-				fmt.Printf("  Sections out of place: %s\n", strings.Join(outOfPlace, ", "))
+				targ.Printf(ctx, "  Sections out of place: %s\n", strings.Join(outOfPlace, ", "))
 			}
 
 			// Show diff
 			diff := textdiff.Unified(file+" (current)", file+" (reordered)", string(content), reordered)
 			if diff != "" {
-				fmt.Printf("\n%s\n", diff)
+				targ.Printf(ctx, "\n%s\n", diff)
 			}
 		}
 	}
 
 	if outOfOrderFiles > 0 {
-		fmt.Printf("\n%d file(s) need reordering (out of %d processed). Run 'targ reorder-decls' to fix.\n", outOfOrderFiles, filesProcessed)
+		targ.Printf(ctx, "\n%d file(s) need reordering (out of %d processed). Run 'targ reorder-decls' to fix.\n", outOfOrderFiles, filesProcessed)
 
 		return fmt.Errorf("%d file(s) need reordering", outOfOrderFiles)
 	}
 
-	fmt.Printf("All files are correctly ordered (%d files processed).\n", filesProcessed)
+	targ.Printf(ctx, "All files are correctly ordered (%d files processed).\n", filesProcessed)
 
 	return nil
 }
 
 func test(ctx context.Context) error {
-	fmt.Println("Running unit tests...")
+	targ.Print(ctx, "Running unit tests...\n")
 	// Generate runs as dep before this function
 
 	// Clear stale coverage and test cache
@@ -1740,7 +1743,7 @@ func test(ctx context.Context) error {
 }
 
 func testForFail(ctx context.Context) error {
-	fmt.Println("Running unit tests for overall pass/fail...")
+	targ.Print(ctx, "Running unit tests for overall pass/fail...\n")
 	// Generate runs as dep before this function
 
 	// Clear test cache to avoid stale results.
@@ -1763,17 +1766,17 @@ func testForFail(ctx context.Context) error {
 }
 
 func tidy(ctx context.Context) error {
-	fmt.Println("Tidying go.mod...")
+	targ.Print(ctx, "Tidying go.mod...\n")
 	return targ.RunContext(ctx, "go", "mod", "tidy")
 }
 
-func todoCheck() error {
-	fmt.Println("Checking for TODOs...")
+func todoCheck(ctx context.Context) error {
+	targ.Print(ctx, "Checking for TODOs...\n")
 	return targ.Run("golangci-lint", "run", "-c", "dev/golangci-todos.toml")
 }
 
 func watch(ctx context.Context) error {
-	fmt.Println("Watching...")
+	targ.Print(ctx, "Watching...\n")
 
 	var (
 		cancelCheck context.CancelFunc
@@ -1787,15 +1790,15 @@ func watch(ctx context.Context) error {
 		}
 
 		// Log the changed files for debugging
-		fmt.Println("Change detected in:")
+		targ.Print(ctx, "Change detected in:\n")
 		for _, f := range changes.Added {
-			fmt.Printf("  + %s\n", f)
+			targ.Printf(ctx, "  + %s\n", f)
 		}
 		for _, f := range changes.Modified {
-			fmt.Printf("  ~ %s\n", f)
+			targ.Printf(ctx, "  ~ %s\n", f)
 		}
 		for _, f := range changes.Removed {
-			fmt.Printf("  - %s\n", f)
+			targ.Printf(ctx, "  - %s\n", f)
 		}
 
 		checkMu.Lock()
@@ -1803,7 +1806,7 @@ func watch(ctx context.Context) error {
 
 		// Cancel any running check
 		if cancelCheck != nil {
-			fmt.Println("Cancelling previous check...")
+			targ.Print(ctx, "Cancelling previous check...\n")
 			cancelCheck()
 		}
 
@@ -1814,11 +1817,11 @@ func watch(ctx context.Context) error {
 		// Run Check target (which includes deps)
 		err := Check.Run(checkCtx)
 		if errors.Is(err, context.Canceled) {
-			fmt.Println("Check cancelled, restarting...")
+			targ.Print(ctx, "Check cancelled, restarting...\n")
 		} else if err != nil {
-			fmt.Println("continuing to watch after check failure (see errors above)")
+			targ.Print(ctx, "continuing to watch after check failure (see errors above)\n")
 		} else {
-			fmt.Println("continuing to watch after all checks passed!")
+			targ.Print(ctx, "continuing to watch after all checks passed!\n")
 		}
 
 		return nil // Don't stop watching on error

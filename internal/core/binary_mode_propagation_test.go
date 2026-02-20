@@ -15,6 +15,7 @@ func TestBinaryModePropagation(t *testing.T) {
 	t.Parallel()
 
 	t.Run("BinaryModeTrue", func(t *testing.T) {
+		t.Parallel()
 		g := NewWithT(t)
 
 		// Create multiple targets to force root help (no auto-selection)
@@ -56,6 +57,7 @@ func TestBinaryModePropagation(t *testing.T) {
 	})
 
 	t.Run("BinaryModeFalse", func(t *testing.T) {
+		t.Parallel()
 		g := NewWithT(t)
 
 		// Create a simple target
@@ -83,5 +85,55 @@ func TestBinaryModePropagation(t *testing.T) {
 			"targ mode should show --timeout flag")
 		g.Expect(output).To(ContainSubstring("--parallel"),
 			"targ mode should show --parallel flag")
+	})
+}
+
+func TestPrintUsageWithExamples(t *testing.T) {
+	t.Parallel()
+
+	t.Run("UserExamplesShownInRootHelp", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		target1 := core.Targ(func() {}).Name("build")
+		target2 := core.Targ(func() {}).Name("test")
+
+		env := core.NewExecuteEnv([]string{"app", "--help"})
+
+		state := core.NewRegistryState()
+		state.RegisterTarget(target1, target2)
+
+		err := state.ExecuteWithResolution(env, core.RunOptions{
+			AllowDefault: true,
+			BinaryMode:   true,
+			Examples: []core.Example{
+				{Title: "Build and test", Code: "app build test"},
+			},
+		})
+
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(env.Output()).To(ContainSubstring("Build and test"))
+	})
+
+	t.Run("RepoURLShownWhenNoMoreInfoText", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		target1 := core.Targ(func() {}).Name("build")
+		target2 := core.Targ(func() {}).Name("test")
+
+		env := core.NewExecuteEnv([]string{"app", "--help"})
+
+		state := core.NewRegistryState()
+		state.RegisterTarget(target1, target2)
+
+		err := state.ExecuteWithResolution(env, core.RunOptions{
+			AllowDefault: true,
+			BinaryMode:   true,
+			RepoURL:      "https://example.com/repo",
+		})
+
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(env.Output()).To(ContainSubstring("https://example.com/repo"))
 	})
 }

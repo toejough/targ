@@ -177,6 +177,7 @@ func snapshot(
 	}
 
 	files := make(map[string]int64, len(matches))
+
 	for _, path := range matches {
 		info, err := ops.Stat(path)
 		if err != nil {

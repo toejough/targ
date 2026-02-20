@@ -16,6 +16,7 @@ func TestCreateCodegenWithRegister(t *testing.T) {
 	t.Parallel()
 
 	t.Run("GeneratesInitWithRegister", func(t *testing.T) {
+		t.Parallel()
 		g := NewWithT(t)
 
 		// Create temp dir with valid package name

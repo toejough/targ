@@ -544,37 +544,46 @@ func TestProperty_Overrides(t *testing.T) {
 		g := NewWithT(t)
 
 		var mu sync.Mutex
+
 		var order []string
 
 		a := targ.Targ(func() {
 			mu.Lock()
+
 			order = append(order, "a")
+
 			mu.Unlock()
 		}).Name("a")
 
 		b := targ.Targ(func() {
 			mu.Lock()
+
 			order = append(order, "b")
+
 			mu.Unlock()
 		}).Name("b")
 
 		// Create mixed groups: a (serial), then b,c (parallel)
 		// With --dep-mode serial override, all should run serially: a, b, c
-		c := targ.Targ(func() {
+		depC := targ.Targ(func() {
 			mu.Lock()
+
 			order = append(order, "c")
+
 			mu.Unlock()
 		}).Name("c")
 
 		main := targ.Targ(func() {
 			mu.Lock()
+
 			order = append(order, "main")
+
 			mu.Unlock()
-		}).Name("main").Deps(a).Deps(b, c, targ.DepModeParallel)
+		}).Name("main").Deps(a).Deps(b, depC, targ.DepModeParallel)
 
 		_, err := targ.Execute(
 			[]string{"app", "--dep-mode", "serial", "main"},
-			main, a, b, c, dummy(),
+			main, a, b, depC, dummy(),
 		)
 		g.Expect(err).NotTo(HaveOccurred())
 		// With serial override, execution order should be deterministic: a, b, c, main

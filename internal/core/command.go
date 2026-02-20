@@ -21,6 +21,12 @@ import (
 	internalsh "github.com/toejough/targ/internal/sh"
 )
 
+// DepGroupDisplay holds display information for a dependency group.
+type DepGroupDisplay struct {
+	Names []string
+	Mode  string
+}
+
 // GroupLike is implemented by types that represent target groups.
 type GroupLike interface {
 	GetName() string
@@ -91,6 +97,7 @@ var (
 	)
 	errTargetInvalidFnType       = errors.New("Target.Fn() must be func or string")
 	errUnableToDetermineFuncName = errors.New("unable to determine function name")
+	errUnrecognizedTagKeys       = errors.New("unrecognized struct tag keys")
 	// shellVarPattern matches $var or ${var} style variables in shell commands.
 	shellVarPattern = regexp.MustCompile(`\$\{?([a-zA-Z_][a-zA-Z0-9_]*)\}?`)
 )
@@ -98,12 +105,6 @@ var (
 type commandInstance struct {
 	node  *commandNode
 	value reflect.Value
-}
-
-// DepGroupDisplay holds display information for a dependency group.
-type DepGroupDisplay struct {
-	Names []string
-	Mode  string
 }
 
 type commandNode struct {
@@ -225,20 +226,24 @@ func appendDepsLine(lines []string, node *commandNode) []string {
 	// Single group — use original format for backward compatibility
 	if len(node.DepGroups) == 1 {
 		g := node.DepGroups[0]
+
 		mode := g.Mode
 		if mode == "" {
 			mode = DepModeSerial.String()
 		}
+
 		return append(lines, fmt.Sprintf("Deps: %s (%s)", strings.Join(g.Names, ", "), mode))
 	}
 
 	// Multiple groups — use arrow separator
 	var parts []string
+
 	for _, g := range node.DepGroups {
 		part := strings.Join(g.Names, ", ")
 		if g.Mode == DepModeParallel.String() {
 			part += " (parallel)"
 		}
+
 		parts = append(parts, part)
 	}
 
@@ -438,6 +443,7 @@ func buildFlagMaps(specs []*flagSpec) (shortInfo, longInfo map[string]bool) {
 
 	for _, spec := range specs {
 		longInfo[spec.name] = true
+
 		if spec.short != "" {
 			shortInfo[spec.short] = spec.value.Kind() == reflect.Bool
 		}
@@ -454,6 +460,7 @@ func buildPositionalParts(node *commandNode) ([]string, error) {
 	}
 
 	parts := make([]string, 0, len(positionals))
+
 	for _, item := range positionals {
 		name := positionalDisplayName(item)
 		if item.Required {
@@ -843,6 +850,7 @@ func convertExamples(examples []Example) []help.Example {
 
 func convertFlagHelps(flagHelps []flagHelp) []help.Flag {
 	helpFlags := make([]help.Flag, 0, len(flagHelps))
+
 	for _, f := range flagHelps {
 		hf := help.Flag{
 			Long:        "--" + f.Name,
@@ -1153,6 +1161,7 @@ func extractShellVars(cmd string) []string {
 		varName := strings.ToLower(match[1])
 		if !seen[varName] {
 			seen[varName] = true
+
 			vars = append(vars, varName)
 		}
 	}
@@ -1401,12 +1410,6 @@ func nodeInstance(node *commandNode) reflect.Value {
 	return reflect.New(node.Type).Elem()
 }
 
-// optsGetenv returns the getenv function from options.
-// Callers must ensure opts.Getenv is set (RunWithEnv sets it from env.Getenv).
-func optsGetenv(opts RunOptions) func(string) string {
-	return opts.Getenv
-}
-
 // optsGetwd returns the Getwd function from opts.
 func optsGetwd(opts RunOptions) func() (string, error) {
 	return opts.Getwd
@@ -1575,6 +1578,7 @@ func parseShellShortFlag(
 // parseTagParts parses tag parts and returns an error if unknown keys are found.
 func parseTagParts(opts *TagOptions, tag string) error {
 	parts := strings.SplitSeq(tag, ",")
+
 	var unknownKeys []string
 
 	for p := range parts {
@@ -1595,7 +1599,10 @@ func parseTagParts(opts *TagOptions, tag string) error {
 	}
 
 	if len(unknownKeys) > 0 {
-		return fmt.Errorf("unrecognized struct tag keys: %s (valid: name, short, env, default, enum, placeholder, desc, description, required, positional, flag)", strings.Join(unknownKeys, ", "))
+		return fmt.Errorf(
+			"%w: %s (valid: name, short, env, default, enum, placeholder, desc, description, required, positional, flag)",
+			errUnrecognizedTagKeys, strings.Join(unknownKeys, ", "),
+		)
 	}
 
 	return nil
@@ -1667,6 +1674,7 @@ func parseTargetLike(target TargetLike) (*commandNode, error) {
 			for _, d := range g.Targets {
 				names = append(names, d.GetName())
 			}
+
 			node.DepGroups = append(node.DepGroups, DepGroupDisplay{
 				Names: names,
 				Mode:  g.Mode.String(),
@@ -1819,6 +1827,7 @@ func printUsage(w io.Writer, nodes []*commandNode, opts RunOptions) {
 	groups := groupNodesBySource(nodes, opts)
 
 	cmdGroups := make([]help.CommandGroup, 0, len(groups))
+
 	for _, g := range groups {
 		cmds := make([]help.Command, 0, len(g.nodes))
 		for _, n := range g.nodes {
@@ -1955,6 +1964,8 @@ func runShellWithVars(
 }
 
 // runTargetWithOverrides runs the target's dependencies and function with runtime overrides.
+//
+//nolint:nestif // nested conditions reflect inherent dep-mode override logic
 func runTargetWithOverrides(
 	ctx context.Context,
 	node *commandNode,
@@ -1968,9 +1979,10 @@ func runTargetWithOverrides(
 		// Apply --dep-mode override: flatten all groups into one
 		if opts.Overrides.DepMode != "" {
 			var mode DepMode
-			if opts.Overrides.DepMode == "parallel" {
+			if opts.Overrides.DepMode == depModeParallelStr {
 				mode = DepModeParallel
 			}
+
 			allDeps := target.GetDeps()
 			if len(allDeps) > 0 {
 				target.depGroups = []depGroup{{targets: allDeps, mode: mode}}
@@ -2058,35 +2070,6 @@ func sortedKeys(m map[string]*commandNode) []string {
 	return keys
 }
 
-// --- Tag options ---
-
-// toKebabCase converts CamelCase to kebab-case.
-// Examples: MinRetrievals → min-retrievals, HTTPPort → http-port
-func toKebabCase(s string) string {
-	if s == "" {
-		return ""
-	}
-
-	var result strings.Builder
-	result.Grow(len(s) + 3) // Estimate: original length + a few hyphens
-
-	for i, r := range s {
-		if i > 0 && unicode.IsUpper(r) {
-			// Insert hyphen before uppercase letter if:
-			// 1. Previous char was lowercase (camelCase boundary)
-			// 2. Previous char was uppercase AND next char is lowercase (acronym end)
-			if unicode.IsLower(rune(s[i-1])) {
-				result.WriteRune('-')
-			} else if i+1 < len(s) && unicode.IsLower(rune(s[i+1])) {
-				result.WriteRune('-')
-			}
-		}
-		result.WriteRune(unicode.ToLower(r))
-	}
-
-	return result.String()
-}
-
 func tagOptionsForField(inst reflect.Value, field reflect.StructField) (TagOptions, error) {
 	tag := field.Tag.Get("targ")
 
@@ -2104,7 +2087,9 @@ func tagOptionsForField(inst reflect.Value, field reflect.StructField) (TagOptio
 	}
 
 	detectTagKind(&opts, tag, field.Name)
-	if err := parseTagParts(&opts, tag); err != nil {
+
+	err := parseTagParts(&opts, tag)
+	if err != nil {
 		return TagOptions{}, fmt.Errorf("invalid tag for field %s: %w", field.Name, err)
 	}
 
@@ -2114,6 +2099,39 @@ func tagOptionsForField(inst reflect.Value, field reflect.StructField) (TagOptio
 	}
 
 	return overridden, nil
+}
+
+// --- Tag options ---
+
+// toKebabCase converts CamelCase to kebab-case.
+// Examples: MinRetrievals → min-retrievals, HTTPPort → http-port
+func toKebabCase(s string) string {
+	if s == "" {
+		return ""
+	}
+
+	var result strings.Builder
+
+	const estimatedHyphens = 3
+
+	result.Grow(len(s) + estimatedHyphens)
+
+	for i, r := range s {
+		if i > 0 && unicode.IsUpper(r) {
+			// Insert hyphen before uppercase letter if:
+			// 1. Previous char was lowercase (camelCase boundary)
+			// 2. Previous char was uppercase AND next char is lowercase (acronym end)
+			if unicode.IsLower(rune(s[i-1])) {
+				result.WriteRune('-')
+			} else if i+1 < len(s) && unicode.IsLower(rune(s[i+1])) {
+				result.WriteRune('-')
+			}
+		}
+
+		result.WriteRune(unicode.ToLower(r))
+	}
+
+	return result.String()
 }
 
 func validateFuncType(typ reflect.Type) error {

@@ -12,16 +12,24 @@ import (
 
 // Exported constants.
 const (
+	// Cancelled indicates a target was cancelled during parallel execution.
+	Cancelled = core.Cancelled
+	// DepModeMixed indicates a target has multiple dependency groups with different modes.
+	DepModeMixed = core.DepModeMixed
 	// DepModeParallel executes all dependencies concurrently.
 	DepModeParallel = core.DepModeParallel
 	// DepModeSerial executes dependencies one at a time in order.
 	DepModeSerial = core.DepModeSerial
-	// DepModeMixed indicates a target has multiple dependency groups with different modes.
-	DepModeMixed = core.DepModeMixed
 	// Disabled is a sentinel value for Target builder methods that indicates
 	// the setting should be controlled by CLI flags rather than compile-time config.
 	// Example: targ.Targ(Build).Watch(targ.Disabled) allows --watch flag to control watching.
-	Disabled          = "__targ_disabled__"
+	Disabled = "__targ_disabled__"
+	// Errored indicates a target failed with an error.
+	Errored = core.Errored
+	// Fail indicates a target execution failed.
+	Fail = core.Fail
+	// Pass indicates a target executed successfully.
+	Pass              = core.Pass
 	TagKindFlag       = core.TagKindFlag
 	TagKindPositional = core.TagKindPositional
 	TagKindUnknown    = core.TagKindUnknown
@@ -38,11 +46,11 @@ var (
 // ChangeSet holds the files that changed between watch polls.
 type ChangeSet = internalfile.ChangeSet
 
-// DepMode controls how dependencies are executed (parallel or serial).
-type DepMode = core.DepMode
-
 // DepGroup is the exported view of a dependency group.
 type DepGroup = core.DepGroup
+
+// DepMode controls how dependencies are executed (parallel or serial).
+type DepMode = core.DepMode
 
 // Example represents a usage example shown in help text.
 type Example = core.Example
@@ -55,6 +63,9 @@ type ExitError = core.ExitError
 
 // Interleaved wraps a value to be parsed from interleaved positional arguments.
 type Interleaved[T any] = core.Interleaved[T]
+
+// Result represents the outcome status of a parallel target execution.
+type Result = core.Result
 
 // RunOptions configures command execution behavior.
 type RunOptions = core.RunOptions
@@ -206,6 +217,18 @@ func PrependBuiltinExamples(custom ...Example) []Example {
 	return core.PrependBuiltinExamples(custom...)
 }
 
+// Print writes output that is automatically prefixed with the target name in parallel mode.
+// In serial mode, it writes directly to stdout.
+func Print(ctx context.Context, args ...any) {
+	core.Print(ctx, args...)
+}
+
+// Printf writes formatted output that is automatically prefixed with the target name in parallel mode.
+// In serial mode, it writes directly to stdout.
+func Printf(ctx context.Context, format string, args ...any) {
+	core.Printf(ctx, format, args...)
+}
+
 // Register adds targets to the global registry for later execution.
 // Typically called from init() in packages with //go:build targ.
 // Use ExecuteRegistered() in main() to run the registered targets.
@@ -220,14 +243,16 @@ func Run(name string, args ...string) error {
 
 // RunContext executes a command with context support.
 // When ctx is cancelled, the process and all its children are killed.
+// In parallel mode, stdout/stderr are routed through the parallel printer.
 func RunContext(ctx context.Context, name string, args ...string) error {
-	return internalsh.RunContextWithIO(ctx, nil, name, args)
+	return core.RunContext(ctx, name, args...)
 }
 
 // RunContextV executes a command, prints it first, with context support.
 // When ctx is cancelled, the process and all its children are killed.
+// In parallel mode, stdout/stderr are routed through the parallel printer.
 func RunContextV(ctx context.Context, name string, args ...string) error {
-	return internalsh.RunContextV(ctx, nil, name, args)
+	return core.RunContextV(ctx, name, args...)
 }
 
 // RunV executes a command and prints it first.

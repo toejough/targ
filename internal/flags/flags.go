@@ -7,6 +7,7 @@ import "strings"
 // FlagMode controls which execution modes a flag appears in.
 type FlagMode int
 
+// FlagMode values.
 const (
 	// FlagModeAll means the flag appears in both targ CLI and compiled binary help.
 	FlagModeAll FlagMode = iota

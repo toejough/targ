@@ -55,6 +55,7 @@ func Match(patterns ...string) ([]string, error) {
 
 				if !seen[path] {
 					seen[path] = true
+
 					matches = append(matches, path)
 				}
 			}
