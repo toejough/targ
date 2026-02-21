@@ -1690,6 +1690,16 @@ func parseTargetLike(target TargetLike) (*commandNode, error) {
 	// Store Target reference for dep execution
 	if t, ok := target.(*Target); ok {
 		node.Target = t
+
+		// Source file resolution:
+		// 1. Remote targets (non-empty sourcePkg): use package path as display source
+		// 2. Local string/deps-only targets: use sourceFile captured at Targ()
+		// 3. Local function targets: keep funcSourceFile path (already set above)
+		if src := t.GetSource(); src != "" {
+			node.SourceFile = src
+		} else if sf := t.GetSourceFile(); sf != "" && node.SourceFile == "" {
+			node.SourceFile = sf
+		}
 	}
 
 	return node, nil
