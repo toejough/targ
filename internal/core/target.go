@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"runtime"
 	"sort"
 	"time"
 
@@ -73,6 +74,7 @@ type Target struct {
 
 	// Source attribution
 	sourcePkg      string // package that registered this target
+	sourceFile     string // file that called Targ() (for string and deps-only targets)
 	nameOverridden bool   // true if Name() was called
 }
 
@@ -252,6 +254,11 @@ func (t *Target) GetRetry() bool {
 // GetSource returns the package path that registered this target.
 func (t *Target) GetSource() string {
 	return t.sourcePkg
+}
+
+// GetSourceFile returns the file path that called Targ() for string and deps-only targets.
+func (t *Target) GetSourceFile() string {
+	return t.sourceFile
 }
 
 // GetTimeout returns the target's timeout duration.
@@ -614,7 +621,8 @@ func RunContextV(ctx context.Context, name string, args ...string) error {
 func Targ(fn ...any) *Target {
 	if len(fn) == 0 {
 		// Deps-only target with no function
-		return &Target{}
+		_, file, _, _ := runtime.Caller(1)
+		return &Target{sourceFile: file}
 	}
 
 	if len(fn) > 1 {
@@ -632,6 +640,9 @@ func Targ(fn ...any) *Target {
 		if v == "" {
 			panic("targ.Targ: shell command cannot be empty")
 		}
+
+		_, file, _, _ := runtime.Caller(1)
+		return &Target{fn: f, sourceFile: file}
 	default:
 		fnValue := reflect.ValueOf(f)
 		if fnValue.Kind() != reflect.Func {
