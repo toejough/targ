@@ -10,6 +10,7 @@ var (
 	ParseGroupLikeForTest        = parseGroupLike
 	ParseTargetLikeForTest       = parseTargetLike
 	PositionalDisplayNameForTest = positionalDisplayName
+	PrintCommandHelpForTest      = printCommandHelp
 	ResolveMoreInfoTextForTest   = resolveMoreInfoText
 )
 
@@ -21,6 +22,11 @@ type CommandNodeForTest = commandNode
 
 // PositionalHelpForTest is a type alias for the unexported positionalHelp type.
 type PositionalHelpForTest = positionalHelp
+
+// NewReportedErrorForTest wraps an error in a reportedError for testing.
+func NewReportedErrorForTest(err error) error {
+	return reportedError{err: err}
+}
 
 // NewTargetForTest creates a Target with unexported fields set for testing.
 func NewTargetForTest(name, desc, sourcePkg string, nameOverridden bool) *Target {

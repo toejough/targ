@@ -4,6 +4,8 @@
 package core_test
 
 import (
+	"bytes"
+	"os"
 	"testing"
 
 	. "github.com/onsi/gomega"
@@ -58,6 +60,97 @@ func TestChainExample(t *testing.T) {
 	})
 }
 
+func TestParseTargetLike_LocalDepsOnlyTargetUsesSourceFile(t *testing.T) {
+	t.Parallel()
+	g := NewWithT(t)
+	target := core.Targ().Name("all")
+	node, err := core.ParseTargetLikeForTest(target)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(node.SourceFile).ToNot(BeEmpty())
+	g.Expect(node.SourceFile).To(HaveSuffix("command_test.go"))
+}
+
+func TestParseTargetLike_LocalFuncTargetKeepsExistingSourceFile(t *testing.T) {
+	t.Parallel()
+	g := NewWithT(t)
+	target := core.Targ(func() {}).Name("build")
+	node, err := core.ParseTargetLikeForTest(target)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(node.SourceFile).To(HaveSuffix("command_test.go"))
+}
+
+func TestParseTargetLike_LocalStringTargetUsesSourceFile(t *testing.T) {
+	t.Parallel()
+	g := NewWithT(t)
+	target := core.Targ("echo hello").Name("hello")
+	node, err := core.ParseTargetLikeForTest(target)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(node.SourceFile).ToNot(BeEmpty())
+	g.Expect(node.SourceFile).To(HaveSuffix("command_test.go"))
+}
+
+func TestParseTargetLike_RemoteFuncTargetUsesSourcePkg(t *testing.T) {
+	t.Parallel()
+	g := NewWithT(t)
+	target := core.Targ(func() {}).Name("lint")
+	target.SetSourceForTest("github.com/toejough/targ/dev")
+	node, err := core.ParseTargetLikeForTest(target)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(node.SourceFile).To(Equal("github.com/toejough/targ/dev"))
+}
+
+func TestParseTargetLike_RemoteStringTargetUsesSourcePkg(t *testing.T) {
+	t.Parallel()
+	g := NewWithT(t)
+	target := core.Targ("kubectl apply").Name("deploy")
+	target.SetSourceForTest("github.com/company/infra/dev")
+	node, err := core.ParseTargetLikeForTest(target)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(node.SourceFile).To(Equal("github.com/company/infra/dev"))
+}
+
+func TestParseTargetLike_RemoteTargetUsesSourcePkg(t *testing.T) {
+	t.Parallel()
+	g := NewWithT(t)
+	target := core.Targ(func() {}).Name("lint")
+	target.SetSourceForTest("github.com/toejough/targ/dev")
+	node, err := core.ParseTargetLikeForTest(target)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(node.SourceFile).To(Equal("github.com/toejough/targ/dev"))
+}
+
+func TestPrintCommandHelp_BasicFuncTarget(t *testing.T) {
+	t.Parallel()
+	g := NewWithT(t)
+
+	target := core.Targ(func() {}).Name("build").Description("Build the project")
+	node, err := core.ParseTargetLikeForTest(target)
+	g.Expect(err).ToNot(HaveOccurred())
+
+	var buf bytes.Buffer
+	core.PrintCommandHelpForTest(&buf, node, core.RunOptions{BinaryName: "myapp", Getwd: os.Getwd})
+
+	output := buf.String()
+	g.Expect(output).To(ContainSubstring("build"))
+	g.Expect(output).To(ContainSubstring("Build the project"))
+}
+
+func TestPrintCommandHelp_StringTarget(t *testing.T) {
+	t.Parallel()
+	g := NewWithT(t)
+
+	target := core.Targ("echo hello").Name("greet").Description("Say hello")
+	node, err := core.ParseTargetLikeForTest(target)
+	g.Expect(err).ToNot(HaveOccurred())
+
+	var buf bytes.Buffer
+	core.PrintCommandHelpForTest(&buf, node, core.RunOptions{BinaryName: "myapp", Getwd: os.Getwd})
+
+	output := buf.String()
+	g.Expect(output).To(ContainSubstring("greet"))
+	g.Expect(output).To(ContainSubstring("Say hello"))
+}
+
 func TestProperty_ConvertExamplesPreservesShape(t *testing.T) {
 	t.Parallel()
 
@@ -95,65 +188,6 @@ func TestProperty_ConvertExamplesPreservesShape(t *testing.T) {
 			g.Expect(result[i].Code).To(Equal(ex.Code))
 		}
 	})
-}
-
-func TestParseTargetLike_RemoteTargetUsesSourcePkg(t *testing.T) {
-	t.Parallel()
-	g := NewWithT(t)
-	target := core.Targ(func() {}).Name("lint")
-	target.SetSourceForTest("github.com/toejough/targ/dev")
-	node, err := core.ParseTargetLikeForTest(target)
-	g.Expect(err).ToNot(HaveOccurred())
-	g.Expect(node.SourceFile).To(Equal("github.com/toejough/targ/dev"))
-}
-
-func TestParseTargetLike_LocalStringTargetUsesSourceFile(t *testing.T) {
-	t.Parallel()
-	g := NewWithT(t)
-	target := core.Targ("echo hello").Name("hello")
-	node, err := core.ParseTargetLikeForTest(target)
-	g.Expect(err).ToNot(HaveOccurred())
-	g.Expect(node.SourceFile).ToNot(BeEmpty())
-	g.Expect(node.SourceFile).To(HaveSuffix("command_test.go"))
-}
-
-func TestParseTargetLike_LocalDepsOnlyTargetUsesSourceFile(t *testing.T) {
-	t.Parallel()
-	g := NewWithT(t)
-	target := core.Targ().Name("all")
-	node, err := core.ParseTargetLikeForTest(target)
-	g.Expect(err).ToNot(HaveOccurred())
-	g.Expect(node.SourceFile).ToNot(BeEmpty())
-	g.Expect(node.SourceFile).To(HaveSuffix("command_test.go"))
-}
-
-func TestParseTargetLike_LocalFuncTargetKeepsExistingSourceFile(t *testing.T) {
-	t.Parallel()
-	g := NewWithT(t)
-	target := core.Targ(func() {}).Name("build")
-	node, err := core.ParseTargetLikeForTest(target)
-	g.Expect(err).ToNot(HaveOccurred())
-	g.Expect(node.SourceFile).To(HaveSuffix("command_test.go"))
-}
-
-func TestParseTargetLike_RemoteStringTargetUsesSourcePkg(t *testing.T) {
-	t.Parallel()
-	g := NewWithT(t)
-	target := core.Targ("kubectl apply").Name("deploy")
-	target.SetSourceForTest("github.com/company/infra/dev")
-	node, err := core.ParseTargetLikeForTest(target)
-	g.Expect(err).ToNot(HaveOccurred())
-	g.Expect(node.SourceFile).To(Equal("github.com/company/infra/dev"))
-}
-
-func TestParseTargetLike_RemoteFuncTargetUsesSourcePkg(t *testing.T) {
-	t.Parallel()
-	g := NewWithT(t)
-	target := core.Targ(func() {}).Name("lint")
-	target.SetSourceForTest("github.com/toejough/targ/dev")
-	node, err := core.ParseTargetLikeForTest(target)
-	g.Expect(err).ToNot(HaveOccurred())
-	g.Expect(node.SourceFile).To(Equal("github.com/toejough/targ/dev"))
 }
 
 func TestProperty_ResolveMoreInfoTextPrefersMoreInfoText(t *testing.T) {

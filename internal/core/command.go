@@ -1687,19 +1687,10 @@ func parseTargetLike(target TargetLike) (*commandNode, error) {
 		node.BackoffInitial, node.BackoffMultiply = execTarget.GetBackoff()
 	}
 
-	// Store Target reference for dep execution
+	// Store Target reference for dep execution and resolve source file
 	if t, ok := target.(*Target); ok {
 		node.Target = t
-
-		// Source file resolution:
-		// 1. Remote targets (non-empty sourcePkg): use package path as display source
-		// 2. Local string/deps-only targets: use sourceFile captured at Targ()
-		// 3. Local function targets: keep funcSourceFile path (already set above)
-		if src := t.GetSource(); src != "" {
-			node.SourceFile = src
-		} else if sf := t.GetSourceFile(); sf != "" && node.SourceFile == "" {
-			node.SourceFile = sf
-		}
+		resolveTargetSource(node, t)
 	}
 
 	return node, nil
@@ -1932,6 +1923,16 @@ func resolvePlaceholder(opts TagOptions, kind reflect.Kind) string {
 		return "[flag]"
 	default:
 		return ""
+	}
+}
+
+// resolveTargetSource sets the display source file on a commandNode.
+// Priority: sourcePkg (remote targets) > sourceFile (local string/deps-only) > funcSourceFile (already set).
+func resolveTargetSource(node *commandNode, t *Target) {
+	if src := t.GetSource(); src != "" {
+		node.SourceFile = src
+	} else if sf := t.GetSourceFile(); sf != "" && node.SourceFile == "" {
+		node.SourceFile = sf
 	}
 }
 

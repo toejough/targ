@@ -187,6 +187,14 @@ func TestProperty_DepGroupChaining(t *testing.T) {
 	})
 }
 
+func TestProperty_DepsOnlyTargetCapturesSourceFile(t *testing.T) {
+	t.Parallel()
+	g := NewWithT(t)
+	target := core.Targ()
+	g.Expect(target.GetSourceFile()).ToNot(BeEmpty(), "deps-only targets should capture source file")
+	g.Expect(target.GetSourceFile()).To(HaveSuffix("target_test.go"), "source file should point to the calling file")
+}
+
 func TestProperty_DepsOnlyTargetIsNotRenamed(t *testing.T) {
 	t.Parallel()
 
@@ -200,6 +208,13 @@ func TestProperty_DepsOnlyTargetIsNotRenamed(t *testing.T) {
 		g.Expect(target.IsRenamed()).To(BeFalse(),
 			"deps-only targets should have IsRenamed() false")
 	})
+}
+
+func TestProperty_FuncTargetHasNoSourceFile(t *testing.T) {
+	t.Parallel()
+	g := NewWithT(t)
+	target := core.Targ(func() {})
+	g.Expect(target.GetSourceFile()).To(BeEmpty(), "function targets should not have sourceFile set")
 }
 
 func TestProperty_GetSourceReturnsSetValue(t *testing.T) {
@@ -296,19 +311,4 @@ func TestProperty_StringTargetCapturesSourceFile(t *testing.T) {
 	target := core.Targ("echo hello")
 	g.Expect(target.GetSourceFile()).ToNot(BeEmpty(), "string targets should capture source file")
 	g.Expect(target.GetSourceFile()).To(HaveSuffix("target_test.go"), "source file should point to the calling file")
-}
-
-func TestProperty_DepsOnlyTargetCapturesSourceFile(t *testing.T) {
-	t.Parallel()
-	g := NewWithT(t)
-	target := core.Targ()
-	g.Expect(target.GetSourceFile()).ToNot(BeEmpty(), "deps-only targets should capture source file")
-	g.Expect(target.GetSourceFile()).To(HaveSuffix("target_test.go"), "source file should point to the calling file")
-}
-
-func TestProperty_FuncTargetHasNoSourceFile(t *testing.T) {
-	t.Parallel()
-	g := NewWithT(t)
-	target := core.Targ(func() {})
-	g.Expect(target.GetSourceFile()).To(BeEmpty(), "function targets should not have sourceFile set")
 }

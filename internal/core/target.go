@@ -642,6 +642,7 @@ func Targ(fn ...any) *Target {
 		}
 
 		_, file, _, _ := runtime.Caller(1)
+
 		return &Target{fn: f, sourceFile: file}
 	default:
 		fnValue := reflect.ValueOf(f)
