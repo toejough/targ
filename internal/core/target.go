@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"reflect"
 	"sort"
@@ -729,6 +730,8 @@ func runGroupParallel(ctx context.Context, targets []*Target) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
+	out := outputFromContext(ctx)
+
 	// Compute max target name length for prefix alignment
 	maxNameLen := 0
 	for _, dep := range targets {
@@ -740,7 +743,7 @@ func runGroupParallel(ctx context.Context, targets []*Target) error {
 	// Set up printer for parallel output
 	const printerBufferMultiplier = 10
 
-	printer := NewPrinter(printOutput, len(targets)*printerBufferMultiplier)
+	printer := NewPrinter(out, len(targets)*printerBufferMultiplier)
 
 	type targetResult struct {
 		index    int
@@ -761,6 +764,7 @@ func runGroupParallel(ctx context.Context, targets []*Target) error {
 				Name:       targetName,
 				MaxNameLen: maxNameLen,
 				Printer:    printer,
+				Output:     out,
 			})
 
 			// Fire OnStart hook (or default)
@@ -806,8 +810,14 @@ func runGroupParallel(ctx context.Context, targets []*Target) error {
 			Name:       name,
 			MaxNameLen: maxNameLen,
 			Printer:    printer,
+			Output:     out,
 		})
 		target := targets[i]
+
+		// Print error text with prefix before the stop message
+		if results[i].Err != nil && !errors.Is(results[i].Err, context.Canceled) {
+			Printf(tctx, "Error: %v\n", results[i].Err)
+		}
 
 		if target.onStop != nil {
 			target.onStop(tctx, name, results[i].Status, results[i].Duration)
@@ -821,10 +831,14 @@ func runGroupParallel(ctx context.Context, targets []*Target) error {
 
 	summary := FormatSummary(results)
 	if summary != "" {
-		_, _ = fmt.Fprintln(printOutput, "\n"+summary)
+		_, _ = fmt.Fprintln(out, "\n"+summary)
 	}
 
-	return firstErr
+	if firstErr != nil {
+		return reportedError{err: firstErr}
+	}
+
+	return nil
 }
 
 func runGroupSerial(ctx context.Context, targets []*Target) error {

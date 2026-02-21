@@ -3,8 +3,6 @@ package core
 import (
 	"context"
 	"fmt"
-	"io"
-	"os"
 	"strings"
 )
 
@@ -26,7 +24,7 @@ func Print(ctx context.Context, args ...any) {
 	info, ok := GetExecInfo(ctx)
 
 	if !ok || !info.Parallel || info.Printer == nil {
-		_, _ = fmt.Fprint(printOutput, text)
+		_, _ = fmt.Fprint(outputFromContext(ctx), text)
 		return
 	}
 
@@ -40,28 +38,13 @@ func Printf(ctx context.Context, format string, args ...any) {
 	info, ok := GetExecInfo(ctx)
 
 	if !ok || !info.Parallel || info.Printer == nil {
-		_, _ = fmt.Fprint(printOutput, text)
+		_, _ = fmt.Fprint(outputFromContext(ctx), text)
 		return
 	}
 
 	prefix := FormatPrefix(info.Name, info.MaxNameLen)
 	sendPrefixed(info.Printer, prefix, text)
 }
-
-// SetPrintOutput sets the default output writer for serial mode.
-// Passing nil resets to os.Stdout.
-func SetPrintOutput(w io.Writer) {
-	if w == nil {
-		printOutput = os.Stdout
-	} else {
-		printOutput = w
-	}
-}
-
-// unexported variables.
-var (
-	printOutput io.Writer = os.Stdout //nolint:gochecknoglobals // intentional test seam
-)
 
 func sendPrefixed(p *Printer, prefix, text string) {
 	lines := strings.Split(text, "\n")

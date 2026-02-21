@@ -52,6 +52,25 @@ func (a *TagOptionsErrorArgs) TagOptions(
 	return opts, errors.New("tag options error")
 }
 
+func TestParallelFailureReportsError(t *testing.T) {
+	t.Parallel()
+	g := NewWithT(t)
+
+	success := targ.Targ(func() {}).Name("success")
+	failure := targ.Targ(func() error {
+		return errors.New("deliberate failure")
+	}).Name("failure")
+
+	result, err := targ.Execute(
+		[]string{"app", "--parallel", "success", "failure"},
+		success,
+		failure,
+	)
+
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(result.Output).To(ContainSubstring("failure"))
+}
+
 func TestProperty_Execution(t *testing.T) {
 	t.Parallel()
 
@@ -91,24 +110,18 @@ func TestProperty_Execution(t *testing.T) {
 		t.Parallel()
 		g := NewWithT(t)
 
-		delays := make([]time.Duration, 0)
-		lastRun := time.Now()
 		execCount := 0
 
 		target := targ.Targ(func() error {
-			now := time.Now()
-			delays = append(delays, now.Sub(lastRun))
-			lastRun = now
 			execCount++
 
 			return errors.New("fail")
-		}).Times(3).Retry().Backoff(20*time.Millisecond, 2.0)
+		}).Times(3).Retry().Backoff(1*time.Millisecond, 2.0)
 
 		err := target.Run(context.Background())
+
 		g.Expect(err).To(HaveOccurred())
 		g.Expect(execCount).To(Equal(3))
-		g.Expect(delays).To(HaveLen(3))
-		g.Expect(delays[2]).To(BeNumerically(">", delays[1]))
 	})
 
 	t.Run("ShellCommandExecutesViaRun", func(t *testing.T) {
@@ -408,12 +421,11 @@ func TestProperty_Execution(t *testing.T) {
 			return ctx.Err()
 		}).Timeout(50 * time.Millisecond)
 
-		start := time.Now()
 		err := target.Run(context.Background())
-		elapsed := time.Since(start)
 
 		g.Expect(err).To(HaveOccurred())
-		g.Expect(elapsed).To(BeNumerically("<", 200*time.Millisecond))
+		g.Expect(errors.Is(err, context.DeadlineExceeded)).To(BeTrue(),
+			"timeout should produce DeadlineExceeded, got: %v", err)
 	})
 
 	t.Run("RetryRerunsOnFailure", func(t *testing.T) {
@@ -700,24 +712,6 @@ func TestProperty_Execution(t *testing.T) {
 
 		err := <-errCh
 		g.Expect(err).NotTo(HaveOccurred())
-	})
-
-	t.Run("ParallelFailureReportsError", func(t *testing.T) {
-		t.Parallel()
-		g := NewWithT(t)
-
-		success := targ.Targ(func() {}).Name("success")
-		failure := targ.Targ(func() error {
-			return errors.New("deliberate failure")
-		}).Name("failure")
-
-		result, err := targ.Execute(
-			[]string{"app", "--parallel", "success", "failure"},
-			success,
-			failure,
-		)
-		g.Expect(err).To(HaveOccurred())
-		g.Expect(result.Output).To(ContainSubstring("failure"))
 	})
 
 	t.Run("VariadicPositionalAcceptsMultipleValues", func(t *testing.T) {

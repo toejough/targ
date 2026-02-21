@@ -10,26 +10,23 @@ import (
 	"github.com/toejough/targ/internal/core"
 )
 
-// TestPrint tests are NOT parallel because they set package-level globals
-// (printOutput) that would race across concurrent subtests.
-func TestPrint(t *testing.T) { //nolint:tparallel // intentionally serial: tests mutate package-level printOutput
-	t.Run("SerialWritesDirectly", func(t *testing.T) { //nolint:paralleltest // serial: mutates package-level printOutput
+func TestPrint(t *testing.T) {
+	t.Parallel()
+
+	t.Run("SerialWritesDirectly", func(t *testing.T) {
+		t.Parallel()
 		g := NewWithT(t)
 
 		var buf strings.Builder
 
-		core.SetPrintOutput(&buf)
-
-		defer core.SetPrintOutput(nil)
-
-		ctx := context.Background()
+		ctx := core.WithExecInfo(context.Background(), core.ExecInfo{Output: &buf})
 		core.Print(ctx, "hello world\n")
 
 		g.Expect(buf.String()).To(Equal("hello world\n"))
 	})
 
-	//nolint:paralleltest // serial: mutates package-level printOutput
 	t.Run("ParallelPrefixesAndSendsToPrinter", func(t *testing.T) {
+		t.Parallel()
 		g := NewWithT(t)
 
 		var buf strings.Builder
@@ -48,7 +45,8 @@ func TestPrint(t *testing.T) { //nolint:tparallel // intentionally serial: tests
 		g.Expect(buf.String()).To(Equal("[build] compiling...\n"))
 	})
 
-	t.Run("PrintfFormatsCorrectly", func(t *testing.T) { //nolint:paralleltest // serial: mutates package-level printOutput
+	t.Run("PrintfFormatsCorrectly", func(t *testing.T) {
+		t.Parallel()
 		g := NewWithT(t)
 
 		var buf strings.Builder
@@ -67,24 +65,20 @@ func TestPrint(t *testing.T) { //nolint:tparallel // intentionally serial: tests
 		g.Expect(buf.String()).To(Equal("[test] result: 42\n"))
 	})
 
-	//nolint:paralleltest // serial: mutates package-level printOutput
 	t.Run("PrintfSerialWritesDirectly", func(t *testing.T) {
+		t.Parallel()
 		g := NewWithT(t)
 
 		var buf strings.Builder
 
-		core.SetPrintOutput(&buf)
-
-		defer core.SetPrintOutput(nil)
-
-		ctx := context.Background()
+		ctx := core.WithExecInfo(context.Background(), core.ExecInfo{Output: &buf})
 		core.Printf(ctx, "count: %d\n", 7)
 
 		g.Expect(buf.String()).To(Equal("count: 7\n"))
 	})
 
-	//nolint:paralleltest // serial: mutates package-level printOutput
 	t.Run("MultiLineSplitsAndPrefixesEach", func(t *testing.T) {
+		t.Parallel()
 		g := NewWithT(t)
 
 		var buf strings.Builder

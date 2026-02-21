@@ -3,6 +3,7 @@ package core_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -11,9 +12,11 @@ import (
 	"github.com/toejough/targ/internal/core"
 )
 
-//nolint:paralleltest // serial: Execute() mutates package-level printOutput
 func TestParallelOutputDepLevel(t *testing.T) {
+	t.Parallel()
+
 	t.Run("ParallelDepsProducePrefixedOutput", func(t *testing.T) {
+		t.Parallel()
 		g := NewWithT(t)
 
 		aCalled := false
@@ -47,6 +50,7 @@ func TestParallelOutputDepLevel(t *testing.T) {
 	})
 
 	t.Run("FailFastReportsCancelledTargets", func(t *testing.T) {
+		t.Parallel()
 		g := NewWithT(t)
 
 		a := core.Targ(func() error {
@@ -70,7 +74,49 @@ func TestParallelOutputDepLevel(t *testing.T) {
 		g.Expect(result.Output).To(ContainSubstring("CANCELLED"))
 	})
 
+	t.Run("ErrorTextIsPrefixedAndBeforeSummary", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		a := core.Targ(func(ctx context.Context) error {
+			core.Print(ctx, "diagnostic line\n")
+			return errors.New("detailed error:\n  line 1\n  line 2")
+		}).Name("check-a")
+		b := core.Targ(func(ctx context.Context) error {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(5 * time.Second):
+				return nil
+			}
+		}).Name("check-b")
+		main := core.Targ(func() {}).Name("main").Deps(a, b, core.DepModeParallel)
+
+		result, _ := core.Execute([]string{"app"}, main)
+		t.Logf("Output:\n%s", result.Output)
+
+		// Error text should appear with prefix
+		g.Expect(result.Output).To(ContainSubstring("[check-a] Error: detailed error:"))
+		g.Expect(result.Output).To(ContainSubstring("[check-a]   line 1"))
+		g.Expect(result.Output).To(ContainSubstring("[check-a]   line 2"))
+
+		// Error text should appear BEFORE the summary
+		summaryIdx := strings.Index(result.Output, "FAIL:")
+		errorIdx := strings.Index(result.Output, "detailed error:")
+
+		g.Expect(summaryIdx).To(BeNumerically(">", 0), "summary should be present")
+		g.Expect(errorIdx).To(BeNumerically(">", 0), "error text should be present")
+		g.Expect(errorIdx).To(BeNumerically("<", summaryIdx),
+			"error text should appear before summary")
+
+		// Error text should NOT appear unprefixed after the summary
+		afterSummary := result.Output[summaryIdx:]
+		g.Expect(afterSummary).ToNot(ContainSubstring("detailed error:"),
+			"error text should not be repeated after summary")
+	})
+
 	t.Run("LifecycleMessagesAppear", func(t *testing.T) {
+		t.Parallel()
 		g := NewWithT(t)
 
 		a := core.Targ(func() {}).Name("a")
@@ -86,6 +132,7 @@ func TestParallelOutputDepLevel(t *testing.T) {
 	})
 
 	t.Run("PrefixesAreAligned", func(t *testing.T) {
+		t.Parallel()
 		g := NewWithT(t)
 
 		a := core.Targ(func(ctx context.Context) {
@@ -105,9 +152,11 @@ func TestParallelOutputDepLevel(t *testing.T) {
 	})
 }
 
-//nolint:paralleltest // serial: Execute() mutates package-level printOutput
 func TestParallelOutputShellCommand(t *testing.T) {
+	t.Parallel()
+
 	t.Run("ShellOutputIsPrefixed", func(t *testing.T) {
+		t.Parallel()
 		g := NewWithT(t)
 
 		a := core.Targ("echo hello").Name("a")
@@ -125,6 +174,7 @@ func TestParallelOutputShellCommand(t *testing.T) {
 	})
 
 	t.Run("MultiLineShellOutputPrefixesEachLine", func(t *testing.T) {
+		t.Parallel()
 		g := NewWithT(t)
 
 		a := core.Targ("printf 'line1\\nline2\\n'").Name("a")
@@ -139,9 +189,11 @@ func TestParallelOutputShellCommand(t *testing.T) {
 	})
 }
 
-//nolint:paralleltest // serial: Execute() mutates package-level printOutput
 func TestParallelOutputTopLevel(t *testing.T) {
+	t.Parallel()
+
 	t.Run("TopLevelParallelProducesPrefixedOutput", func(t *testing.T) {
+		t.Parallel()
 		g := NewWithT(t)
 
 		a := core.Targ(func(ctx context.Context) {
@@ -161,6 +213,39 @@ func TestParallelOutputTopLevel(t *testing.T) {
 		g.Expect(result.Output).To(ContainSubstring("[a]"))
 		g.Expect(result.Output).To(ContainSubstring("[b]"))
 		g.Expect(result.Output).To(ContainSubstring("PASS:2"))
+	})
+
+	t.Run("ErrorTextIsPrefixedAndBeforeSummary", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		fail := core.Targ(func(ctx context.Context) error {
+			core.Print(ctx, "diagnostic\n")
+			return errors.New("top-level error:\n  some detail")
+		}).Name("lint")
+		pass := core.Targ(func(ctx context.Context) {
+			core.Print(ctx, "all good\n")
+		}).Name("test")
+
+		result, _ := core.ExecuteWithOptions(
+			[]string{"app", "--parallel", "lint", "test"},
+			core.RunOptions{},
+			fail, pass,
+		)
+		t.Logf("Output:\n%s", result.Output)
+
+		// Error text should appear with prefix
+		g.Expect(result.Output).To(ContainSubstring("[lint]"))
+		g.Expect(result.Output).To(ContainSubstring("top-level error:"))
+
+		// Error text should appear BEFORE the summary
+		summaryIdx := strings.Index(result.Output, "FAIL:")
+		errorIdx := strings.Index(result.Output, "top-level error:")
+
+		g.Expect(summaryIdx).To(BeNumerically(">", 0))
+		g.Expect(errorIdx).To(BeNumerically(">", 0))
+		g.Expect(errorIdx).To(BeNumerically("<", summaryIdx),
+			"error text should appear before summary")
 	})
 }
 
@@ -184,9 +269,11 @@ func TestRunContext(t *testing.T) {
 	})
 }
 
-//nolint:paralleltest // serial: Execute() mutates package-level printOutput
 func TestRunContextInParallelMode(t *testing.T) {
+	t.Parallel()
+
 	t.Run("ParallelModeRoutesOutputThroughPrinter", func(t *testing.T) {
+		t.Parallel()
 		g := NewWithT(t)
 
 		a := core.Targ(func(ctx context.Context) {
@@ -220,9 +307,11 @@ func TestRunContextV(t *testing.T) {
 	})
 }
 
-//nolint:paralleltest // serial: Execute() mutates package-level printOutput
 func TestRunContextVInParallelMode(t *testing.T) {
+	t.Parallel()
+
 	t.Run("ParallelModeRoutesOutputThroughPrinter", func(t *testing.T) {
+		t.Parallel()
 		g := NewWithT(t)
 
 		a := core.Targ(func(ctx context.Context) {

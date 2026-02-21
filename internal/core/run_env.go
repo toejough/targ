@@ -166,11 +166,6 @@ func RunWithEnv(env RunEnv, opts RunOptions, targets ...any) error {
 	opts.Stdout = env.Stdout()
 	opts.BinaryName = env.BinaryName()
 
-	// Set the print output to the environment's stdout so parallel output
-	// goes to the test buffer (or os.Stdout in production).
-	SetPrintOutput(opts.Stdout)
-	defer SetPrintOutput(nil)
-
 	if opts.Getenv == nil {
 		opts.Getenv = env.Getenv
 	}
@@ -266,7 +261,11 @@ func (e *runExecutor) executeDefault() error {
 			e.opts,
 		)
 		if err != nil {
-			e.env.Printf("Error: %v\n", err)
+			var re reportedError
+			if !errors.As(err, &re) {
+				e.env.Printf("Error: %v\n", err)
+			}
+
 			return ExitError{Code: 1}
 		}
 
@@ -307,7 +306,7 @@ func (e *runExecutor) executeDefaultParallel() error {
 	// Set up printer for parallel output
 	const printerBufferMultiplier = 10
 
-	printer := NewPrinter(printOutput, len(targetNames)*printerBufferMultiplier)
+	printer := NewPrinter(e.opts.Stdout, len(targetNames)*printerBufferMultiplier)
 
 	type targetResultMsg struct {
 		index    int
@@ -333,6 +332,7 @@ func (e *runExecutor) executeDefaultParallel() error {
 				Name:       cmdName,
 				MaxNameLen: maxNameLen,
 				Printer:    printer,
+				Output:     e.opts.Stdout,
 			})
 
 			Print(tctx, "starting...\n")
@@ -382,7 +382,13 @@ func (e *runExecutor) executeDefaultParallel() error {
 			Name:       results[i].Name,
 			MaxNameLen: maxNameLen,
 			Printer:    printer,
+			Output:     e.opts.Stdout,
 		})
+
+		// Print error text with prefix before the stop message
+		if results[i].Err != nil && !errors.Is(results[i].Err, context.Canceled) {
+			Printf(tctx, "Error: %v\n", results[i].Err)
+		}
 
 		Printf(tctx, "%s (%s)\n", results[i].Status, results[i].Duration.Round(time.Millisecond))
 	}
@@ -392,11 +398,10 @@ func (e *runExecutor) executeDefaultParallel() error {
 
 	summary := FormatSummary(results)
 	if summary != "" {
-		_, _ = fmt.Fprintln(printOutput, "\n"+summary)
+		_, _ = fmt.Fprintln(e.opts.Stdout, "\n"+summary)
 	}
 
 	if firstErr != nil {
-		e.env.Printf("Error: %v\n", firstErr)
 		return ExitError{Code: 1}
 	}
 
@@ -473,7 +478,11 @@ func (e *runExecutor) executeMultiRoot() error {
 			e.opts,
 		)
 		if err != nil {
-			e.env.Printf("Error: %v\n", err)
+			var re reportedError
+			if !errors.As(err, &re) {
+				e.env.Printf("Error: %v\n", err)
+			}
+
 			return ExitError{Code: 1}
 		}
 
@@ -538,7 +547,7 @@ func (e *runExecutor) executeMultiRootParallel() error {
 	// Set up printer for parallel output
 	const printerBufferMultiplier = 10
 
-	printer := NewPrinter(printOutput, len(targets)*printerBufferMultiplier)
+	printer := NewPrinter(e.opts.Stdout, len(targets)*printerBufferMultiplier)
 
 	type targetResultMsg struct {
 		index    int
@@ -558,6 +567,7 @@ func (e *runExecutor) executeMultiRootParallel() error {
 				Name:       targetName,
 				MaxNameLen: maxNameLen,
 				Printer:    printer,
+				Output:     e.opts.Stdout,
 			})
 
 			Print(tctx, "starting...\n")
@@ -598,7 +608,13 @@ func (e *runExecutor) executeMultiRootParallel() error {
 			Name:       results[i].Name,
 			MaxNameLen: maxNameLen,
 			Printer:    printer,
+			Output:     e.opts.Stdout,
 		})
+
+		// Print error text with prefix before the stop message
+		if results[i].Err != nil && !errors.Is(results[i].Err, context.Canceled) {
+			Printf(tctx, "Error: %v\n", results[i].Err)
+		}
 
 		Printf(tctx, "%s (%s)\n", results[i].Status, results[i].Duration.Round(time.Millisecond))
 	}
@@ -608,11 +624,10 @@ func (e *runExecutor) executeMultiRootParallel() error {
 
 	summary := FormatSummary(results)
 	if summary != "" {
-		_, _ = fmt.Fprintln(printOutput, "\n"+summary)
+		_, _ = fmt.Fprintln(e.opts.Stdout, "\n"+summary)
 	}
 
 	if firstErr != nil {
-		e.env.Printf("Error: %v\n", firstErr)
 		return ExitError{Code: 1}
 	}
 
@@ -743,7 +758,11 @@ func (e *runExecutor) handleNoArgs() error {
 	if e.hasDefault {
 		err := e.roots[0].execute(e.ctx, nil, e.opts)
 		if err != nil {
-			e.env.Printf("Error: %v\n", err)
+			var re reportedError
+			if !errors.As(err, &re) {
+				e.env.Printf("Error: %v\n", err)
+			}
+
 			return ExitError{Code: 1}
 		}
 
@@ -825,6 +844,10 @@ func (e *runExecutor) setupContext() error {
 	} else {
 		e.ctx = context.Background()
 	}
+
+	// Thread the output writer through context so Print/Printf use it
+	// instead of a global variable (avoids races in parallel tests).
+	e.ctx = WithExecInfo(e.ctx, ExecInfo{Output: e.opts.Stdout})
 
 	if e.env.SupportsSignals() {
 		ctx, cancel := signal.NotifyContext(e.ctx, os.Interrupt, syscall.SIGTERM)
