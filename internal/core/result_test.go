@@ -83,4 +83,15 @@ func TestResult(t *testing.T) {
 
 		g.Expect(core.FormatSummary(results)).To(Equal("PASS:2"))
 	})
+
+	t.Run("ReportedErrorPreservesMessage", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		inner := errors.New("something failed")
+		re := core.NewReportedErrorForTest(inner)
+
+		g.Expect(re.Error()).To(Equal("something failed"))
+		g.Expect(errors.Unwrap(re)).To(Equal(inner))
+	})
 }

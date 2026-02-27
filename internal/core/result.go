@@ -78,3 +78,13 @@ func FormatSummary(results []TargetResult) string {
 
 	return strings.Join(parts, " ")
 }
+
+// reportedError wraps an error that has already been printed with a target prefix.
+// Callers should check for this to avoid double-printing.
+type reportedError struct {
+	err error
+}
+
+func (e reportedError) Error() string { return e.err.Error() }
+
+func (e reportedError) Unwrap() error { return e.err }
