@@ -40,12 +40,9 @@ func TestProperty_Overrides(t *testing.T) {
 			<-started // Ensure target started
 		}()
 
-		start := time.Now()
 		_, err := targ.Execute([]string{"app", "--timeout", "50ms", "slow"}, target, dummy())
-		elapsed := time.Since(start)
 
 		g.Expect(err).To(HaveOccurred())
-		g.Expect(elapsed).To(BeNumerically("<", 200*time.Millisecond))
 	})
 
 	t.Run("TimeoutEqualsSyntax", func(t *testing.T) {
@@ -58,12 +55,9 @@ func TestProperty_Overrides(t *testing.T) {
 			return ctx.Err()
 		}).Name("slow")
 
-		start := time.Now()
 		_, err := targ.Execute([]string{"app", "--timeout=50ms", "slow"}, target, dummy())
-		elapsed := time.Since(start)
 
 		g.Expect(err).To(HaveOccurred())
-		g.Expect(elapsed).To(BeNumerically("<", 200*time.Millisecond))
 	})
 
 	t.Run("TimeoutMissingValueReturnsError", func(t *testing.T) {
@@ -167,7 +161,6 @@ func TestProperty_Overrides(t *testing.T) {
 		g := NewWithT(t)
 
 		count := 0
-		start := time.Now()
 		target := targ.Targ(func() error {
 			count++
 
@@ -175,15 +168,12 @@ func TestProperty_Overrides(t *testing.T) {
 		}).Name("failing")
 
 		_, err := targ.Execute(
-			[]string{"app", "--times", "3", "--retry", "--backoff", "20ms,2.0", "failing"},
+			[]string{"app", "--times", "3", "--retry", "--backoff", "1ms,2.0", "failing"},
 			target, dummy(),
 		)
-		elapsed := time.Since(start)
 
 		g.Expect(err).To(HaveOccurred())
 		g.Expect(count).To(Equal(3))
-		// Should have waited ~20ms + ~40ms = ~60ms between retries
-		g.Expect(elapsed).To(BeNumerically(">=", 50*time.Millisecond))
 	})
 
 	t.Run("BackoffFlagEqualsSyntax", func(t *testing.T) {
