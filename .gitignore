@@ -1,6 +1,7 @@
 *.test
 /targ
 .DS_Store
+.worktrees/
 .crush/
 coverage.out
 .claude/settings.local.json
