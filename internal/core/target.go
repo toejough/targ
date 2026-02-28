@@ -42,10 +42,21 @@ func (m DepMode) String() string {
 	}
 }
 
+// DepOption is an option that modifies dependency execution behavior.
+type DepOption int
+
+// DepOption values.
+const (
+	// CollectAllErrors causes parallel deps to run all targets to completion
+	// and collect all errors, rather than cancelling on first failure.
+	CollectAllErrors DepOption = iota + 1
+)
+
 // DepGroup is the exported view of a dependency group.
 type DepGroup struct {
-	Targets []*Target
-	Mode    DepMode
+	Targets    []*Target
+	Mode       DepMode
+	CollectAll bool
 }
 
 // Target represents a build target that can be invoked from the CLI.
@@ -120,6 +131,7 @@ func (t *Target) CacheDir(dir string) *Target {
 //	targ.Targ(build).Deps(lint, test, targ.Parallel)   // parallel
 func (t *Target) Deps(args ...any) *Target {
 	mode := DepModeSerial
+	collectAll := false
 
 	var targets []*Target
 
@@ -129,6 +141,10 @@ func (t *Target) Deps(args ...any) *Target {
 			targets = append(targets, v)
 		case DepMode:
 			mode = v
+		case DepOption:
+			if v == CollectAllErrors {
+				collectAll = true
+			}
 		}
 	}
 
@@ -136,12 +152,17 @@ func (t *Target) Deps(args ...any) *Target {
 		return t
 	}
 
-	// Coalesce with last group if same mode
-	if len(t.depGroups) > 0 && t.depGroups[len(t.depGroups)-1].mode == mode {
+	// Coalesce with last group if same mode and same collectAll setting
+	if len(t.depGroups) > 0 &&
+		t.depGroups[len(t.depGroups)-1].mode == mode &&
+		t.depGroups[len(t.depGroups)-1].collectAll == collectAll {
 		t.depGroups[len(t.depGroups)-1].targets = append(
 			t.depGroups[len(t.depGroups)-1].targets, targets...)
 	} else {
-		t.depGroups = append(t.depGroups, depGroup{targets: targets, mode: mode})
+		t.depGroups = append(
+			t.depGroups,
+			depGroup{targets: targets, mode: mode, collectAll: collectAll},
+		)
 	}
 
 	return t
@@ -174,7 +195,7 @@ func (t *Target) GetConfig() ([]string, []string, bool, bool) {
 func (t *Target) GetDepGroups() []DepGroup {
 	groups := make([]DepGroup, len(t.depGroups))
 	for i, g := range t.depGroups {
-		groups[i] = DepGroup{Targets: g.targets, Mode: g.mode}
+		groups[i] = DepGroup{Targets: g.targets, Mode: g.mode, CollectAll: g.collectAll}
 	}
 
 	return groups
@@ -296,7 +317,9 @@ func (t *Target) OnStart(fn func(ctx context.Context, name string)) *Target {
 }
 
 // OnStop sets a hook that fires when the target completes execution in parallel mode.
-func (t *Target) OnStop(fn func(ctx context.Context, name string, result Result, duration time.Duration)) *Target {
+func (t *Target) OnStop(
+	fn func(ctx context.Context, name string, result Result, duration time.Duration),
+) *Target {
 	t.onStop = fn
 	return t
 }
@@ -474,9 +497,13 @@ func (t *Target) iterationCount() int {
 func (t *Target) runDeps(ctx context.Context) error {
 	for _, group := range t.depGroups {
 		var err error
-		if group.mode == DepModeParallel {
+
+		switch {
+		case group.mode == DepModeParallel && group.collectAll:
+			err = runGroupParallelAll(ctx, group.targets)
+		case group.mode == DepModeParallel:
 			err = runGroupParallel(ctx, group.targets)
-		} else {
+		default:
 			err = runGroupSerial(ctx, group.targets)
 		}
 
@@ -662,8 +689,9 @@ const (
 )
 
 type depGroup struct {
-	targets []*Target
-	mode    DepMode
+	targets    []*Target
+	mode       DepMode
+	collectAll bool
 }
 
 type repetitionState struct {
@@ -717,6 +745,20 @@ func callFunc(ctx context.Context, fn any, args []any) error {
 	}
 
 	return nil
+}
+
+// classifyCollectAllResult determines the Result for collect-all mode.
+// Unlike ClassifyResult, there is no "first failure" concept.
+func classifyCollectAllResult(err error) Result {
+	if err == nil {
+		return Pass
+	}
+
+	if errors.Is(err, context.DeadlineExceeded) {
+		return Errored
+	}
+
+	return Fail
 }
 
 // parallelShellEnv returns a ShellEnv with PrefixWriter-wrapped stdout/stderr
@@ -834,7 +876,12 @@ func runGroupParallel(ctx context.Context, targets []*Target) error {
 		if target.onStop != nil {
 			target.onStop(tctx, name, results[i].Status, results[i].Duration)
 		} else {
-			Printf(tctx, "%s (%s)\n", results[i].Status, results[i].Duration.Round(time.Millisecond))
+			Printf(
+				tctx,
+				"%s (%s)\n",
+				results[i].Status,
+				results[i].Duration.Round(time.Millisecond),
+			)
 		}
 	}
 
@@ -848,6 +895,119 @@ func runGroupParallel(ctx context.Context, targets []*Target) error {
 
 	if firstErr != nil {
 		return reportedError{err: firstErr}
+	}
+
+	return nil
+}
+
+//nolint:cyclop,funlen // sequential pipeline with error handling at each step
+func runGroupParallelAll(ctx context.Context, targets []*Target) error {
+	out := outputFromContext(ctx)
+
+	// Compute max target name length for prefix alignment
+	maxNameLen := 0
+	for _, dep := range targets {
+		if n := len(dep.GetName()); n > maxNameLen {
+			maxNameLen = n
+		}
+	}
+
+	// Set up printer for parallel output
+	const printerBufferMultiplier = 10
+
+	printer := NewPrinter(out, len(targets)*printerBufferMultiplier)
+
+	type targetResult struct {
+		index    int
+		err      error
+		duration time.Duration
+	}
+
+	resultCh := make(chan targetResult, len(targets))
+	results := make([]TargetResult, len(targets))
+
+	for i, dep := range targets {
+		name := dep.GetName()
+		results[i].Name = name
+
+		go func(idx int, d *Target, targetName string) {
+			tctx := WithExecInfo(ctx, ExecInfo{
+				Parallel:   true,
+				Name:       targetName,
+				MaxNameLen: maxNameLen,
+				Printer:    printer,
+				Output:     out,
+			})
+
+			// Fire OnStart hook (or default)
+			if d.onStart != nil {
+				d.onStart(tctx, targetName)
+			} else {
+				Print(tctx, "starting...\n")
+			}
+
+			start := time.Now()
+			err := d.Run(tctx)
+			duration := time.Since(start)
+
+			resultCh <- targetResult{index: idx, err: err, duration: duration}
+		}(i, dep, name)
+	}
+
+	// Collect ALL results — no cancellation
+	for range targets {
+		resultMsg := <-resultCh
+		results[resultMsg.index].Err = resultMsg.err
+		results[resultMsg.index].Duration = resultMsg.duration
+	}
+
+	// Classify results — no "first failure" distinction in collect-all mode
+	hasFailure := false
+
+	for i := range results {
+		results[i].Status = classifyCollectAllResult(results[i].Err)
+
+		if results[i].Status != Pass {
+			hasFailure = true
+		}
+
+		name := results[i].Name
+		tctx := WithExecInfo(ctx, ExecInfo{
+			Parallel:   true,
+			Name:       name,
+			MaxNameLen: maxNameLen,
+			Printer:    printer,
+			Output:     out,
+		})
+		target := targets[i]
+
+		// Print error text with prefix before the stop message
+		if results[i].Err != nil && !errors.Is(results[i].Err, context.Canceled) {
+			Printf(tctx, "Error: %v\n", results[i].Err)
+		}
+
+		if target.onStop != nil {
+			target.onStop(tctx, name, results[i].Status, results[i].Duration)
+		} else {
+			Printf(
+				tctx,
+				"%s (%s)\n",
+				results[i].Status,
+				results[i].Duration.Round(time.Millisecond),
+			)
+		}
+	}
+
+	// Drain printer and print detailed summary
+	printer.Close()
+
+	summary := FormatDetailedSummary(results)
+	if summary != "" {
+		_, _ = fmt.Fprintln(out, "\n"+summary)
+	}
+
+	if hasFailure {
+		return reportedError{err: NewMultiError(results)}
 	}
 
 	return nil

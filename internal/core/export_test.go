@@ -2,16 +2,18 @@ package core
 
 // Exported variables.
 var (
-	BuildPositionalPartsForTest  = buildPositionalParts
-	CallerPackagePathForTest     = callerPackagePath
-	ChainExampleForTest          = chainExample
-	ConvertExamplesForTest       = convertExamples
-	ExtractPackagePathForTest    = extractPackagePath
-	ParseGroupLikeForTest        = parseGroupLike
-	ParseTargetLikeForTest       = parseTargetLike
-	PositionalDisplayNameForTest = positionalDisplayName
-	PrintCommandHelpForTest      = printCommandHelp
-	ResolveMoreInfoTextForTest   = resolveMoreInfoText
+	BuildPositionalPartsForTest     = buildPositionalParts
+	CallerPackagePathForTest        = callerPackagePath
+	ChainExampleForTest             = chainExample
+	ClassifyCollectAllResultForTest = classifyCollectAllResult
+	ConvertExamplesForTest          = convertExamples
+	ExtractPackagePathForTest       = extractPackagePath
+	FirstLineForTest                = firstLine
+	ParseGroupLikeForTest           = parseGroupLike
+	ParseTargetLikeForTest          = parseTargetLike
+	PositionalDisplayNameForTest    = positionalDisplayName
+	PrintCommandHelpForTest         = printCommandHelp
+	ResolveMoreInfoTextForTest      = resolveMoreInfoText
 )
 
 // Test-only exports for use by core_test package tests.

@@ -33,6 +33,7 @@ func init() {
 	CheckCoverage.Deps(Test)
 	CheckCoverageForFail.Deps(TestForFail)
 	CheckForFail.Deps(CheckCoverageForFail, ReorderDeclsCheck, LintFast, LintForFail, Deadcode, CheckThinAPI, CheckNilsForFail, targ.DepModeParallel)
+	CheckFull.Deps(CheckCoverageForFail, ReorderDeclsCheck, LintFast, LintFull, Deadcode, CheckThinAPI, CheckNilsForFail, targ.DepModeParallel, targ.CollectAllErrors)
 	CheckNils.Deps(CheckNilsFix, CheckNilsForFail)
 	Mutate.Deps(CheckForFail)
 	Test.Deps(Generate)
@@ -43,6 +44,7 @@ func init() {
 		CheckCoverage,
 		CheckCoverageForFail,
 		CheckForFail,
+		CheckFull,
 		CheckNils,
 		CheckNilsFix,
 		CheckNilsForFail,
@@ -59,6 +61,7 @@ func init() {
 		Lint,
 		LintFast,
 		LintForFail,
+		LintFull,
 		Modernize,
 		Mutate,
 		ReorderDecls,
@@ -77,6 +80,7 @@ var (
 	CheckCoverage        = targ.Targ(checkCoverage).Description("Check function coverage")
 	CheckCoverageForFail = targ.Targ(checkCoverageForFail).Description("Check coverage (no test run)")
 	CheckForFail         = targ.Targ(checkForFail).Description("Run all checks (fail-fast)")
+	CheckFull            = targ.Targ(checkFull).Description("Run all checks (report all errors)")
 	CheckNils            = targ.Targ(checkNils).Description("Check for nil issues")
 	CheckNilsFix         = targ.Targ(checkNilsFix).Description("Fix nil issues")
 	CheckNilsForFail     = targ.Targ(checkNilsForFail).Description("Check for nil issues (fail)")
@@ -93,6 +97,7 @@ var (
 	Lint                 = targ.Targ(lint).Description("Lint codebase")
 	LintFast             = targ.Targ(lintFast).Description("Run fast linters")
 	LintForFail          = targ.Targ(lintForFail).Description("Lint for pass/fail")
+	LintFull             = targ.Targ(lintFull).Description("Lint (full report)")
 	Modernize            = targ.Targ(modernize).Description("Modernize codebase")
 	Mutate               = targ.Targ(mutate).Description("Run mutation tests")
 	ReorderDecls         = targ.Targ(reorderDecls).Description("Reorder declarations")
@@ -296,7 +301,7 @@ func checkCoverageForFail(ctx context.Context, args CoverageCheckArgs) error {
 
 	lines := strings.Split(out, "\n")
 	var minCoverage float64 = 100
-	var minLine string
+	var belowThreshold []lineAndCoverage
 
 	for _, line := range lines {
 		// Skip empty lines, summary, generated code, and entry points
@@ -320,12 +325,20 @@ func checkCoverageForFail(ctx context.Context, args CoverageCheckArgs) error {
 
 		if percent < minCoverage {
 			minCoverage = percent
-			minLine = line
+		}
+
+		if percent < threshold {
+			belowThreshold = append(belowThreshold, lineAndCoverage{line, percent})
 		}
 	}
 
-	if minCoverage < threshold {
-		return fmt.Errorf("function coverage was less than the limit of %.1f:\n  %s", threshold, minLine)
+	if len(belowThreshold) > 0 {
+		var errorMsg strings.Builder
+		errorMsg.WriteString(fmt.Sprintf("function coverage below %.1f%% threshold:\n", threshold))
+		for _, item := range belowThreshold {
+			errorMsg.WriteString(fmt.Sprintf("  %s\n", item.line))
+		}
+		return errors.New(errorMsg.String())
 	}
 
 	targ.Printf(ctx, "Coverage OK (min: %.1f%%)\n", minCoverage)
@@ -337,6 +350,12 @@ func checkForFail(ctx context.Context) {
 	// Deps handle all parallel execution:
 	// - CheckCoverageForFail (which depends on TestForFail)
 	// - ReorderDeclsCheck, LintFast, LintForFail, Deadcode, CheckThinAPI, CheckNilsForFail
+	targ.Print(ctx, "All checks passed!\n")
+}
+
+func checkFull(ctx context.Context) {
+	// Deps handle all parallel execution with CollectAllErrors:
+	// All checks run to completion and all failures are reported.
 	targ.Print(ctx, "All checks passed!\n")
 }
 
@@ -1347,6 +1366,19 @@ func lintForFail(ctx context.Context) error {
 		"--fix=false",
 		"--max-issues-per-linter=1",
 		"--max-same-issues=1",
+		"--allow-parallel-runners",
+	)
+}
+
+func lintFull(ctx context.Context) error {
+	targ.Print(ctx, "Linting (full report)...\n")
+
+	return targ.RunContext(ctx,
+		"golangci-lint", "run",
+		"-c", "dev/golangci-lint.toml",
+		"--fix=false",
+		"--max-issues-per-linter=0",
+		"--max-same-issues=0",
 		"--allow-parallel-runners",
 	)
 }

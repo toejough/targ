@@ -361,7 +361,11 @@ func (cb *ContentBuilder) renderTargFlags(styles Styles) string {
 }
 
 // renderTargModeFlags writes "Global flags:" with subsections for targ CLI mode.
-func (cb *ContentBuilder) renderTargModeFlags(sb *strings.Builder, styles Styles, hasGlobal, hasRootOnly bool) {
+func (cb *ContentBuilder) renderTargModeFlags(
+	sb *strings.Builder,
+	styles Styles,
+	hasGlobal, hasRootOnly bool,
+) {
 	sb.WriteString(styles.Header.Render("Global flags:"))
 
 	if hasGlobal {

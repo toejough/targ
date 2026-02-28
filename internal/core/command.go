@@ -1601,7 +1601,8 @@ func parseTagParts(opts *TagOptions, tag string) error {
 	if len(unknownKeys) > 0 {
 		return fmt.Errorf(
 			"%w: %s (valid: name, short, env, default, enum, placeholder, desc, description, required, positional, flag)",
-			errUnrecognizedTagKeys, strings.Join(unknownKeys, ", "),
+			errUnrecognizedTagKeys,
+			strings.Join(unknownKeys, ", "),
 		)
 	}
 

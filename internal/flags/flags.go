@@ -68,7 +68,12 @@ func All() []Def {
 			TakesValue:  true,
 			Mode:        FlagModeTargOnly,
 		},
-		{Long: "parallel", Short: "p", Desc: "Run multiple targets concurrently", Mode: FlagModeTargOnly},
+		{
+			Long:  "parallel",
+			Short: "p",
+			Desc:  "Run multiple targets concurrently",
+			Mode:  FlagModeTargOnly,
+		},
 		{
 			Long:        "times",
 			Desc:        "Run the command n times",
@@ -112,20 +117,57 @@ func All() []Def {
 			TakesValue:  true,
 			Mode:        FlagModeTargOnly,
 		},
-		{Long: "no-binary-cache", Desc: "Disable binary caching", RootOnly: true, Mode: FlagModeTargOnly},
+		{
+			Long:     "no-binary-cache",
+			Desc:     "Disable binary caching",
+			RootOnly: true,
+			Mode:     FlagModeTargOnly,
+		},
 
 		// Early flags (handled by runner before binary compilation)
 		// These trigger special handling and have dedicated help pages (use --help --<flag>)
 		{Long: "create", Desc: "Create a new target", RootOnly: true, Mode: FlagModeTargOnly},
-		{Long: "sync", Desc: "Sync targets from a remote package", RootOnly: true, Mode: FlagModeTargOnly},
-		{Long: "to-func", Desc: "Convert string target to function", RootOnly: true, Mode: FlagModeTargOnly},
-		{Long: "to-string", Desc: "Convert function target to string", RootOnly: true, Mode: FlagModeTargOnly},
+		{
+			Long:     "sync",
+			Desc:     "Sync targets from a remote package",
+			RootOnly: true,
+			Mode:     FlagModeTargOnly,
+		},
+		{
+			Long:     "to-func",
+			Desc:     "Convert string target to function",
+			RootOnly: true,
+			Mode:     FlagModeTargOnly,
+		},
+		{
+			Long:     "to-string",
+			Desc:     "Convert function target to string",
+			RootOnly: true,
+			Mode:     FlagModeTargOnly,
+		},
 
 		// Deprecated/removed
-		{Long: "no-cache", Desc: "Deprecated: use --no-binary-cache", Hidden: true, Mode: FlagModeTargOnly},
-		{Long: "init", Removed: "flag has been removed; use --create instead", Mode: FlagModeTargOnly},
-		{Long: "alias", Removed: "flag has been removed; use --create instead", Mode: FlagModeTargOnly},
-		{Long: "move", Removed: "flag has been removed; use --create instead", Mode: FlagModeTargOnly},
+		{
+			Long:   "no-cache",
+			Desc:   "Deprecated: use --no-binary-cache",
+			Hidden: true,
+			Mode:   FlagModeTargOnly,
+		},
+		{
+			Long:    "init",
+			Removed: "flag has been removed; use --create instead",
+			Mode:    FlagModeTargOnly,
+		},
+		{
+			Long:    "alias",
+			Removed: "flag has been removed; use --create instead",
+			Mode:    FlagModeTargOnly,
+		},
+		{
+			Long:    "move",
+			Removed: "flag has been removed; use --create instead",
+			Mode:    FlagModeTargOnly,
+		},
 	}
 }
 

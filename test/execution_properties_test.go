@@ -1444,4 +1444,153 @@ func TestProperty_Execution(t *testing.T) {
 		g.Expect(dep2Called).To(BeFalse()) // Should not run after dep1 fails
 		g.Expect(mainCalled).To(BeFalse())
 	})
+
+	t.Run("CollectAllErrorsCollectsAll", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		dep1 := targ.Targ(func() error {
+			return errors.New("dep1 failed")
+		}).Name("dep1")
+
+		dep2 := targ.Targ(func() error {
+			return errors.New("dep2 failed")
+		}).Name("dep2")
+
+		dep3 := targ.Targ(func() {}).Name("dep3")
+
+		main := targ.Targ(func() {}).Name("main").
+			Deps(dep1, dep2, dep3, targ.DepModeParallel, targ.CollectAllErrors)
+
+		err := main.Run(context.Background())
+		g.Expect(err).To(HaveOccurred())
+		// MultiError should be extractable
+		var me *targ.MultiError
+		g.Expect(errors.As(err, &me)).To(BeTrue())
+		// All 3 results should be present
+		g.Expect(me.Results()).To(HaveLen(3))
+	})
+
+	t.Run("CollectAllErrorsDoesNotCancel", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		var dep2Completed atomic.Bool
+
+		dep1 := targ.Targ(func() error {
+			return errors.New("dep1 fails immediately")
+		}).Name("dep1")
+
+		dep2 := targ.Targ(func(ctx context.Context) error {
+			// Even though dep1 fails, this should run to completion
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(100 * time.Millisecond):
+				dep2Completed.Store(true)
+				return nil
+			}
+		}).Name("dep2")
+
+		main := targ.Targ(func() {}).Name("main").
+			Deps(dep1, dep2, targ.DepModeParallel, targ.CollectAllErrors)
+
+		_, err := targ.Execute([]string{"app", "main"}, main, dep1, dep2)
+		g.Expect(err).To(HaveOccurred())
+		g.Expect(dep2Completed.Load()).To(BeTrue(), "dep2 should complete even when dep1 fails")
+	})
+
+	t.Run("CollectAllErrorsAllPassingSucceeds", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		dep1 := targ.Targ(func() {}).Name("dep1")
+		dep2 := targ.Targ(func() {}).Name("dep2")
+
+		main := targ.Targ(func() {}).Name("main").
+			Deps(dep1, dep2, targ.DepModeParallel, targ.CollectAllErrors)
+
+		_, err := targ.Execute([]string{"app", "main"}, main, dep1, dep2)
+		g.Expect(err).NotTo(HaveOccurred())
+	})
+
+	t.Run("CollectAllErrorsSingleFailure", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		dep1 := targ.Targ(func() error {
+			return errors.New("only failure")
+		}).Name("dep1")
+
+		dep2 := targ.Targ(func() {}).Name("dep2")
+
+		main := targ.Targ(func() {}).Name("main").
+			Deps(dep1, dep2, targ.DepModeParallel, targ.CollectAllErrors)
+
+		err := main.Run(context.Background())
+		g.Expect(err).To(HaveOccurred())
+
+		var me *targ.MultiError
+		g.Expect(errors.As(err, &me)).To(BeTrue())
+		// Results should have 2 entries (both deps)
+		g.Expect(me.Results()).To(HaveLen(2))
+	})
+
+	t.Run("CollectAllErrorsPreservesDeclarationOrder", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		dep1 := targ.Targ(func() error {
+			time.Sleep(50 * time.Millisecond)
+			return errors.New("dep1 failed")
+		}).Name("dep1")
+
+		dep2 := targ.Targ(func() error {
+			// dep2 fails faster but should appear second in results
+			return errors.New("dep2 failed")
+		}).Name("dep2")
+
+		main := targ.Targ(func() {}).Name("main").
+			Deps(dep1, dep2, targ.DepModeParallel, targ.CollectAllErrors)
+
+		err := main.Run(context.Background())
+		g.Expect(err).To(HaveOccurred())
+
+		var me *targ.MultiError
+		g.Expect(errors.As(err, &me)).To(BeTrue())
+
+		// Results should be in declaration order (dep1, dep2), not completion order
+		g.Expect(me.Results()[0].Name).To(Equal("dep1"))
+		g.Expect(me.Results()[1].Name).To(Equal("dep2"))
+	})
+
+	t.Run("DefaultParallelStillCancelsOnFirstError", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		var dep2Cancelled atomic.Bool
+
+		dep1 := targ.Targ(func() error {
+			return errors.New("dep1 fails")
+		}).Name("dep1")
+
+		dep2 := targ.Targ(func(ctx context.Context) error {
+			select {
+			case <-ctx.Done():
+				dep2Cancelled.Store(true)
+				return ctx.Err()
+			case <-time.After(5 * time.Second):
+				return nil
+			}
+		}).Name("dep2")
+
+		// Default parallel (no CollectAllErrors) should cancel dep2
+		main := targ.Targ(func() {}).Name("main").
+			Deps(dep1, dep2, targ.DepModeParallel)
+
+		_, err := targ.Execute([]string{"app", "main"}, main, dep1, dep2)
+		g.Expect(err).To(HaveOccurred())
+		// dep2 should have been cancelled
+		g.Eventually(dep2Cancelled.Load).Should(BeTrue())
+	})
 }

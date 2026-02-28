@@ -14,6 +14,9 @@ import (
 const (
 	// Cancelled indicates a target was cancelled during parallel execution.
 	Cancelled = core.Cancelled
+	// CollectAllErrors causes parallel deps to run all targets to completion
+	// and collect all errors, rather than cancelling on first failure.
+	CollectAllErrors = core.CollectAllErrors
 	// DepModeMixed indicates a target has multiple dependency groups with different modes.
 	DepModeMixed = core.DepModeMixed
 	// DepModeParallel executes all dependencies concurrently.
@@ -52,6 +55,9 @@ type DepGroup = core.DepGroup
 // DepMode controls how dependencies are executed (parallel or serial).
 type DepMode = core.DepMode
 
+// DepOption is an option that modifies dependency execution behavior.
+type DepOption = core.DepOption
+
 // Example represents a usage example shown in help text.
 type Example = core.Example
 
@@ -63,6 +69,9 @@ type ExitError = core.ExitError
 
 // Interleaved wraps a value to be parsed from interleaved positional arguments.
 type Interleaved[T any] = core.Interleaved[T]
+
+// MultiError wraps multiple target failures from a collect-all-errors parallel run.
+type MultiError = core.MultiError
 
 // Result represents the outcome status of a parallel target execution.
 type Result = core.Result

@@ -35,9 +35,10 @@ func TestOnStartOnStop(t *testing.T) {
 
 		var got core.Result
 
-		target := core.Targ(func() {}).OnStop(func(_ context.Context, _ string, result core.Result, _ time.Duration) {
-			got = result
-		})
+		target := core.Targ(func() {}).
+			OnStop(func(_ context.Context, _ string, result core.Result, _ time.Duration) {
+				got = result
+			})
 
 		hook := target.GetOnStop()
 		g.Expect(hook).ToNot(BeNil())

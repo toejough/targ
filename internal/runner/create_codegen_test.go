@@ -57,7 +57,8 @@ func TestCreateCodegenWithRegister(t *testing.T) {
 
 		// According to ISSUE-021, it should use inline pattern in init()
 		// Let's verify the expected pattern is present
-		g.Expect(fileContent).To(ContainSubstring(`targ.Register(targ.Targ("echo hello").Name("test"))`),
-			"should generate inline targ.Register(targ.Targ(...).Name(...)) pattern in init()")
+		g.Expect(fileContent).
+			To(ContainSubstring(`targ.Register(targ.Targ("echo hello").Name("test"))`),
+				"should generate inline targ.Register(targ.Targ(...).Name(...)) pattern in init()")
 	})
 }

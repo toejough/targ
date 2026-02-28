@@ -73,7 +73,11 @@ func GenerateRootExamples(binaryName string, groups []CommandGroup, binaryMode b
 }
 
 // GenerateTargetExamples creates examples from target metadata.
-func GenerateTargetExamples(binaryName, targetName string, cmdFlags []Flag, binaryMode bool) []Example {
+func GenerateTargetExamples(
+	binaryName, targetName string,
+	cmdFlags []Flag,
+	binaryMode bool,
+) []Example {
 	prefix := binaryName + " " + targetName
 	if binaryMode {
 		prefix = binaryName
@@ -223,7 +227,12 @@ func WriteTargetHelp(w io.Writer, opts TargetHelpOpts) {
 		b.AddExamples(opts.Examples...)
 	} else {
 		// Always generate at least basic usage example
-		generated := GenerateTargetExamples(opts.BinaryName, opts.Name, opts.Flags, opts.Filter.BinaryMode)
+		generated := GenerateTargetExamples(
+			opts.BinaryName,
+			opts.Name,
+			opts.Flags,
+			opts.Filter.BinaryMode,
+		)
 		b.AddExamples(generated...)
 	}
 
