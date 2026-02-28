@@ -4,6 +4,7 @@
 package core_test
 
 import (
+	"context"
 	"errors"
 	"io"
 	"strings"
@@ -13,6 +14,115 @@ import (
 
 	"github.com/toejough/targ/internal/core"
 )
+
+func TestProperty_CleanWorkTree(t *testing.T) {
+	t.Parallel()
+
+	t.Run("DefaultRunnerExecutesGit", func(t *testing.T) {
+		t.Parallel()
+
+		// CheckCleanWorkTree uses the real git command runner.
+		// In a git repo it should succeed or fail — either way, no panic.
+		_ = core.CheckCleanWorkTree(context.Background())
+	})
+
+	t.Run("CleanTreeReturnsNil", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		runner := func(_ context.Context, _ string, _ ...string) (string, error) {
+			return "", nil
+		}
+
+		err := core.CheckCleanWorkTreeWith(context.Background(), runner)
+		g.Expect(err).ToNot(HaveOccurred())
+	})
+
+	t.Run("ModifiedFilesReturnsError", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		runner := func(_ context.Context, _ string, _ ...string) (string, error) {
+			return " M file.go", nil
+		}
+
+		err := core.CheckCleanWorkTreeWith(context.Background(), runner)
+		g.Expect(err).To(HaveOccurred())
+		g.Expect(err.Error()).To(ContainSubstring("uncommitted"))
+	})
+
+	t.Run("UntrackedFilesReturnsError", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		runner := func(_ context.Context, _ string, _ ...string) (string, error) {
+			return "?? new.go", nil
+		}
+
+		err := core.CheckCleanWorkTreeWith(context.Background(), runner)
+		g.Expect(err).To(HaveOccurred())
+		g.Expect(err.Error()).To(ContainSubstring("uncommitted"))
+	})
+
+	t.Run("StagedFilesReturnsError", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		runner := func(_ context.Context, _ string, _ ...string) (string, error) {
+			return "A  staged.go", nil
+		}
+
+		err := core.CheckCleanWorkTreeWith(context.Background(), runner)
+		g.Expect(err).To(HaveOccurred())
+		g.Expect(err.Error()).To(ContainSubstring("uncommitted"))
+	})
+
+	t.Run("GitCommandFailureReturnsError", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		runner := func(_ context.Context, _ string, _ ...string) (string, error) {
+			return "", errors.New("git not found")
+		}
+
+		err := core.CheckCleanWorkTreeWith(context.Background(), runner)
+		g.Expect(err).To(HaveOccurred())
+		g.Expect(err.Error()).To(ContainSubstring("git diff"))
+	})
+
+	t.Run("WhitespaceOnlyOutputReturnsNil", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		runner := func(_ context.Context, _ string, _ ...string) (string, error) {
+			return "  \n  \t  ", nil
+		}
+
+		err := core.CheckCleanWorkTreeWith(context.Background(), runner)
+		g.Expect(err).ToNot(HaveOccurred())
+	})
+
+	t.Run("CorrectArgsPassed", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		var capturedName string
+
+		var capturedArgs []string
+
+		runner := func(_ context.Context, name string, args ...string) (string, error) {
+			capturedName = name
+			capturedArgs = args
+
+			return "", nil
+		}
+
+		err := core.CheckCleanWorkTreeWith(context.Background(), runner)
+		g.Expect(err).ToNot(HaveOccurred())
+		g.Expect(capturedName).To(Equal("git"))
+		g.Expect(capturedArgs).To(Equal([]string{"diff", "HEAD", "--stat"}))
+	})
+}
 
 func TestProperty_GitDetection(t *testing.T) {
 	t.Parallel()

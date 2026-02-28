@@ -2,15 +2,42 @@ package core
 
 import (
 	"bufio"
+	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
+
+	internalsh "github.com/toejough/targ/internal/sh"
 )
+
+// CommandRunner executes a command and returns its combined output.
+type CommandRunner func(ctx context.Context, name string, args ...string) (string, error)
 
 // FileOpener is a function that opens a file for reading.
 type FileOpener func(path string) (io.ReadCloser, error)
+
+// CheckCleanWorkTree verifies the git working tree has no uncommitted changes.
+func CheckCleanWorkTree(ctx context.Context) error {
+	return CheckCleanWorkTreeWith(ctx, defaultCommandRunner)
+}
+
+// CheckCleanWorkTreeWith is a testable version with injected command runner.
+// It checks for staged and unstaged changes to tracked files only (untracked files are ignored).
+func CheckCleanWorkTreeWith(ctx context.Context, run CommandRunner) error {
+	out, err := run(ctx, "git", "diff", "HEAD", "--stat")
+	if err != nil {
+		return fmt.Errorf("git diff: %w", err)
+	}
+
+	if strings.TrimSpace(out) != "" {
+		return fmt.Errorf("%w:\n%s", errUncommittedChanges, out)
+	}
+
+	return nil
+}
 
 // DetectRepoURL attempts to find the repository URL by parsing .git/config.
 // It walks up from the current directory looking for a .git directory,
@@ -107,6 +134,16 @@ func ParseGitConfigOriginURLWithOpen(path string, open FileOpener) string {
 	defer func() { _ = f.Close() }()
 
 	return ParseGitConfigContent(f)
+}
+
+// unexported variables.
+var (
+	errUncommittedChanges = errors.New("uncommitted changes found")
+)
+
+// defaultCommandRunner wraps internalsh.OutputContext.
+func defaultCommandRunner(ctx context.Context, name string, args ...string) (string, error) {
+	return internalsh.OutputContext(ctx, name, args, os.Stdin)
 }
 
 // osOpen wraps os.Open to match the FileOpener signature.

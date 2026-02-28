@@ -32,8 +32,8 @@ func init() {
 	Check.Deps(DeleteDeadcode, Fmt, Tidy, Modernize, CheckNils, CheckCoverage, ReorderDecls, Lint, CheckThinAPI)
 	CheckCoverage.Deps(Test)
 	CheckCoverageForFail.Deps(TestForFail)
-	CheckForFail.Deps(CheckCoverageForFail, ReorderDeclsCheck, LintFast, LintForFail, Deadcode, CheckThinAPI, CheckNilsForFail, targ.DepModeParallel)
-	CheckFull.Deps(CheckCoverageForFail, ReorderDeclsCheck, LintFast, LintFull, Deadcode, CheckThinAPI, CheckNilsForFail, targ.DepModeParallel, targ.CollectAllErrors)
+	CheckForFail.Deps(CheckCoverageForFail, CheckUncommitted, FindRedundantTests, ReorderDeclsCheck, LintFast, LintForFail, Deadcode, CheckThinAPI, CheckNilsForFail, targ.DepModeParallel)
+	CheckFull.Deps(CheckCoverageForFail, CheckUncommitted, FindRedundantTests, ReorderDeclsCheck, LintFast, LintFull, Deadcode, CheckThinAPI, CheckNilsForFail, targ.DepModeParallel, targ.CollectAllErrors)
 	CheckNils.Deps(CheckNilsFix, CheckNilsForFail)
 	Mutate.Deps(CheckForFail)
 	Test.Deps(Generate)
@@ -45,6 +45,7 @@ func init() {
 		CheckCoverageForFail,
 		CheckForFail,
 		CheckFull,
+		CheckUncommitted,
 		CheckNils,
 		CheckNilsFix,
 		CheckNilsForFail,
@@ -85,6 +86,7 @@ var (
 	CheckNilsFix         = targ.Targ(checkNilsFix).Description("Fix nil issues")
 	CheckNilsForFail     = targ.Targ(checkNilsForFail).Description("Check for nil issues (fail)")
 	CheckThinAPI         = targ.Targ(checkThinAPI).Description("Check public API is thin wrappers")
+	CheckUncommitted     = targ.Targ(checkUncommitted).Description("Check for uncommitted changes")
 	Clean                = targ.Targ(clean).Description("Clean dev environment")
 	Coverage             = targ.Targ(coverage).Description("Display coverage report")
 	Deadcode             = targ.Targ(deadcode).Description("Check for dead code")
@@ -121,8 +123,8 @@ type CoverageCheckArgs struct {
 
 // RedundantTestArgs configures findRedundantTests.
 type RedundantTestArgs struct {
-	BaselinePattern   string  `targ:"flag,name=baselinepattern,desc=Test name pattern for baseline tests (default: TestProperty_)"`
-	CoverageThreshold float64 `targ:"flag,name=coveragethreshold,desc=Minimum coverage percentage (default: 80)"`
+	BaselinePattern   string  `targ:"flag,name=baselinepattern,env=TARG_BASELINE_PATTERN,desc=Test name pattern for baseline tests (default: TestProperty_)"`
+	CoverageThreshold float64 `targ:"flag,name=coveragethreshold,env=TARG_COVERAGE_THRESHOLD,desc=Minimum coverage percentage (default: 80)"`
 }
 
 // unexported variables.
@@ -618,6 +620,12 @@ func checkTypeSpecThinness(fset *token.FileSet, path string, ts *ast.TypeSpec) *
 	}
 }
 
+func checkUncommitted(ctx context.Context) error {
+	targ.Print(ctx, "Checking for uncommitted changes...\n")
+
+	return targ.CheckCleanWorkTree(ctx)
+}
+
 // checkValueSpecThinness checks if a const/var declaration is thin.
 func checkValueSpecThinness(fset *token.FileSet, path string, tok token.Token, vs *ast.ValueSpec) *thinViolation {
 	// Constants that reference external package are thin
@@ -888,7 +896,7 @@ func deleteDeadcode(ctx context.Context) error {
 	return nil
 }
 
-func findRedundantTests(args RedundantTestArgs) error {
+func findRedundantTests(ctx context.Context, args RedundantTestArgs) error {
 	pattern := args.BaselinePattern
 	if pattern == "" {
 		pattern = "TestProperty_"
@@ -908,7 +916,28 @@ func findRedundantTests(args RedundantTestArgs) error {
 		CoveragePackages:  "./internal/...",
 	}
 
-	return testredundancy.Find(config)
+	// Capture stdout from library and relay through parallel printer.
+	r, w, err := os.Pipe()
+	if err != nil {
+		return fmt.Errorf("creating pipe: %w", err)
+	}
+
+	origStdout := os.Stdout
+	os.Stdout = w
+
+	findErr := testredundancy.Find(config)
+
+	os.Stdout = origStdout
+	w.Close()
+
+	captured, _ := io.ReadAll(r)
+	r.Close()
+
+	if len(captured) > 0 {
+		targ.Print(ctx, string(captured))
+	}
+
+	return findErr
 }
 
 func fmtCode(ctx context.Context) error {

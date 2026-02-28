@@ -107,6 +107,11 @@ func AppendBuiltinExamples(custom ...Example) []Example {
 // BuiltinExamples returns the default targ examples (completion setup, chaining).
 func BuiltinExamples() []Example { return core.BuiltinExamples() }
 
+// CheckCleanWorkTree verifies the git working tree has no uncommitted changes.
+func CheckCleanWorkTree(ctx context.Context) error {
+	return core.CheckCleanWorkTree(ctx)
+}
+
 // Checksum reports whether the content hash of inputs differs from the stored hash at dest.
 // When the hash changes, the new hash is written to dest.
 func Checksum(inputs []string, dest string) (bool, error) {
