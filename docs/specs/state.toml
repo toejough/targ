@@ -1,4 +1,5 @@
-# Specwalk State: Directory Tree Traversal (Issue #11)
+# Specwalk State: targ
+# Full project adoption — existing features as complete UCs, issue #11 as new work.
 
 mode = "in_progress"
 
@@ -6,10 +7,22 @@ mode = "in_progress"
 layer = "L1"
 group = "all"
 phase = "REFACTOR"
-next_action = "Review UCs for completeness, then REGROUP"
+next_action = "REGROUP L1 UCs, then descend to L2 for UC-16 only"
 
+# Existing features — complete, no traversal needed
 [[tree.L1]]
-id = "uc-all"
+id = "uc-existing"
+status = "complete"
+items = [
+  "UC-1", "UC-2", "UC-3", "UC-4", "UC-5",
+  "UC-6", "UC-7", "UC-8", "UC-9", "UC-10",
+  "UC-11", "UC-12", "UC-13", "UC-14", "UC-15",
+]
+artifact = "docs/specs/uc.md"
+
+# New feature — issue #11
+[[tree.L1]]
+id = "uc-tree-traversal"
 status = "in_progress"
-items = ["UC-1", "UC-2", "UC-3"]
+items = ["UC-16"]
 artifact = "docs/specs/uc.md"
