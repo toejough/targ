@@ -1,15 +1,16 @@
 # Specwalk State: targ
-# Full project adoption — existing features as complete UCs, issue #11 as new work.
+# Full bottom-up adoption — existing features grounded in code, UC-16 as new work.
 
 mode = "in_progress"
 
 [cursor]
-layer = "L4"
-group = "tests-tree-traversal"
-phase = "complete"
-next_action = "Descend to L5 (IMPL) — TDD one test at a time"
+layer = "L5"
+group = "impl-tree-traversal"
+phase = "pending"
+next_action = "Begin TDD implementation for UC-16"
 
-# Existing features — complete, no traversal needed
+# === L1: Use Cases ===
+
 [[tree.L1]]
 id = "uc-existing"
 status = "complete"
@@ -20,30 +21,73 @@ items = [
 ]
 artifact = "docs/specs/uc.md"
 
-# New feature — issue #11
 [[tree.L1]]
 id = "uc-tree-traversal"
 status = "in_progress"
 items = ["UC-16"]
 artifact = "docs/specs/uc.md"
 
-# L2 for UC-16
-[[tree.L2]]
-id = "req-des-tree-traversal"
-status = "complete"
-items = ["REQ-1", "REQ-2", "REQ-3", "REQ-4", "REQ-5", "REQ-6", "REQ-7", "DES-1", "DES-2", "DES-3", "DES-4", "DES-5"]
-artifact = "docs/specs/req-des.md"
+# === L2: Requirements & Design ===
 
-# L3 for UC-16
+[[tree.L2]]
+id = "req-des-uc1-5"
+status = "complete"
+items = ["REQ-1-*", "DES-1-*", "REQ-2-*", "DES-2-*", "REQ-3-*", "DES-3-*", "REQ-4-*", "DES-4-*", "REQ-5-*", "DES-5-*"]
+artifact = "docs/specs/req-des-uc1-5.md"
+
+[[tree.L2]]
+id = "req-des-uc6-10"
+status = "complete"
+items = ["REQ-6-*", "DES-6-*", "REQ-7-*", "DES-7-*", "REQ-8-*", "DES-8-*", "REQ-9-*", "DES-9-*", "REQ-10-*", "DES-10-*"]
+artifact = "docs/specs/req-des-uc6-10.md"
+
+[[tree.L2]]
+id = "req-des-uc11-15"
+status = "complete"
+items = ["REQ-11-*", "DES-11-*", "REQ-12-*", "DES-12-*", "REQ-13-*", "DES-13-*", "REQ-14-*", "DES-14-*", "REQ-15-*", "DES-15-*"]
+artifact = "docs/specs/req-des-uc11-15.md"
+
+[[tree.L2]]
+id = "req-des-uc16"
+status = "complete"
+items = ["REQ-16-1", "REQ-16-2", "REQ-16-3", "REQ-16-4", "REQ-16-5", "REQ-16-6", "REQ-16-7", "DES-16-1", "DES-16-2", "DES-16-3", "DES-16-4", "DES-16-5"]
+artifact = "docs/specs/req-des-uc16.md"
+
+# === L3: Architecture ===
+
+[[tree.L3]]
+id = "arch-existing"
+status = "complete"
+items = ["ARCH-1", "ARCH-2", "ARCH-3", "ARCH-4", "ARCH-5", "ARCH-6", "ARCH-7", "ARCH-8", "ARCH-9", "ARCH-10"]
+artifact = "docs/specs/arch.md"
+
 [[tree.L3]]
 id = "arch-tree-traversal"
 status = "complete"
-items = ["ARCH-1", "ARCH-2", "ARCH-3", "ARCH-4", "ARCH-5"]
-artifact = "docs/specs/arch.md"
+items = ["ARCH-16-1", "ARCH-16-2", "ARCH-16-3", "ARCH-16-4", "ARCH-16-5"]
+artifact = "docs/specs/arch-uc16.md"
 
-# L4 for UC-16
+# === L4: Test List ===
+
+[[tree.L4]]
+id = "tests-existing"
+status = "complete"
+artifact = "docs/specs/tests.md"
+
 [[tree.L4]]
 id = "tests-tree-traversal"
 status = "complete"
-items = ["T-1", "T-2", "T-3", "T-4", "T-5", "T-6", "T-7", "T-8", "T-9", "T-10", "T-11", "T-12", "T-13"]
-artifact = "docs/specs/tests.md"
+items = ["T-16-1", "T-16-2", "T-16-3", "T-16-4", "T-16-5", "T-16-6", "T-16-7", "T-16-8", "T-16-9", "T-16-10", "T-16-11", "T-16-12", "T-16-13"]
+artifact = "docs/specs/tests-uc16.md"
+
+# === L5: Implementation ===
+
+[[tree.L5]]
+id = "impl-existing"
+status = "complete"
+artifact = "docs/specs/impl.md"
+
+[[tree.L5]]
+id = "impl-tree-traversal"
+status = "pending"
+items = ["UC-16"]

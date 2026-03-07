@@ -1,101 +1,246 @@
-# Architecture: UC-16 Directory Tree Traversal
+# L3 Architecture: targ
 
-Traces to: REQ-1, REQ-2, REQ-3, REQ-4, REQ-5, REQ-6, REQ-7, DES-1, DES-2, DES-3, DES-4, DES-5
+Bottom-up adoption of the actual package structure. Each ARCH item maps to one package/component.
 
-## Overview
-
-This feature modifies one package (`discover`) and one package (`runner`). No changes to `core`, `help`, `flags`, `file`, `sh`, or `parse`. The existing multi-module build path handles most of the complexity.
-
-## ARCH-1: Extend discover.Discover() with upward walk
-
-**Package:** `internal/discover`
-**File:** `discover.go`
-
-**Current:** `Discover(startDir, fs)` calls `findTaggedDirs()` which walks DOWN from `startDir` recursively.
-
-**Change:** Add a new function `discoverAncestors(startDir, fs)` that:
-1. Walks UP from `filepath.Dir(startDir)` to filesystem root
-2. At each ancestor directory, checks for targ-tagged `.go` files in that directory (non-recursive — just files directly in that dir)
-3. If `<ancestor>/dev/` exists, calls existing `findTaggedDirs()` on it (full recursive walk)
-4. Returns `[]PackageInfo` for all ancestor-discovered packages
-
-**Integration:** `Discover()` calls both `findTaggedDirs()` (down) and `discoverAncestors()` (up), then merges results. Deduplication by directory path — if CWD is inside an ancestor's `dev/` subtree, don't double-count.
-
-**Satisfies:** REQ-1 (upward discovery), REQ-2 (dev/ walk), REQ-3 (no siblings), REQ-7 (downward unchanged)
-
-## ARCH-2: Single-directory discovery helper
-
-**Package:** `internal/discover`
-**File:** `discover.go`
-
-**New function:** `findTaggedFilesInDir(dir, fs)` — checks a single directory (non-recursive) for targ-tagged `.go` files. This is a subset of `findTaggedDirs()` that doesn't recurse into subdirectories.
-
-Needed because the upward walk checks each ancestor directory itself without recursing into its children (except `dev/`).
-
-**Satisfies:** REQ-1, REQ-3
-
-## ARCH-3: Isolated build per ancestor directory
-
-**Package:** `internal/runner`
-**File:** `runner.go`
-
-**Current:** `groupByModule()` groups unmoduled packages under `startDir` with path `"targ.local"`. The `EnsureFallbackModuleRoot()` function symlinks from `startDir`.
-
-**Change:** Modify `groupByModule()` to group unmoduled packages by their actual containing directory rather than always under `startDir`. Each distinct directory with unmoduled targets becomes its own module group with:
-- `moduleRoot` = the ancestor directory
-- `modulePath` = `"targ.local"` (same synthetic name)
-- Distinct hash for cache key (based on actual directory, not startDir)
-
-This means ancestor directories without go.mod produce separate module groups, which the existing `handleMultiModule()` path builds as separate binaries.
-
-**Satisfies:** REQ-4, DES-2, DES-3
-
-## ARCH-4: Cache key includes ancestor path
-
-**Package:** `internal/runner`
-**File:** `runner.go`
-
-The binary cache key for each build unit must be stable across different CWDs that discover the same ancestor targets.
-
-**Current:** `setupBinaryPath()` uses `projectCacheDir(importRoot)` which hashes the import root path.
-
-**No change needed** — if `importRoot` is set to the ancestor directory (per ARCH-3), the cache key naturally stabilizes. Two different CWDs discovering the same ancestor directory will compute the same `importRoot` and therefore the same cache path.
-
-**Satisfies:** DES-4
-
-## ARCH-5: No changes to conflict detection or help
-
-**Packages:** `internal/core`, `internal/help`
-
-No architectural changes needed. Ancestor targets flow through the same:
-- `detectConflicts()` in `core/registry.go` — same-name targets from different packages produce `ConflictError`
-- Help rendering in `help/` — source attribution from `sourcePkg` field naturally distinguishes ancestor targets
-
-**Satisfies:** REQ-5, REQ-6
-
-## Component Dependency Graph
+## Package Dependency Graph
 
 ```
-discover.Discover()           -- MODIFIED (ARCH-1)
-  ├── findTaggedDirs()        -- UNCHANGED (downward walk)
-  ├── findTaggedFilesInDir()  -- NEW (ARCH-2, single-dir check)
-  └── discoverAncestors()     -- NEW (ARCH-1, upward walk + dev/)
+cmd/targ
+  └── internal/runner
+        ├── internal/discover
+        │     └── internal/parse
+        ├── internal/flags
+        └── internal/help
+              └── internal/flags
 
-runner.groupByModule()        -- MODIFIED (ARCH-3)
-  └── uses per-directory grouping instead of startDir fallback
+targ.go (root public API)
+  ├── internal/core
+  │     └── internal/sh (via RunContext/RunContextV)
+  ├── internal/file
+  └── internal/sh
 
-runner.handleMultiModule()    -- UNCHANGED (handles multiple build units)
-runner.handleIsolatedModule() -- UNCHANGED (builds with synthetic go.mod)
-core.detectConflicts()        -- UNCHANGED
-help rendering                -- UNCHANGED
+internal/core
+  ├── internal/file (via checksum/match in cache)
+  └── internal/sh (via shell command execution)
 ```
 
-## Behavioral Contracts
+---
 
-1. **Discovery contract:** `Discover()` returns `[]PackageInfo` from both downward and upward walks. Order: downward results first, then upward from nearest ancestor to root. No duplicates by directory.
+## ARCH-1: Root public API (`targ.go`)
 
-2. **Module grouping contract:** Each directory with targ files and no go.mod gets its own module group. Directories sharing the same go.mod (via upward walk) are grouped together as today.
+**Traces to:** REQ-1-1, REQ-1-2, REQ-1-3, REQ-1-5, REQ-1-6, REQ-3-1, REQ-4-1, REQ-4-4, REQ-5-1, REQ-13-1, REQ-13-2, REQ-13-3, REQ-13-4, REQ-14-1, REQ-14-3, REQ-15-1, DES-1-1, DES-1-2
 
-3. **Build contract:** Each module group builds independently. Multi-module aggregation combines all commands. Binary cache uses the build unit's root directory as key input, not CWD.
+**Key types/functions:**
+- `Targ(fn ...any) *Target` — target creation facade
+- `Main(targets ...any)` — standalone binary entry point
+- `Register(targets ...any)` — global registry registration
+- `ExecuteRegistered()` / `ExecuteRegisteredWithOptions(opts)` — run registered targets
+- `Execute(args, targets...)` / `ExecuteWithOptions(args, opts, targets...)` — test-friendly execution
+- `Group(name, members...)` — named group creation
+- `Run`, `RunV`, `RunContext`, `RunContextV`, `Output`, `OutputContext` — shell execution
+- `Match(patterns...)` — glob matching
+- `Checksum(inputs, dest)` — content hashing
+- `Watch(ctx, patterns, opts, callback)` — file watching
+- `Print(ctx, args...)`, `Printf(ctx, format, args...)` — parallel-aware output
+- `EnableCleanup()` — signal-based process cleanup
+- `DeregisterFrom(packagePath)` — remote target deregistration
+- `ExeSuffix()`, `WithExeSuffix(name)`, `IsWindows()` — platform helpers
+- Re-exported types: `Target`, `TargetGroup`, `DepMode`, `DepOption`, `DepGroup`, `Result`, `ExecuteResult`, `ExitError`, `MultiError`, `TagKind`, `TagOptions`, `Interleaved[T]`, `ChangeSet`, `WatchOptions`, `RunOptions`, `RuntimeOverrides`, `Example`
+- Re-exported constants: `Disabled`, `Parallel` (via `DepModeParallel`), `CollectAllErrors`, `Pass`, `Fail`, `Errored`, `Cancelled`, `TagKindFlag`, `TagKindPositional`, `TagKindUnknown`
+- Re-exported errors: `ErrEmptyDest`, `ErrNoInputPatterns`, `ErrNoPatterns`, `ErrUnmatchedBrace`
 
-4. **Conflict contract:** Unchanged — same-name targets from different source packages error regardless of tree level.
+**Dependencies:** ARCH-2 (internal/core), ARCH-8 (internal/file), ARCH-9 (internal/sh)
+
+**Source files:** `targ.go`
+
+---
+
+## ARCH-2: internal/core — Target definition, execution engine, registry
+
+**Traces to:** REQ-1-1 through REQ-1-13, REQ-2-1 through REQ-2-12, REQ-3-1 through REQ-3-6, REQ-4-1 through REQ-4-5, REQ-5-1, REQ-5-2, REQ-5-7, REQ-5-8, REQ-6-7 through REQ-6-10, REQ-7-1 through REQ-7-4, REQ-8-4, REQ-8-5, REQ-8-6, REQ-11-1 through REQ-11-11, REQ-12-1 through REQ-12-5, DES-1-1, DES-1-2, DES-2-1, DES-2-2, DES-3-1, DES-6-3, DES-7-1, DES-8-2, DES-11-1, DES-11-2, DES-11-3, DES-12-1, DES-12-2, DES-12-3
+
+**Key types/functions:**
+- `Target` — target definition with builder methods (`Name`, `Description`, `Deps`, `Cache`, `CacheDir`, `Watch`, `Timeout`, `Times`, `Retry`, `Backoff`, `While`, `Examples`)
+- `TargetGroup` — named group of targets/groups
+- `Targ(fn ...any)`, `Group(name, members...)` — constructors
+- `Main(targets...)`, `ExecuteRegistered()`, `ExecuteWithResolution(env, opts)` — execution entry points
+- `RunEnv` interface / `osRunEnv` / `ExecuteEnv` — environment abstraction
+- `commandNode`, `parseTarget`, `parseGroupLike`, `executeGroupWithParents` — command tree and execution
+- `ExtractOverrides`, `ExecuteWithOverrides`, `checkConflicts` — runtime override system
+- `RegisterTarget`, `DeregisterFrom`, `resolveRegistry`, `detectConflicts` — global registry
+- `PrintCompletionScriptTo`, `doCompletion`, `tokenizeCommandLine` — shell completion
+- `Printer`, `PrefixWriter`, `ExecInfo` — parallel output serialization
+- `Print`, `Printf`, `FormatPrefix` — parallel-aware output
+- `RunContext`, `RunContextV` — context-aware shell execution (delegates to sh)
+- `TagOptions`, `TagKind`, `Interleaved[T]` — CLI argument types
+- `Result`, `MultiError`, `ExitError`, `ExecuteResult` — result types
+- `CheckCleanWorkTree` — git utility
+
+**Dependencies:** ARCH-8 (internal/file — for cache checksums), ARCH-9 (internal/sh — for shell command execution)
+
+**Source files:** `target.go`, `command.go`, `execute.go`, `override.go`, `run_env.go`, `registry.go`, `group.go`, `completion.go`, `print.go`, `printer.go`, `prefix_writer.go`, `exec_info.go`, `types.go`, `result.go`, `state.go`, `source.go`, `parse.go`, `git.go`, `doc.go`
+
+---
+
+## ARCH-3: internal/runner — CLI tool orchestration
+
+**Traces to:** REQ-8-1 through REQ-8-3, REQ-9-1 through REQ-9-6, REQ-10-1 through REQ-10-10, DES-8-1, DES-9-1, DES-9-2, DES-10-1, DES-10-2
+
+**Key types/functions:**
+- `Run() int` — main entry point for the `targ` CLI tool
+- `Discover` integration — calls `discover.Discover()` for tagged file discovery
+- `groupByModule()` — groups packages by Go module for compilation
+- `handleSingleModule()`, `handleMultiModule()`, `handleIsolatedModule()` — three-path compilation
+- Bootstrap generation — `main.go` template importing discovered packages
+- Binary caching — `tryRunCached()`, content-hash cache keys
+- `ExtractTargFlags()` — separates targ flags from target args
+- `handleSyncFlag()` — remote target sync (`--sync`)
+- `ParseSyncArgs()`, `ParseCreateArgs()` — argument parsing
+- `AddImportToTargFileWithFileOps()` — AST-based import injection
+- `AddTargetToFileWithFileOps()` — target code generation and file insertion
+- `ConvertFuncTargetToString()`, `ConvertStringTargetToFunc()` — format conversion
+- `FindOrCreateTargFileWithFileOps()` — targ file location/creation
+- `CreateGroupMemberPatch()` — group modification for nested targets
+- `ContentPatch`, `CreateOptions`, `FileOps` — supporting types
+
+**Dependencies:** ARCH-4 (internal/discover), ARCH-6 (internal/help), ARCH-7 (internal/flags)
+
+**Source files:** `runner.go`
+
+---
+
+## ARCH-4: internal/discover — File discovery
+
+**Traces to:** REQ-10-1, REQ-10-2, REQ-10-10, DES-10-2
+
+**Key types/functions:**
+- `Discover(opts Options) ([]PackageInfo, error)` — BFS directory walk for tagged files
+- `Options` — discovery config (`StartDir`, `BuildTag`, `FileSystem`)
+- `PackageInfo` — discovered package info (`Dir`, `PackageName`, `DocComment`, `Files`, `ExplicitRegistration`)
+- `FileInfo` — file path info (`Path`, `Base`)
+- `FileSystem` interface — injectable filesystem for testing
+- `parsePackageInfo()` — AST-based package validation
+- `findTaggedDirs()` — recursive directory walk
+- Errors: `ErrMainFunctionNotAllowed`, `ErrMultiplePackageNames`, `ErrNoTaggedFiles`
+
+**Dependencies:** ARCH-5 (internal/parse — for build tag detection)
+
+**Source files:** `discover.go`
+
+---
+
+## ARCH-5: internal/parse — Utility parsing
+
+**Traces to:** REQ-2-12, REQ-10-1
+
+**Key types/functions:**
+- `CamelToKebab(s string) string` — name conversion for targets and flags
+- `HasBuildTag(content, tag string) bool` — build tag detection in file content
+- `IsGoSourceFile(name string) bool` — filters `.go` files (excludes `_test.go`)
+- `ReflectTag` — struct tag parser (`Get(key)` for key-value extraction)
+- `NewReflectTag(tag string) ReflectTag` — constructor
+- `FindRegistrationCalls(file *ast.File, funcName string) []ast.Expr` — AST helper for finding `init()` calls
+
+**Dependencies:** None
+
+**Source files:** `parse.go`
+
+---
+
+## ARCH-6: internal/help — Help output rendering
+
+**Traces to:** REQ-6-1 through REQ-6-6, DES-6-1, DES-6-2
+
+**Key types/functions:**
+- `Builder` — entry point, type-state pattern
+- `ContentBuilder` — section accumulator (`AddFlags`, `AddSubcommands`, `AddCommandGroups`, `AddPositionals`, `AddExamples`, `AddTargFlagsFiltered`, etc.)
+- `New(commandName) *Builder` — constructor (panics on empty name)
+- `WithDescription(desc) *ContentBuilder` — type transition
+- `Render() string` — final output generation
+- `WriteRootHelp(w, ...)` — root-level help generation
+- `WriteTargetHelp(w, ...)` — target-level help generation
+- `TargFlagFilter` — controls which targ flags are visible
+- Styles: lipgloss-based ANSI styling for headers, flags, placeholders
+
+**Dependencies:** ARCH-7 (internal/flags — for flag definitions)
+
+**Source files:** `builder.go`, `content.go`, `generators.go`, `render.go`, `render_helpers.go`, `styles.go`
+
+---
+
+## ARCH-7: internal/flags — CLI flag definitions
+
+**Traces to:** REQ-11-9, REQ-11-10, DES-11-2
+
+**Key types/functions:**
+- `Def` — flag definition struct (`Long`, `Short`, `Desc`, `Placeholder`, `TakesValue`, `RootOnly`, `Hidden`, `Removed`, `Mode`)
+- `Placeholder` — value placeholder with format info
+- `FlagMode` — `FlagModeAll` (both modes) or `FlagModeTargOnly` (targ CLI only)
+- `All` — complete flag registry (slice of `Def`)
+- Query functions: `BooleanFlags()`, `ValueFlags()`, `RootOnlyFlags()`, `GlobalFlags()`, `VisibleFlags()`
+
+**Dependencies:** None
+
+**Source files:** `flags.go`, `placeholders.go`
+
+---
+
+## ARCH-8: internal/file — File utilities
+
+**Traces to:** REQ-4-4, REQ-4-6, REQ-4-7, REQ-4-8, REQ-5-3 through REQ-5-6, REQ-5-9, REQ-14-1 through REQ-14-5, DES-4-1, DES-5-1, DES-14-1, DES-14-2
+
+**Key types/functions:**
+- `Match(patterns ...string) ([]string, error)` — glob matching with brace expansion and `**` support (via doublestar)
+- `expandBraces(pattern string) ([]string, error)` — recursive `{a,b}` expansion
+- `Checksum(inputs, dest, matchFn, ops) (bool, error)` — content-based SHA-256 hashing
+- `FileOps` — injectable filesystem operations for checksum
+- `Watch(ctx, patterns, opts, callback, matchFn, ops) error` — polling-based file watcher
+- `WatchOps` — injectable ticker/stat for watch
+- `ChangeSet` — added/removed/modified file lists
+- `WatchOptions` — configurable poll interval
+- Errors: `ErrNoPatterns`, `ErrNoInputPatterns`, `ErrEmptyDest`, `ErrUnmatchedBrace`
+
+**Dependencies:** None (uses `github.com/bmatcuk/doublestar/v4` external dependency)
+
+**Source files:** `match.go`, `checksum.go`, `watch.go`
+
+---
+
+## ARCH-9: internal/sh — Shell execution
+
+**Traces to:** REQ-13-1 through REQ-13-8, REQ-15-1 through REQ-15-6, DES-13-1, DES-13-2, DES-15-1, DES-15-2, DES-15-3
+
+**Key types/functions:**
+- `Run(env, name, args...) error` — streaming command execution
+- `RunV(env, name, args...) error` — verbose (prints command first)
+- `Output(env, name, args...) (string, error)` — captured output execution
+- `OutputContext(ctx, name, args, stdin) (string, error)` — context-aware captured output
+- `RunContextWithIO(ctx, name, args, env) error` — context-aware streaming
+- `ShellEnv` — dependency injection for exec, IO, platform, cleanup
+- `DefaultShellEnv() ShellEnv` — OS defaults
+- `SafeBuffer` — thread-safe `bytes.Buffer`
+- `ExeSuffix(env)`, `WithExeSuffix(env, name)` — platform helpers
+- `IsWindowsOS() bool` — platform detection
+- `EnableCleanup()` — signal handler installation
+- `CleanupManager` — process registration/kill lifecycle
+- `RegisterProcess`, `UnregisterProcess`, `KillAllProcesses` — process tracking
+- `PlatformKillProcess(p)` — platform-specific kill
+- `SetProcGroup(cmd)` — process group isolation
+- `KillProcessGroup(cmd)` — group termination
+
+**Dependencies:** None
+
+**Source files:** `sh.go`, `context.go`, `cleanup.go`, `context_unix.go`, `context_windows.go`, `cleanup_unix.go`, `cleanup_windows.go`
+
+---
+
+## ARCH-10: cmd/targ — CLI entry point
+
+**Traces to:** REQ-10-1, DES-10-2
+
+**Key types/functions:**
+- `main()` — calls `runner.Run()` and exits with its return code
+
+**Dependencies:** ARCH-3 (internal/runner)
+
+**Source files:** `main.go`
