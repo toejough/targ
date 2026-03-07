@@ -1,0 +1,15 @@
+# Specwalk State: Directory Tree Traversal (Issue #11)
+
+mode = "in_progress"
+
+[cursor]
+layer = "L1"
+group = "all"
+phase = "REFACTOR"
+next_action = "Review UCs for completeness, then REGROUP"
+
+[[tree.L1]]
+id = "uc-all"
+status = "in_progress"
+items = ["UC-1", "UC-2", "UC-3"]
+artifact = "docs/specs/uc.md"
