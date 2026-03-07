@@ -4,10 +4,10 @@
 mode = "in_progress"
 
 [cursor]
-layer = "L1"
-group = "all"
-phase = "REFACTOR"
-next_action = "REGROUP L1 UCs, then descend to L2 for UC-16 only"
+layer = "L2"
+group = "req-des-tree-traversal"
+phase = "complete"
+next_action = "Descend to L3 (ARCH)"
 
 # Existing features — complete, no traversal needed
 [[tree.L1]]
@@ -26,3 +26,10 @@ id = "uc-tree-traversal"
 status = "in_progress"
 items = ["UC-16"]
 artifact = "docs/specs/uc.md"
+
+# L2 for UC-16
+[[tree.L2]]
+id = "req-des-tree-traversal"
+status = "complete"
+items = ["REQ-1", "REQ-2", "REQ-3", "REQ-4", "REQ-5", "REQ-6", "REQ-7", "DES-1", "DES-2", "DES-3", "DES-4", "DES-5"]
+artifact = "docs/specs/req-des.md"
