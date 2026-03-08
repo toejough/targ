@@ -45,7 +45,7 @@ items = [
 ]
 
 [layers.L1]
-items = ["UC-1", "UC-2", "UC-3", "UC-4", "UC-5"]
+items = ["UC-1", "UC-2", "UC-3", "UC-4", "UC-5", "UC-6"]
 
 [tree.L5A]
 layer = "L5"
@@ -96,9 +96,9 @@ history = "Bottom-up adoption: induced 15 REQ + 5 DES items from L3 items."
 [tree.L1A]
 layer = "L1"
 name = "Targ Core"
-items = ["UC-1", "UC-2", "UC-3", "UC-4", "UC-5"]
-status = "complete"
-history = "Bottom-up adoption: induced 5 UC items from L2 items. REGROUP: single group — all UCs describe facets of one product."
+items = ["UC-1", "UC-2", "UC-3", "UC-4", "UC-5", "UC-6"]
+status = "in_progress"
+history = "Bottom-up adoption: induced 5 UC items from L2 items. REGROUP: single group — all UCs describe facets of one product. Post-completion re-entry: added UC-6 (directory tree traversal, Issue #11)."
 gates = { regroup_proposal = "completed: user approved single group with all 5 UCs", usability_gate = """
 UC-1 Define and Run Build Targets:
   Build: go build ./cmd/targ/ (verified: builds clean)
@@ -130,5 +130,5 @@ UC-5 Run Targets in Parallel with Organized Output:
 
 [cursor]
 node = "L1A"
-mode = "complete"
-next_action = "All audit findings resolved. Tree complete. Check issue tracker for next work."
+mode = "in_progress"
+next_action = "UC-6 added. REFACTOR L1, then REGROUP, then descend to L2 for UC-6 derivation."

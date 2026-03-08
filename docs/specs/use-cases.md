@@ -47,3 +47,13 @@ Items induced from: L2 requirements and design items (bottom-up)
 **Key interactions:** `.Deps(a, b, targ.DepModeParallel)` or `--parallel` flag, each target's output prefixed with its name, result summary shows per-target pass/fail/cancelled/errored status
 
 **Traces to:** REQ-7, REQ-8, DES-5
+
+## UC-6: Discover Targets Across the Directory Tree
+
+**Actor:** Developer running targ from any working directory
+**Starting state:** Target files exist in ancestor directories (e.g., `~/dev/targs.go`) and/or the current subtree
+**End state:** Targets from both ancestor directories and the current subtree are discovered, compiled, and available to run
+**Key interactions:** From any CWD, targ walks down (full subtree, unchanged) and up (linear ancestor path, checking each ancestor directory and its `dev/` subtree). Each ancestor with targets is built as its own module group (existing multi-module path). No sibling discovery. No root boundary. Conflicts handled identically to today (`ConflictError` with source locations).
+**Constraints:** Upward discovery is automatic (no opt-in). Only the linear ancestor path is searched — no sibling directories. Each unmoduled ancestor directory becomes its own isolated build unit. Ancestor targets appear in help with existing source attribution.
+
+**Traces to:** (to be derived at L2)
