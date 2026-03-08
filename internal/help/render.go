@@ -76,7 +76,7 @@ func (cb *ContentBuilder) renderCommandGroups(styles Styles) string {
 			sb.WriteString("\n  ")
 
 			if cmd.Desc != "" {
-				sb.WriteString(fmt.Sprintf("%-*s  %s", maxWidth, cmd.Name, cmd.Desc))
+				fmt.Fprintf(&sb, "%-*s  %s", maxWidth, cmd.Name, cmd.Desc)
 			} else {
 				sb.WriteString(cmd.Name)
 			}

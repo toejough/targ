@@ -2289,9 +2289,9 @@ func buildSourceRoot() (string, bool) {
 func buildTargetCode(varName string, opts CreateOptions) (targetCodeResult, error) {
 	var code strings.Builder
 
-	code.WriteString(fmt.Sprintf("\n// %s runs: %s\n", varName, opts.ShellCmd))
-	code.WriteString(fmt.Sprintf("var %s = targ.Targ(%q)", varName, escapeGoString(opts.ShellCmd)))
-	code.WriteString(fmt.Sprintf(".Name(%q)", opts.Name))
+	fmt.Fprintf(&code, "\n// %s runs: %s\n", varName, opts.ShellCmd)
+	fmt.Fprintf(&code, "var %s = targ.Targ(%q)", varName, escapeGoString(opts.ShellCmd))
+	fmt.Fprintf(&code, ".Name(%q)", opts.Name)
 	code.WriteString(buildDepsCode(opts))
 	code.WriteString(buildPatternsCode("Cache", opts.Cache))
 	code.WriteString(buildPatternsCode("Watch", opts.Watch))
@@ -2302,11 +2302,11 @@ func buildTargetCode(varName string, opts CreateOptions) (targetCodeResult, erro
 			return targetCodeResult{}, fmt.Errorf("invalid timeout: %w", err)
 		}
 
-		code.WriteString(fmt.Sprintf(".Timeout(%s)", durCode))
+		fmt.Fprintf(&code, ".Timeout(%s)", durCode)
 	}
 
 	if opts.Times > 0 {
-		code.WriteString(fmt.Sprintf(".Times(%d)", opts.Times))
+		fmt.Fprintf(&code, ".Times(%d)", opts.Times)
 	}
 
 	if opts.Retry {
@@ -2319,7 +2319,7 @@ func buildTargetCode(varName string, opts CreateOptions) (targetCodeResult, erro
 			return targetCodeResult{}, fmt.Errorf("invalid backoff: %w", err)
 		}
 
-		code.WriteString(fmt.Sprintf(".Backoff(%s)", backoffCode))
+		fmt.Fprintf(&code, ".Backoff(%s)", backoffCode)
 	}
 
 	code.WriteString("\n")
@@ -2331,8 +2331,8 @@ func buildTargetCode(varName string, opts CreateOptions) (targetCodeResult, erro
 func buildTargetExpression(opts CreateOptions) (string, error) {
 	var expr strings.Builder
 
-	expr.WriteString(fmt.Sprintf("targ.Targ(%q)", escapeGoString(opts.ShellCmd)))
-	expr.WriteString(fmt.Sprintf(".Name(%q)", opts.Name))
+	fmt.Fprintf(&expr, "targ.Targ(%q)", escapeGoString(opts.ShellCmd))
+	fmt.Fprintf(&expr, ".Name(%q)", opts.Name)
 	expr.WriteString(buildDepsCode(opts))
 	expr.WriteString(buildPatternsCode("Cache", opts.Cache))
 	expr.WriteString(buildPatternsCode("Watch", opts.Watch))
@@ -2343,11 +2343,11 @@ func buildTargetExpression(opts CreateOptions) (string, error) {
 			return "", fmt.Errorf("invalid timeout: %w", err)
 		}
 
-		expr.WriteString(fmt.Sprintf(".Timeout(%s)", durCode))
+		fmt.Fprintf(&expr, ".Timeout(%s)", durCode)
 	}
 
 	if opts.Times > 0 {
-		expr.WriteString(fmt.Sprintf(".Times(%d)", opts.Times))
+		fmt.Fprintf(&expr, ".Times(%d)", opts.Times)
 	}
 
 	if opts.Retry {
@@ -2360,7 +2360,7 @@ func buildTargetExpression(opts CreateOptions) (string, error) {
 			return "", fmt.Errorf("invalid backoff: %w", err)
 		}
 
-		expr.WriteString(fmt.Sprintf(".Backoff(%s)", backoffCode))
+		fmt.Fprintf(&expr, ".Backoff(%s)", backoffCode)
 	}
 
 	return expr.String(), nil
@@ -3204,8 +3204,8 @@ func generateGroupModifications(
 			continue
 		}
 
-		newCode.WriteString(fmt.Sprintf("var %s = targ.Group(%q, %s)\n",
-			groupVarName, groupName, childVarName))
+		fmt.Fprintf(&newCode, "var %s = targ.Group(%q, %s)\n",
+			groupVarName, groupName, childVarName)
 
 		childVarName = groupVarName
 	}

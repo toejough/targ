@@ -24,7 +24,7 @@ func (e *ConflictError) Error() string {
 			builder.WriteString("\n")
 		}
 
-		builder.WriteString(fmt.Sprintf("targ: conflict: %q registered by both:", conflict.Name))
+		fmt.Fprintf(&builder, "targ: conflict: %q registered by both:", conflict.Name)
 
 		for _, src := range conflict.Sources {
 			builder.WriteString("\n  - ")

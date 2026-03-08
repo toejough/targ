@@ -336,9 +336,9 @@ func checkCoverageForFail(ctx context.Context, args CoverageCheckArgs) error {
 
 	if len(belowThreshold) > 0 {
 		var errorMsg strings.Builder
-		errorMsg.WriteString(fmt.Sprintf("function coverage below %.1f%% threshold:\n", threshold))
+		fmt.Fprintf(&errorMsg, "function coverage below %.1f%% threshold:\n", threshold)
 		for _, item := range belowThreshold {
-			errorMsg.WriteString(fmt.Sprintf("  %s\n", item.line))
+			fmt.Fprintf(&errorMsg, "  %s\n", item.line)
 		}
 		return errors.New(errorMsg.String())
 	}
