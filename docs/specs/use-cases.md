@@ -56,4 +56,4 @@ Items induced from: L2 requirements and design items (bottom-up)
 **Key interactions:** From any CWD, targ walks down (full subtree, unchanged) and up (linear ancestor path, checking each ancestor directory and its `dev/` subtree). Each ancestor with targets is built as its own module group (existing multi-module path). No sibling discovery. No root boundary. Conflicts handled identically to today (`ConflictError` with source locations).
 **Constraints:** Upward discovery is automatic (no opt-in). Only the linear ancestor path is searched — no sibling directories. Each unmoduled ancestor directory becomes its own isolated build unit. Ancestor targets appear in help with existing source attribution.
 
-**Traces to:** (to be derived at L2)
+**Traces to:** REQ-13, REQ-16, REQ-17, DES-6

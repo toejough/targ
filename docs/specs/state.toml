@@ -41,7 +41,8 @@ items = [
 items = [
   "REQ-1", "REQ-2", "REQ-3", "REQ-4", "REQ-5", "REQ-6", "REQ-7",
   "REQ-8", "REQ-9", "REQ-10", "REQ-11", "REQ-12", "REQ-13", "REQ-14", "REQ-15",
-  "DES-1", "DES-2", "DES-3", "DES-4", "DES-5",
+  "REQ-16", "REQ-17",
+  "DES-1", "DES-2", "DES-3", "DES-4", "DES-5", "DES-6",
 ]
 
 [layers.L1]
@@ -88,10 +89,11 @@ parents = ["L1A"]
 items = [
   "REQ-1", "REQ-2", "REQ-3", "REQ-4", "REQ-5", "REQ-6", "REQ-7",
   "REQ-8", "REQ-9", "REQ-10", "REQ-11", "REQ-12", "REQ-13", "REQ-14", "REQ-15",
-  "DES-1", "DES-2", "DES-3", "DES-4", "DES-5",
+  "REQ-16", "REQ-17",
+  "DES-1", "DES-2", "DES-3", "DES-4", "DES-5", "DES-6",
 ]
-status = "complete"
-history = "Bottom-up adoption: induced 15 REQ + 5 DES items from L3 items."
+status = "in_progress"
+history = "Bottom-up adoption: induced 15 REQ + 5 DES items from L3 items. Post-completion re-entry: added REQ-16, REQ-17, DES-6 for UC-6."
 
 [tree.L1A]
 layer = "L1"

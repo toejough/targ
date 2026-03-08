@@ -88,10 +88,10 @@ Help output is generated from target metadata: description, usage, flags (with s
 
 ## REQ-13: Build tool discovers and compiles targets
 
-The `targ` CLI discovers `//go:build targ` files, generates a bootstrap Go binary, compiles it (cached in `~/.cache/targ/`), and executes it. Meta-commands scaffold, sync, and convert targets.
+The `targ` CLI discovers `//go:build targ` files by walking both downward (full subtree from CWD) and upward (linear ancestor path to filesystem root). At each ancestor directory, targ checks the directory itself and recursively walks its `dev/` subtree if present. No sibling directories are searched. Generates a bootstrap Go binary, compiles it (cached in `~/.cache/targ/`), and executes it. Meta-commands scaffold, sync, and convert targets.
 
 **Induced from:** ARCH-11, ARCH-12
-**Traces to:** UC-4
+**Traces to:** UC-4, UC-6
 
 ## REQ-14: Source location shown in help
 
@@ -106,6 +106,27 @@ Help output includes the source file:line where a target is defined. Derived fro
 
 **Induced from:** ARCH-13
 **Traces to:** UC-3
+
+## REQ-16: Ancestor targets build as independent module groups
+
+Each ancestor directory with targ-tagged files forms its own module group. Ancestors with a `go.mod` use normal module build. Ancestors without `go.mod` use isolated build (synthetic `go.mod`, copied files). No cross-module imports between ancestor groups. Existing multi-module aggregation handles command merging.
+
+**Derived from:** UC-6
+**Traces to:** UC-6
+
+## REQ-17: Upward discovery is automatic with no root boundary
+
+Upward discovery requires no opt-in — it is always active. The walk continues to the filesystem root. Only the linear ancestor path is searched (parent, grandparent, ..., `/`). Sibling directories of ancestors are never searched.
+
+**Derived from:** UC-6
+**Traces to:** UC-6
+
+## DES-6: Ancestor dev/ subtree convention
+
+At each ancestor directory during upward discovery, targ checks two locations: (1) the ancestor directory itself for targ-tagged `.go` files, and (2) if `<ancestor>/dev/` exists, recursively walks it for targ-tagged files. This supports the convention of placing build tooling in a `dev/` directory without polluting the project root.
+
+**Derived from:** UC-6
+**Traces to:** UC-6
 
 ## DES-1: Two-mode usage (build tool and library)
 
