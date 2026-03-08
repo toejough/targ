@@ -3,7 +3,7 @@ name = "targ"
 skill = "specwalk"
 
 [layers.L1]
-items = []
+items = ["UC-1", "UC-2", "UC-3", "UC-4"]
 
 [layers.L2]
 items = [
@@ -336,11 +336,26 @@ items = [
 status = "complete"
 history = "Adopted from existing tests. Covers CLI runner, code generation, git integration, examples, and dev tooling."
 
+# L1 Groups (adoption)
+[tree.L1A]
+layer = "L1"
+name = "Build & Manage"
+items = ["UC-1", "UC-2"]
+status = "complete"
+history = "Core workflow: define targets, execute, manage multi-package libraries."
+
+[tree.L1B]
+layer = "L1"
+name = "Discover & Graduate"
+items = ["UC-3", "UC-4"]
+status = "complete"
+history = "Discoverability and CLI graduation: help, completion, binary mode."
+
 # L2 Groups (adoption)
 [tree.L2A]
 layer = "L2"
 name = "Define & Run Targets"
-parents = ["L3A"]
+parents = ["L1A", "L3A"]
 items = ["REQ-1", "REQ-2", "REQ-5", "REQ-8", "DES-1", "DES-2"]
 status = "complete"
 history = "Induced from L3. Target definition, execution, validation, overrides."
@@ -348,7 +363,7 @@ history = "Induced from L3. Target definition, execution, validation, overrides.
 [tree.L2B]
 layer = "L2"
 name = "Organize & Discover"
-parents = ["L3B", "L3D"]
+parents = ["L1A", "L3B", "L3D"]
 items = ["REQ-3", "REQ-6", "REQ-9", "DES-4", "DES-5"]
 status = "complete"
 history = "Induced from L3. Groups, registry, discovery, runner."
@@ -356,7 +371,7 @@ history = "Induced from L3. Groups, registry, discovery, runner."
 [tree.L2C]
 layer = "L2"
 name = "User-Facing Output"
-parents = ["L3C"]
+parents = ["L1B", "L3C"]
 items = ["REQ-4", "REQ-7", "DES-3"]
 status = "complete"
 history = "Induced from L3. Help system and completion."
@@ -364,7 +379,7 @@ history = "Induced from L3. Help system and completion."
 [tree.L2D]
 layer = "L2"
 name = "Auxiliary"
-parents = ["L3D"]
+parents = ["L1A", "L3D"]
 items = ["REQ-10", "REQ-11"]
 status = "complete"
 history = "Induced from L3. Git integration and example correctness."
@@ -403,7 +418,7 @@ status = "complete"
 history = "Induced from L4 clusters. CLI runner, git integration, examples, dev quality."
 
 [cursor]
-node = "L2A"
-mode = "work"
-next_action = "COMMIT L2 adoption, then begin L1 derivation from L2 items"
-context_files = ["docs/specs/requirements.md", "docs/specs/design.md", "docs/specs/architecture.md", "docs/specs/state.toml"]
+node = "L1A"
+mode = "complete"
+next_action = "Adoption complete. All layers derived bottom-up with full traceability."
+context_files = ["docs/specs/use-cases.md", "docs/specs/requirements.md", "docs/specs/design.md", "docs/specs/architecture.md", "docs/specs/tests.md", "docs/specs/state.toml"]
