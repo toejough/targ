@@ -79,8 +79,8 @@ items = [
   "ARCH-1", "ARCH-2", "ARCH-3", "ARCH-4", "ARCH-5", "ARCH-6", "ARCH-7",
   "ARCH-8", "ARCH-9", "ARCH-10", "ARCH-11", "ARCH-12", "ARCH-13", "ARCH-14", "ARCH-15",
 ]
-status = "complete"
-history = "Bottom-up adoption: induced 15 ARCH items from L4+L5 clusters (14 derived, 1 standard)."
+status = "in_progress"
+history = "Bottom-up adoption: induced 15 ARCH items from L4+L5 clusters (14 derived, 1 standard). Post-completion re-entry: extended ARCH-11, ARCH-12 for UC-6 bidirectional discovery."
 
 [tree.L2A]
 layer = "L2"

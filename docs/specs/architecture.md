@@ -74,17 +74,17 @@ Fluent `ContentBuilder` API composes help output in sections: description, usage
 
 ## ARCH-11: Target Discovery
 
-`Discover()` scans directories for `//go:build targ` files. Detects `targ.Register()` calls and aliased imports via AST-level inspection. Returns `PackageInfo` with file paths, package name, and registration status. Used by the build tool runner to locate target definitions before compilation.
+`Discover()` scans directories for `//go:build targ` files in two directions. **Downward:** recursive walk of the full subtree below the start directory (existing). **Upward:** linear walk from start directory to filesystem root; at each ancestor, checks the ancestor directory itself and recursively walks `<ancestor>/dev/` if it exists. No sibling discovery — only the direct ancestor path. Detects `targ.Register()` calls and aliased imports via AST-level inspection. Returns `PackageInfo` with file paths, package name, and registration status. Used by the build tool runner to locate target definitions before compilation.
 
 **Induced from:** IMPL-13, T-11
-**Traces to:** REQ-13
+**Traces to:** REQ-13, REQ-17, DES-6
 
 ## ARCH-12: Build Tool Runner
 
-`Run()` is the `cmd/targ` main logic. Workflow: discover target files → generate bootstrap Go file → compile bootstrap binary (cached in `~/.cache/targ/`) → execute binary. Handles meta-commands: `--create` (scaffold targets with code generation), `--sync` (import remote module targets), `--to-func`/`--to-string` (convert target types), `--source` (custom targ file location). `FindOrCreateTargFile()` creates `dev/targets.go` if missing. Import management adds/checks imports in targ files.
+`Run()` is the `cmd/targ` main logic. Workflow: discover target files (downward and upward) → group by module (`groupByModule`) → build per module group: ancestors with `go.mod` use normal module build, ancestors without `go.mod` use isolated build (synthetic `go.mod`, copied files) → aggregate commands across binaries → execute. Handles meta-commands: `--create` (scaffold targets with code generation), `--sync` (import remote module targets), `--to-func`/`--to-string` (convert target types), `--source` (custom targ file location). `FindOrCreateTargFile()` creates `dev/targets.go` if missing. Import management adds/checks imports in targ files.
 
 **Induced from:** IMPL-2, IMPL-18, T-15
-**Traces to:** REQ-13, DES-1, DES-4
+**Traces to:** REQ-13, REQ-16, DES-1, DES-4
 
 ## ARCH-13: Git and Source Integration
 
