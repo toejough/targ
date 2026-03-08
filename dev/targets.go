@@ -24,6 +24,7 @@ import (
 	"github.com/akedrou/textdiff"
 	"github.com/toejough/go-reorder"
 	"github.com/toejough/targ"
+	"github.com/toejough/targ/internal/core"
 	"github.com/toejough/testredundancy"
 )
 
@@ -623,7 +624,7 @@ func checkTypeSpecThinness(fset *token.FileSet, path string, ts *ast.TypeSpec) *
 func checkUncommitted(ctx context.Context) error {
 	targ.Print(ctx, "Checking for uncommitted changes...\n")
 
-	return targ.CheckCleanWorkTree(ctx)
+	return core.CheckCleanWorkTree(ctx)
 }
 
 // checkValueSpecThinness checks if a const/var declaration is thin.
