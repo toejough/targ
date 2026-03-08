@@ -2967,6 +2967,7 @@ func extractStringTargCall(expr ast.Expr) (string, *ast.CallExpr) {
 
 // fetchPackage runs go get to fetch a package.
 func fetchPackage(packagePath string) error {
+	//nolint:gosec // G204: packagePath is from parsed Go source imports
 	cmd := exec.CommandContext(context.Background(), "go", "get", packagePath)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -3295,6 +3296,7 @@ func generateShellFunc(funcName, shellCmd string) *ast.FuncDecl {
 }
 
 func goEnv(key string) (string, error) {
+	//nolint:gosec // G204: key is a hardcoded go env variable name
 	cmd := exec.CommandContext(context.Background(), "go", "env", key)
 
 	output, err := cmd.Output()
@@ -3782,6 +3784,7 @@ func runGoBuild(ctx buildContext, binaryPath, tempFile string, errOut io.Writer)
 
 // runModuleBinary executes a module binary with the given args.
 func runModuleBinary(binaryPath string, args []string, errOut io.Writer, binArg string) error {
+	//nolint:gosec // G204: binaryPath is a locally-built Go binary
 	proc := exec.CommandContext(context.Background(), binaryPath, args...)
 	proc.Stdin = os.Stdin
 	proc.Stdout = os.Stdout

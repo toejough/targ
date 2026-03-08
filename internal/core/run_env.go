@@ -868,6 +868,7 @@ func (e *runExecutor) setupContext() error {
 	e.args = remaining
 
 	if timeout > 0 {
+		//nolint:gosec // G118: cancel is called via e.cancelFunc chaining below
 		ctx, cancel := context.WithTimeout(e.ctx, timeout)
 		e.ctx = ctx
 

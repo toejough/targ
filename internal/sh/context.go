@@ -15,6 +15,7 @@ func OutputContext(
 	args []string,
 	stdin io.Reader,
 ) (string, error) {
+	//nolint:gosec // G204: targ is a build tool — running user-specified commands is its purpose
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Stdin = stdin
 
@@ -65,6 +66,7 @@ func RunContextWithIO(ctx context.Context, env *ShellEnv, name string, args []st
 		env = DefaultShellEnv()
 	}
 
+	//nolint:gosec // G204: targ is a build tool — running user-specified commands is its purpose
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Stdout = env.Stdout
 	cmd.Stderr = env.Stderr

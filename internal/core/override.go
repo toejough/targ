@@ -260,6 +260,7 @@ func checkConflicts(overrides RuntimeOverrides, config TargetConfig) error {
 
 // checkWhileCondition runs a shell command and returns true if it succeeds.
 func checkWhileCondition(ctx context.Context, cmd string) bool {
+	//nolint:gosec // G204: cmd is a user-defined while-condition from target config
 	c := exec.CommandContext(ctx, "sh", "-c", cmd)
 
 	return c.Run() == nil
