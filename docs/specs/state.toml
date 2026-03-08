@@ -99,9 +99,36 @@ name = "Targ Core"
 items = ["UC-1", "UC-2", "UC-3", "UC-4", "UC-5"]
 status = "complete"
 history = "Bottom-up adoption: induced 5 UC items from L2 items. REGROUP: single group — all UCs describe facets of one product."
-gates = { regroup_proposal = "completed: user approved single group with all 5 UCs" }
+gates = { regroup_proposal = "completed: user approved single group with all 5 UCs", usability_gate = """
+UC-1 Define and Run Build Targets:
+  Build: go build ./cmd/targ/ (verified: builds clean)
+  Install: go install ./cmd/targ@latest
+  Exercise: targ status (runs the 'status' dev target)
+  Observe: target executes, output displayed
+
+UC-2 Build a Standalone CLI:
+  Build: go build -o myapp . (in a main package using targ.Main())
+  Install: go install or copy binary
+  Exercise: ./myapp <command> --help
+  Observe: help output with flags, positionals, examples
+
+UC-3 Discover Help, Completion, and Source Info:
+  Build: (same binary as UC-1 or UC-2)
+  Exercise: targ --help; targ <cmd> --help; targ --completion bash
+  Observe: formatted help with ANSI styling, valid bash completion script
+
+UC-4 Scaffold, Sync, and Convert Targets:
+  Build: (same targ binary)
+  Exercise: targ --create hello "echo hello world"
+  Observe: creates targs.go with string target, message confirms creation
+
+UC-5 Run Targets in Parallel with Organized Output:
+  Build: (same binary with parallel deps defined)
+  Exercise: define .Deps(a, b, targ.DepModeParallel), run parent target
+  Observe: each target's output prefixed with [target-name], aligned, summary at end
+""" }
 
 [cursor]
 node = "L1A"
 mode = "work"
-next_action = "Post-adoption fixup: fill deferred traces in spec artifacts, then run usability gate."
+next_action = "Resolve task 4 (old docs/ artifacts) then set mode to complete."
