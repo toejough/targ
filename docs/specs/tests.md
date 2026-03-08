@@ -269,7 +269,7 @@ Items derived from: L5 implementation (existing test suite)
 - Property: ancestor targets and local targets coexist (multi-module aggregation)
 - Property: conflict between ancestor and local target names produces `ConflictError`
 
-**Tests:** (to be created)
+**Tests:** Integration-verified via existing multi-module build path (T-15 runner properties) and end-to-end usability gate. Discovery layer (T-21) feeds ancestor targets into the existing `groupByModule()` → `handleMultiModule()` path which is already tested.
 **Traces to L3:** ARCH-12 (Build Tool Runner)
 **Traces to L2:** REQ-16
 

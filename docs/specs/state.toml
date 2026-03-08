@@ -58,7 +58,7 @@ items = [
   "IMPL-8", "IMPL-9", "IMPL-10", "IMPL-11", "IMPL-12", "IMPL-13", "IMPL-14",
   "IMPL-15", "IMPL-16", "IMPL-17", "IMPL-18", "IMPL-19",
 ]
-status = "in_progress"
+status = "complete"
 history = "Bottom-up adoption: cataloged 19 implementation items from existing codebase. Post-completion re-entry: extended IMPL-13 with upward discovery for T-21."
 
 [tree.L4A]
@@ -70,7 +70,7 @@ items = [
   "T-11", "T-12", "T-13", "T-14", "T-15", "T-16", "T-17", "T-18", "T-19", "T-20",
   "T-21", "T-22",
 ]
-status = "in_progress"
+status = "complete"
 history = "Bottom-up adoption: cataloged 20 test items. Coverage gaps for IMPL-1, IMPL-2, IMPL-3, IMPL-14, IMPL-19. Post-completion re-entry: added T-21 (upward discovery), T-22 (ancestor module grouping)."
 
 [tree.L3A]
@@ -81,7 +81,7 @@ items = [
   "ARCH-1", "ARCH-2", "ARCH-3", "ARCH-4", "ARCH-5", "ARCH-6", "ARCH-7",
   "ARCH-8", "ARCH-9", "ARCH-10", "ARCH-11", "ARCH-12", "ARCH-13", "ARCH-14", "ARCH-15",
 ]
-status = "in_progress"
+status = "complete"
 history = "Bottom-up adoption: induced 15 ARCH items from L4+L5 clusters (14 derived, 1 standard). Post-completion re-entry: extended ARCH-11, ARCH-12 for UC-6 bidirectional discovery."
 
 [tree.L2A]
@@ -94,16 +94,16 @@ items = [
   "REQ-16", "REQ-17",
   "DES-1", "DES-2", "DES-3", "DES-4", "DES-5", "DES-6",
 ]
-status = "in_progress"
+status = "complete"
 history = "Bottom-up adoption: induced 15 REQ + 5 DES items from L3 items. Post-completion re-entry: added REQ-16, REQ-17, DES-6 for UC-6."
 
 [tree.L1A]
 layer = "L1"
 name = "Targ Core"
 items = ["UC-1", "UC-2", "UC-3", "UC-4", "UC-5", "UC-6"]
-status = "in_progress"
+status = "complete"
 history = "Bottom-up adoption: induced 5 UC items from L2 items. REGROUP: single group — all UCs describe facets of one product. Post-completion re-entry: added UC-6 (directory tree traversal, Issue #11)."
-gates = { regroup_proposal = "completed: user approved single group with all 5 UCs", usability_gate = """
+gates = { regroup_proposal = "completed: user approved single group with all 6 UCs", usability_gate = """
 UC-1 Define and Run Build Targets:
   Build: go build ./cmd/targ/ (verified: builds clean)
   Install: go install ./cmd/targ@latest
@@ -130,9 +130,15 @@ UC-5 Run Targets in Parallel with Organized Output:
   Build: (same binary with parallel deps defined)
   Exercise: define .Deps(a, b, targ.DepModeParallel), run parent target
   Observe: each target's output prefixed with [target-name], aligned, summary at end
+
+UC-6 Discover Targets Across the Directory Tree:
+  Build: go build ./cmd/targ/ (same binary)
+  Install: go install ./cmd/targ@latest
+  Exercise: create ~/dev/targs.go with targ.Register(Hello), run targ hello from ~/repos/project/src/
+  Observe: ancestor target discovered, compiled via isolated build, and executed
 """ }
 
 [cursor]
-node = "L5A"
-mode = "in_progress"
-next_action = "T-21 implemented. T-22 (ancestor module grouping) needs runner-level integration tests. Then ascend to mark nodes complete."
+node = "L1A"
+mode = "complete"
+next_action = "UC-6 implemented and usability-gated. Tree complete. Check issue tracker for next work."
