@@ -19,7 +19,23 @@ items = [
 ]
 
 [layers.L3]
-items = []
+items = [
+  { id = "ARCH-1", source = "derived" },
+  { id = "ARCH-2", source = "derived" },
+  { id = "ARCH-3", source = "derived" },
+  { id = "ARCH-4", source = "derived" },
+  { id = "ARCH-5", source = "derived" },
+  { id = "ARCH-6", source = "derived" },
+  { id = "ARCH-7", source = "derived" },
+  { id = "ARCH-8", source = "derived" },
+  { id = "ARCH-9", source = "derived" },
+  { id = "ARCH-10", source = "derived" },
+  { id = "ARCH-11", source = "derived" },
+  { id = "ARCH-12", source = "derived" },
+  { id = "ARCH-13", source = "derived" },
+  { id = "ARCH-14", source = "derived" },
+  { id = "ARCH-15", source = "standard", rationale = "No Surprises design principle: compile-time vs CLI flag conflicts error rather than silently choosing" },
+]
 
 [layers.L2]
 items = []
@@ -46,9 +62,19 @@ items = [
   "T-11", "T-12", "T-13", "T-14", "T-15", "T-16", "T-17", "T-18", "T-19", "T-20",
 ]
 status = "complete"
-history = "Bottom-up adoption: cataloged 20 test items from existing test suite. REGROUP: single group — tests verify a single deployable unit. Coverage gaps noted for IMPL-1, IMPL-2, IMPL-3, IMPL-14, IMPL-19."
+history = "Bottom-up adoption: cataloged 20 test items from existing test suite. Coverage gaps noted for IMPL-1, IMPL-2, IMPL-3, IMPL-14, IMPL-19."
+
+[tree.L3A]
+layer = "L3"
+name = "All Architecture"
+items = [
+  "ARCH-1", "ARCH-2", "ARCH-3", "ARCH-4", "ARCH-5", "ARCH-6", "ARCH-7",
+  "ARCH-8", "ARCH-9", "ARCH-10", "ARCH-11", "ARCH-12", "ARCH-13", "ARCH-14", "ARCH-15",
+]
+status = "complete"
+history = "Bottom-up adoption: induced 15 ARCH items from L4+L5 clusters (14 derived, 1 standard). Derivation gate passed. REGROUP: single group — single deployable unit."
 
 [cursor]
-node = "L4A"
+node = "L3A"
 mode = "work"
-next_action = "Derivation gate: verify every L3 item traces to ≥1 L4 or L5 item. Then proceed to L3: induce ARCH items from L4+L5 clusters."
+next_action = "Derivation gate: verify every L2 item traces to ≥1 L3 item. Then proceed to L2: induce REQ/DES items from L3 items."
