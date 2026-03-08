@@ -81,10 +81,7 @@ func Discover(filesystem FileSystem, opts Options) ([]PackageInfo, error) {
 		return nil, err
 	}
 
-	ancestorDirs, err := findAncestorTaggedDirs(filesystem, startDir, tag)
-	if err != nil {
-		return nil, err
-	}
+	ancestorDirs := findAncestorTaggedDirs(filesystem, startDir, tag)
 
 	dirs = append(dirs, ancestorDirs...)
 
@@ -321,7 +318,7 @@ func containsTargRegisterCall(body *ast.BlockStmt, targAliases map[string]bool) 
 	return found
 }
 
-func findAncestorTaggedDirs(filesystem FileSystem, startDir, tag string) ([]taggedDir, error) {
+func findAncestorTaggedDirs(filesystem FileSystem, startDir, tag string) []taggedDir {
 	var results []taggedDir
 
 	dir := filepath.Dir(startDir)
@@ -366,7 +363,7 @@ func findAncestorTaggedDirs(filesystem FileSystem, startDir, tag string) ([]tagg
 		dir = parent
 	}
 
-	return results, nil
+	return results
 }
 
 func findTaggedDirs(filesystem FileSystem, startDir, tag string) ([]taggedDir, error) {
