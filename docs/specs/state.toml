@@ -1,0 +1,41 @@
+[project]
+name = "targ"
+skill = "traced"
+mode = "adoption"
+direction = "bottom-up"
+
+[layers.L5]
+items = [
+  "IMPL-1", "IMPL-2", "IMPL-3", "IMPL-4", "IMPL-5", "IMPL-6", "IMPL-7",
+  "IMPL-8", "IMPL-9", "IMPL-10", "IMPL-11", "IMPL-12", "IMPL-13", "IMPL-14",
+  "IMPL-15", "IMPL-16", "IMPL-17", "IMPL-18", "IMPL-19",
+]
+green_tool = "targ check-full"
+
+[layers.L4]
+items = []
+
+[layers.L3]
+items = []
+
+[layers.L2]
+items = []
+
+[layers.L1]
+items = []
+
+[tree.L5A]
+layer = "L5"
+name = "All Implementation"
+items = [
+  "IMPL-1", "IMPL-2", "IMPL-3", "IMPL-4", "IMPL-5", "IMPL-6", "IMPL-7",
+  "IMPL-8", "IMPL-9", "IMPL-10", "IMPL-11", "IMPL-12", "IMPL-13", "IMPL-14",
+  "IMPL-15", "IMPL-16", "IMPL-17", "IMPL-18", "IMPL-19",
+]
+status = "complete"
+history = "Bottom-up adoption: cataloged 19 implementation items from existing codebase. REGROUP: single group — all items form one deployable unit."
+
+[cursor]
+node = "L5A"
+mode = "work"
+next_action = "Proceed to L4: catalog existing test functions and trace to L5 items."
