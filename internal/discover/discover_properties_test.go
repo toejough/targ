@@ -945,8 +945,11 @@ var Hello = targ.Targ("echo hello")
 	})
 	g.Expect(err).NotTo(HaveOccurred())
 	g.Expect(infos).To(HaveLen(1))
-	g.Expect(infos[0].Dir).To(Equal(devDir))
-	g.Expect(infos[0].UsesExplicitRegistration).To(BeTrue())
+
+	if len(infos) > 0 {
+		g.Expect(infos[0].Dir).To(Equal(devDir))
+		g.Expect(infos[0].UsesExplicitRegistration).To(BeTrue())
+	}
 }
 
 // unexported variables.
