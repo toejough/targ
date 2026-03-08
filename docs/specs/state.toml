@@ -103,5 +103,5 @@ gates = { regroup_proposal = "completed: user approved single group with all 5 U
 
 [cursor]
 node = "L1A"
-mode = "complete"
+mode = "work"
 next_action = "Post-adoption fixup: fill deferred traces in spec artifacts, then run usability gate."
