@@ -243,6 +243,36 @@ Items derived from: L5 implementation (existing test suite)
 **Tests:** `TestMutation`
 **Traces to L5:** IMPL-3 (Build Targets), all other IMPL items (mutation tests exercise entire codebase)
 
+## T-21: Upward directory discovery
+
+**Given** a directory tree with targ-tagged `.go` files in ancestor directories, **When** `Discover()` is called from a subdirectory, **Then** targets from ancestor directories are found alongside targets in the subtree below.
+
+- Property: discovers targets in parent directory
+- Property: discovers targets in grandparent directory
+- Property: walks to filesystem root (no root boundary)
+- Property: does not discover targets in sibling directories of ancestors
+- Property: discovers targets in ancestor `dev/` subtrees when present
+- Property: ignores ancestor `dev/` when it does not exist
+- Property: combines upward and downward results without duplicates
+
+**Tests:** (to be created)
+**Traces to L3:** ARCH-11 (Target Discovery)
+**Traces to L2:** REQ-13, REQ-17, DES-6
+
+## T-22: Ancestor module grouping and build
+
+**Given** ancestor targets discovered via upward walk with varying module configurations, **When** the build tool groups and compiles them, **Then** each ancestor module group builds independently and commands are aggregated.
+
+- Property: ancestor with `go.mod` uses normal module build
+- Property: ancestor without `go.mod` uses isolated build (synthetic `go.mod`)
+- Property: multiple ancestors produce multiple module groups
+- Property: ancestor targets and local targets coexist (multi-module aggregation)
+- Property: conflict between ancestor and local target names produces `ConflictError`
+
+**Tests:** (to be created)
+**Traces to L3:** ARCH-12 (Build Tool Runner)
+**Traces to L2:** REQ-16
+
 ## Coverage Gaps (L5 items with no dedicated L4 test coverage)
 
 - **IMPL-1 (Root Public API):** No direct tests — tested indirectly through integration tests in `test/`. Thin re-export layer, expected.

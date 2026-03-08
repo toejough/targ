@@ -16,6 +16,7 @@ green_tool = "targ check-full"
 items = [
   "T-1", "T-2", "T-3", "T-4", "T-5", "T-6", "T-7", "T-8", "T-9", "T-10",
   "T-11", "T-12", "T-13", "T-14", "T-15", "T-16", "T-17", "T-18", "T-19", "T-20",
+  "T-21", "T-22",
 ]
 
 [layers.L3]
@@ -67,9 +68,10 @@ parents = ["L3A"]
 items = [
   "T-1", "T-2", "T-3", "T-4", "T-5", "T-6", "T-7", "T-8", "T-9", "T-10",
   "T-11", "T-12", "T-13", "T-14", "T-15", "T-16", "T-17", "T-18", "T-19", "T-20",
+  "T-21", "T-22",
 ]
-status = "complete"
-history = "Bottom-up adoption: cataloged 20 test items. Coverage gaps for IMPL-1, IMPL-2, IMPL-3, IMPL-14, IMPL-19."
+status = "in_progress"
+history = "Bottom-up adoption: cataloged 20 test items. Coverage gaps for IMPL-1, IMPL-2, IMPL-3, IMPL-14, IMPL-19. Post-completion re-entry: added T-21 (upward discovery), T-22 (ancestor module grouping)."
 
 [tree.L3A]
 layer = "L3"
