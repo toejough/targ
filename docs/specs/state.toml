@@ -38,7 +38,11 @@ items = [
 ]
 
 [layers.L2]
-items = []
+items = [
+  "REQ-1", "REQ-2", "REQ-3", "REQ-4", "REQ-5", "REQ-6", "REQ-7",
+  "REQ-8", "REQ-9", "REQ-10", "REQ-11", "REQ-12", "REQ-13", "REQ-14", "REQ-15",
+  "DES-1", "DES-2", "DES-3", "DES-4", "DES-5",
+]
 
 [layers.L1]
 items = []
@@ -62,7 +66,7 @@ items = [
   "T-11", "T-12", "T-13", "T-14", "T-15", "T-16", "T-17", "T-18", "T-19", "T-20",
 ]
 status = "complete"
-history = "Bottom-up adoption: cataloged 20 test items from existing test suite. Coverage gaps noted for IMPL-1, IMPL-2, IMPL-3, IMPL-14, IMPL-19."
+history = "Bottom-up adoption: cataloged 20 test items. Coverage gaps noted for IMPL-1, IMPL-2, IMPL-3, IMPL-14, IMPL-19."
 
 [tree.L3A]
 layer = "L3"
@@ -72,9 +76,20 @@ items = [
   "ARCH-8", "ARCH-9", "ARCH-10", "ARCH-11", "ARCH-12", "ARCH-13", "ARCH-14", "ARCH-15",
 ]
 status = "complete"
-history = "Bottom-up adoption: induced 15 ARCH items from L4+L5 clusters (14 derived, 1 standard). Derivation gate passed. REGROUP: single group — single deployable unit."
+history = "Bottom-up adoption: induced 15 ARCH items from L4+L5 clusters (14 derived, 1 standard). Derivation gate passed."
+
+[tree.L2A]
+layer = "L2"
+name = "All Requirements and Design"
+items = [
+  "REQ-1", "REQ-2", "REQ-3", "REQ-4", "REQ-5", "REQ-6", "REQ-7",
+  "REQ-8", "REQ-9", "REQ-10", "REQ-11", "REQ-12", "REQ-13", "REQ-14", "REQ-15",
+  "DES-1", "DES-2", "DES-3", "DES-4", "DES-5",
+]
+status = "complete"
+history = "Bottom-up adoption: induced 15 REQ + 5 DES items from L3 items. Derivation gate passed. REGROUP: single group — single deployable unit."
 
 [cursor]
-node = "L3A"
+node = "L2A"
 mode = "work"
-next_action = "Derivation gate: verify every L2 item traces to ≥1 L3 item. Then proceed to L2: induce REQ/DES items from L3 items."
+next_action = "Derivation gate: verify every L1 item traces to ≥1 L2 item. Then proceed to L1: induce UC items from L2 items."
