@@ -5,6 +5,7 @@ package discover_test
 import (
 	"errors"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -909,6 +910,40 @@ var ` + varName + ` = targ.Targ(func() {})
 	})
 }
 
+func TestProperty_UpwardDiscovery_RealFilesystem(t *testing.T) {
+	t.Parallel()
+	g := NewWithT(t)
+
+	tmpDir := t.TempDir()
+	devDir := filepath.Join(tmpDir, "dev")
+	projectDir := filepath.Join(tmpDir, "project", "src")
+
+	err := os.MkdirAll(devDir, 0o755)
+	g.Expect(err).NotTo(HaveOccurred())
+
+	err = os.MkdirAll(projectDir, 0o755)
+	g.Expect(err).NotTo(HaveOccurred())
+
+	targSrcBytes := []byte(`//go:build targ
+
+package dev
+
+import "github.com/toejough/targ"
+
+var Hello = targ.Targ("echo hello")
+`)
+	err = os.WriteFile(filepath.Join(devDir, "targs.go"), targSrcBytes, 0o644)
+	g.Expect(err).NotTo(HaveOccurred())
+
+	infos, err := discover.Discover(realFileSystem{}, discover.Options{
+		StartDir: projectDir,
+		BuildTag: "targ",
+	})
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(infos).To(HaveLen(1))
+	g.Expect(infos[0].Dir).To(Equal(devDir))
+}
+
 // unexported variables.
 var (
 	errInfoNotImplemented = errors.New("Info() not implemented in mock")
@@ -952,4 +987,15 @@ func (m *mockFileSystem) ReadFile(name string) ([]byte, error) {
 
 func (m *mockFileSystem) WriteFile(_ string, _ []byte, _ fs.FileMode) error {
 	return nil
+}
+
+// realFileSystem uses the real OS filesystem.
+type realFileSystem struct{}
+
+func (realFileSystem) ReadDir(name string) ([]fs.DirEntry, error) { return os.ReadDir(name) }
+
+func (realFileSystem) ReadFile(name string) ([]byte, error) { return os.ReadFile(name) }
+
+func (realFileSystem) WriteFile(name string, data []byte, perm fs.FileMode) error {
+	return os.WriteFile(name, data, perm)
 }

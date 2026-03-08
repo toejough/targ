@@ -327,10 +327,18 @@ func findAncestorTaggedDirs(filesystem FileSystem, startDir, tag string) ([]tagg
 	dir := filepath.Dir(startDir)
 
 	for {
-		// Check the ancestor directory itself for tagged files (no recursion into subdirs)
+		// Check the ancestor directory itself for tagged files (no recursion into subdirs).
+		// Errors are tolerated (unreadable directories during upward walk).
 		tagged, _, err := processDirectory(filesystem, dirQueueEntry{path: dir, depth: 0}, tag)
-		if err != nil && !errors.Is(err, fs.ErrNotExist) {
-			return nil, err
+		if err != nil {
+			parent := filepath.Dir(dir)
+			if parent == dir {
+				break
+			}
+
+			dir = parent
+
+			continue
 		}
 
 		if len(tagged) > 0 {
@@ -341,15 +349,14 @@ func findAncestorTaggedDirs(filesystem FileSystem, startDir, tag string) ([]tagg
 			})
 		}
 
-		// Check ancestor's dev/ subtree recursively
+		// Check ancestor's dev/ subtree recursively.
+		// Errors are tolerated (non-existent, unreadable, system dirs like /dev).
 		devPath := filepath.Join(dir, ancestorDevDir)
 
 		devDirs, err := findTaggedDirs(filesystem, devPath, tag)
-		if err != nil && !errors.Is(err, fs.ErrNotExist) {
-			return nil, err
+		if err == nil {
+			results = append(results, devDirs...)
 		}
-
-		results = append(results, devDirs...)
 
 		parent := filepath.Dir(dir)
 		if parent == dir {
