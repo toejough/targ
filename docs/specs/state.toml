@@ -6,7 +6,26 @@ skill = "specwalk"
 items = []
 
 [layers.L2]
-items = []
+items = [
+  # Requirements
+  { id = "REQ-1", source = "derived" },
+  { id = "REQ-2", source = "derived" },
+  { id = "REQ-3", source = "derived" },
+  { id = "REQ-4", source = "derived" },
+  { id = "REQ-5", source = "derived" },
+  { id = "REQ-6", source = "derived" },
+  { id = "REQ-7", source = "derived" },
+  { id = "REQ-8", source = "derived" },
+  { id = "REQ-9", source = "derived" },
+  { id = "REQ-10", source = "derived" },
+  { id = "REQ-11", source = "derived" },
+  # Design
+  { id = "DES-1", source = "derived" },
+  { id = "DES-2", source = "derived" },
+  { id = "DES-3", source = "derived" },
+  { id = "DES-4", source = "derived" },
+  { id = "DES-5", source = "derived" },
+]
 
 [layers.L3]
 items = [
@@ -317,6 +336,39 @@ items = [
 status = "complete"
 history = "Adopted from existing tests. Covers CLI runner, code generation, git integration, examples, and dev tooling."
 
+# L2 Groups (adoption)
+[tree.L2A]
+layer = "L2"
+name = "Define & Run Targets"
+parents = ["L3A"]
+items = ["REQ-1", "REQ-2", "REQ-5", "REQ-8", "DES-1", "DES-2"]
+status = "complete"
+history = "Induced from L3. Target definition, execution, validation, overrides."
+
+[tree.L2B]
+layer = "L2"
+name = "Organize & Discover"
+parents = ["L3B", "L3D"]
+items = ["REQ-3", "REQ-6", "REQ-9", "DES-4", "DES-5"]
+status = "complete"
+history = "Induced from L3. Groups, registry, discovery, runner."
+
+[tree.L2C]
+layer = "L2"
+name = "User-Facing Output"
+parents = ["L3C"]
+items = ["REQ-4", "REQ-7", "DES-3"]
+status = "complete"
+history = "Induced from L3. Help system and completion."
+
+[tree.L2D]
+layer = "L2"
+name = "Auxiliary"
+parents = ["L3D"]
+items = ["REQ-10", "REQ-11"]
+status = "complete"
+history = "Induced from L3. Git integration and example correctness."
+
 # L3 Groups (adoption)
 [tree.L3A]
 layer = "L3"
@@ -351,7 +403,7 @@ status = "complete"
 history = "Induced from L4 clusters. CLI runner, git integration, examples, dev quality."
 
 [cursor]
-node = "L3A"
+node = "L2A"
 mode = "work"
-next_action = "COMMIT L3 adoption, then begin L2 derivation from L3 items"
-context_files = ["docs/specs/architecture.md", "docs/specs/tests.md", "docs/specs/state.toml"]
+next_action = "COMMIT L2 adoption, then begin L1 derivation from L2 items"
+context_files = ["docs/specs/requirements.md", "docs/specs/design.md", "docs/specs/architecture.md", "docs/specs/state.toml"]
