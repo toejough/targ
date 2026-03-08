@@ -665,6 +665,250 @@ var ` + var2 + ` = targ.Targ(func() {})
 	})
 }
 
+func TestProperty_UpwardDiscovery(t *testing.T) {
+	t.Parallel()
+
+	targSrc := func(varName string) []byte {
+		return []byte(`//go:build targ
+
+package build
+
+import "github.com/toejough/targ"
+
+var ` + varName + ` = targ.Targ(func() {})
+`)
+	}
+
+	t.Run("DiscoversTargetsInParentDirectory", func(t *testing.T) {
+		t.Parallel()
+		rapid.Check(t, func(t *rapid.T) {
+			g := NewWithT(t)
+			varName := rapid.StringMatching(`[A-Z][a-z]{2,8}`).Draw(t, "varName")
+
+			filesystem := &mockFileSystem{
+				files: map[string][]byte{
+					"/home/user/targs.go": targSrc(varName),
+				},
+				dirs: map[string][]fs.DirEntry{
+					"/home/user/project": {},
+					"/home/user":         {mockDirEntry{name: "targs.go", isDir: false}, mockDirEntry{name: "project", isDir: true}},
+					"/home":              {mockDirEntry{name: "user", isDir: true}},
+					"/":                  {mockDirEntry{name: "home", isDir: true}},
+				},
+			}
+
+			infos, err := discover.Discover(
+				filesystem,
+				discover.Options{StartDir: "/home/user/project", BuildTag: "targ"},
+			)
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(infos).To(HaveLen(1))
+			g.Expect(infos[0].Dir).To(Equal("/home/user"))
+		})
+	})
+
+	t.Run("DiscoversTargetsInGrandparentDirectory", func(t *testing.T) {
+		t.Parallel()
+		rapid.Check(t, func(t *rapid.T) {
+			g := NewWithT(t)
+			varName := rapid.StringMatching(`[A-Z][a-z]{2,8}`).Draw(t, "varName")
+
+			filesystem := &mockFileSystem{
+				files: map[string][]byte{
+					"/home/targs.go": targSrc(varName),
+				},
+				dirs: map[string][]fs.DirEntry{
+					"/home/user/project": {},
+					"/home/user":         {mockDirEntry{name: "project", isDir: true}},
+					"/home":              {mockDirEntry{name: "user", isDir: true}, mockDirEntry{name: "targs.go", isDir: false}},
+					"/":                  {mockDirEntry{name: "home", isDir: true}},
+				},
+			}
+
+			infos, err := discover.Discover(
+				filesystem,
+				discover.Options{StartDir: "/home/user/project", BuildTag: "targ"},
+			)
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(infos).To(HaveLen(1))
+			g.Expect(infos[0].Dir).To(Equal("/home"))
+		})
+	})
+
+	t.Run("DoesNotDiscoverSiblingDirectories", func(t *testing.T) {
+		t.Parallel()
+		rapid.Check(t, func(t *rapid.T) {
+			g := NewWithT(t)
+			varName := rapid.StringMatching(`[A-Z][a-z]{2,8}`).Draw(t, "varName")
+
+			filesystem := &mockFileSystem{
+				files: map[string][]byte{
+					"/home/user/sibling/targs.go": targSrc(varName),
+				},
+				dirs: map[string][]fs.DirEntry{
+					"/home/user/project": {},
+					"/home/user/sibling": {mockDirEntry{name: "targs.go", isDir: false}},
+					"/home/user":         {mockDirEntry{name: "project", isDir: true}, mockDirEntry{name: "sibling", isDir: true}},
+					"/home":              {mockDirEntry{name: "user", isDir: true}},
+					"/":                  {mockDirEntry{name: "home", isDir: true}},
+				},
+			}
+
+			infos, err := discover.Discover(
+				filesystem,
+				discover.Options{StartDir: "/home/user/project", BuildTag: "targ"},
+			)
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(infos).To(BeEmpty(), "sibling directories should not be discovered")
+		})
+	})
+
+	t.Run("DiscoversAncestorDevSubtree", func(t *testing.T) {
+		t.Parallel()
+		rapid.Check(t, func(t *rapid.T) {
+			g := NewWithT(t)
+			varName := rapid.StringMatching(`[A-Z][a-z]{2,8}`).Draw(t, "varName")
+
+			filesystem := &mockFileSystem{
+				files: map[string][]byte{
+					"/home/user/dev/targs.go": targSrc(varName),
+				},
+				dirs: map[string][]fs.DirEntry{
+					"/home/user/project": {},
+					"/home/user/dev":     {mockDirEntry{name: "targs.go", isDir: false}},
+					"/home/user":         {mockDirEntry{name: "project", isDir: true}, mockDirEntry{name: "dev", isDir: true}},
+					"/home":              {mockDirEntry{name: "user", isDir: true}},
+					"/":                  {mockDirEntry{name: "home", isDir: true}},
+				},
+			}
+
+			infos, err := discover.Discover(
+				filesystem,
+				discover.Options{StartDir: "/home/user/project", BuildTag: "targ"},
+			)
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(infos).To(HaveLen(1))
+			g.Expect(infos[0].Dir).To(Equal("/home/user/dev"))
+		})
+	})
+
+	t.Run("IgnoresAncestorDevWhenAbsent", func(t *testing.T) {
+		t.Parallel()
+		rapid.Check(t, func(t *rapid.T) {
+			g := NewWithT(t)
+
+			filesystem := &mockFileSystem{
+				files: map[string][]byte{},
+				dirs: map[string][]fs.DirEntry{
+					"/home/user/project": {},
+					"/home/user":         {mockDirEntry{name: "project", isDir: true}},
+					"/home":              {mockDirEntry{name: "user", isDir: true}},
+					"/":                  {mockDirEntry{name: "home", isDir: true}},
+				},
+			}
+
+			infos, err := discover.Discover(
+				filesystem,
+				discover.Options{StartDir: "/home/user/project", BuildTag: "targ"},
+			)
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(infos).To(BeEmpty())
+		})
+	})
+
+	t.Run("CombinesUpwardAndDownwardResults", func(t *testing.T) {
+		t.Parallel()
+		rapid.Check(t, func(t *rapid.T) {
+			g := NewWithT(t)
+			var1 := rapid.StringMatching(`[A-Z][a-z]{2,8}`).Draw(t, "var1")
+			var2 := rapid.StringMatching(`[A-Z][a-z]{2,8}`).Draw(t, "var2")
+
+			filesystem := &mockFileSystem{
+				files: map[string][]byte{
+					"/home/user/project/sub/targs.go": targSrc(var1),
+					"/home/user/dev/targs.go":         targSrc(var2),
+				},
+				dirs: map[string][]fs.DirEntry{
+					"/home/user/project":     {mockDirEntry{name: "sub", isDir: true}},
+					"/home/user/project/sub": {mockDirEntry{name: "targs.go", isDir: false}},
+					"/home/user/dev":         {mockDirEntry{name: "targs.go", isDir: false}},
+					"/home/user":             {mockDirEntry{name: "project", isDir: true}, mockDirEntry{name: "dev", isDir: true}},
+					"/home":                  {mockDirEntry{name: "user", isDir: true}},
+					"/":                      {mockDirEntry{name: "home", isDir: true}},
+				},
+			}
+
+			infos, err := discover.Discover(
+				filesystem,
+				discover.Options{StartDir: "/home/user/project", BuildTag: "targ"},
+			)
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(infos).To(HaveLen(2))
+
+			dirs := []string{infos[0].Dir, infos[1].Dir}
+			g.Expect(dirs).To(ContainElement("/home/user/project/sub"))
+			g.Expect(dirs).To(ContainElement("/home/user/dev"))
+		})
+	})
+
+	t.Run("NoDuplicatesWhenStartDirIsAlsoAncestor", func(t *testing.T) {
+		t.Parallel()
+		rapid.Check(t, func(t *rapid.T) {
+			g := NewWithT(t)
+			varName := rapid.StringMatching(`[A-Z][a-z]{2,8}`).Draw(t, "varName")
+
+			filesystem := &mockFileSystem{
+				files: map[string][]byte{
+					"/home/user/project/targs.go": targSrc(varName),
+				},
+				dirs: map[string][]fs.DirEntry{
+					"/home/user/project": {mockDirEntry{name: "targs.go", isDir: false}},
+					"/home/user":         {mockDirEntry{name: "project", isDir: true}},
+					"/home":              {mockDirEntry{name: "user", isDir: true}},
+					"/":                  {mockDirEntry{name: "home", isDir: true}},
+				},
+			}
+
+			infos, err := discover.Discover(
+				filesystem,
+				discover.Options{StartDir: "/home/user/project", BuildTag: "targ"},
+			)
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(infos).To(HaveLen(1), "should not duplicate targets found by downward walk")
+		})
+	})
+
+	t.Run("DiscoversNestedDevSubtree", func(t *testing.T) {
+		t.Parallel()
+		rapid.Check(t, func(t *rapid.T) {
+			g := NewWithT(t)
+			varName := rapid.StringMatching(`[A-Z][a-z]{2,8}`).Draw(t, "varName")
+
+			filesystem := &mockFileSystem{
+				files: map[string][]byte{
+					"/home/user/dev/sub/targs.go": targSrc(varName),
+				},
+				dirs: map[string][]fs.DirEntry{
+					"/home/user/project": {},
+					"/home/user/dev":     {mockDirEntry{name: "sub", isDir: true}},
+					"/home/user/dev/sub": {mockDirEntry{name: "targs.go", isDir: false}},
+					"/home/user":         {mockDirEntry{name: "project", isDir: true}, mockDirEntry{name: "dev", isDir: true}},
+					"/home":              {mockDirEntry{name: "user", isDir: true}},
+					"/":                  {mockDirEntry{name: "home", isDir: true}},
+				},
+			}
+
+			infos, err := discover.Discover(
+				filesystem,
+				discover.Options{StartDir: "/home/user/project", BuildTag: "targ"},
+			)
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(infos).To(HaveLen(1))
+			g.Expect(infos[0].Dir).To(Equal("/home/user/dev/sub"))
+		})
+	})
+}
+
 // unexported variables.
 var (
 	errInfoNotImplemented = errors.New("Info() not implemented in mock")

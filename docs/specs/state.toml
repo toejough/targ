@@ -58,8 +58,8 @@ items = [
   "IMPL-8", "IMPL-9", "IMPL-10", "IMPL-11", "IMPL-12", "IMPL-13", "IMPL-14",
   "IMPL-15", "IMPL-16", "IMPL-17", "IMPL-18", "IMPL-19",
 ]
-status = "complete"
-history = "Bottom-up adoption: cataloged 19 implementation items from existing codebase."
+status = "in_progress"
+history = "Bottom-up adoption: cataloged 19 implementation items from existing codebase. Post-completion re-entry: extended IMPL-13 with upward discovery for T-21."
 
 [tree.L4A]
 layer = "L4"
@@ -133,6 +133,6 @@ UC-5 Run Targets in Parallel with Organized Output:
 """ }
 
 [cursor]
-node = "L1A"
+node = "L5A"
 mode = "in_progress"
-next_action = "UC-6 added. REFACTOR L1, then REGROUP, then descend to L2 for UC-6 derivation."
+next_action = "T-21 implemented. T-22 (ancestor module grouping) needs runner-level integration tests. Then ascend to mark nodes complete."

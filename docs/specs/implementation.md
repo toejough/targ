@@ -100,8 +100,8 @@ Items derived from: ground truth (existing codebase)
 
 **Package:** `internal/discover`
 **File:** `internal/discover/discover.go`
-**Purpose:** Discovers `//go:build targ` files in a Go project. Scans directories for tagged files, detects `targ.Register()` calls and aliased imports. Used by the build tool runner to find target definitions.
-**Key functions:** `Discover()`, `TaggedFiles()`
+**Purpose:** Discovers `//go:build targ` files in a Go project. Scans directories bidirectionally: downward (full subtree from start directory) and upward (linear ancestor path to filesystem root, checking each ancestor directory and its `dev/` subtree). Detects `targ.Register()` calls and aliased imports. Used by the build tool runner to find target definitions.
+**Key functions:** `Discover()`, `TaggedFiles()`, `findAncestorTaggedDirs()`
 **Key types:** `PackageInfo`, `TaggedFile`, `Options`
 **Traces to:** ARCH-11
 

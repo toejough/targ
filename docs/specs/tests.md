@@ -255,7 +255,7 @@ Items derived from: L5 implementation (existing test suite)
 - Property: ignores ancestor `dev/` when it does not exist
 - Property: combines upward and downward results without duplicates
 
-**Tests:** (to be created)
+**Tests:** `TestProperty_UpwardDiscovery` (DiscoversTargetsInParentDirectory, DiscoversTargetsInGrandparentDirectory, DoesNotDiscoverSiblingDirectories, DiscoversAncestorDevSubtree, IgnoresAncestorDevWhenAbsent, CombinesUpwardAndDownwardResults, NoDuplicatesWhenStartDirIsAlsoAncestor, DiscoversNestedDevSubtree)
 **Traces to L3:** ARCH-11 (Target Discovery)
 **Traces to L2:** REQ-13, REQ-17, DES-6
 

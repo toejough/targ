@@ -81,6 +81,13 @@ func Discover(filesystem FileSystem, opts Options) ([]PackageInfo, error) {
 		return nil, err
 	}
 
+	ancestorDirs, err := findAncestorTaggedDirs(filesystem, startDir, tag)
+	if err != nil {
+		return nil, err
+	}
+
+	dirs = append(dirs, ancestorDirs...)
+
 	infos := make([]PackageInfo, 0, len(dirs))
 
 	for _, dir := range dirs {
@@ -127,6 +134,7 @@ func TaggedFiles(filesystem FileSystem, opts Options) ([]TaggedFile, error) {
 
 // unexported constants.
 const (
+	ancestorDevDir  = "dev"
 	defaultBuildTag = "targ"
 )
 
@@ -311,6 +319,47 @@ func containsTargRegisterCall(body *ast.BlockStmt, targAliases map[string]bool) 
 	})
 
 	return found
+}
+
+func findAncestorTaggedDirs(filesystem FileSystem, startDir, tag string) ([]taggedDir, error) {
+	var results []taggedDir
+
+	dir := filepath.Dir(startDir)
+
+	for {
+		// Check the ancestor directory itself for tagged files (no recursion into subdirs)
+		tagged, _, err := processDirectory(filesystem, dirQueueEntry{path: dir, depth: 0}, tag)
+		if err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return nil, err
+		}
+
+		if len(tagged) > 0 {
+			results = append(results, taggedDir{
+				Path:  dir,
+				Depth: 0,
+				Files: tagged,
+			})
+		}
+
+		// Check ancestor's dev/ subtree recursively
+		devPath := filepath.Join(dir, ancestorDevDir)
+
+		devDirs, err := findTaggedDirs(filesystem, devPath, tag)
+		if err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return nil, err
+		}
+
+		results = append(results, devDirs...)
+
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+
+		dir = parent
+	}
+
+	return results, nil
 }
 
 func findTaggedDirs(filesystem FileSystem, startDir, tag string) ([]taggedDir, error) {
