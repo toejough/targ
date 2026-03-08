@@ -9,7 +9,25 @@ items = []
 items = []
 
 [layers.L3]
-items = []
+items = [
+  { id = "ARCH-1", source = "derived" },
+  { id = "ARCH-2", source = "derived" },
+  { id = "ARCH-3", source = "derived" },
+  { id = "ARCH-4", source = "derived" },
+  { id = "ARCH-5", source = "derived" },
+  { id = "ARCH-6", source = "derived" },
+  { id = "ARCH-7", source = "derived" },
+  { id = "ARCH-8", source = "derived" },
+  { id = "ARCH-9", source = "derived" },
+  { id = "ARCH-10", source = "derived" },
+  { id = "ARCH-11", source = "derived" },
+  { id = "ARCH-12", source = "derived" },
+  { id = "ARCH-13", source = "derived" },
+  { id = "ARCH-14", source = "derived" },
+  { id = "ARCH-15", source = "derived" },
+  { id = "ARCH-16", source = "derived" },
+  { id = "ARCH-17", source = "standard", rationale = "Internal quality enforcement — ANSI containment and mutation testing" },
+]
 
 [layers.L4]
 items = [
@@ -299,8 +317,41 @@ items = [
 status = "complete"
 history = "Adopted from existing tests. Covers CLI runner, code generation, git integration, examples, and dev tooling."
 
+# L3 Groups (adoption)
+[tree.L3A]
+layer = "L3"
+name = "Core Build System"
+parents = ["L4A", "L4B"]
+items = ["ARCH-1", "ARCH-2", "ARCH-6", "ARCH-8", "ARCH-9", "ARCH-10", "ARCH-11"]
+status = "complete"
+history = "Induced from L4 clusters. Core target definition, execution, args, validation, overrides, parallel output."
+
+[tree.L3B]
+layer = "L3"
+name = "Organization & Resolution"
+parents = ["L4C"]
+items = ["ARCH-3", "ARCH-4", "ARCH-12", "ARCH-13"]
+status = "complete"
+history = "Induced from L4 clusters. Hierarchy, registry, discovery, flags."
+
+[tree.L3C]
+layer = "L3"
+name = "User Interface"
+parents = ["L4D"]
+items = ["ARCH-5", "ARCH-7"]
+status = "complete"
+history = "Induced from L4 clusters. Help system and shell completion."
+
+[tree.L3D]
+layer = "L3"
+name = "Tooling & Scaffolding"
+parents = ["L4E"]
+items = ["ARCH-14", "ARCH-15", "ARCH-16", "ARCH-17"]
+status = "complete"
+history = "Induced from L4 clusters. CLI runner, git integration, examples, dev quality."
+
 [cursor]
-node = "L4A"
+node = "L3A"
 mode = "work"
-next_action = "COMMIT L4 adoption, then begin L3 derivation from L4 clusters"
-context_files = ["docs/specs/tests.md", "docs/specs/state.toml"]
+next_action = "COMMIT L3 adoption, then begin L2 derivation from L3 items"
+context_files = ["docs/specs/architecture.md", "docs/specs/tests.md", "docs/specs/state.toml"]
