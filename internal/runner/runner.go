@@ -3668,8 +3668,9 @@ func remapPackageInfosToIsolated(
 
 	for _, info := range infos {
 		newInfo := discover.PackageInfo{
-			Package: info.Package,
-			Doc:     info.Doc,
+			Package:                  info.Package,
+			Doc:                      info.Doc,
+			UsesExplicitRegistration: info.UsesExplicitRegistration,
 		}
 
 		// Compute new directory based on collapsed paths

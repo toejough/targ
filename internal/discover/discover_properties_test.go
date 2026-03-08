@@ -930,6 +930,10 @@ package dev
 
 import "github.com/toejough/targ"
 
+func init() {
+	targ.Register(Hello)
+}
+
 var Hello = targ.Targ("echo hello")
 `)
 	err = os.WriteFile(filepath.Join(devDir, "targs.go"), targSrcBytes, 0o644)
@@ -942,6 +946,7 @@ var Hello = targ.Targ("echo hello")
 	g.Expect(err).NotTo(HaveOccurred())
 	g.Expect(infos).To(HaveLen(1))
 	g.Expect(infos[0].Dir).To(Equal(devDir))
+	g.Expect(infos[0].UsesExplicitRegistration).To(BeTrue())
 }
 
 // unexported variables.
