@@ -1,6 +1,3 @@
-// TEST-015: Example helpers properties - validates example documentation helpers
-// traces: ARCH-007
-
 package targ_test
 
 import (

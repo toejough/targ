@@ -1,6 +1,3 @@
-// TEST-022: Help generators properties - validates root help with deregistered packages
-// traces: ARCH-007, ARCH-003
-
 package help_test
 
 import (

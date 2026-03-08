@@ -1,6 +1,3 @@
-// TEST-019: Registry internals - validates deregistration and group preservation
-// traces: ARCH-003
-
 //nolint:testpackage // Testing unexported applyDeregistrations function
 package core
 

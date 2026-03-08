@@ -1,6 +1,3 @@
-// TEST-034: Binary mode propagation - validates BinaryMode flows from RunOptions to help
-// traces: ARCH-007
-
 package core_test
 
 import (

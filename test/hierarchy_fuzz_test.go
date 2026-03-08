@@ -1,6 +1,3 @@
-// TEST-029: Hierarchy fuzz tests - validates robustness of path traversal
-// traces: ARCH-004
-
 package targ_test
 
 import (

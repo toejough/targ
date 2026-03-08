@@ -1,6 +1,3 @@
-// TEST-026: Git detection properties - validates repo URL detection for sync
-// traces: ARCH-009
-
 package core_test
 
 import (

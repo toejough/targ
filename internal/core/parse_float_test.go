@@ -1,4 +1,3 @@
-// TEST-031: Parse float64 flags
 package core_test
 
 import (

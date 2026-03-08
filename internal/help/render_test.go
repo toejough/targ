@@ -1,6 +1,3 @@
-// TEST-006: Help rendering properties - validates help output format and structure
-// traces: ARCH-007
-
 package help_test
 
 import (

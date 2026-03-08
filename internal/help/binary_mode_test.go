@@ -1,4 +1,3 @@
-// TEST-033: Binary mode help output
 package help_test
 
 import (

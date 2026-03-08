@@ -1,6 +1,3 @@
-// TEST-018: Execute core properties - validates deregistration and registry state
-// traces: ARCH-003
-
 package core_test
 
 import (

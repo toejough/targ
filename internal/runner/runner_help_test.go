@@ -1,6 +1,3 @@
-// TEST-007: Runner help properties - validates CLI help output for runner commands
-// traces: ARCH-007
-
 package runner_test
 
 import (

@@ -1,6 +1,3 @@
-// TEST-005: Help builder properties - validates help content construction
-// traces: ARCH-007
-
 package help_test
 
 import (

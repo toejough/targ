@@ -1,4 +1,3 @@
-// TEST-032: Create code generation
 package runner_test
 
 import (

@@ -1,6 +1,3 @@
-// TEST-025: Flag coverage properties - validates flag lookup with non-single shorts
-// traces: ARCH-001
-
 package flags_test
 
 import (
