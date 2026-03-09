@@ -1598,6 +1598,11 @@ func (r *targRunner) handleNoTargets() int {
 		return 0
 	}
 
+	if ContainsHelpFlag(r.args) {
+		printNoTargetsHelp()
+		return 0
+	}
+
 	r.logError("Error: no target files found", nil)
 
 	return r.exitWithCleanup(1)
@@ -3622,8 +3627,6 @@ func printMultiModuleHelp(registry []moduleRegistry) {
 	fmt.Println("More info: https://github.com/toejough/targ#readme")
 }
 
-// printNoCommandsHelp prints the help message when no commands are found.
-
 // printNoTargetsCompletion outputs completion suggestions when no target files exist.
 // This allows users to discover flags even before creating targets.
 func printNoTargetsCompletion(args []string) {
@@ -3652,6 +3655,26 @@ func printNoTargetsCompletion(args []string) {
 			fmt.Println(flag)
 		}
 	}
+}
+
+// printNoTargetsHelp prints help when no target files are found.
+func printNoTargetsHelp() {
+	fmt.Println("targ is a build-tool runner that discovers tagged commands and executes them.")
+	fmt.Println()
+	fmt.Println("No target files found in the current directory tree.")
+	fmt.Println()
+	fmt.Println("To get started:")
+	fmt.Println("    targ --create NAME [CMD]    Create a new target")
+	fmt.Println("    targ --sync PACKAGE         Import targets from a remote module")
+	fmt.Println()
+	fmt.Println("Flags:")
+	printFlagList()
+	fmt.Println()
+	fmt.Println("Target files use the //go:build targ build tag.")
+	fmt.Println("targ discovers targets in the current directory, ./dev/ subtree,")
+	fmt.Println("and ancestor directories.")
+	fmt.Println()
+	fmt.Println("More info: https://github.com/toejough/targ#readme")
 }
 
 // printRootCommands prints commands that are at the root level (no namespace).
