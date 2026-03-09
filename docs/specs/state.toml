@@ -42,8 +42,8 @@ items = [
 items = [
   "REQ-1", "REQ-2", "REQ-3", "REQ-4", "REQ-5", "REQ-6", "REQ-7",
   "REQ-8", "REQ-9", "REQ-10", "REQ-11", "REQ-12", "REQ-13", "REQ-14", "REQ-15",
-  "REQ-16", "REQ-17",
-  "DES-1", "DES-2", "DES-3", "DES-4", "DES-5", "DES-6",
+  "REQ-16", "REQ-17", "REQ-18",
+  "DES-1", "DES-2", "DES-3", "DES-4", "DES-5", "DES-6", "DES-7",
 ]
 
 [layers.L1]
@@ -91,11 +91,11 @@ parents = ["L1A"]
 items = [
   "REQ-1", "REQ-2", "REQ-3", "REQ-4", "REQ-5", "REQ-6", "REQ-7",
   "REQ-8", "REQ-9", "REQ-10", "REQ-11", "REQ-12", "REQ-13", "REQ-14", "REQ-15",
-  "REQ-16", "REQ-17",
-  "DES-1", "DES-2", "DES-3", "DES-4", "DES-5", "DES-6",
+  "REQ-16", "REQ-17", "REQ-18",
+  "DES-1", "DES-2", "DES-3", "DES-4", "DES-5", "DES-6", "DES-7",
 ]
-status = "complete"
-history = "Bottom-up adoption: induced 15 REQ + 5 DES items from L3 items. Post-completion re-entry: added REQ-16, REQ-17, DES-6 for UC-6."
+status = "in_progress"
+history = "Bottom-up adoption: induced 15 REQ + 5 DES items from L3 items. Post-completion re-entry: added REQ-16, REQ-17, DES-6 for UC-6. Post-completion re-entry #2: added REQ-18 (superseding), DES-7 (superseding display) for UC-3/UC-6."
 
 [tree.L1A]
 layer = "L1"
@@ -139,6 +139,6 @@ UC-6 Discover Targets Across the Directory Tree:
 """ }
 
 [cursor]
-node = "L1A"
-mode = "complete"
-next_action = "UC-6 implemented and usability-gated. Tree complete. Check issue tracker for next work."
+node = "L2A"
+mode = "re-entry"
+next_action = "Post-completion re-entry: REQ-18 and DES-7 added for superseding display. REFACTOR L2, then descend to L3 to add ARCH items for superseding logic."

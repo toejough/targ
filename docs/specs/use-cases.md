@@ -26,9 +26,10 @@ Items induced from: L2 requirements and design items (bottom-up)
 **Actor:** Developer using targ-built CLI
 **Starting state:** A targ application exists (build tool or standalone binary)
 **End state:** Developer understands available commands, flags, and usage
-**Key interactions:** `--help` shows formatted help with flags/positionals/subcommands/examples/source, `--completion` generates shell completion scripts (bash/zsh/fish), source file:line shown in help
+**Key interactions:** `--help` shows formatted help with flags/positionals/subcommands/examples/source, `--completion` generates shell completion scripts (bash/zsh/fish), source file:line shown in help. When the same command name exists at multiple discovery levels, help shows the closest version as primary and marks higher-level duplicates as superseded. The primary version notes what it supersedes.
+**Constraints:** Superseding is display-only in help — dispatch always uses the closest version. Superseding annotations appear only in multi-module help (build tool mode).
 
-**Traces to:** REQ-11, REQ-12, REQ-14, REQ-15
+**Traces to:** REQ-11, REQ-12, REQ-14, REQ-15, REQ-18
 
 ## UC-4: Scaffold, Sync, and Convert Targets
 
@@ -53,7 +54,7 @@ Items induced from: L2 requirements and design items (bottom-up)
 **Actor:** Developer running targ from any working directory
 **Starting state:** Target files exist in ancestor directories (e.g., `~/dev/targs.go`) and/or the current subtree
 **End state:** Targets from both ancestor directories and the current subtree are discovered, compiled, and available to run
-**Key interactions:** From any CWD, targ walks down (full subtree, unchanged) and up (linear ancestor path, checking each ancestor directory and its `dev/` subtree). Each ancestor with targets is built as its own module group (existing multi-module path). No sibling discovery. No root boundary. Conflicts handled identically to today (`ConflictError` with source locations).
-**Constraints:** Upward discovery is automatic (no opt-in). Only the linear ancestor path is searched — no sibling directories. Each unmoduled ancestor directory becomes its own isolated build unit. Ancestor targets appear in help with existing source attribution.
+**Key interactions:** From any CWD, targ walks down (CWD itself non-recursively, CWD/dev/ recursively) and up (linear ancestor path, checking each ancestor directory and its `dev/` subtree). Each ancestor with targets is built as its own module group (existing multi-module path). No sibling discovery. No root boundary. When the same command name appears at multiple levels, the most-local version wins for dispatch and is shown as primary in help. Higher-level duplicates remain visible but are marked as superseded.
+**Constraints:** Upward discovery is automatic (no opt-in). Only the linear ancestor path is searched — no sibling directories. Each unmoduled ancestor directory becomes its own isolated build unit. Most-local-wins superseding for duplicate command names across discovery levels.
 
-**Traces to:** REQ-13, REQ-16, REQ-17, DES-6
+**Traces to:** REQ-13, REQ-16, REQ-17, REQ-18, DES-6

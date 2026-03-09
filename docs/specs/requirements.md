@@ -121,6 +121,20 @@ Upward discovery requires no opt-in — it is always active. The walk continues 
 **Derived from:** UC-6
 **Traces to:** UC-6
 
+## REQ-18: Most-local-wins superseding for duplicate commands
+
+When the same command name is discovered at multiple directory levels (e.g., CWD/dev/ and an ancestor), the most-local version (closest to CWD) wins for dispatch. Help output shows the primary version normally and marks higher-level duplicates as superseded. The primary version annotates what it supersedes (source directory). Superseding is determined by discovery depth — lower depth = more local = higher priority.
+
+**Derived from:** UC-3, UC-6
+**Traces to:** UC-3, UC-6
+
+## DES-7: Superseding display format in help
+
+In multi-module help, commands are grouped by source. When a command is superseded by a more-local version, it is displayed with a visual annotation (e.g., strikethrough or dimmed styling with "superseded by <source>" label). The primary (most-local) version shows a note like "supersedes <source>" after its name. This gives the developer full visibility into what's available at each level while making clear which version will actually run.
+
+**Derived from:** UC-3, UC-6
+**Traces to:** UC-3, UC-6
+
 ## DES-6: Ancestor dev/ subtree convention
 
 At each ancestor directory during upward discovery, targ checks two locations: (1) the ancestor directory itself for targ-tagged `.go` files, and (2) if `<ancestor>/dev/` exists, recursively walks it for targ-tagged files. This supports the convention of placing build tooling in a `dev/` directory without polluting the project root.
