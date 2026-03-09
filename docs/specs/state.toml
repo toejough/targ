@@ -59,8 +59,8 @@ items = [
   "IMPL-8", "IMPL-9", "IMPL-10", "IMPL-11", "IMPL-12", "IMPL-13", "IMPL-14",
   "IMPL-15", "IMPL-16", "IMPL-17", "IMPL-18", "IMPL-19", "IMPL-20",
 ]
-status = "complete"
-history = "Bottom-up adoption: cataloged 19 implementation items from existing codebase. Post-completion re-entry: extended IMPL-13 with upward discovery for T-21. Re-entry #2: added IMPL-20 for superseding logic."
+status = "in_progress"
+history = "Bottom-up adoption: cataloged 19 implementation items from existing codebase. Post-completion re-entry: extended IMPL-13 with upward discovery for T-21. Re-entry #2: added IMPL-20 for superseding logic. Re-entry #3: update IMPL-13, IMPL-18, IMPL-19 for bug fixes (discovery hang, runner resilience, TTY foreground)."
 
 [tree.L4A]
 layer = "L4"
@@ -140,6 +140,6 @@ UC-6 Discover Targets Across the Directory Tree:
 """ }
 
 [cursor]
-node = "L1A"
-mode = "complete"
-next_action = "Superseding feature (REQ-18, DES-7, ARCH-16, T-23, T-24, IMPL-20) implemented and tested. Run usability gate before finalizing."
+node = "L5A"
+mode = "in_progress"
+next_action = "Post-completion re-entry #3: 6 bug fix commits (discovery hang, runner resilience, TTY foreground) modified IMPL-13, IMPL-18, IMPL-19. Update specs L5→L3, add T-25 for foreground TTY, update ARCH-8."
