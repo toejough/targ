@@ -1,6 +1,6 @@
-# L3: Architecture
+# L2: Architecture
 
-Items induced from: L4 test items + L5 implementation items (bottom-up)
+Items induced from: L3 test items + L4 implementation items (bottom-up)
 
 ## ARCH-1: Target Data Model
 
@@ -74,7 +74,7 @@ Fluent `ContentBuilder` API composes help output in sections: description, usage
 
 ## ARCH-11: Target Discovery
 
-`Discover()` scans directories for `//go:build targ` files in two directions. **Downward:** recursive walk of the full subtree below the start directory (existing). **Upward:** linear walk from start directory to filesystem root; at each ancestor, checks the ancestor directory itself and recursively walks `<ancestor>/dev/` if it exists. No sibling discovery — only the direct ancestor path. Detects `targ.Register()` calls and aliased imports via AST-level inspection. Returns `PackageInfo` with file paths, package name, and registration status. Used by the build tool runner to locate target definitions before compilation.
+`Discover()` scans directories for `//go:build targ` files in two directions. **Downward:** CWD is checked non-recursively; CWD/dev/ is walked recursively (a full recursive walk from CWD would hang on large directories like `~`). **Upward:** linear walk from start directory, stopping before the filesystem root (to avoid system directories like `/dev`); at each ancestor, checks the ancestor directory itself and recursively walks `<ancestor>/dev/` if it exists. No sibling discovery — only the direct ancestor path. Detects `targ.Register()` calls and aliased imports via AST-level inspection. Returns `PackageInfo` with file paths, package name, and registration status. Used by the build tool runner to locate target definitions before compilation.
 
 **Induced from:** IMPL-13, T-11
 **Traces to:** REQ-13, REQ-17, DES-6

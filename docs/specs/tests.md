@@ -1,6 +1,6 @@
-# L4: Test List
+# L3: Test List
 
-Items derived from: L5 implementation (existing test suite)
+Items derived from: L4 implementation (existing test suite)
 
 ## T-1: Target builder API
 
@@ -12,7 +12,7 @@ Items derived from: L5 implementation (existing test suite)
 - Property: lifecycle hooks (OnStart/OnStop) are registered and default to nil
 
 **Tests:** `TestProperty_DefaultIsNotRenamed`, `TestProperty_DefaultSourceIsEmpty`, `TestProperty_DepGroupChaining`, `TestOnStartOnStop`, `TestDepModeString`
-**Traces to L5:** IMPL-4 (Target Definition and Builder)
+**Traces to L4:** IMPL-4 (Target Definition and Builder)
 
 ## T-2: Command parsing and argument handling
 
@@ -27,7 +27,7 @@ Items derived from: L5 implementation (existing test suite)
 - Property: float64 flags parse correctly
 
 **Tests:** `TestProperty_StructFieldNameToKebabCase`, `TestProperty_UnrecognizedTagKeyError`, `TestProperty_EnvVarBehavior`, `FuzzBoolFlag_ArbitraryStrings`, `FuzzExecute_ArbitraryCLIArgs`, `FuzzExecute_ArbitraryFlagNames`, `FuzzExecute_ArbitraryFlagValues`, `TestFloat64FlagParsing`
-**Traces to L5:** IMPL-5 (Command Parsing and Execution), IMPL-17 (Parse Utilities)
+**Traces to L4:** IMPL-5 (Command Parsing and Execution), IMPL-17 (Parse Utilities)
 
 ## T-3: Execution behavior
 
@@ -46,7 +46,7 @@ Items derived from: L5 implementation (existing test suite)
 - Fuzz: backoff arbitrary parameters, builder chain ordering, cache patterns, deps, descriptions
 
 **Tests:** `TestProperty_Execution`, `TestProperty_Invariant`, `TestProperty_Overrides`, `FuzzBackoff_ArbitraryParameters`, `FuzzBuilderChain_ArbitraryOrder`, `FuzzCache_ArbitraryPatterns`, `FuzzDeps_ArbitraryDependencies`, `FuzzDescription_ArbitraryStrings`
-**Traces to L5:** IMPL-5 (Command Parsing and Execution)
+**Traces to L4:** IMPL-5 (Command Parsing and Execution)
 
 ## T-4: Target registry and deregistration
 
@@ -58,7 +58,7 @@ Items derived from: L5 implementation (existing test suite)
 - Property: deregistration removes groups from deregistered packages
 
 **Tests:** `TestProperty_DeregisterFromAfterResolutionErrors`, `TestProperty_DeregisterThenReregister`, `TestProperty_ApplyDeregistrations_PreservesGroupsFromOtherPackages`, `TestProperty_ApplyDeregistrations_RemovesGroupsFromDeregisteredPackages`
-**Traces to L5:** IMPL-6 (Target Registry)
+**Traces to L4:** IMPL-6 (Target Registry)
 
 ## T-5: Target groups and hierarchy
 
@@ -70,7 +70,7 @@ Items derived from: L5 implementation (existing test suite)
 - Fuzz: caret reset chains, glob patterns, group names, nested groups, mixed roots
 
 **Tests:** `TestProperty_Hierarchy`, `FuzzCaretReset_ArbitraryChains`, `FuzzGlob_ArbitraryPatterns`, `FuzzGroupName_ValidPatterns`, `FuzzGroups_ArbitraryNesting`, `FuzzMixedRoots_ArbitraryMix`
-**Traces to L5:** IMPL-7 (Target Groups), IMPL-5 (Command Parsing and Execution)
+**Traces to L4:** IMPL-7 (Target Groups), IMPL-5 (Command Parsing and Execution)
 
 ## T-6: Result classification and reporting
 
@@ -83,7 +83,7 @@ Items derived from: L5 implementation (existing test suite)
 - Property: detailed summary shows per-target status with truncated error snippets
 
 **Tests:** `TestResult`, `TestMultiError`, `TestFormatDetailedSummary`
-**Traces to L5:** IMPL-8 (Result Handling)
+**Traces to L4:** IMPL-8 (Result Handling)
 
 ## T-7: Parallel output prefixing
 
@@ -99,7 +99,7 @@ Items derived from: L5 implementation (existing test suite)
 - Property: RunContext/RunContextV route through printer in parallel mode
 
 **Tests:** `TestPrefixWriter`, `TestPrinter`, `TestPrint`, `TestParallelOutputDepLevel`, `TestParallelOutputShellCommand`, `TestParallelOutputTopLevel`, `TestRunContext`, `TestRunContextInParallelMode`, `TestRunContextV`, `TestRunContextVInParallelMode`
-**Traces to L5:** IMPL-9 (Parallel Output)
+**Traces to L4:** IMPL-9 (Parallel Output)
 
 ## T-8: Shell completion
 
@@ -112,7 +112,7 @@ Items derived from: L5 implementation (existing test suite)
 - Property: completion example with getenv (shell detection)
 
 **Tests:** `TestProperty_Completion`, `TestProperty_CompletionExampleWithGetenv`
-**Traces to L5:** IMPL-10 (Completion)
+**Traces to L4:** IMPL-10 (Completion)
 
 ## T-9: Git integration
 
@@ -123,7 +123,7 @@ Items derived from: L5 implementation (existing test suite)
 - Property: default runner executes git
 
 **Tests:** `TestProperty_CleanWorkTree`
-**Traces to L5:** IMPL-11 (Git Utilities)
+**Traces to L4:** IMPL-11 (Git Utilities)
 
 ## T-10: Source location detection
 
@@ -135,7 +135,7 @@ Items derived from: L5 implementation (existing test suite)
 - Property: local targets use source file, remote targets use source package
 
 **Tests:** `TestProperty_CallerPackagePath`, `TestProperty_ExtractPackagePath`, `TestParseTargetLike_*`
-**Traces to L5:** IMPL-12 (Source Location)
+**Traces to L4:** IMPL-12 (Source Location)
 
 ## T-11: Target discovery
 
@@ -146,7 +146,7 @@ Items derived from: L5 implementation (existing test suite)
 - Property: detects aliased import
 
 **Tests:** `TestProperty_Discovery`
-**Traces to L5:** IMPL-13 (Target Discovery)
+**Traces to L4:** IMPL-13 (Target Discovery)
 
 ## T-12: Flag definitions and filtering
 
@@ -159,7 +159,7 @@ Items derived from: L5 implementation (existing test suite)
 - Property: user examples shown in root help, repo URL shown when no more-info text
 
 **Tests:** `TestBinaryModePropagation`, `TestProperty_FindRejectsNonSingleShort`, `TestProperty_FindUnknownShortReturnsNil`, `TestAllFlagsHaveExplicitMode`, `TestPrintUsageWithExamples`
-**Traces to L5:** IMPL-15 (Flag Definitions)
+**Traces to L4:** IMPL-15 (Flag Definitions)
 
 ## T-13: Help text generation and rendering
 
@@ -177,7 +177,7 @@ Items derived from: L5 implementation (existing test suite)
 - Property: usage line shows positional args (optional, variadic), enum values
 
 **Tests:** `TestProperty_ANSICodesPairedCorrectly`, `TestProperty_EmptySectionsOmitted`, `TestProperty_ExamplesHaveNoANSICodes`, `TestProperty_AddGlobalFlagsFromRegistryIgnoresUnknownAndIsChainable`, `TestProperty_AddPositionalsAccumulates`, `TestProperty_AddRootOnlyFlagsAppendsAndIsChainable`, `TestProperty_ExampleCanBeCreated`, `TestProperty_FlagCanBeCreated`, `TestProperty_FormatCanBeCreated`, `TestProperty_PositionalCanBeCreated`, `TestProperty_SubcommandCanBeCreated`, `TestAutoGeneratedRootExamples`, `TestAutoGeneratedTargetExamples`, `TestBinaryModeHelpOutput`, `TestProperty_StripANSI_*`, `TestProperty_CommandHelp`, `TestProperty_UsageLine`
-**Traces to L5:** IMPL-16 (Help System)
+**Traces to L4:** IMPL-16 (Help System)
 
 ## T-14: Parse utilities
 
@@ -189,7 +189,7 @@ Items derived from: L5 implementation (existing test suite)
 - Property: HasBuildTag detects targ build tags
 
 **Tests:** `TestProperty_Parsing`
-**Traces to L5:** IMPL-17 (Parse Utilities)
+**Traces to L4:** IMPL-17 (Parse Utilities)
 
 ## T-15: Build tool runner
 
@@ -201,7 +201,7 @@ Items derived from: L5 implementation (existing test suite)
 - Property: runner properties (with in-memory filesystem)
 
 **Tests:** `TestCreateCodegenWithRegister`, `TestGoldenFile_HelpOutput`, `TestProperty_ContainsHelpFlagMatchesArgs`, runner_properties_test.go
-**Traces to L5:** IMPL-18 (Build Tool Runner)
+**Traces to L4:** IMPL-18 (Build Tool Runner)
 
 ## T-16: Example helpers
 
@@ -213,35 +213,35 @@ Items derived from: L5 implementation (existing test suite)
 - Property: portable examples compile
 
 **Tests:** `TestProperty_ExampleHelpers`, `TestProperty_PortableExamplesCompile`
-**Traces to L5:** IMPL-5 (Command Parsing and Execution)
+**Traces to L4:** IMPL-5 (Command Parsing and Execution)
 
 ## T-17: Chain and command examples
 
 **Given** a command hierarchy, **When** chain examples are generated, **Then** nil nodes use fallback, nested groups show caret syntax, flat sources show both names.
 
 **Tests:** `TestChainExample`
-**Traces to L5:** IMPL-5 (Command Parsing and Execution), IMPL-7 (Target Groups)
+**Traces to L4:** IMPL-5 (Command Parsing and Execution), IMPL-7 (Target Groups)
 
 ## T-18: ExecuteEnv test helper
 
 **Given** an ExecuteEnv, **When** environment variables are looked up, **Then** custom env map values are returned, with OS fallback.
 
 **Tests:** `TestExecuteEnvGetenv`
-**Traces to L5:** IMPL-5 (Command Parsing and Execution)
+**Traces to L4:** IMPL-5 (Command Parsing and Execution)
 
 ## T-19: Parallel failure reporting
 
 **Given** parallel target execution with failures, **When** a target fails, **Then** the error is reported correctly with target identification.
 
 **Tests:** `TestParallelFailureReportsError`
-**Traces to L5:** IMPL-8 (Result Handling), IMPL-9 (Parallel Output)
+**Traces to L4:** IMPL-8 (Result Handling), IMPL-9 (Parallel Output)
 
 ## T-20: Mutation testing
 
 **Given** the full test suite, **When** mutation testing runs with ooze, **Then** 100% of mutations are caught.
 
 **Tests:** `TestMutation`
-**Traces to L5:** IMPL-3 (Build Targets), all other IMPL items (mutation tests exercise entire codebase)
+**Traces to L4:** IMPL-3 (Build Targets), all other IMPL items (mutation tests exercise entire codebase)
 
 ## T-21: Upward directory discovery
 
@@ -249,14 +249,14 @@ Items derived from: L5 implementation (existing test suite)
 
 - Property: discovers targets in parent directory
 - Property: discovers targets in grandparent directory
-- Property: walks to filesystem root (no root boundary)
+- Property: walks the full ancestor path, stopping before filesystem root (no artificial project-root boundary)
 - Property: does not discover targets in sibling directories of ancestors
 - Property: discovers targets in ancestor `dev/` subtrees when present
 - Property: ignores ancestor `dev/` when it does not exist
 - Property: combines upward and downward results without duplicates
 
 **Tests:** `TestProperty_UpwardDiscovery` (DiscoversTargetsInParentDirectory, DiscoversTargetsInGrandparentDirectory, DoesNotDiscoverSiblingDirectories, DiscoversAncestorDevSubtree, IgnoresAncestorDevWhenAbsent, CombinesUpwardAndDownwardResults, NoDuplicatesWhenStartDirIsAlsoAncestor, DiscoversNestedDevSubtree)
-**Traces to L3:** ARCH-11 (Target Discovery)
+**Traces to L2:** ARCH-11 (Target Discovery)
 **Traces to L2:** REQ-13, REQ-17, DES-6
 
 ## T-22: Ancestor module grouping and build
@@ -270,7 +270,7 @@ Items derived from: L5 implementation (existing test suite)
 - Property: conflict between ancestor and local target names produces `ConflictError`
 
 **Tests:** Integration-verified via existing multi-module build path (T-15 runner properties) and end-to-end usability gate. Discovery layer (T-21) feeds ancestor targets into the existing `groupByModule()` → `handleMultiModule()` path which is already tested.
-**Traces to L3:** ARCH-12 (Build Tool Runner)
+**Traces to L2:** ARCH-12 (Build Tool Runner)
 **Traces to L2:** REQ-16
 
 ## T-23: Superseding detection and dispatch
@@ -282,8 +282,8 @@ Items derived from: L5 implementation (existing test suite)
 - Property: `collectSortedCommands` annotates duplicate commands with superseding metadata
 
 **Tests:** `TestProperty_SupersedingDetection` (MostLocalCommandWinsDispatch, CollectAnnotatesDuplicatesWithSuperseding, RegistryOrderDeterminesLocality, NonDuplicateCommandsUnaffected) in supersede_test.go
-**Traces to L3:** ARCH-16 (Superseding Logic)
-**Traces to L5:** IMPL-20 (Superseding Logic)
+**Traces to L2:** ARCH-16 (Superseding Logic)
+**Traces to L4:** IMPL-20 (Superseding Logic)
 **Traces to L2:** REQ-18
 
 ## T-24: Superseding display in help
@@ -296,8 +296,8 @@ Items derived from: L5 implementation (existing test suite)
 - Property: single-module help (no duplicates) is unaffected
 
 **Tests:** `TestProperty_SupersedingDisplay` (SupersededCommandsShowAnnotation, SingleModuleHelpUnaffected) in supersede_test.go
-**Traces to L3:** ARCH-16 (Superseding Logic), ARCH-10 (Help System)
-**Traces to L5:** IMPL-20 (Superseding Logic)
+**Traces to L2:** ARCH-16 (Superseding Logic), ARCH-10 (Help System)
+**Traces to L4:** IMPL-20 (Superseding Logic)
 **Traces to L2:** DES-7
 
 ## T-25: Foreground process group for interactive commands
@@ -310,11 +310,11 @@ Items derived from: L5 implementation (existing test suite)
 - Property: background commands use `SetProcGroup` (with `Setpgid`)
 
 **Tests:** `TestProperty_ForegroundProcessGroup` in `sh` package or `core` package
-**Traces to L3:** ARCH-8 (Shell Execution), ARCH-7 (Parallel Output)
-**Traces to L5:** IMPL-19 (Shell Execution)
+**Traces to L2:** ARCH-8 (Shell Execution), ARCH-7 (Parallel Output)
+**Traces to L4:** IMPL-19 (Shell Execution)
 **Traces to L2:** REQ-9
 
-## Coverage Gaps (L5 items with no dedicated L4 test coverage)
+## Coverage Gaps (L4 items with no dedicated L3 test coverage)
 
 - **IMPL-1 (Root Public API):** No direct tests — tested indirectly through integration tests in `test/`. Thin re-export layer, expected.
 - **IMPL-2 (CLI Entry Point):** No tests — `main()` is excluded from coverage per CLAUDE.md. Expected.

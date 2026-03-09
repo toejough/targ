@@ -4,7 +4,7 @@ skill = "traced"
 mode = "adoption"
 direction = "bottom-up"
 
-[layers.L5]
+[layers.L4]
 items = [
   "IMPL-1", "IMPL-2", "IMPL-3", "IMPL-4", "IMPL-5", "IMPL-6", "IMPL-7",
   "IMPL-8", "IMPL-9", "IMPL-10", "IMPL-11", "IMPL-12", "IMPL-13", "IMPL-14",
@@ -12,15 +12,19 @@ items = [
 ]
 green_tool = "targ check-full"
 
-[layers.L4]
+[layers.L3]
 items = [
   "T-1", "T-2", "T-3", "T-4", "T-5", "T-6", "T-7", "T-8", "T-9", "T-10",
   "T-11", "T-12", "T-13", "T-14", "T-15", "T-16", "T-17", "T-18", "T-19", "T-20",
   "T-21", "T-22", "T-23", "T-24", "T-25",
 ]
 
-[layers.L3]
+[layers.L2]
 items = [
+  "REQ-1", "REQ-2", "REQ-3", "REQ-4", "REQ-5", "REQ-6", "REQ-7",
+  "REQ-8", "REQ-9", "REQ-10", "REQ-11", "REQ-12", "REQ-13", "REQ-14", "REQ-15",
+  "REQ-16", "REQ-17", "REQ-18",
+  "DES-1", "DES-2", "DES-3", "DES-4", "DES-5", "DES-6", "DES-7",
   { id = "ARCH-1", source = "derived" },
   { id = "ARCH-2", source = "derived" },
   { id = "ARCH-3", source = "derived" },
@@ -39,21 +43,13 @@ items = [
   { id = "ARCH-16", source = "derived" },
 ]
 
-[layers.L2]
-items = [
-  "REQ-1", "REQ-2", "REQ-3", "REQ-4", "REQ-5", "REQ-6", "REQ-7",
-  "REQ-8", "REQ-9", "REQ-10", "REQ-11", "REQ-12", "REQ-13", "REQ-14", "REQ-15",
-  "REQ-16", "REQ-17", "REQ-18",
-  "DES-1", "DES-2", "DES-3", "DES-4", "DES-5", "DES-6", "DES-7",
-]
-
 [layers.L1]
 items = ["UC-1", "UC-2", "UC-3", "UC-4", "UC-5", "UC-6"]
 
-[tree.L5A]
-layer = "L5"
+[tree.L4A]
+layer = "L4"
 name = "All Implementation"
-parents = ["L4A"]
+parents = ["L3A"]
 items = [
   "IMPL-1", "IMPL-2", "IMPL-3", "IMPL-4", "IMPL-5", "IMPL-6", "IMPL-7",
   "IMPL-8", "IMPL-9", "IMPL-10", "IMPL-11", "IMPL-12", "IMPL-13", "IMPL-14",
@@ -62,10 +58,10 @@ items = [
 status = "complete"
 history = "Bottom-up adoption: cataloged 19 implementation items from existing codebase. Post-completion re-entry: extended IMPL-13 with upward discovery for T-21. Re-entry #2: added IMPL-20 for superseding logic. Re-entry #3: updated IMPL-13, IMPL-18, IMPL-19 for bug fixes (discovery hang, runner resilience, TTY foreground)."
 
-[tree.L4A]
-layer = "L4"
+[tree.L3A]
+layer = "L3"
 name = "All Tests"
-parents = ["L3A"]
+parents = ["L2A", "L2B"]
 items = [
   "T-1", "T-2", "T-3", "T-4", "T-5", "T-6", "T-7", "T-8", "T-9", "T-10",
   "T-11", "T-12", "T-13", "T-14", "T-15", "T-16", "T-17", "T-18", "T-19", "T-20",
@@ -74,20 +70,20 @@ items = [
 status = "complete"
 history = "Bottom-up adoption: cataloged 20 test items. Coverage gaps for IMPL-1, IMPL-2, IMPL-3, IMPL-14, IMPL-19. Post-completion re-entry: added T-21 (upward discovery), T-22 (ancestor module grouping). Re-entry #2: added T-23 (superseding dispatch), T-24 (superseding display). Re-entry #3: added T-25 (foreground process group)."
 
-[tree.L3A]
-layer = "L3"
-name = "All Architecture"
+[tree.L2B]
+layer = "L2"
+name = "Architecture"
 parents = ["L2A"]
 items = [
   "ARCH-1", "ARCH-2", "ARCH-3", "ARCH-4", "ARCH-5", "ARCH-6", "ARCH-7",
   "ARCH-8", "ARCH-9", "ARCH-10", "ARCH-11", "ARCH-12", "ARCH-13", "ARCH-14", "ARCH-15", "ARCH-16",
 ]
 status = "complete"
-history = "Bottom-up adoption: induced 15 ARCH items from L4+L5 clusters (14 derived, 1 standard). Post-completion re-entry: extended ARCH-11, ARCH-12 for UC-6 bidirectional discovery. Re-entry #2: added ARCH-16 for superseding logic. Re-entry #3: updated ARCH-8 for foreground/background process group distinction."
+history = "Bottom-up adoption: induced 15 ARCH items from test+implementation clusters (14 derived, 1 standard). Post-completion re-entry: extended ARCH-11, ARCH-12 for UC-6 bidirectional discovery. Re-entry #2: added ARCH-16 for superseding logic. Re-entry #3: updated ARCH-8 for foreground/background process group distinction. Layer migration: moved from L3 to cooperative L2 alongside REQ/DES."
 
 [tree.L2A]
 layer = "L2"
-name = "All Requirements and Design"
+name = "Requirements and Design"
 parents = ["L1A"]
 items = [
   "REQ-1", "REQ-2", "REQ-3", "REQ-4", "REQ-5", "REQ-6", "REQ-7",
@@ -96,7 +92,7 @@ items = [
   "DES-1", "DES-2", "DES-3", "DES-4", "DES-5", "DES-6", "DES-7",
 ]
 status = "complete"
-history = "Bottom-up adoption: induced 15 REQ + 5 DES items from L3 items. Post-completion re-entry: added REQ-16, REQ-17, DES-6 for UC-6. Post-completion re-entry #2: added REQ-18 (superseding), DES-7 (superseding display) for UC-3/UC-6."
+history = "Bottom-up adoption: induced 15 REQ + 5 DES items from architecture items. Post-completion re-entry: added REQ-16, REQ-17, DES-6 for UC-6. Post-completion re-entry #2: added REQ-18 (superseding), DES-7 (superseding display) for UC-3/UC-6."
 
 [tree.L1A]
 layer = "L1"
@@ -142,4 +138,4 @@ UC-6 Discover Targets Across the Directory Tree:
 [cursor]
 node = "L1A"
 mode = "complete"
-next_action = "Re-entry #3 complete. Specs updated (IMPL-13/18/19, ARCH-8, T-25), usability gate passed."
+next_action = "Re-entry #3 complete. Specs updated (IMPL-13/18/19, ARCH-8, T-25), usability gate passed. Layer migration: consolidated from 5-layer to standard 4-layer model (ARCH moved to cooperative L2)."

@@ -1,6 +1,6 @@
 # L2: Requirements and Design
 
-Items induced from: L3 architecture items (bottom-up)
+Items induced from: L2 architecture items (bottom-up)
 
 ## REQ-1: Define targets from functions or shell strings
 
@@ -88,7 +88,7 @@ Help output is generated from target metadata: description, usage, flags (with s
 
 ## REQ-13: Build tool discovers and compiles targets
 
-The `targ` CLI discovers `//go:build targ` files by walking both downward (full subtree from CWD) and upward (linear ancestor path to filesystem root). At each ancestor directory, targ checks the directory itself and recursively walks its `dev/` subtree if present. No sibling directories are searched. Generates a bootstrap Go binary, compiles it (cached in `~/.cache/targ/`), and executes it. Meta-commands scaffold, sync, and convert targets.
+The `targ` CLI discovers `//go:build targ` files by walking both downward (CWD non-recursively, then CWD/dev/ recursively) and upward (linear ancestor path, stopping before the filesystem root to avoid system directories like /dev). At each ancestor directory, targ checks the directory itself and recursively walks its `dev/` subtree if present. No sibling directories are searched. Generates a bootstrap Go binary, compiles it (cached in `~/.cache/targ/`), and executes it. Meta-commands scaffold, sync, and convert targets.
 
 **Induced from:** ARCH-11, ARCH-12
 **Traces to:** UC-4, UC-6
@@ -116,7 +116,7 @@ Each ancestor directory with targ-tagged files forms its own module group. Ances
 
 ## REQ-17: Upward discovery is automatic with no root boundary
 
-Upward discovery requires no opt-in — it is always active. The walk continues to the filesystem root. Only the linear ancestor path is searched (parent, grandparent, ..., `/`). Sibling directories of ancestors are never searched.
+Upward discovery requires no opt-in — it is always active. The walk continues up the linear ancestor path (parent, grandparent, ...) stopping before the filesystem root — no project lives at `/` and checking `/dev/` would walk system device directories. Sibling directories of ancestors are never searched.
 
 **Derived from:** UC-6
 **Traces to:** UC-6
