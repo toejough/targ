@@ -4,8 +4,9 @@
 package discover
 
 import (
-	_imptest "github.com/toejough/imptest"
 	fs "io/fs"
+
+	_imptest "github.com/toejough/imptest"
 )
 
 type FileSystemImp struct {

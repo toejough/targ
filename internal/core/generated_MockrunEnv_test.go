@@ -4,9 +4,10 @@
 package core_test
 
 import (
+	io "io"
+
 	_imptest "github.com/toejough/imptest"
 	core "github.com/toejough/targ/internal/core"
-	io "io"
 )
 
 type RunEnvImp struct {
