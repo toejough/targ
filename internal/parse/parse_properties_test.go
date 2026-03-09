@@ -316,9 +316,22 @@ func TestProperty_Parsing(t *testing.T) {
 			t.Parallel()
 			rapid.Check(t, func(t *rapid.T) {
 				g := NewWithT(t)
-				dir := rapid.SampledFrom([]string{"vendor", "testdata", "internal"}).Draw(t, "dir")
+				dir := rapid.SampledFrom([]string{"vendor", "testdata", "internal", "node_modules"}).Draw(t, "dir")
 				g.Expect(parse.ShouldSkipDir(dir)).To(BeTrue(),
 					"should skip special dir %q", dir)
+			})
+		})
+
+		t.Run("SkipsVersionedDirs", func(t *testing.T) {
+			t.Parallel()
+			rapid.Check(t, func(t *rapid.T) {
+				g := NewWithT(t)
+				prefix := rapid.StringMatching(`[a-z][a-z0-9.]{1,20}`).Draw(t, "prefix")
+				version := rapid.StringMatching(`v[0-9]+\.[0-9]+\.[0-9]+`).Draw(t, "version")
+				name := prefix + "@" + version
+
+				g.Expect(parse.ShouldSkipDir(name)).To(BeTrue(),
+					"should skip versioned dir %q (Go module cache pattern)", name)
 			})
 		})
 
@@ -328,7 +341,7 @@ func TestProperty_Parsing(t *testing.T) {
 				g := NewWithT(t)
 				name := rapid.StringMatching(`[a-z][a-z0-9]{0,10}`).Draw(t, "name")
 				// Exclude special names
-				if name == "vendor" || name == "testdata" || name == "internal" {
+				if name == "vendor" || name == "testdata" || name == "internal" || name == "node_modules" {
 					return
 				}
 

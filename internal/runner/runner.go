@@ -1331,18 +1331,23 @@ func (r *targRunner) discoverPackages() ([]discover.PackageInfo, error) {
 		return nil, fmt.Errorf("error discovering commands: %w", err)
 	}
 
-	// Validate no package main in targ files
+	// Filter out package main targ files with a warning instead of failing
+	filtered := make([]discover.PackageInfo, 0, len(infos))
+
 	for _, info := range infos {
 		if info.Package == pkgNameMain {
-			return nil, fmt.Errorf(
-				"%w (found in %s); use a named package instead, e.g., 'package targets' or 'package dev'",
-				errPackageMainNotAllowed,
+			_, _ = fmt.Fprintf(r.errOut,
+				"warning: skipping %s: targ files should not use 'package main'; use a named package instead\n",
 				info.Dir,
 			)
+
+			continue
 		}
+
+		filtered = append(filtered, info)
 	}
 
-	return infos, nil
+	return filtered, nil
 }
 
 func (r *targRunner) dispatchFlagCommand(flagLong string, remaining []string) (int, bool) {
