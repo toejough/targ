@@ -1344,6 +1344,15 @@ func (r *targRunner) discoverPackages() ([]discover.PackageInfo, error) {
 			continue
 		}
 
+		if !info.UsesExplicitRegistration {
+			_, _ = fmt.Fprintf(r.errOut,
+				"warning: skipping %s: package %s does not use explicit registration (targ.Register in init)\n",
+				info.Dir, info.Package,
+			)
+
+			continue
+		}
+
 		filtered = append(filtered, info)
 	}
 

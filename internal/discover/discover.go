@@ -367,11 +367,6 @@ func findTaggedDirs(filesystem FileSystem, startDir, tag string) []taggedDir {
 		current := queue[0]
 		queue = queue[1:]
 
-		// Skip subdirectories that are separate projects (have their own go.mod or .git).
-		if current.depth > 0 && isProjectRoot(filesystem, current.path) {
-			continue
-		}
-
 		tagged, newDirs, err := processDirectory(filesystem, current, tag)
 		if err != nil {
 			// Skip unreadable directories (e.g., macOS protected dirs).
@@ -390,25 +385,6 @@ func findTaggedDirs(filesystem FileSystem, startDir, tag string) []taggedDir {
 	}
 
 	return results
-}
-
-func isProjectRoot(filesystem FileSystem, dir string) bool {
-	// Check for go.mod (Go module boundary).
-	_, errMod := filesystem.ReadFile(filepath.Join(dir, "go.mod"))
-	if errMod == nil {
-		return true
-	}
-
-	// Check for .git directory (regular repos).
-	_, errGitDir := filesystem.ReadDir(filepath.Join(dir, ".git"))
-	if errGitDir == nil {
-		return true
-	}
-
-	// Check for .git file (worktrees).
-	_, errGitFile := filesystem.ReadFile(filepath.Join(dir, ".git"))
-
-	return errGitFile == nil
 }
 
 // newPackageInfoParser creates a new parser with initialized state.
