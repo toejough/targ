@@ -367,6 +367,11 @@ func findTaggedDirs(filesystem FileSystem, startDir, tag string) []taggedDir {
 		current := queue[0]
 		queue = queue[1:]
 
+		// Skip subdirectories that are separate Go modules (have their own go.mod).
+		if current.depth > 0 && isModuleRoot(filesystem, current.path) {
+			continue
+		}
+
 		tagged, newDirs, err := processDirectory(filesystem, current, tag)
 		if err != nil {
 			// Skip unreadable directories (e.g., macOS protected dirs).
@@ -385,6 +390,11 @@ func findTaggedDirs(filesystem FileSystem, startDir, tag string) []taggedDir {
 	}
 
 	return results
+}
+
+func isModuleRoot(filesystem FileSystem, dir string) bool {
+	_, err := filesystem.ReadFile(filepath.Join(dir, "go.mod"))
+	return err == nil
 }
 
 // newPackageInfoParser creates a new parser with initialized state.

@@ -209,6 +209,42 @@ var ` + varName + ` = targ.Targ(func() {})
 		})
 	})
 
+	t.Run("SkipsSubdirectoriesWithGoMod", func(t *testing.T) {
+		t.Parallel()
+		rapid.Check(t, func(t *rapid.T) {
+			g := NewWithT(t)
+			subdir := "x" + rapid.StringMatching(`[a-z]{2,9}`).Draw(t, "subdir")
+
+			src := `//go:build targ
+
+package build
+
+import "github.com/toejough/targ"
+
+var Build = targ.Targ(func() {})
+`
+
+			filesystem := &mockFileSystem{
+				files: map[string][]byte{
+					filepath.Join(subdir, "targs.go"): []byte(src),
+					filepath.Join(subdir, "go.mod"):   []byte("module example.com/" + subdir),
+				},
+				dirs: map[string][]fs.DirEntry{
+					".":    {mockDirEntry{name: subdir, isDir: true}},
+					subdir: {mockDirEntry{name: "targs.go", isDir: false}, mockDirEntry{name: "go.mod", isDir: false}},
+				},
+			}
+
+			infos, err := discover.Discover(
+				filesystem,
+				discover.Options{StartDir: ".", BuildTag: "targ"},
+			)
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(infos).To(BeEmpty(),
+				"subdirectories with their own go.mod are separate projects and should be skipped")
+		})
+	})
+
 	t.Run("SkipsTestFiles", func(t *testing.T) {
 		t.Parallel()
 		rapid.Check(t, func(t *rapid.T) {
