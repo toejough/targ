@@ -72,7 +72,6 @@ func PrependBuiltinExamples(custom ...Example) []Example {
 // unexported constants.
 const (
 	flagPlaceholder = "[flag]"
-	usageLineWidth  = 80
 )
 
 // unexported variables.

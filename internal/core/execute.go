@@ -68,23 +68,16 @@ func GetRegistry() []any {
 	return defaultState.GetRegistry()
 }
 
-// Main runs the given targets as a CLI application.
-func Main(targets ...any) {
-	RegisterTarget(targets...)
+// MainWithSkip registers the given targets with a custom caller skip depth and runs them
+// as a CLI application. The skip parameter is passed to RegisterTargetWithSkip.
+func MainWithSkip(skip int, targets ...any) {
+	defaultState.RegisterTargetWithSkip(skip, targets...)
 
 	env := osRunEnv{}
 	_ = ExecuteWithResolution(env, RunOptions{
 		AllowDefault: true,
 		BinaryMode:   true,
 	})
-}
-
-// RegisterTarget adds targets to the global registry for later execution.
-// Typically called from init() in packages with //go:build targ.
-// Use ExecuteRegistered() in main() to run the registered targets.
-// Automatically sets sourcePkg on each *Target using runtime.Caller.
-func RegisterTarget(targets ...any) {
-	defaultState.RegisterTarget(targets...)
 }
 
 // RegisterTargetWithSkip adds targets to the global registry with custom caller skip depth.

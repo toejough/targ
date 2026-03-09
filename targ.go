@@ -200,7 +200,7 @@ func IsWindows() bool {
 //	    )
 //	}
 func Main(targets ...any) {
-	core.Main(targets...)
+	core.MainWithSkip(core.CallerSkipPublicAPI+1, targets...)
 }
 
 // --- File Utilities ---
@@ -242,7 +242,9 @@ func Printf(ctx context.Context, format string, args ...any) {
 // Typically called from init() in packages with //go:build targ.
 // Use ExecuteRegistered() in main() to run the registered targets.
 func Register(targets ...any) {
-	core.RegisterTargetWithSkip(core.CallerSkipPublicAPI, targets...)
+	// CallerSkipPublicAPI + 1 because this wrapper adds an extra frame:
+	// callerPackagePath → s.RegisterTargetWithSkip → core.RegisterTargetWithSkip → Register → caller
+	core.RegisterTargetWithSkip(core.CallerSkipPublicAPI+1, targets...)
 }
 
 // Run executes a command streaming stdout/stderr.
