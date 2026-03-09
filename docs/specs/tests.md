@@ -273,6 +273,31 @@ Items derived from: L5 implementation (existing test suite)
 **Traces to L3:** ARCH-12 (Build Tool Runner)
 **Traces to L2:** REQ-16
 
+## T-23: Superseding detection and dispatch
+
+**Given** multiple module registries containing commands with the same name at different discovery depths, **When** commands are collected for dispatch, **Then** the most-local version (closest to CWD) is selected.
+
+- Property: when a command exists in both local and ancestor registries, `findCommandBinary` returns the local binary
+- Property: registries are ordered by proximity (CWD first, then CWD/dev/, then ancestors by ascending distance)
+- Property: `collectSortedCommands` annotates duplicate commands with superseding metadata
+
+**Tests:** TBD (runner_properties_test.go or runner_test.go)
+**Traces to L3:** ARCH-16 (Superseding Logic)
+**Traces to L2:** REQ-18
+
+## T-24: Superseding display in help
+
+**Given** multiple module registries with duplicate command names, **When** `printMultiModuleHelp` renders the help output, **Then** the primary (most-local) version shows normally with a "supersedes <source>" annotation, and higher-level duplicates are marked as superseded with dimmed styling.
+
+- Property: superseded commands appear in help output with superseding annotation
+- Property: primary commands show what they supersede
+- Property: non-duplicate commands render without annotations
+- Property: single-module help (no duplicates) is unaffected
+
+**Tests:** TBD (runner_properties_test.go or runner_test.go)
+**Traces to L3:** ARCH-16 (Superseding Logic), ARCH-10 (Help System)
+**Traces to L2:** DES-7
+
 ## Coverage Gaps (L5 items with no dedicated L4 test coverage)
 
 - **IMPL-1 (Root Public API):** No direct tests — tested indirectly through integration tests in `test/`. Thin re-export layer, expected.

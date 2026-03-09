@@ -16,7 +16,7 @@ green_tool = "targ check-full"
 items = [
   "T-1", "T-2", "T-3", "T-4", "T-5", "T-6", "T-7", "T-8", "T-9", "T-10",
   "T-11", "T-12", "T-13", "T-14", "T-15", "T-16", "T-17", "T-18", "T-19", "T-20",
-  "T-21", "T-22",
+  "T-21", "T-22", "T-23", "T-24",
 ]
 
 [layers.L3]
@@ -69,10 +69,10 @@ parents = ["L3A"]
 items = [
   "T-1", "T-2", "T-3", "T-4", "T-5", "T-6", "T-7", "T-8", "T-9", "T-10",
   "T-11", "T-12", "T-13", "T-14", "T-15", "T-16", "T-17", "T-18", "T-19", "T-20",
-  "T-21", "T-22",
+  "T-21", "T-22", "T-23", "T-24",
 ]
-status = "complete"
-history = "Bottom-up adoption: cataloged 20 test items. Coverage gaps for IMPL-1, IMPL-2, IMPL-3, IMPL-14, IMPL-19. Post-completion re-entry: added T-21 (upward discovery), T-22 (ancestor module grouping)."
+status = "in_progress"
+history = "Bottom-up adoption: cataloged 20 test items. Coverage gaps for IMPL-1, IMPL-2, IMPL-3, IMPL-14, IMPL-19. Post-completion re-entry: added T-21 (upward discovery), T-22 (ancestor module grouping). Re-entry #2: added T-23 (superseding dispatch), T-24 (superseding display)."
 
 [tree.L3A]
 layer = "L3"
@@ -140,6 +140,6 @@ UC-6 Discover Targets Across the Directory Tree:
 """ }
 
 [cursor]
-node = "L3A"
+node = "L4A"
 mode = "re-entry"
-next_action = "ARCH-16 added for superseding logic. REFACTOR L3, then descend to L4 for test items."
+next_action = "T-23 and T-24 added for superseding. REFACTOR L4, then descend to L5 for TDD implementation."
