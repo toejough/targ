@@ -938,6 +938,7 @@ func main() {
 	isolatedModuleName     = "targ.build.local"
 	minArgsForCompletion   = 2      // Minimum args for __complete (binary + arg)
 	minCommandNameWidth    = 10     // Minimum column width for command names in help output
+	minDuplicateCount      = 2      // Minimum count to consider a command name duplicated
 	pkgNameMain            = "main" // package main check for targ files
 	targLocalModule        = "targ.local"
 )
@@ -1015,8 +1016,11 @@ type buildContext struct {
 
 // printMultiModuleHelp prints aggregated help for all modules.
 type cmdEntry struct {
-	name        string
-	description string
+	name         string
+	description  string
+	source       string
+	supersededBy string
+	supersedes   string
 }
 
 type commandInfo struct {
@@ -2081,6 +2085,33 @@ func addTimeImport(content string) string {
 	return content
 }
 
+func annotateSuperseding(allCmds []cmdEntry, primarySource map[string]string) {
+	// Build set of duplicated names.
+	nameCounts := make(map[string]int)
+	for _, cmd := range allCmds {
+		nameCounts[cmd.name]++
+	}
+
+	for i := range allCmds {
+		if nameCounts[allCmds[i].name] < minDuplicateCount {
+			continue
+		}
+
+		primary := primarySource[allCmds[i].name]
+
+		if allCmds[i].source == primary {
+			// Primary (most-local) version — find what it supersedes.
+			for j := range allCmds {
+				if i != j && allCmds[j].name == allCmds[i].name {
+					allCmds[i].supersedes = allCmds[j].source
+				}
+			}
+		} else {
+			allCmds[i].supersededBy = primary
+		}
+	}
+}
+
 // backoffToGoCode converts "duration,multiplier" to Go code like "1*time.Second, 2.0".
 func backoffToGoCode(s string) (string, error) {
 	parts := strings.SplitN(s, ",", 2) //nolint:mnd // format is "duration,multiplier"
@@ -2273,6 +2304,20 @@ func buildPatternsCode(method string, patterns []string) string {
 	}
 
 	return fmt.Sprintf(".%s(%s)", method, strings.Join(quoted, ", "))
+}
+
+func buildPrimarySourceMap(registry []moduleRegistry) map[string]string {
+	primarySource := make(map[string]string)
+
+	for _, reg := range registry {
+		for _, cmd := range reg.Commands {
+			if _, seen := primarySource[cmd.Name]; !seen {
+				primarySource[cmd.Name] = reg.ModuleRoot
+			}
+		}
+	}
+
+	return primarySource
 }
 
 func buildSourceRoot() (string, bool) {
@@ -2488,11 +2533,17 @@ func collectSortedCommands(registry []moduleRegistry) []cmdEntry {
 
 	for _, reg := range registry {
 		for _, cmd := range reg.Commands {
-			allCmds = append(allCmds, cmdEntry{cmd.Name, cmd.Description})
+			allCmds = append(allCmds, cmdEntry{
+				name:        cmd.Name,
+				description: cmd.Description,
+				source:      reg.ModuleRoot,
+			})
 		}
 	}
 
 	sort.Slice(allCmds, func(i, j int) bool { return allCmds[i].name < allCmds[j].name })
+
+	annotateSuperseding(allCmds, buildPrimarySourceMap(registry))
 
 	return allCmds
 }
@@ -3323,8 +3374,10 @@ func goEnv(key string) (string, error) {
 
 // groupByModule groups packages by their module root.
 // Packages without a module are grouped under startDir with "targ.local" module path.
+// Order is preserved from the input (discovery proximity order: most local first).
 func groupByModule(infos []discover.PackageInfo, startDir string) ([]moduleTargets, error) {
-	byModule := make(map[string]*moduleTargets)
+	indexByRoot := make(map[string]int)
+	result := make([]moduleTargets, 0, len(infos))
 
 	for _, info := range infos {
 		if len(info.Files) == 0 {
@@ -3343,27 +3396,18 @@ func groupByModule(infos []discover.PackageInfo, startDir string) ([]moduleTarge
 			modPath = targLocalModule
 		}
 
-		// Group by module root
-		if mt, ok := byModule[modRoot]; ok {
-			mt.Packages = append(mt.Packages, info)
+		// Group by module root, preserving insertion order
+		if idx, ok := indexByRoot[modRoot]; ok {
+			result[idx].Packages = append(result[idx].Packages, info)
 		} else {
-			byModule[modRoot] = &moduleTargets{
+			indexByRoot[modRoot] = len(result)
+			result = append(result, moduleTargets{
 				ModuleRoot: modRoot,
 				ModulePath: modPath,
 				Packages:   []discover.PackageInfo{info},
-			}
+			})
 		}
 	}
-
-	// Convert to sorted slice for deterministic ordering
-	result := make([]moduleTargets, 0, len(byModule))
-	for _, mt := range byModule {
-		result = append(result, *mt)
-	}
-
-	sort.Slice(result, func(i, j int) bool {
-		return result[i].ModuleRoot < result[j].ModuleRoot
-	})
 
 	return result, nil
 }
@@ -3550,23 +3594,7 @@ func prepareBuildContext(
 }
 
 func printCommandList(allCmds []cmdEntry) {
-	maxLen := minCommandNameWidth
-	for _, cmd := range allCmds {
-		if len(cmd.name) > maxLen {
-			maxLen = len(cmd.name)
-		}
-	}
-
-	indent := strings.Repeat(" ", helpIndentWidth+maxLen+commandNamePadding+1+commandNamePadding)
-
-	for _, cmd := range allCmds {
-		lines := strings.Split(cmd.description, "\n")
-		fmt.Printf("    %-*s %s\n", maxLen+commandNamePadding, cmd.name, lines[0])
-
-		for _, line := range lines[1:] {
-			fmt.Printf("%s%s\n", indent, line)
-		}
-	}
+	writeCommandList(os.Stdout, allCmds)
 }
 
 func printFlagList() {
@@ -3999,6 +4027,36 @@ func validateNoPackageMain(mt moduleTargets) error {
 	}
 
 	return nil
+}
+
+func writeCommandList(w io.Writer, allCmds []cmdEntry) {
+	maxLen := minCommandNameWidth
+	for _, cmd := range allCmds {
+		if len(cmd.name) > maxLen {
+			maxLen = len(cmd.name)
+		}
+	}
+
+	indent := strings.Repeat(" ", helpIndentWidth+maxLen+commandNamePadding+1+commandNamePadding)
+
+	for _, cmd := range allCmds {
+		desc := cmd.description
+
+		if cmd.supersedes != "" {
+			desc += fmt.Sprintf(" (supersedes %s)", cmd.supersedes)
+		}
+
+		if cmd.supersededBy != "" {
+			desc = fmt.Sprintf("[superseded by %s] %s", cmd.supersededBy, desc)
+		}
+
+		lines := strings.Split(desc, "\n")
+		_, _ = fmt.Fprintf(w, "    %-*s %s\n", maxLen+commandNamePadding, cmd.name, lines[0])
+
+		for _, line := range lines[1:] {
+			_, _ = fmt.Fprintf(w, "%s%s\n", indent, line)
+		}
+	}
 }
 
 func writeFallbackGoMod(root, modulePath string, dep TargDependency) error {

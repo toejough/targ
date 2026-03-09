@@ -281,8 +281,9 @@ Items derived from: L5 implementation (existing test suite)
 - Property: registries are ordered by proximity (CWD first, then CWD/dev/, then ancestors by ascending distance)
 - Property: `collectSortedCommands` annotates duplicate commands with superseding metadata
 
-**Tests:** TBD (runner_properties_test.go or runner_test.go)
+**Tests:** `TestProperty_SupersedingDetection` (MostLocalCommandWinsDispatch, CollectAnnotatesDuplicatesWithSuperseding, RegistryOrderDeterminesLocality, NonDuplicateCommandsUnaffected) in supersede_test.go
 **Traces to L3:** ARCH-16 (Superseding Logic)
+**Traces to L5:** IMPL-20 (Superseding Logic)
 **Traces to L2:** REQ-18
 
 ## T-24: Superseding display in help
@@ -294,8 +295,9 @@ Items derived from: L5 implementation (existing test suite)
 - Property: non-duplicate commands render without annotations
 - Property: single-module help (no duplicates) is unaffected
 
-**Tests:** TBD (runner_properties_test.go or runner_test.go)
+**Tests:** `TestProperty_SupersedingDisplay` (SupersededCommandsShowAnnotation, SingleModuleHelpUnaffected) in supersede_test.go
 **Traces to L3:** ARCH-16 (Superseding Logic), ARCH-10 (Help System)
+**Traces to L5:** IMPL-20 (Superseding Logic)
 **Traces to L2:** DES-7
 
 ## Coverage Gaps (L5 items with no dedicated L4 test coverage)

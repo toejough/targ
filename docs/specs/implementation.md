@@ -157,3 +157,12 @@ Items derived from: ground truth (existing codebase)
 **Key functions:** `Run()`, `RunV()`, `Output()`, `RunContextWithIO()`, `OutputContext()`, `EnableCleanup()`, `KillProcessGroup()`
 **Key types:** `CleanupManager`, `ShellEnv`, `SafeBuffer`
 **Traces to:** ARCH-8
+
+## IMPL-20: Superseding Logic
+
+**Package:** `internal/runner`
+**Files:** `runner.go`, `export_test.go`, `supersede_test.go`
+**Purpose:** When the same command name exists at multiple discovery levels, the most-local version (closest to CWD) wins dispatch. `cmdEntry` carries source and superseding metadata. `collectSortedCommands` uses `annotateSuperseding` and `buildPrimarySourceMap` to detect duplicates and annotate primary/superseded entries. `writeCommandList` renders superseding annotations in help output. `groupByModule` preserves discovery proximity order (insertion order) instead of alphabetical sort.
+**Key functions:** `annotateSuperseding()`, `buildPrimarySourceMap()`, `writeCommandList()`, `collectSortedCommands()`, `groupByModule()`
+**Key types:** `cmdEntry` (with `source`, `supersededBy`, `supersedes` fields)
+**Traces to:** ARCH-16
