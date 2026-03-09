@@ -29,6 +29,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/toejough/targ/internal/core"
 	"github.com/toejough/targ/internal/discover"
 	"github.com/toejough/targ/internal/flags"
 	"github.com/toejough/targ/internal/help"
@@ -1365,6 +1366,8 @@ func (r *targRunner) discoverPackages() ([]discover.PackageInfo, error) {
 
 func (r *targRunner) dispatchFlagCommand(flagLong string, remaining []string) (int, bool) {
 	switch flagLong {
+	case "completion":
+		return r.handleCompletionFlag(remaining), true
 	case "create":
 		return r.handleCreateFlag(remaining), true
 	case "sync":
@@ -1426,6 +1429,32 @@ func (r *targRunner) executeBuiltBinary(binaryPath, targBinName string) int {
 
 func (r *targRunner) exitWithCleanup(code int) int {
 	return code
+}
+
+func (r *targRunner) handleCompletionFlag(args []string) int {
+	var shell string
+	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
+		shell = args[0]
+	} else {
+		shell = detectShellFromEnv()
+	}
+
+	if shell == "" {
+		fmt.Fprintln(os.Stderr, "Usage: --completion [bash|zsh|fish]")
+		fmt.Fprintln(os.Stderr, "Could not detect shell. Please specify one.")
+
+		return 1
+	}
+
+	binName := extractBinName(r.binArg)
+
+	err := core.PrintCompletionScriptTo(os.Stdout, shell, binName)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		return 1
+	}
+
+	return 0
 }
 
 func (r *targRunner) handleCreateFlag(args []string) int {
@@ -2773,6 +2802,23 @@ func createIsolatedBuildDir(
 	}
 
 	return tmpDir, cleanup, nil
+}
+
+// detectShellFromEnv detects the shell type from the SHELL environment variable.
+func detectShellFromEnv() string {
+	shell := os.Getenv("SHELL")
+	if shell == "" {
+		return ""
+	}
+
+	base := filepath.Base(shell)
+
+	switch base {
+	case "bash", "zsh", "fish":
+		return base
+	default:
+		return ""
+	}
 }
 
 // dispatchCommand finds the right binary for a command and executes it.
