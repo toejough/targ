@@ -76,10 +76,7 @@ func Discover(filesystem FileSystem, opts Options) ([]PackageInfo, error) {
 		tag = defaultBuildTag
 	}
 
-	dirs, err := findTaggedDirs(filesystem, startDir, tag)
-	if err != nil {
-		return nil, err
-	}
+	dirs := findTaggedDirs(filesystem, startDir, tag)
 
 	ancestorDirs := findAncestorTaggedDirs(filesystem, startDir, tag)
 
@@ -113,10 +110,7 @@ func TaggedFiles(filesystem FileSystem, opts Options) ([]TaggedFile, error) {
 		tag = defaultBuildTag
 	}
 
-	dirs, err := findTaggedDirs(filesystem, startDir, tag)
-	if err != nil {
-		return nil, err
-	}
+	dirs := findTaggedDirs(filesystem, startDir, tag)
 
 	var files []TaggedFile
 
@@ -350,10 +344,8 @@ func findAncestorTaggedDirs(filesystem FileSystem, startDir, tag string) []tagge
 		// Errors are tolerated (non-existent, unreadable, system dirs like /dev).
 		devPath := filepath.Join(dir, ancestorDevDir)
 
-		devDirs, err := findTaggedDirs(filesystem, devPath, tag)
-		if err == nil {
-			results = append(results, devDirs...)
-		}
+		devDirs := findTaggedDirs(filesystem, devPath, tag)
+		results = append(results, devDirs...)
 
 		parent := filepath.Dir(dir)
 		if parent == dir {
@@ -366,7 +358,7 @@ func findAncestorTaggedDirs(filesystem FileSystem, startDir, tag string) []tagge
 	return results
 }
 
-func findTaggedDirs(filesystem FileSystem, startDir, tag string) ([]taggedDir, error) {
+func findTaggedDirs(filesystem FileSystem, startDir, tag string) []taggedDir {
 	queue := []dirQueueEntry{{path: startDir, depth: 0}}
 
 	var results []taggedDir
@@ -377,7 +369,8 @@ func findTaggedDirs(filesystem FileSystem, startDir, tag string) ([]taggedDir, e
 
 		tagged, newDirs, err := processDirectory(filesystem, current, tag)
 		if err != nil {
-			return nil, err
+			// Skip unreadable directories (e.g., macOS protected dirs).
+			continue
 		}
 
 		queue = append(queue, newDirs...)
@@ -391,7 +384,7 @@ func findTaggedDirs(filesystem FileSystem, startDir, tag string) ([]taggedDir, e
 		}
 	}
 
-	return results, nil
+	return results
 }
 
 // newPackageInfoParser creates a new parser with initialized state.
