@@ -24,8 +24,12 @@ func SetProcGroup(cmd *exec.Cmd) {
 
 // runWithContext runs a command with context cancellation support.
 // On Unix, it uses process groups to kill the entire process tree.
-func runWithContext(ctx context.Context, cmd *exec.Cmd) error {
-	SetProcGroup(cmd)
+// When foreground is true, the child inherits the parent's process group
+// so it remains the terminal's foreground group for interactive TTY access.
+func runWithContext(ctx context.Context, cmd *exec.Cmd, foreground bool) error {
+	if !foreground {
+		SetProcGroup(cmd)
+	}
 
 	err := cmd.Start()
 	if err != nil {
@@ -42,7 +46,12 @@ func runWithContext(ctx context.Context, cmd *exec.Cmd) error {
 	case err := <-done:
 		return err
 	case <-ctx.Done():
-		KillProcessGroup(cmd)
+		if foreground {
+			_ = cmd.Process.Signal(syscall.SIGTERM)
+		} else {
+			KillProcessGroup(cmd)
+		}
+
 		<-done
 
 		return fmt.Errorf("command cancelled: %w", ctx.Err())

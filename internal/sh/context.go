@@ -72,5 +72,5 @@ func RunContextWithIO(ctx context.Context, env *ShellEnv, name string, args []st
 	cmd.Stderr = env.Stderr
 	cmd.Stdin = env.Stdin
 
-	return runWithContext(ctx, cmd)
+	return runWithContext(ctx, cmd, env.Foreground)
 }

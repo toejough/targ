@@ -775,6 +775,7 @@ func parallelShellEnv(ctx context.Context) (*internalsh.ShellEnv, *PrefixWriter)
 	env := internalsh.DefaultShellEnv()
 	env.Stdout = prefixWriter
 	env.Stderr = prefixWriter
+	env.Foreground = false
 
 	return env, prefixWriter
 }

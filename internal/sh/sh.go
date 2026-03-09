@@ -45,9 +45,12 @@ type ShellEnv struct {
 	Stdout      io.Writer
 	Stderr      io.Writer
 	Cleanup     *CleanupManager
+	Foreground  bool
 }
 
 // DefaultShellEnv returns the standard OS implementations with the default cleanup manager.
+// Foreground is true by default because commands with real OS stdio should
+// inherit the terminal's foreground process group for interactive TTY access.
 func DefaultShellEnv() *ShellEnv {
 	return &ShellEnv{
 		ExecCommand: exec.Command,
@@ -56,6 +59,7 @@ func DefaultShellEnv() *ShellEnv {
 		Stdout:      os.Stdout,
 		Stderr:      os.Stderr,
 		Cleanup:     defaultCleanup,
+		Foreground:  true,
 	}
 }
 

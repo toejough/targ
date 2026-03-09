@@ -24,9 +24,10 @@ func SetProcGroup(cmd *exec.Cmd) {
 
 // runWithContext runs a command with context cancellation support.
 // On Windows, this uses basic process termination.
+// The foreground parameter is accepted for API compatibility but has no effect on Windows.
 // Note: Child processes may not be terminated - for full process tree
 // cleanup, consider using Job Objects in a future enhancement.
-func runWithContext(ctx context.Context, cmd *exec.Cmd) error {
+func runWithContext(ctx context.Context, cmd *exec.Cmd, _ bool) error {
 	if err := cmd.Start(); err != nil {
 		return err
 	}
