@@ -300,10 +300,24 @@ Items derived from: L5 implementation (existing test suite)
 **Traces to L5:** IMPL-20 (Superseding Logic)
 **Traces to L2:** DES-7
 
+## T-25: Foreground process group for interactive commands
+
+**Given** a `ShellEnv` configuration, **When** commands are executed via `RunContextWithIO`, **Then** foreground commands (default) inherit the parent's process group for TTY access, while background commands (parallel mode) get isolated process groups for clean cancellation.
+
+- Property: `DefaultShellEnv()` sets `Foreground = true`
+- Property: parallel shell env sets `Foreground = false`
+- Property: foreground commands skip `SetProcGroup` (no `Setpgid`)
+- Property: background commands use `SetProcGroup` (with `Setpgid`)
+
+**Tests:** `TestProperty_ForegroundProcessGroup` in `sh` package or `core` package
+**Traces to L3:** ARCH-8 (Shell Execution), ARCH-7 (Parallel Output)
+**Traces to L5:** IMPL-19 (Shell Execution)
+**Traces to L2:** REQ-9
+
 ## Coverage Gaps (L5 items with no dedicated L4 test coverage)
 
 - **IMPL-1 (Root Public API):** No direct tests — tested indirectly through integration tests in `test/`. Thin re-export layer, expected.
 - **IMPL-2 (CLI Entry Point):** No tests — `main()` is excluded from coverage per CLAUDE.md. Expected.
 - **IMPL-3 (Build Targets):** No unit tests for dev targets themselves — they are consumers of targ, tested via mutation testing (T-20).
 - **IMPL-14 (File Utilities):** No dedicated test file found. Match/Checksum/Watch tested indirectly through integration tests.
-- **IMPL-19 (Shell Execution):** No dedicated test file found. Run/Output/RunContext tested indirectly through other packages.
+- **IMPL-19 (Shell Execution):** Foreground/background distinction covered by T-25. Run/Output/RunContext also tested indirectly through other packages.
