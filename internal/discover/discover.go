@@ -65,6 +65,8 @@ type TaggedFile struct {
 // Public API.
 
 // Discover finds all packages with targ-tagged files and parses their info.
+// It scans CWD for tagged files (non-recursive), CWD/dev/ recursively,
+// and then walks up ancestor directories checking each ancestor and its dev/.
 func Discover(filesystem FileSystem, opts Options) ([]PackageInfo, error) {
 	startDir := opts.StartDir
 	if startDir == "" {
@@ -76,10 +78,22 @@ func Discover(filesystem FileSystem, opts Options) ([]PackageInfo, error) {
 		tag = defaultBuildTag
 	}
 
-	dirs := findTaggedDirs(filesystem, startDir, tag)
+	var dirs []taggedDir
 
+	// Check CWD itself for tagged files (non-recursive).
+	cwdTagged, _, _ := processDirectory(filesystem, dirQueueEntry{path: startDir, depth: 0}, tag)
+	if len(cwdTagged) > 0 {
+		dirs = append(dirs, taggedDir{Path: startDir, Depth: 0, Files: cwdTagged})
+	}
+
+	// Check CWD/dev/ subtree recursively.
+	devPath := filepath.Join(startDir, ancestorDevDir)
+
+	devDirs := findTaggedDirs(filesystem, devPath, tag)
+	dirs = append(dirs, devDirs...)
+
+	// Walk up ancestor directories.
 	ancestorDirs := findAncestorTaggedDirs(filesystem, startDir, tag)
-
 	dirs = append(dirs, ancestorDirs...)
 
 	infos := make([]PackageInfo, 0, len(dirs))
@@ -316,6 +330,9 @@ func findAncestorTaggedDirs(filesystem FileSystem, startDir, tag string) []tagge
 	var results []taggedDir
 
 	dir := filepath.Dir(startDir)
+	if dir == startDir {
+		return results
+	}
 
 	for {
 		// Check the ancestor directory itself for tagged files (no recursion into subdirs).
