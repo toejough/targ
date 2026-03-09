@@ -140,6 +140,6 @@ UC-6 Discover Targets Across the Directory Tree:
 """ }
 
 [cursor]
-node = "L5A"
-mode = "in_progress"
-next_action = "Post-completion re-entry #3: 6 bug fix commits (discovery hang, runner resilience, TTY foreground) modified IMPL-13, IMPL-18, IMPL-19. Update specs L5→L3, add T-25 for foreground TTY, update ARCH-8."
+node = "L1A"
+mode = "complete"
+next_action = "Re-entry #3 complete. Specs updated (IMPL-13/18/19, ARCH-8, T-25), usability gate passed."
