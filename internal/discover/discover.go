@@ -124,7 +124,19 @@ func TaggedFiles(filesystem FileSystem, opts Options) ([]TaggedFile, error) {
 		tag = defaultBuildTag
 	}
 
-	dirs := findTaggedDirs(filesystem, startDir, tag)
+	// Match Discover's scoping: CWD non-recursive + CWD/dev/ recursive.
+	// A full recursive walk from startDir would hang on large directories like ~.
+	var dirs []taggedDir
+
+	cwdTagged, _, _ := processDirectory(filesystem, dirQueueEntry{path: startDir, depth: 0}, tag)
+	if len(cwdTagged) > 0 {
+		dirs = append(dirs, taggedDir{Path: startDir, Depth: 0, Files: cwdTagged})
+	}
+
+	devPath := filepath.Join(startDir, ancestorDevDir)
+
+	devDirs := findTaggedDirs(filesystem, devPath, tag)
+	dirs = append(dirs, devDirs...)
 
 	var files []TaggedFile
 
@@ -334,17 +346,14 @@ func findAncestorTaggedDirs(filesystem FileSystem, startDir, tag string) []tagge
 		return results
 	}
 
-	for {
+	// Stop before filesystem root — no project lives there and checking root/dev
+	// would walk the system device directory (e.g., /dev), hanging on special files.
+	for filepath.Dir(dir) != dir {
 		// Check the ancestor directory itself for tagged files (no recursion into subdirs).
 		// Errors are tolerated (unreadable directories during upward walk).
 		tagged, _, err := processDirectory(filesystem, dirQueueEntry{path: dir, depth: 0}, tag)
 		if err != nil {
-			parent := filepath.Dir(dir)
-			if parent == dir {
-				break
-			}
-
-			dir = parent
+			dir = filepath.Dir(dir)
 
 			continue
 		}
@@ -358,18 +367,12 @@ func findAncestorTaggedDirs(filesystem FileSystem, startDir, tag string) []tagge
 		}
 
 		// Check ancestor's dev/ subtree recursively.
-		// Errors are tolerated (non-existent, unreadable, system dirs like /dev).
 		devPath := filepath.Join(dir, ancestorDevDir)
 
 		devDirs := findTaggedDirs(filesystem, devPath, tag)
 		results = append(results, devDirs...)
 
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			break
-		}
-
-		dir = parent
+		dir = filepath.Dir(dir)
 	}
 
 	return results

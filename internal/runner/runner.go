@@ -1521,7 +1521,7 @@ func (r *targRunner) handleIsolatedModule(infos []discover.PackageInfo) int {
 	defer cleanup()
 
 	// Remap package infos to point to isolated directory
-	isolatedInfos, _, err := remapPackageInfosToIsolated(infos, r.startDir, isolatedDir)
+	isolatedInfos, err := remapPackageInfosToIsolated(infos, r.startDir, isolatedDir)
 	if err != nil {
 		r.logError("Error remapping package infos", err)
 		return r.exitWithCleanup(1)
@@ -1563,7 +1563,6 @@ func (r *targRunner) handleMultiModule(
 ) int {
 	registry, err := buildMultiModuleBinaries(
 		moduleGroups,
-		r.startDir,
 		r.noBinaryCache,
 		r.errOut,
 	)
@@ -1859,7 +1858,7 @@ func (r *targRunner) run() int {
 	}
 
 	// Group packages by module
-	moduleGroups, err := groupByModule(infos, r.startDir)
+	moduleGroups, err := groupByModule(infos)
 	if err != nil {
 		r.logError("Error grouping packages by module", err)
 		return r.exitWithCleanup(1)
@@ -2219,7 +2218,6 @@ func buildDepsCode(opts CreateOptions) string {
 // buildModuleBinary builds a single module's binary and queries its commands.
 func buildModuleBinary(
 	mt moduleTargets,
-	startDir string,
 	dep TargDependency,
 	noBinaryCache bool,
 	errOut io.Writer,
@@ -2234,12 +2232,19 @@ func buildModuleBinary(
 		return reg, err
 	}
 
-	buildCtx, err := prepareBuildContext(mt, startDir, dep)
+	buildCtx, cleanup, err := prepareBuildContext(mt, dep)
 	if err != nil {
 		return reg, err
 	}
 
-	bootstrap, err := generateModuleBootstrap(mt, buildCtx.importRoot)
+	defer cleanup()
+
+	buildMT, err := resolveModuleForBuild(mt, buildCtx)
+	if err != nil {
+		return reg, err
+	}
+
+	bootstrap, err := generateModuleBootstrap(buildMT, buildCtx.importRoot)
 	if err != nil {
 		return reg, err
 	}
@@ -2250,7 +2255,6 @@ func buildModuleBinary(
 	}
 
 	reg.BinaryPath = binaryPath
-
 	if !noBinaryCache {
 		if cmds, ok := tryCachedBinary(binaryPath); ok {
 			reg.Commands = cmds
@@ -2278,7 +2282,6 @@ func buildModuleBinary(
 // buildMultiModuleBinaries builds a binary for each module group and returns the registry.
 func buildMultiModuleBinaries(
 	moduleGroups []moduleTargets,
-	startDir string,
 	noBinaryCache bool,
 	errOut io.Writer,
 ) ([]moduleRegistry, error) {
@@ -2287,7 +2290,7 @@ func buildMultiModuleBinaries(
 	dep := resolveTargDependency()
 
 	for _, mt := range moduleGroups {
-		reg, err := buildModuleBinary(mt, startDir, dep, noBinaryCache, errOut)
+		reg, err := buildModuleBinary(mt, dep, noBinaryCache, errOut)
 		if err != nil {
 			return nil, fmt.Errorf("building module %s: %w", mt.ModulePath, err)
 		}
@@ -2624,12 +2627,19 @@ func computeModuleCacheKey(mt moduleTargets, importRoot string, bootstrap []byte
 		return "", fmt.Errorf("gathering tagged files: %w", err)
 	}
 
-	moduleFiles, err := collectModuleFiles(importRoot)
-	if err != nil {
-		return "", fmt.Errorf("gathering module files: %w", err)
-	}
+	cacheInputs := taggedFiles
 
-	cacheInputs := slices.Concat(taggedFiles, moduleFiles)
+	// Only walk the module directory for real modules. Pseudo-modules (targ.local)
+	// have no go.mod and their "root" may be a large directory like ~/ that should
+	// not be walked. Tagged files alone suffice for cache invalidation.
+	if mt.ModulePath != targLocalModule {
+		moduleFiles, err := collectModuleFiles(importRoot)
+		if err != nil {
+			return "", fmt.Errorf("gathering module files: %w", err)
+		}
+
+		cacheInputs = slices.Concat(taggedFiles, moduleFiles)
+	}
 
 	cacheKey, err := computeCacheKey(mt.ModulePath, importRoot, "targ", bootstrap, cacheInputs)
 	if err != nil {
@@ -3401,7 +3411,7 @@ func goEnv(key string) (string, error) {
 // groupByModule groups packages by their module root.
 // Packages without a module are grouped under startDir with "targ.local" module path.
 // Order is preserved from the input (discovery proximity order: most local first).
-func groupByModule(infos []discover.PackageInfo, startDir string) ([]moduleTargets, error) {
+func groupByModule(infos []discover.PackageInfo) ([]moduleTargets, error) {
 	indexByRoot := make(map[string]int)
 	result := make([]moduleTargets, 0, len(infos))
 
@@ -3417,8 +3427,10 @@ func groupByModule(infos []discover.PackageInfo, startDir string) ([]moduleTarge
 		}
 
 		if !found {
-			// No module found - use startDir as pseudo-module
-			modRoot = startDir
+			// No module found - use the package's own directory as pseudo-module root.
+			// Using startDir would merge this with the actual module at startDir,
+			// producing invalid import paths for packages outside the module tree.
+			modRoot = info.Dir
 			modPath = targLocalModule
 		}
 
@@ -3596,27 +3608,35 @@ func parseSingleValueArg(remaining []string, i int, flagName string) (string, in
 }
 
 // prepareBuildContext determines build roots and handles fallback module setup.
+// For pseudo-modules (targ.local), returns a cleanup function for the isolated build dir.
 func prepareBuildContext(
 	mt moduleTargets,
-	startDir string,
 	dep TargDependency,
-) (buildContext, error) {
+) (buildContext, func(), error) {
 	ctx := buildContext{
 		usingFallback: mt.ModulePath == targLocalModule,
 		buildRoot:     mt.ModuleRoot,
 		importRoot:    mt.ModuleRoot,
 	}
 
-	if ctx.usingFallback {
-		var err error
+	noop := func() {}
 
-		ctx.buildRoot, err = EnsureFallbackModuleRoot(startDir, mt.ModulePath, dep)
+	if ctx.usingFallback {
+		// Use createIsolatedBuildDir for pseudo-modules. This copies only the targ
+		// files and creates a synthetic go.mod, avoiding issues with symlinking
+		// large directories (like ~/) or exposing internal packages.
+		isolatedDir, cleanup, err := createIsolatedBuildDir(mt.Packages, mt.ModuleRoot, dep)
 		if err != nil {
-			return ctx, fmt.Errorf("preparing fallback module: %w", err)
+			return ctx, noop, fmt.Errorf("preparing isolated build: %w", err)
 		}
+
+		ctx.buildRoot = isolatedDir
+		ctx.importRoot = isolatedDir
+
+		return ctx, cleanup, nil
 	}
 
-	return ctx, nil
+	return ctx, noop, nil
 }
 
 func printCommandList(allCmds []cmdEntry) {
@@ -3738,20 +3758,18 @@ func registerArgExists(args []ast.Expr, name string) bool {
 }
 
 // remapPackageInfosToIsolated creates new package infos with paths pointing to isolated dir.
-// Returns the remapped infos and a mapping from new paths to original paths.
 func remapPackageInfosToIsolated(
 	infos []discover.PackageInfo,
 	startDir, isolatedDir string,
-) ([]discover.PackageInfo, map[string]string, error) {
+) ([]discover.PackageInfo, error) {
 	filePaths := collectFilePaths(infos)
 
 	paths, err := NamespacePaths(filePaths, startDir)
 	if err != nil {
-		return nil, nil, fmt.Errorf("computing namespace paths: %w", err)
+		return nil, fmt.Errorf("computing namespace paths: %w", err)
 	}
 
 	result := make([]discover.PackageInfo, 0, len(infos))
-	pathMapping := make(map[string]string) // newPath -> originalPath
 
 	for _, info := range infos {
 		newInfo := discover.PackageInfo{
@@ -3781,7 +3799,6 @@ func remapPackageInfosToIsolated(
 
 		for _, f := range info.Files {
 			newPath := filepath.Join(newDir, filepath.Base(f.Path))
-			pathMapping[newPath] = f.Path // Track original path
 			newFiles = append(newFiles, discover.FileInfo{
 				Path: newPath,
 				Base: f.Base,
@@ -3792,7 +3809,7 @@ func remapPackageInfosToIsolated(
 		result = append(result, newInfo)
 	}
 
-	return result, pathMapping, nil
+	return result, nil
 }
 
 // removeFuncDecl removes a function declaration from file.Decls.
@@ -3806,6 +3823,25 @@ func removeFuncDecl(file *ast.File, funcDecl *ast.FuncDecl) {
 	}
 
 	file.Decls = newDecls
+}
+
+// resolveModuleForBuild remaps package infos for isolated builds.
+// For pseudo-modules, paths are remapped to the isolated directory and the
+// module name is set to match the synthetic go.mod.
+func resolveModuleForBuild(mt moduleTargets, ctx buildContext) (moduleTargets, error) {
+	if !ctx.usingFallback {
+		return mt, nil
+	}
+
+	remapped, err := remapPackageInfosToIsolated(mt.Packages, mt.ModuleRoot, ctx.buildRoot)
+	if err != nil {
+		return mt, fmt.Errorf("remapping package infos: %w", err)
+	}
+
+	mt.Packages = remapped
+	mt.ModulePath = isolatedModuleName
+
+	return mt, nil
 }
 
 func resolveTargDependency() TargDependency {

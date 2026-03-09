@@ -622,19 +622,23 @@ import "github.com/toejough/targ"
 
 var ` + varName + ` = targ.Targ(func() {})
 `
-
+			// TaggedFiles matches Discover's scoping: CWD non-recursive + dev/ recursive.
+			// Place files under dev/ subdirectories to be found.
 			filesystem := &mockFileSystem{
 				files: map[string][]byte{
-					dir1 + "/targs.go": []byte(src),
-					dir2 + "/targs.go": []byte(src),
+					"dev/" + dir1 + "/targs.go": []byte(src),
+					"dev/" + dir2 + "/targs.go": []byte(src),
 				},
 				dirs: map[string][]fs.DirEntry{
 					".": {
+						mockDirEntry{name: "dev", isDir: true},
+					},
+					"dev": {
 						mockDirEntry{name: dir1, isDir: true},
 						mockDirEntry{name: dir2, isDir: true},
 					},
-					dir1: {mockDirEntry{name: "targs.go", isDir: false}},
-					dir2: {mockDirEntry{name: "targs.go", isDir: false}},
+					"dev/" + dir1: {mockDirEntry{name: "targs.go", isDir: false}},
+					"dev/" + dir2: {mockDirEntry{name: "targs.go", isDir: false}},
 				},
 			}
 
