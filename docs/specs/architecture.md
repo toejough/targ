@@ -100,6 +100,13 @@ Root `targ` package is a thin re-export layer: type aliases, constant re-exports
 **Induced from:** IMPL-1
 **Traces to:** DES-1
 
+## ARCH-16: Superseding Logic
+
+When multiple module registries contain commands with the same name, the most-local version (closest to CWD) takes priority. Superseding is determined by discovery order — `Discover()` returns CWD targets first, then CWD/dev/ targets, then ancestors in ascending distance order. `groupByModule` must preserve this proximity ordering (not alphabetical). `collectSortedCommands` annotates duplicates: the primary (most-local) entry notes what it supersedes, and higher-level duplicates are marked as superseded. `findCommandBinary` returns the most-local match. `cmdEntry` carries source information (module root path) for display. `printCommandList` renders superseding annotations with dimmed styling for superseded entries.
+
+**Derived from:** REQ-18, DES-7
+**Traces to:** REQ-18, DES-7
+
 ## ARCH-15: Conflict-Free Configuration
 
 **Source: standard** — induced from the "No Surprises" design principle observed in IMPL-5 and T-3.

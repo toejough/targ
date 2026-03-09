@@ -36,6 +36,7 @@ items = [
   { id = "ARCH-13", source = "derived" },
   { id = "ARCH-14", source = "derived" },
   { id = "ARCH-15", source = "standard", rationale = "No Surprises design principle: compile-time vs CLI flag conflicts error rather than silently choosing" },
+  { id = "ARCH-16", source = "derived" },
 ]
 
 [layers.L2]
@@ -79,10 +80,10 @@ name = "All Architecture"
 parents = ["L2A"]
 items = [
   "ARCH-1", "ARCH-2", "ARCH-3", "ARCH-4", "ARCH-5", "ARCH-6", "ARCH-7",
-  "ARCH-8", "ARCH-9", "ARCH-10", "ARCH-11", "ARCH-12", "ARCH-13", "ARCH-14", "ARCH-15",
+  "ARCH-8", "ARCH-9", "ARCH-10", "ARCH-11", "ARCH-12", "ARCH-13", "ARCH-14", "ARCH-15", "ARCH-16",
 ]
-status = "complete"
-history = "Bottom-up adoption: induced 15 ARCH items from L4+L5 clusters (14 derived, 1 standard). Post-completion re-entry: extended ARCH-11, ARCH-12 for UC-6 bidirectional discovery."
+status = "in_progress"
+history = "Bottom-up adoption: induced 15 ARCH items from L4+L5 clusters (14 derived, 1 standard). Post-completion re-entry: extended ARCH-11, ARCH-12 for UC-6 bidirectional discovery. Re-entry #2: added ARCH-16 for superseding logic."
 
 [tree.L2A]
 layer = "L2"
@@ -139,6 +140,6 @@ UC-6 Discover Targets Across the Directory Tree:
 """ }
 
 [cursor]
-node = "L2A"
+node = "L3A"
 mode = "re-entry"
-next_action = "Post-completion re-entry: REQ-18 and DES-7 added for superseding display. REFACTOR L2, then descend to L3 to add ARCH items for superseding logic."
+next_action = "ARCH-16 added for superseding logic. REFACTOR L3, then descend to L4 for test items."
