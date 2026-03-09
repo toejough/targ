@@ -3196,13 +3196,14 @@ func findTargFileInTree(fileOps FileOps, dir string) (string, bool, error) {
 	}
 
 	for _, entry := range entries {
-		if !entry.IsDir() {
+		if !entry.IsDir() || strings.HasPrefix(entry.Name(), ".") {
 			continue
 		}
 
 		path, found, err := findTargFileInTree(fileOps, filepath.Join(dir, entry.Name()))
 		if err != nil {
-			return "", false, err
+			// Skip unreadable directories (e.g., macOS protected dirs like .Trash)
+			continue
 		}
 
 		if found {
