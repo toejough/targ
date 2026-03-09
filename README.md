@@ -213,6 +213,8 @@ var Build = targ.Targ(build).
 | `.Retry()` | Continue despite failures |
 | `.Backoff(initial, factor)` | Exponential backoff |
 | `.While(fn)` | Run while predicate is true |
+| `.OnStart(fn)` | Hook called when target starts (parallel mode) |
+| `.OnStop(fn)` | Hook called when target completes (parallel mode) |
 
 ## Tags
 
@@ -351,6 +353,36 @@ Deps-only targets run dependencies without their own function:
 var all = targ.Targ().Name("all").Deps(build, test, lint)
 ```
 
+### Parallel Output
+
+When targets run in parallel, each target's output is prefixed with its name and aligned:
+
+```
+[lint]   running golangci-lint...
+[build]  compiling ./cmd/app...
+[build]  done
+[lint]   done
+```
+
+Output from concurrent targets is serialized — no interleaving within a line.
+
+### Result Summary
+
+Every target execution produces a result: **Pass**, **Fail**, **Cancelled**, or **Errored**. After parallel runs, a summary is displayed:
+
+```
+  FAIL      check-a   (502ms)   missing import "fmt"...
+  PASS      check-b   (250ms)
+
+FAIL:1 PASS:1
+```
+
+By default, the first failure cancels remaining targets. Use `targ.CollectAllErrors` to run all and report all failures:
+
+```go
+targ.Targ(ci).Deps(lint, test, targ.DepModeParallel, targ.CollectAllErrors)
+```
+
 ## Shell Helpers
 
 Run commands with `targ.Run` and friends:
@@ -367,6 +399,19 @@ For cancellable commands (e.g., in watch mode), use context variants. When cance
 err := targ.RunContext(ctx, "go", "test", "./...")
 err := targ.RunContextV(ctx, "golangci-lint", "run")
 out, err := targ.OutputContext(ctx, "go", "list", "./...")
+```
+
+### Git Helpers
+
+Check for uncommitted changes (useful as a deploy precondition):
+
+```go
+func deploy(ctx context.Context) error {
+    if err := targ.CheckCleanWorkTree(ctx); err != nil {
+        return fmt.Errorf("deploy requires clean work tree: %w", err)
+    }
+    return targ.RunContext(ctx, "kubectl", "apply", "-f", "deploy.yaml")
+}
 ```
 
 ## File Checks
@@ -598,6 +643,43 @@ targ filter -i "*.go" -e "vendor/*" -i "*.md"
 
 **Targ's sweet spot**: Build automation that can evolve into a full CLI, or CLI parsing with minimal boilerplate.
 
+## Target Discovery
+
+Targ automatically discovers targets by walking the directory tree in both directions from your current working directory:
+
+**Downward:** Scans CWD (non-recursively) and `CWD/dev/` (recursively) for `//go:build targ` files.
+
+**Upward:** Walks the linear ancestor path (parent → grandparent → ... → root). At each ancestor, checks the directory itself and its `dev/` subtree if present. No sibling directories are searched.
+
+```
+/home/user/                    ← checked (+ dev/ subtree)
+/home/user/projects/           ← checked (+ dev/ subtree)
+/home/user/projects/myapp/     ← CWD: checked (+ dev/ subtree)
+/home/user/projects/myapp/src/ ← NOT checked (not ancestor)
+```
+
+This means you can define shared targets in `~/dev/targs.go` and they'll be available in every project.
+
+### Multi-Module Targets
+
+Each ancestor with targ files is built as its own module group. Ancestors with a `go.mod` use normal module build; ancestors without one get an isolated build (synthetic `go.mod`).
+
+### Command Superseding
+
+When the same command name exists at multiple levels, the most-local version wins for dispatch. Help output shows all versions with annotations:
+
+```
+Source: /home/user/projects/myapp/dev
+
+    build   Build the app (supersedes /home/user/dev)
+    test    Run tests
+
+Source: /home/user/dev
+
+    [superseded by /home/user/projects/myapp/dev] build   Generic build
+    deploy  Deploy to production
+```
+
 ## Build Tool Flags
 
 | Flag                        | Description                                  |
@@ -610,6 +692,23 @@ targ filter -i "*.go" -e "vendor/*" -i "*.md"
 | `--to-func NAME`            | Convert string target to function            |
 | `--to-string NAME`          | Convert function target to string command    |
 | `--source PATH`             | Specify targ file location                   |
+
+### Runtime Flags
+
+These flags modify target execution from the CLI:
+
+| Flag                  | Description                                  |
+| --------------------- | -------------------------------------------- |
+| `--times N`           | Run the target N times                       |
+| `--timeout DURATION`  | Set execution timeout                        |
+| `--retry`             | Continue on failure                          |
+| `--backoff D,M`       | Exponential backoff (duration, multiplier)   |
+| `--parallel` / `-p`   | Run multiple targets concurrently            |
+| `--watch PATTERN`     | Re-run on file changes (repeatable)          |
+| `--cache PATTERN`     | Skip if files unchanged (repeatable)         |
+| `--while CMD`         | Run while shell command succeeds             |
+
+Runtime flags conflict with compile-time config by default (see [No Surprises](#no-surprises)). Use `targ.Disabled` to allow CLI override.
 
 ### Quick Target Scaffolding
 
