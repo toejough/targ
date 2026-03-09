@@ -3196,7 +3196,7 @@ func findTargFileInTree(fileOps FileOps, dir string) (string, bool, error) {
 	}
 
 	for _, entry := range entries {
-		if !entry.IsDir() || strings.HasPrefix(entry.Name(), ".") {
+		if !entry.IsDir() || shouldSkipDirForSearch(entry.Name()) {
 			continue
 		}
 
@@ -3658,7 +3658,6 @@ func printNoTargetsCompletion(args []string) {
 	}
 }
 
-// printNoTargetsHelp prints help when no target files are found.
 func printNoTargetsHelp() {
 	fmt.Println("targ is a build-tool runner that discovers tagged commands and executes them.")
 	fmt.Println()
@@ -3878,6 +3877,21 @@ func setupBinaryPath(importRoot, _ string, bootstrap moduleBootstrap) (string, e
 	}
 
 	return filepath.Join(cacheDir, "targ_"+bootstrap.cacheKey), nil
+}
+
+// printNoTargetsHelp prints help when no target files are found.
+// shouldSkipDirForSearch returns true if a directory should be skipped during targ file search.
+// Mirrors parse.ShouldSkipDir rules without requiring the import.
+func shouldSkipDirForSearch(name string) bool {
+	if strings.HasPrefix(name, ".") {
+		return true
+	}
+
+	if name == "vendor" || name == "testdata" || name == "internal" || name == "node_modules" {
+		return true
+	}
+
+	return strings.Contains(name, "@")
 }
 
 // skipIfVendorOrGit returns SkipDir for .git and vendor directories.
