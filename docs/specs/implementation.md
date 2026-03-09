@@ -100,7 +100,7 @@ Items derived from: ground truth (existing codebase)
 
 **Package:** `internal/discover`
 **File:** `internal/discover/discover.go`
-**Purpose:** Discovers `//go:build targ` files in a Go project. Scans directories bidirectionally: downward (full subtree from start directory) and upward (linear ancestor path to filesystem root, checking each ancestor directory and its `dev/` subtree). Detects `targ.Register()` calls and aliased imports. Used by the build tool runner to find target definitions.
+**Purpose:** Discovers `//go:build targ` files in a Go project. Scans directories bidirectionally: downward (CWD non-recursive + CWD/dev/ recursive) and upward (linear ancestor path, stopping before filesystem root to avoid walking system directories like `/dev`, checking each ancestor directory non-recursively and its `dev/` subtree recursively). `TaggedFiles` mirrors the same scoping as `Discover`. Detects `targ.Register()` calls and aliased imports. Used by the build tool runner to find target definitions.
 **Key functions:** `Discover()`, `TaggedFiles()`, `findAncestorTaggedDirs()`
 **Key types:** `PackageInfo`, `TaggedFile`, `Options`
 **Traces to:** ARCH-11
@@ -144,7 +144,7 @@ Items derived from: ground truth (existing codebase)
 
 **Package:** `internal/runner`
 **File:** `internal/runner/runner.go`
-**Purpose:** The build tool's main logic — discovers targets, compiles a bootstrap binary, executes it. Handles `--create` (target scaffolding), `--sync` (remote targets), `--to-func`/`--to-string` (target conversion), `--source` (custom targ file location). Code generation for bootstrap files. Import management for targ files.
+**Purpose:** The build tool's main logic — discovers targets, compiles a bootstrap binary, executes it. Handles `--create` (target scaffolding), `--sync` (remote targets), `--to-func`/`--to-string` (target conversion), `--source` (custom targ file location). Code generation for bootstrap files. Import management for targ files. Pseudo-module handling: `groupByModule` uses each package's directory as module root (not CWD); `prepareBuildContext` creates isolated build directories for pseudo-modules via `createIsolatedBuildDir`; `resolveModuleForBuild` remaps package infos to the isolated directory.
 **Key functions:** `Run()`, `FindOrCreateTargFile()`, `AddTargetToFileWithOptions()`, `AddImportToTargFile()`, `ConvertStringTargetToFunc()`, `ConvertFuncTargetToString()`, `ExtractTargFlags()`
 **Key types:** `CreateOptions`, `SyncOptions`, `TargFlags`, `FileOps`
 **Traces to:** ARCH-12
@@ -153,7 +153,7 @@ Items derived from: ground truth (existing codebase)
 
 **Package:** `internal/sh`
 **Files:** `sh.go`, `context.go`, `cleanup.go`, `context_unix.go`, `context_windows.go`, `cleanup_unix.go`, `cleanup_windows.go`
-**Purpose:** Command execution abstraction — `Run()`, `RunV()`, `Output()` for basic execution. Context-aware variants (`RunContextWithIO()`, `OutputContext()`) with process group management for cancellation. `CleanupManager` for SIGINT/SIGTERM handling — kills all spawned child processes. Platform-specific process group and kill implementations (Unix vs Windows).
+**Purpose:** Command execution abstraction — `Run()`, `RunV()`, `Output()` for basic execution. Context-aware variants (`RunContextWithIO()`, `OutputContext()`) with process group management for cancellation. `ShellEnv.Foreground` controls process group behavior: when true (default for real OS stdio), child inherits parent's foreground process group for interactive TTY access; when false (parallel execution with redirected IO), child gets its own process group via `Setpgid` for clean cancellation of process trees. `CleanupManager` for SIGINT/SIGTERM handling — kills all spawned child processes. Platform-specific process group and kill implementations (Unix vs Windows).
 **Key functions:** `Run()`, `RunV()`, `Output()`, `RunContextWithIO()`, `OutputContext()`, `EnableCleanup()`, `KillProcessGroup()`
 **Key types:** `CleanupManager`, `ShellEnv`, `SafeBuffer`
 **Traces to:** ARCH-8
