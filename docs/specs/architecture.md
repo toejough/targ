@@ -53,9 +53,9 @@ When targets run in parallel, each target's output is prefixed with its name. `P
 
 ## ARCH-8: Shell Execution
 
-`Run()`, `RunV()`, `Output()` execute external commands. Context-aware variants (`RunContextWithIO()`, `OutputContext()`) support cancellation via process group kill. `CleanupManager` registers spawned processes and kills them on SIGINT/SIGTERM. Platform-specific: Unix uses process groups (`Setpgid`), Windows uses job objects. `ShellEnv` configures stdout/stderr/stdin routing. `SafeBuffer` provides thread-safe output capture.
+`Run()`, `RunV()`, `Output()` execute external commands. Context-aware variants (`RunContextWithIO()`, `OutputContext()`) support cancellation via process group kill. `ShellEnv` configures stdout/stderr/stdin routing and a `Foreground` flag: when true (default for real OS stdio), the child inherits the parent's foreground process group so interactive programs (e.g., `less`, `claude`) can read/write the terminal; when false (parallel execution with redirected IO), the child gets its own process group via `Setpgid` for clean cancellation of process trees. `CleanupManager` registers spawned processes and kills them on SIGINT/SIGTERM. Platform-specific: Unix uses process groups, Windows uses job objects. `SafeBuffer` provides thread-safe output capture.
 
-**Induced from:** IMPL-19, T-3 (indirect)
+**Induced from:** IMPL-19, T-3 (indirect), T-25
 **Traces to:** REQ-9
 
 ## ARCH-9: File Utilities
