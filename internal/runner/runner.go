@@ -3175,6 +3175,31 @@ func findStringTarget(file *ast.File, targetName string) *stringTargetInfo {
 	return nil
 }
 
+// findTargFileInDevTree recursively searches a dev/ subtree for targ files.
+func findTargFileInDevTree(fileOps FileOps, dir string) (string, bool) {
+	entries, err := fileOps.ReadDir(dir)
+	if err != nil {
+		return "", false
+	}
+
+	if path, found := findTargFileInEntries(fileOps, dir, entries); found {
+		return path, true
+	}
+
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+
+		path, found := findTargFileInDevTree(fileOps, filepath.Join(dir, entry.Name()))
+		if found {
+			return path, true
+		}
+	}
+
+	return "", false
+}
+
 func findTargFileInEntries(fileOps FileOps, dir string, entries []fs.DirEntry) (string, bool) {
 	for _, entry := range entries {
 		if path, ok := targFilePath(fileOps, dir, entry); ok {
@@ -3185,7 +3210,10 @@ func findTargFileInEntries(fileOps FileOps, dir string, entries []fs.DirEntry) (
 	return "", false
 }
 
+// findTargFileInTree searches for a targ file following the discovery model:
+// first checks the directory itself, then checks its dev/ subdirectory recursively.
 func findTargFileInTree(fileOps FileOps, dir string) (string, bool, error) {
+	// Check the directory itself (non-recursive).
 	entries, err := fileOps.ReadDir(dir)
 	if err != nil {
 		return "", false, fmt.Errorf("reading directory: %w", err)
@@ -3195,20 +3223,12 @@ func findTargFileInTree(fileOps FileOps, dir string) (string, bool, error) {
 		return path, true, nil
 	}
 
-	for _, entry := range entries {
-		if !entry.IsDir() || shouldSkipDirForSearch(entry.Name()) {
-			continue
-		}
+	// Check dev/ subtree recursively (matches discovery convention).
+	devDir := filepath.Join(dir, "dev")
 
-		path, found, err := findTargFileInTree(fileOps, filepath.Join(dir, entry.Name()))
-		if err != nil {
-			// Skip unreadable directories (e.g., macOS protected dirs like .Trash)
-			continue
-		}
-
-		if found {
-			return path, true, nil
-		}
+	path, found := findTargFileInDevTree(fileOps, devDir)
+	if found {
+		return path, true, nil
 	}
 
 	return "", false, nil
@@ -3880,20 +3900,6 @@ func setupBinaryPath(importRoot, _ string, bootstrap moduleBootstrap) (string, e
 }
 
 // printNoTargetsHelp prints help when no target files are found.
-// shouldSkipDirForSearch returns true if a directory should be skipped during targ file search.
-// Mirrors parse.ShouldSkipDir rules without requiring the import.
-func shouldSkipDirForSearch(name string) bool {
-	if strings.HasPrefix(name, ".") {
-		return true
-	}
-
-	if name == "vendor" || name == "testdata" || name == "internal" || name == "node_modules" {
-		return true
-	}
-
-	return strings.Contains(name, "@")
-}
-
 // skipIfVendorOrGit returns SkipDir for .git and vendor directories.
 func skipIfVendorOrGit(name string) error {
 	if name == ".git" || name == "vendor" {

@@ -276,18 +276,17 @@ func TestProperty_CodeGeneration(t *testing.T) {
 
 			root := "/" + rapid.StringMatching(`[a-z]{3,8}`).Draw(t, "root")
 			parent := rapid.StringMatching(`[a-z]{3,8}`).Draw(t, "parent")
-			child := rapid.StringMatching(`[a-z]{3,8}`).Draw(t, "child")
 
 			startDir := filepath.Join(root, parent)
-			descendantDir := filepath.Join(root, parent, child)
+			devDir := filepath.Join(startDir, "dev")
 
 			fileOps := NewMemoryFileOps()
-			g.Expect(fileOps.MkdirAll(descendantDir, 0o755)).To(Succeed())
+			g.Expect(fileOps.MkdirAll(devDir, 0o755)).To(Succeed())
 
 			fileOps.Dirs[root] = []fs.DirEntry{memDirEntry{name: parent, isDir: true}}
-			fileOps.Dirs[startDir] = []fs.DirEntry{memDirEntry{name: child, isDir: true}}
+			fileOps.Dirs[startDir] = []fs.DirEntry{memDirEntry{name: "dev", isDir: true}}
 
-			descendantTarg := filepath.Join(descendantDir, "targets.go")
+			descendantTarg := filepath.Join(devDir, "targets.go")
 			content := `//go:build targ
 
 package build
@@ -299,7 +298,7 @@ package build
 			g.Expect(err).NotTo(HaveOccurred())
 			g.Expect(path).To(Equal(descendantTarg))
 			g.Expect(fileOps.Files[filepath.Join(startDir, "targs.go")]).To(BeNil(),
-				"should not create a new targ file when one exists in descendants")
+				"should not create a new targ file when one exists in dev/")
 		})
 	})
 
