@@ -918,10 +918,21 @@ func findRedundantTests(ctx context.Context, args RedundantTestArgs) error {
 	}
 
 	// Capture stdout from library and relay through parallel printer.
+	// Read concurrently to avoid deadlock when output exceeds the pipe buffer.
 	r, w, err := os.Pipe()
 	if err != nil {
 		return fmt.Errorf("creating pipe: %w", err)
 	}
+
+	var captured []byte
+	var readErr error
+
+	readDone := make(chan struct{})
+
+	go func() {
+		captured, readErr = io.ReadAll(r)
+		close(readDone)
+	}()
 
 	origStdout := os.Stdout
 	os.Stdout = w
@@ -931,8 +942,13 @@ func findRedundantTests(ctx context.Context, args RedundantTestArgs) error {
 	os.Stdout = origStdout
 	w.Close()
 
-	captured, _ := io.ReadAll(r)
+	<-readDone
+
 	r.Close()
+
+	if readErr != nil {
+		return fmt.Errorf("reading pipe: %w", readErr)
+	}
 
 	if len(captured) > 0 {
 		targ.Print(ctx, string(captured))
