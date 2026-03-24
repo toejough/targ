@@ -10,7 +10,7 @@ require (
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/gtramontina/ooze v0.2.0
 	github.com/onsi/gomega v1.39.0
-	github.com/toejough/go-reorder v0.0.0-20260123033158-812dc6e76018
+	github.com/toejough/go-reorder v0.0.0-20260323214627-2c2148c725b2
 	github.com/toejough/testredundancy v0.0.0-20260129180558-09d0fdc0bb61
 	pgregory.net/rapid v1.2.0
 )
