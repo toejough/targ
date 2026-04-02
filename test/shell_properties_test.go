@@ -216,6 +216,67 @@ func TestProperty_CommandHelp(t *testing.T) {
 	})
 }
 
+func TestProperty_ShellCommandDeps(t *testing.T) {
+	t.Parallel()
+
+	t.Run("DepsRunBeforeShellCommand", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		depRan := false
+
+		dep := targ.Targ(func() {
+			depRan = true
+		}).Name("dep")
+
+		var executedCmd string
+
+		mockRunner := func(_ context.Context, cmd string) error {
+			executedCmd = cmd
+			return nil
+		}
+
+		main := targ.Targ("echo hello").Name("main").Deps(dep)
+
+		_, err := targ.ExecuteWithOptions(
+			[]string{"app", "main"},
+			targ.RunOptions{ShellRunner: mockRunner, AllowDefault: true},
+			main, dep,
+		)
+
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(depRan).To(BeTrue())
+		g.Expect(executedCmd).To(Equal("echo hello"))
+	})
+
+	t.Run("DepErrorPreventsShellCommand", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		dep := targ.Targ(func() error {
+			return errors.New("dep failed")
+		}).Name("dep")
+
+		shellRan := false
+
+		mockRunner := func(_ context.Context, _ string) error {
+			shellRan = true
+			return nil
+		}
+
+		main := targ.Targ("echo hello").Name("main").Deps(dep)
+
+		_, err := targ.ExecuteWithOptions(
+			[]string{"app", "main"},
+			targ.RunOptions{ShellRunner: mockRunner, AllowDefault: true},
+			main, dep,
+		)
+
+		g.Expect(err).To(HaveOccurred())
+		g.Expect(shellRan).To(BeFalse())
+	})
+}
+
 func TestProperty_ShellCommandErrors(t *testing.T) {
 	t.Parallel()
 

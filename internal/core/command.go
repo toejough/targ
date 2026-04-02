@@ -1046,6 +1046,11 @@ func executeShellCommand(
 		return nil, err
 	}
 
+	err = runNodeDeps(ctx, node, opts.Overrides)
+	if err != nil {
+		return nil, err
+	}
+
 	config := TargetConfig{
 		WatchPatterns: node.WatchPatterns,
 		CachePatterns: node.CachePatterns,
@@ -1936,6 +1941,30 @@ func resolveTargetSource(node *commandNode, t *Target) {
 	}
 }
 
+// runNodeDeps runs the dependency groups for a command node, applying any dep-mode override.
+func runNodeDeps(ctx context.Context, node *commandNode, overrides RuntimeOverrides) error {
+	if node.Target == nil || len(node.Target.depGroups) == 0 {
+		return nil
+	}
+
+	target := node.Target
+
+	// Apply --dep-mode override: flatten all groups into one
+	if overrides.DepMode != "" {
+		var mode DepMode
+		if overrides.DepMode == depModeParallelStr {
+			mode = DepModeParallel
+		}
+
+		allDeps := target.GetDeps()
+		if len(allDeps) > 0 {
+			target.depGroups = []depGroup{{targets: allDeps, mode: mode}}
+		}
+	}
+
+	return target.runDeps(ctx)
+}
+
 // runShellWithVars substitutes variables and executes a shell command.
 // If runner is nil, uses the default sh -c execution.
 func runShellWithVars(
@@ -1975,35 +2004,15 @@ func runShellWithVars(
 }
 
 // runTargetWithOverrides runs the target's dependencies and function with runtime overrides.
-//
-//nolint:nestif // nested conditions reflect inherent dep-mode override logic
 func runTargetWithOverrides(
 	ctx context.Context,
 	node *commandNode,
 	inst reflect.Value,
 	opts RunOptions,
 ) error {
-	// Run dependencies first (if Target with deps is available)
-	if node.Target != nil && len(node.Target.depGroups) > 0 {
-		target := node.Target
-
-		// Apply --dep-mode override: flatten all groups into one
-		if opts.Overrides.DepMode != "" {
-			var mode DepMode
-			if opts.Overrides.DepMode == depModeParallelStr {
-				mode = DepModeParallel
-			}
-
-			allDeps := target.GetDeps()
-			if len(allDeps) > 0 {
-				target.depGroups = []depGroup{{targets: allDeps, mode: mode}}
-			}
-		}
-
-		err := target.runDeps(ctx)
-		if err != nil {
-			return err
-		}
+	err := runNodeDeps(ctx, node, opts.Overrides)
+	if err != nil {
+		return err
 	}
 
 	// Deps-only targets have no function to execute
