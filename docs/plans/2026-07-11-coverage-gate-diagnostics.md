@@ -197,7 +197,7 @@ func TestCheckCoverage_EmptyProfileErrorsInsteadOfPanicking(t *testing.T) {
 - [ ] **Step 1: Resolve the commit hash mechanically and bump.** `TARG_HEAD=$(git -C /Users/joe/repos/personal/targ rev-parse origin/main)` — run AFTER the targ merge+push, and verify it equals the local merge result (`git -C /Users/joe/repos/personal/targ rev-parse main`); then in engram: `go get github.com/toejough/targ@"$TARG_HEAD"` and `go mod tidy`.
 - [ ] **Step 2: Consumer gate.** `targ check-full` in engram → all 8 PASS (the bumped dev module compiles and gates run green).
 - [ ] **Step 3: Delivery + error-path evidence** (AMENDED post-final-review: the original corrupt-coverage.out smoke is unreachable from the consumer — `CheckCoverageForFail.Deps(TestForFail)` regenerates coverage.out before the check, measured live by the final reviewer, and targ has no skip-deps mode — DepMode is Serial/Parallel/Mixed only). The honest evidence chain:
-  a. **Delivery proof:** `go list -m github.com/toejough/targ` in engram → the bumped pseudo-version; verify its commit contains the fix: `git -C /Users/joe/repos/personal/targ merge-base --is-ancestor 964cbeb <bumped-commit>` → exit 0.
+  a. **Delivery proof:** `go list -m github.com/toejough/targ` in engram → the bumped pseudo-version; verify its commit contains the fix — 964cbeb is Task 1's fix commit (`fix(dev): coverage gate failures print the cover diagnostic`): `git -C /Users/joe/repos/personal/targ merge-base --is-ancestor 964cbeb <bumped-commit>` → exit 0.
   b. **Consumer-runs-it proof:** engram `targ check-full` → all 8 PASS (Step 2 — the bumped dev module is what compiles and executes the gate).
   c. **Error-path proof:** targ's own test suite at the pinned commit — `TestCheckCoverageForFail_CorruptProfileNamesCause` drives the real function + real `go tool cover` against the garbage fixture and asserts the named command + `bad mode line`; re-verified independently by the Task-1 reviewer and the final whole-branch reviewer, and enforced by targ's check-full at every future commit.
   The #682 closing comment cites this chain, not a consumer-side failure demo.
@@ -207,6 +207,6 @@ func TestCheckCoverage_EmptyProfileErrorsInsteadOfPanicking(t *testing.T) {
 
 ## Controller close-out
 
-- Trap gate: **N/A for this change** — dev-tooling error formatting touches no recall/vault/binary behavior the trap gate measures; the gates here are targ's check-full (both repos) plus the Task-3 failure-path smoke. (Gate A reviewers: challenge this if you disagree.)
+- Trap gate: **N/A for this change** — dev-tooling error formatting touches no recall/vault/binary behavior the trap gate measures; the gates here are targ's check-full (both repos) plus the Task-3 delivery evidence chain (Step 3, as amended). (Gate A reviewers: challenge this if you disagree.)
 - Final whole-branch review over the targ branch before its merge/push; engram's one-commit bump reviewed in the same pass.
-- Close engram#682 with: the targ commits, the engram bump commit, and the Task-3 smoke evidence (before: bare `exit status 2`; after: named command + `bad mode line` diagnostic).
+- Close engram#682 with: the targ commits, the engram bump commit, and the Task-3 delivery evidence chain (before: bare `exit status 2`; after: named command + `bad mode line` diagnostic, proven by targ's test suite at the pinned commit).
