@@ -9,3 +9,4 @@ coverage.out
 test/testdata/
 # Rapid/property test artifacts
 testdata/
+.superpowers/
