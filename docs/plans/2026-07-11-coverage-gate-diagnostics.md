@@ -24,7 +24,7 @@
   - Failure fixture verified live: a `coverage.out` containing exactly `garbage not a profile\n` PASSES `mergeCoverageBlocks` (mode line kept verbatim, unparseable blocks skipped) and then `go tool cover -func=coverage.out` exits 2 with stderr `cover: bad mode line: garbage not a profile`. This is the deterministic RED fixture.
   - `coverage.out` is git-ignored in both targ and engram.
   - engram pins targ at v0.0.0-20260402141037-105fb05f62e1 == current main HEAD (105fb05), so engram's gates run exactly this code; the fix reaches engram only via a pushed targ commit + go.mod bump (Task 3).
-  - **Targ's own `check-full` baseline is RED on the pristine branch** (measured 2026-07-11, re-verified by Gate A): 5 pre-existing lint issues — `internal/core/command.go:337`, `internal/flags/flags.go:158`, `internal/runner/runner.go:2467`, `:3336` (goconst ×2, govet ×1, modernize ×1; blame dates Jan–Feb 2026). The no-exceptions rule (targ CLAUDE.md + Joe's global) requires clearing them: Task 0 below. Executors re-enumerate live via `targ lint-full` — the list above is the planning-time snapshot.
+  - **Targ's own `check-full` baseline is RED on the pristine branch** (measured 2026-07-11, re-verified by Gate A): pre-existing lint findings at `internal/core/command.go:337`, `internal/flags/flags.go:158`, `internal/runner/runner.go:2467`, `:3336` (goconst/govet/modernize classes; blame dates Jan–Feb 2026). The no-exceptions rule (targ CLAUDE.md + Joe's global) requires clearing them: Task 0 below. The live `targ lint-full` run at execution time governs the exact list and count — the locations above are the planning-time snapshot.
   - Empty-profile fixture branch PINNED (measured by Gate A against the real pre-fix code): `go tool cover -func` on `mode: set\n` exits 0 with only a `total:` line; the local `output()` helper trims the trailing newline, so pre-fix `checkCoverage` PANICS (`index out of range [0] with length 0`) — not a bare ParseFloat error. Post-fix, the `len(linesAndCoverage) == 0` guard fires. Task 2's test asserts exactly that path.
 
 ---
@@ -36,8 +36,8 @@
 
 **Interfaces:** none — lint-only fixes (named constants for goconst, the govet and modernize findings as the linters direct). No behavior change; no lint suppressions (fix the code, never add nolint overrides — surface to Joe if any finding resists a clean fix).
 
-- [ ] **Step 1:** `targ lint-full` → record the full finding list (expected: the 5 above; the live run governs).
-- [ ] **Step 2:** Fix each finding minimally. RED analogue: the lint findings ARE the failing checks; GREEN = `targ lint-full` clean.
+- [ ] **Step 1:** `targ lint-full` → record the full finding list (expected: the snapshot locations above; the live run governs the exact list and count — Gate A's probe saw a revive cascade appear and clear during fixing).
+- [ ] **Step 2:** Fix each finding minimally. RED analogue: the lint findings ARE the failing checks; GREEN = `targ lint-full` clean. Probe-measured tips: put the flags.go goconst const in its own commented declaration (inserting it above `type FlagMode` displaces its doc comment and trips revive `exported`); run `targ reorder-decls` BEFORE committing (both goconst fixes trigger reorder churn — saves an amend cycle).
 - [ ] **Step 3:** Commit — subject: `chore(lint): clear pre-existing lint debt blocking green gates` (62 bytes, measured) + trailer. Then `targ check-full` post-commit → every check green (this baseline makes Tasks 1–2's gates achievable). Fix+amend until green.
 
 ---
@@ -95,9 +95,9 @@ func TestCommandFailure_EmptyOutputOmitsBlock(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run them RED.** `go test -tags targ -run 'TestCheckCoverageForFail_CorruptProfileNamesCause|TestCommandFailure' ./dev/` → expect: the two `TestCommandFailure_*` tests fail to compile (`commandFailure` undefined); after stubbing nothing, the corrupt-profile test fails on the `ContainSubstring("go tool cover")` assertion (today's error is bare `exit status 2`). Record the output.
+- [ ] **Step 2: RED stage 1.** `go test -tags targ -run 'TestCheckCoverageForFail_CorruptProfileNamesCause|TestCommandFailure' ./dev/` → expect `FAIL [build failed]` (`commandFailure` undefined) — a compile error blocks the whole package, so this is the only observable RED in this run (a valid RED per targ CLAUDE.md). Record it.
 
-- [ ] **Step 3: Implement.** Add (alphabetical position, near other `c` funcs):
+- [ ] **Step 3a: Add the helper ONLY** (alphabetical position, near other `c` funcs):
 
 ```go
 // commandFailure wraps a failed command's error with the command itself and
@@ -113,7 +113,9 @@ func commandFailure(command, out string, err error) error {
 }
 ```
 
-  In `checkCoverageForFail`, the anchor block
+- [ ] **Step 3b: RED stage 2.** Re-run the same test command → the two `TestCommandFailure_*` tests now PASS; `TestCheckCoverageForFail_CorruptProfileNamesCause` FAILS on the `ContainSubstring("go tool cover")` assertion (today's error is bare `exit status 2`). Record it — this is the assertion-level RED for the ask's exact defect.
+
+- [ ] **Step 3c: Edit `checkCoverageForFail`.** The anchor block
 
 ```go
 	out, err := targ.OutputContext(ctx, "go", "tool", "cover", "-func=coverage.out")
