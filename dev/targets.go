@@ -299,7 +299,7 @@ func checkCoverageForFail(ctx context.Context, args CoverageCheckArgs) error {
 
 	out, err := targ.OutputContext(ctx, "go", "tool", "cover", "-func=coverage.out")
 	if err != nil {
-		return err
+		return commandFailure("go tool cover -func=coverage.out", out, err)
 	}
 
 	lines := strings.Split(out, "\n")
@@ -323,7 +323,7 @@ func checkCoverageForFail(ctx context.Context, args CoverageCheckArgs) error {
 
 		percent, err := strconv.ParseFloat(percentString, 64)
 		if err != nil {
-			return err
+			return fmt.Errorf("parsing coverage percent from %q: %w", line, err)
 		}
 
 		if percent < minCoverage {
@@ -671,6 +671,18 @@ func checkValueSpecThinness(fset *token.FileSet, path string, tok token.Token, v
 func clean(ctx context.Context) {
 	targ.Print(ctx, "Cleaning...\n")
 	os.Remove("coverage.out")
+}
+
+// commandFailure wraps a failed command's error with the command itself and
+// its captured combined output, so gate failures print their reason instead
+// of a bare exit status.
+func commandFailure(command, out string, err error) error {
+	trimmed := strings.TrimSpace(out)
+	if trimmed == "" {
+		return fmt.Errorf("%s: %w", command, err)
+	}
+
+	return fmt.Errorf("%s: %w\n%s", command, err, trimmed)
 }
 
 func coverage(args CoverageArgs) error {
