@@ -155,17 +155,17 @@ func All() []Def {
 		},
 		{
 			Long:    "init",
-			Removed: "flag has been removed; use --create instead",
+			Removed: removedUseCreate,
 			Mode:    FlagModeTargOnly,
 		},
 		{
 			Long:    "alias",
-			Removed: "flag has been removed; use --create instead",
+			Removed: removedUseCreate,
 			Mode:    FlagModeTargOnly,
 		},
 		{
 			Long:    "move",
-			Removed: "flag has been removed; use --create instead",
+			Removed: removedUseCreate,
 			Mode:    FlagModeTargOnly,
 		},
 	}
@@ -200,6 +200,11 @@ func VisibleFlags() []Def {
 func WithValues() map[string]bool {
 	return withValues(All())
 }
+
+// unexported constants.
+const (
+	removedUseCreate = "flag has been removed; use --create instead"
+)
 
 func booleanFlags(defs []Def) map[string]bool {
 	m := make(map[string]bool)

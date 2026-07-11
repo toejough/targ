@@ -443,7 +443,7 @@ func EnsureFallbackModuleRoot(startDir, modulePath string, dep TargDependency) (
 		return "", err
 	}
 
-	err = touchFile(filepath.Join(root, "go.sum"))
+	err = touchFile(filepath.Join(root, goSumFile))
 	if err != nil {
 		return "", err
 	}
@@ -509,7 +509,7 @@ func FindModuleForPath(path string) (string, string, bool, error) {
 	}
 
 	for {
-		modPath := filepath.Join(dir, "go.mod")
+		modPath := filepath.Join(dir, goModFile)
 
 		//nolint:gosec // build tool reads go.mod files by design
 		data, err := os.ReadFile(modPath)
@@ -933,7 +933,9 @@ func main() {
 	defaultPackageName     = "main" // default package name for created targ files
 	defaultTargModulePath  = "github.com/toejough/targ"
 	filePermissionsForCode = 0o644 // standard file permissions for created source files
-	helpIndentWidth        = 4     // Leading spaces in help output
+	goModFile              = "go.mod"
+	goSumFile              = "go.sum"
+	helpIndentWidth        = 4 // Leading spaces in help output
 	helpLong               = "--help"
 	helpShort              = "-h"
 	isolatedModuleName     = "targ.build.local"
@@ -2366,7 +2368,7 @@ func buildSourceRoot() (string, bool) {
 	dir := filepath.Dir(file)
 
 	for {
-		_, err := os.Stat(filepath.Join(dir, "go.mod"))
+		_, err := os.Stat(filepath.Join(dir, goModFile))
 		if err == nil {
 			return dir, true
 		}
@@ -2464,7 +2466,7 @@ func buildTargetExpression(opts CreateOptions) (string, error) {
 
 // cleanupStaleModSymlinks removes stale go.mod/go.sum symlinks from before the fix.
 func cleanupStaleModSymlinks(root string) {
-	for _, name := range []string{"go.mod", "go.sum"} {
+	for _, name := range []string{goModFile, goSumFile} {
 		dst := filepath.Join(root, name)
 		if symlinkExists(dst) {
 			_ = os.Remove(dst)
@@ -3333,7 +3335,7 @@ func generateGroupModifications(
 	// - Dev group contains DevLint
 	childVarName := targetVarName
 
-	for i := len(path) - 1; i >= 0; i-- {
+	for i := range slices.Backward(path) {
 		groupPath := path[:i+1]
 		groupVarName := PathToPascal(groupPath)
 		groupName := path[i] // Use the last component as the group's name
@@ -3535,7 +3537,7 @@ func isHelpRequest(args []string) bool {
 // isIncludableModuleFile returns true if the file should be included in module cache.
 func isIncludableModuleFile(name string) bool {
 	// Include go.mod and go.sum for cache invalidation when dependencies change
-	if name == "go.mod" || name == "go.sum" {
+	if name == goModFile || name == goSumFile {
 		return true
 	}
 
@@ -3576,7 +3578,7 @@ func isTargTargCall(call *ast.CallExpr) bool {
 func linkModuleEntry(startDir, root string, entry os.DirEntry) error {
 	name := entry.Name()
 	// Skip .git and module files - we'll create our own go.mod/go.sum
-	if name == ".git" || name == "go.mod" || name == "go.sum" {
+	if name == ".git" || name == goModFile || name == goSumFile {
 		return nil
 	}
 
@@ -4186,7 +4188,7 @@ func writeCommandList(w io.Writer, allCmds []cmdEntry) {
 }
 
 func writeFallbackGoMod(root, modulePath string, dep TargDependency) error {
-	modPath := filepath.Join(root, "go.mod")
+	modPath := filepath.Join(root, goModFile)
 
 	if dep.ModulePath == "" {
 		dep.ModulePath = defaultTargModulePath
@@ -4235,7 +4237,7 @@ func writeFormattedFile(filePath string, fset *token.FileSet, file *ast.File) er
 
 // writeIsolatedGoMod creates a go.mod for isolated builds.
 func writeIsolatedGoMod(tmpDir string, dep TargDependency) error {
-	modPath := filepath.Join(tmpDir, "go.mod")
+	modPath := filepath.Join(tmpDir, goModFile)
 
 	if dep.ModulePath == "" {
 		dep.ModulePath = defaultTargModulePath
@@ -4267,7 +4269,7 @@ func writeIsolatedGoMod(tmpDir string, dep TargDependency) error {
 	}
 
 	// Touch go.sum file
-	sumPath := filepath.Join(tmpDir, "go.sum")
+	sumPath := filepath.Join(tmpDir, goSumFile)
 
 	err = os.WriteFile(sumPath, []byte{}, filePermissionsForCode)
 	if err != nil {

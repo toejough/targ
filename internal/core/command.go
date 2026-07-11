@@ -334,7 +334,7 @@ func applyTagOptionsOverride(
 
 	if inst.IsValid() {
 		target := inst
-		if inst.Kind() != reflect.Ptr && inst.CanAddr() {
+		if inst.Kind() != reflect.Pointer && inst.CanAddr() {
 			target = inst.Addr()
 		}
 
