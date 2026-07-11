@@ -28,6 +28,23 @@ func TestCheckCoverageForFail_CorruptProfileNamesCause(t *testing.T) {
 		"the tool's own diagnostic must be included")
 }
 
+func TestCheckCoverage_EmptyProfileErrorsInsteadOfPanicking(t *testing.T) {
+	// t.Chdir forbids t.Parallel.
+	g := NewWithT(t)
+
+	t.Chdir(t.TempDir())
+	profile := "mode: set\n"
+	writeErr := os.WriteFile("coverage.out", []byte(profile), 0o600)
+	g.Expect(writeErr).NotTo(HaveOccurred())
+
+	var err error
+
+	g.Expect(func() { err = checkCoverage(context.Background(), CoverageCheckArgs{}) }).
+		NotTo(Panic())
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("no per-function coverage lines"))
+}
+
 func TestCommandFailure_EmptyOutputOmitsBlock(t *testing.T) {
 	t.Parallel()
 

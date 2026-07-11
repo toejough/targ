@@ -227,7 +227,7 @@ func checkCoverage(ctx context.Context, args CoverageCheckArgs) error {
 
 	out, err := output(ctx, "go", "tool", "cover", "-func=coverage.out")
 	if err != nil {
-		return err
+		return fmt.Errorf("go tool cover -func=coverage.out: %w", err)
 	}
 
 	lines := strings.Split(out, "\n")
@@ -235,10 +235,13 @@ func checkCoverage(ctx context.Context, args CoverageCheckArgs) error {
 
 	for _, line := range lines {
 		percentString := regexp.MustCompile(`\d+\.\d`).FindString(line)
+		if percentString == "" {
+			continue
+		}
 
 		percent, err := strconv.ParseFloat(percentString, 64)
 		if err != nil {
-			return err
+			return fmt.Errorf("parsing coverage percent from %q: %w", line, err)
 		}
 
 		// Skip generated code, examples, and entry points
@@ -268,6 +271,9 @@ func checkCoverage(ctx context.Context, args CoverageCheckArgs) error {
 
 		return 0
 	})
+	if len(linesAndCoverage) == 0 {
+		return errors.New("no per-function coverage lines found in coverage.out")
+	}
 	lc := linesAndCoverage[0]
 
 	sortedLines := make([]string, len(linesAndCoverage))
@@ -697,7 +703,7 @@ func deadcode(ctx context.Context) error {
 
 	out, err := targ.OutputContext(ctx, "deadcode", "-test", "./...")
 	if err != nil {
-		return err
+		return commandFailure("deadcode -test ./...", out, err)
 	}
 
 	lines := strings.Split(out, "\n")
@@ -834,7 +840,7 @@ func deleteDeadcode(ctx context.Context) error {
 
 	out, err := output(ctx, "deadcode", "-test", "./...")
 	if err != nil {
-		return err
+		return fmt.Errorf("deadcode -test ./...: %w", err)
 	}
 
 	// Parse deadcode output: "targ.go:123: unreachable func: FuncName"
