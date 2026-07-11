@@ -14,7 +14,8 @@
 - Tagged dev tests do not run under plain `go test ./...` — run them explicitly during TDD: `go test -tags targ -run '<TestName>' ./dev/`. New test files copy `dev/ansi_lint_test.go`'s header (`//go:build targ`, `package dev`). Final validation is `targ check-full`, never bare `go test`.
 - Tests that `t.Chdir` must NOT use `t.Parallel()` (Go forbids the combination); pure-helper tests DO use `t.Parallel()`.
 - Every commit: conventional-commit subject **measured ≤72 chars**, trailer `AI-Used: [claude]` (never Co-Authored-By).
-- Work on branch `engram682-coverage-diagnostics`; review before any push; ff-only merge to main.
+- Work on branch `engram682-coverage-diagnostics`; review before any push; ff-only merge to main. Task 3's engram commit follows the same discipline on an ENGRAM branch named `682-targ-bump`: reviewed in the final whole-branch pass, then ff-only merged and pushed.
+- **Gate ordering:** `check-full` includes `check-uncommitted` (clean-tree check), so it can only run green POST-commit. Per task: run the task's own tests pre-commit, COMMIT, then run `targ check-full` as the post-commit gate; any failure → fix and `git commit --amend` (branch is unpushed) → re-run until green.
 - Executors re-locate edits by verbatim code anchor, not line numbers.
 - **Measured preconditions** (run 2026-07-11 against this tree; re-verify at execution):
   - `internal.OutputContext` (internal/sh/context.go) returns `(buf.String(), err)` with err UNWRAPPED on non-zero exit — the bare "exit status 2".
@@ -23,6 +24,21 @@
   - Failure fixture verified live: a `coverage.out` containing exactly `garbage not a profile\n` PASSES `mergeCoverageBlocks` (mode line kept verbatim, unparseable blocks skipped) and then `go tool cover -func=coverage.out` exits 2 with stderr `cover: bad mode line: garbage not a profile`. This is the deterministic RED fixture.
   - `coverage.out` is git-ignored in both targ and engram.
   - engram pins targ at v0.0.0-20260402141037-105fb05f62e1 == current main HEAD (105fb05), so engram's gates run exactly this code; the fix reaches engram only via a pushed targ commit + go.mod bump (Task 3).
+  - **Targ's own `check-full` baseline is RED on the pristine branch** (measured 2026-07-11, re-verified by Gate A): 5 pre-existing lint issues — `internal/core/command.go:337`, `internal/flags/flags.go:158`, `internal/runner/runner.go:2467`, `:3336` (goconst ×2, govet ×1, modernize ×1; blame dates Jan–Feb 2026). The no-exceptions rule (targ CLAUDE.md + Joe's global) requires clearing them: Task 0 below. Executors re-enumerate live via `targ lint-full` — the list above is the planning-time snapshot.
+  - Empty-profile fixture branch PINNED (measured by Gate A against the real pre-fix code): `go tool cover -func` on `mode: set\n` exits 0 with only a `total:` line; the local `output()` helper trims the trailing newline, so pre-fix `checkCoverage` PANICS (`index out of range [0] with length 0`) — not a bare ParseFloat error. Post-fix, the `len(linesAndCoverage) == 0` guard fires. Task 2's test asserts exactly that path.
+
+---
+
+### Task 0: Clear the pre-existing lint debt blocking green gates
+
+**Files:**
+- Modify: `internal/core/command.go`, `internal/flags/flags.go`, `internal/runner/runner.go` (per the live `targ lint-full` enumeration)
+
+**Interfaces:** none — lint-only fixes (named constants for goconst, the govet and modernize findings as the linters direct). No behavior change; no lint suppressions (fix the code, never add nolint overrides — surface to Joe if any finding resists a clean fix).
+
+- [ ] **Step 1:** `targ lint-full` → record the full finding list (expected: the 5 above; the live run governs).
+- [ ] **Step 2:** Fix each finding minimally. RED analogue: the lint findings ARE the failing checks; GREEN = `targ lint-full` clean.
+- [ ] **Step 3:** Commit — subject: `chore(lint): clear pre-existing lint debt blocking green gates` (62 bytes, measured) + trailer. Then `targ check-full` post-commit → every check green (this baseline makes Tasks 1–2's gates achievable). Fix+amend until green.
 
 ---
 
@@ -35,7 +51,7 @@
 **Interfaces:**
 - Produces: `func commandFailure(command, out string, err error) error` — unexported, used by Task 2's sites too.
 
-- [ ] **Step 1: Write the failing tests** in `dev/coverage_failure_test.go` (header copied from `dev/ansi_lint_test.go`; gomega; alphabetical insertion):
+- [ ] **Step 1: Write the failing tests** in `dev/coverage_failure_test.go` (header copied from `dev/ansi_lint_test.go` — build tag + package; imports needed beyond it: `context`, `errors`, `os`; gomega `NewWithT`; alphabetical insertion — `targ reorder-decls` auto-fixes test ordering too, measured):
 
 ```go
 func TestCheckCoverageForFail_CorruptProfileNamesCause(t *testing.T) {
@@ -118,8 +134,8 @@ func commandFailure(command, out string, err error) error {
   Also wrap `checkCoverageForFail`'s bare ParseFloat return (anchor: the `strconv.ParseFloat(percentString, 64)` block inside it): `return fmt.Errorf("parsing coverage percent from %q: %w", line, err)`.
 
 - [ ] **Step 4: Run GREEN.** Same `go test -tags targ ...` command → all three PASS.
-- [ ] **Step 5: Gate.** `targ reorder-decls` then `targ check-full` → green (every check). `git diff --stat` → exactly the two named files.
-- [ ] **Step 6: Commit.** Subject: `fix(dev): coverage gate failures print the cover diagnostic` (59 chars, measured). Body: names the discard-on-error defect, the OutputContext bare-err behavior, and `Fixes reported as toejough/engram#682.` Trailer `AI-Used: [claude]`.
+- [ ] **Step 5: Pre-commit checks + commit.** `targ reorder-decls`; `git diff --stat` → exactly the two named files. Commit. Subject: `fix(dev): coverage gate failures print the cover diagnostic` (59 bytes, `wc -c`-measured). Body: names the discard-on-error defect, the OutputContext bare-err behavior, and `Fixes reported as toejough/engram#682.` Trailer `AI-Used: [claude]`.
+- [ ] **Step 6: Post-commit gate.** `targ check-full` → every check green (check-uncommitted requires the clean tree, hence post-commit). Failure → fix, `git commit --amend`, re-run.
 
 ---
 
@@ -152,17 +168,19 @@ func TestCheckCoverage_EmptyProfileErrorsInsteadOfPanicking(t *testing.T) {
 }
 ```
 
-  NOTE to implementer: run this fixture through the real `go tool cover -func` FIRST (`cd $(mktemp -d); printf 'mode: set\n' > coverage.out; go tool cover -func=coverage.out; echo $?`) to learn whether an empty-blocks profile exits 0 with only a `total:` line (reaching the guard) or errors earlier; adjust the fixture so the guard path is genuinely reached (e.g. a profile whose only lines are skipped as `total:`/generated). If the tool errors first, the test asserts THAT wrapped error instead and the guard is still added for defense — disclose which branch the fixture exercises in the report.
+  Fixture branch PINNED (Gate A measured it against the real pre-fix code — see Global Constraints): the tool exits 0 with only a `total:` line, `output()` trims the trailing newline, and pre-fix `checkCoverage` PANICS with `index out of range [0] with length 0`; post-fix the `len(linesAndCoverage) == 0` guard fires. The test above asserts exactly that path — no fixture adjustment needed.
 
-- [ ] **Step 2: RED.** `go test -tags targ -run TestCheckCoverage_EmptyProfile ./dev/` → panics (index out of range) or bare error today. Record.
+  SCOPE LABEL: this guard is **opportunistic hardening, disclosed** — an unguarded-index defect class, distinct from the discard-on-error pattern the fix-all-instances rule covers. It rides along because a panic is the worst possible "failure reason" a gate can print; it is not ask-mandated work.
+
+- [ ] **Step 2: RED.** `go test -tags targ -run TestCheckCoverage_EmptyProfile ./dev/` → panics (`index out of range [0] with length 0`, measured) today. Record.
 - [ ] **Step 3: Implement the sweep.**
   - `checkCoverage` (anchor `out, err := output(ctx, "go", "tool", "cover", "-func=coverage.out")`): `if err != nil { return fmt.Errorf("go tool cover -func=coverage.out: %w", err) }` (stderr already streamed by `output()`; no captured output to attach).
   - `checkCoverage` loop: add the missing `if percentString == "" { continue }` skip (mirrors checkCoverageForFail) BEFORE ParseFloat; wrap its ParseFloat return like Task 1's.
   - `checkCoverage` (anchor `lc := linesAndCoverage[0]`): guard first — `if len(linesAndCoverage) == 0 { return errors.New("no per-function coverage lines found in coverage.out") }`.
   - `deadcode` (anchor `out, err := targ.OutputContext(ctx, "deadcode", "-test", "./...")`): `return commandFailure("deadcode -test ./...", out, err)`.
   - `deleteDeadcode` (anchor `out, err := output(ctx, "deadcode", "-test", "./...")`): `return fmt.Errorf("deadcode -test ./...: %w", err)`.
-- [ ] **Step 4: GREEN** (same test run), then `targ reorder-decls`, `targ check-full` green, diff-scope check (two files).
-- [ ] **Step 5: Commit.** Subject: `fix(dev): wrap remaining bare errors in coverage and deadcode gates` (67 chars, measured). Trailer `AI-Used: [claude]`.
+- [ ] **Step 4: GREEN** (same test run), then `targ reorder-decls`, diff-scope check (two files), COMMIT. Subject: `fix(dev): wrap remaining bare errors in coverage and deadcode gates` (67 bytes, measured). Trailer `AI-Used: [claude]`.
+- [ ] **Step 5: Post-commit gate.** `targ check-full` → green; failure → fix, `git commit --amend`, re-run.
 
 ---
 
@@ -173,10 +191,11 @@ func TestCheckCoverage_EmptyProfileErrorsInsteadOfPanicking(t *testing.T) {
 
 **Preconditions:** Tasks 1–2 merged to targ main (ff-only, post-review) and PUSHED to github (the module proxy/VCS fetch needs the public commit).
 
-- [ ] **Step 1:** In engram: `go get github.com/toejough/targ@<new targ main HEAD>` then `go mod tidy`.
+- [ ] **Step 0: Branch (engram).** `cd /Users/joe/repos/personal/engram && git checkout -b 682-targ-bump` (from main).
+- [ ] **Step 1: Resolve the commit hash mechanically and bump.** `TARG_HEAD=$(git -C /Users/joe/repos/personal/targ rev-parse origin/main)` — run AFTER the targ merge+push, and verify it equals the local merge result (`git -C /Users/joe/repos/personal/targ rev-parse main`); then in engram: `go get github.com/toejough/targ@"$TARG_HEAD"` and `go mod tidy`.
 - [ ] **Step 2: Consumer gate.** `targ check-full` in engram → all 8 PASS (the bumped dev module compiles and gates run green).
 - [ ] **Step 3: Failure-path smoke from the consumer** (the issue's own scenario, note 117 — test the path where the gate SHOULD fail): back up `cp coverage.out /tmp/coverage.out.bak 2>/dev/null || true`; write the garbage fixture `printf 'garbage not a profile\n' > coverage.out`; run `targ check-coverage-for-fail` → expect non-zero exit AND output containing `go tool cover -func=coverage.out` and `bad mode line` (no bare "exit status 2"). Restore: `rm coverage.out` (git-ignored; regenerated by the next test run) and run `targ test` to regenerate it.
-- [ ] **Step 4: Commit (engram).** Subject: `chore(deps): bump targ - coverage gate prints failure reasons` (61 bytes, measured; plain hyphen — an em-dash is 3 bytes to git). Body references #682 + the targ commits. Trailer `AI-Used: [claude]`. Diff-scope: go.mod + go.sum only.
+- [ ] **Step 4: Commit (engram).** Subject: `chore(deps): bump targ - coverage gate prints failure reasons` (61 bytes, measured; plain hyphen — an em-dash is 3 bytes to git). Body references #682 + the targ commits. Trailer `AI-Used: [claude]`. Diff-scope: go.mod + go.sum only. The `682-targ-bump` branch is reviewed in the final whole-branch pass, then ff-only merged to engram main and pushed — same review-before-push discipline as targ's branch.
 
 ---
 
