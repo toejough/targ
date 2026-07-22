@@ -154,6 +154,17 @@ type lineAndCoverage struct {
 	coverage float64
 }
 
+// linearViolation reports the first node in an expression or statement that
+// breaks the linear thin-body grammar, plus a human-readable reason. Callers
+// with a token.FileSet convert it to a thinViolation via the node's position.
+// closure marks violations found inside a FuncLit body so callers append
+// " (closure)" to the enclosing declaration's name.
+type linearViolation struct {
+	node    ast.Node
+	reason  string
+	closure bool
+}
+
 type thinViolation struct {
 	File   string
 	Line   int
@@ -186,12 +197,12 @@ func analyzeThinness(path string) ([]thinViolation, error) {
 	for _, decl := range file.Decls {
 		switch d := decl.(type) {
 		case *ast.FuncDecl:
-			if reason := checkFuncThinness(d); reason != "" {
+			if v := checkFuncThinness(d); v != nil {
 				violations = append(violations, thinViolation{
 					File:   path,
-					Line:   fset.Position(d.Pos()).Line,
-					Name:   funcDeclName(d),
-					Reason: reason,
+					Line:   fset.Position(v.node.Pos()).Line,
+					Name:   closureName(funcDeclName(d), v.closure),
+					Reason: v.reason,
 				})
 			}
 		case *ast.GenDecl:
@@ -370,44 +381,416 @@ func checkFull(ctx context.Context) {
 
 // Helper Functions
 
-// checkFuncThinness returns a reason string if the function is not thin, empty string if thin.
-func checkFuncThinness(fn *ast.FuncDecl) string {
+// checkFuncThinness validates a named function's body against the linear
+// thin-body grammar. It returns nil when thin (including interface methods
+// with nil bodies), or the first offending node with a reason.
+func checkFuncThinness(fn *ast.FuncDecl) *linearViolation {
 	if fn.Body == nil {
-		return "" // Interface method or external function
+		return nil // Interface method or external function
 	}
 
-	stmts := fn.Body.List
+	return checkLinearBody(fn.Body.List)
+}
 
-	// Empty function is thin
-	if len(stmts) == 0 {
-		return ""
-	}
-
-	// Single statement is potentially thin
-	if len(stmts) == 1 {
-		// Single return statement
-		if ret, ok := stmts[0].(*ast.ReturnStmt); ok {
-			return checkReturnThinness(ret)
+// checkLinearAssign validates an assignment statement (S1): only the := and
+// = operators; every LHS element an Ident (including _) or a SelectorExpr
+// over an allowed value; every RHS value an allowed expression.
+func checkLinearAssign(assign *ast.AssignStmt) *linearViolation {
+	if assign.Tok != token.ASSIGN && assign.Tok != token.DEFINE {
+		return &linearViolation{
+			node:   assign,
+			reason: "assignment operator " + assign.Tok.String() + " not allowed in thin body",
 		}
-		// Single expression statement (e.g., targ.Register(...) or pkg.Func())
-		if expr, ok := stmts[0].(*ast.ExprStmt); ok {
-			if isExternalCall(expr.X) {
-				return ""
+	}
+
+	for _, lhs := range assign.Lhs {
+		if violation := checkLinearAssignTarget(lhs); violation != nil {
+			return violation
+		}
+	}
+
+	return checkLinearExprs(assign.Rhs)
+}
+
+// checkLinearAssignTarget validates one LHS element of an S1 assignment: an
+// Ident (including _) or a SelectorExpr naming a field of an allowed value.
+func checkLinearAssignTarget(target ast.Expr) *linearViolation {
+	switch lhs := target.(type) {
+	case *ast.Ident:
+		return nil
+	case *ast.SelectorExpr:
+		return checkLinearExpr(lhs.X)
+	default:
+		return &linearViolation{node: target, reason: exprKindName(target) + " not allowed as assignment target"}
+	}
+}
+
+// checkLinearBody validates a function or closure body against the linear
+// thin-body statement grammar (rules S1-S6 of the check-thin-api spec).
+// Empty and nil bodies are thin. It returns nil when every statement is
+// allowed, or the first offending node with a reason.
+func checkLinearBody(stmts []ast.Stmt) *linearViolation {
+	for i, stmt := range stmts {
+		if violation := checkLinearStmt(stmt, i == len(stmts)-1); violation != nil {
+			return violation
+		}
+	}
+
+	return nil
+}
+
+// checkLinearCallBase validates the non-generic part of a call head: a bare
+// identifier (E3b — local call or builtin conversion) or a selector whose X
+// is a plain identifier (E3a — pkg.F, recv.M).
+func checkLinearCallBase(fun ast.Expr) *linearViolation {
+	switch head := fun.(type) {
+	case *ast.Ident: // E3b
+		return nil
+	case *ast.SelectorExpr: // E3a
+		if _, ok := head.X.(*ast.Ident); ok {
+			return nil
+		}
+
+		return &linearViolation{node: fun, reason: "call head must qualify a plain identifier (pkg.F or recv.M)"}
+	case *ast.FuncLit:
+		return &linearViolation{node: fun, reason: "function literal call (IIFE) not allowed"}
+	default:
+		return &linearViolation{node: fun, reason: exprKindName(fun) + " not allowed as call head"}
+	}
+}
+
+// checkLinearCallExpr validates a call expression (E3): the head must satisfy
+// checkLinearCallHead, and every argument must be an allowed expression.
+// Exception: make's first argument is a type expression (E10).
+func checkLinearCallExpr(call *ast.CallExpr) *linearViolation {
+	if violation := checkLinearCallHead(call.Fun); violation != nil {
+		return violation
+	}
+
+	args := call.Args
+	if head, ok := call.Fun.(*ast.Ident); ok && head.Name == "make" && len(args) > 0 {
+		if violation := checkLinearTypeExpr(args[0]); violation != nil {
+			return violation
+		}
+
+		args = args[1:]
+	}
+
+	return checkLinearExprs(args)
+}
+
+// checkLinearCallHead validates a call's Fun position: an E3a/E3b base head,
+// or a generic instantiation (E3c) — IndexExpr/IndexListExpr wrapping an
+// E3a/E3b base head, with the index arguments as type positions (E10).
+func checkLinearCallHead(fun ast.Expr) *linearViolation {
+	base, typeArgs := genericHeadParts(fun)
+	if violation := checkLinearCallBase(base); violation != nil {
+		return violation
+	}
+
+	for _, index := range typeArgs {
+		if violation := checkLinearTypeExpr(index); violation != nil {
+			return violation
+		}
+	}
+
+	return nil
+}
+
+// checkLinearCompositeLit validates a composite literal (E4): its type (when
+// present — nested literals may elide it) is a type expression (E10), and
+// every element — both halves of key/value pairs included — is an allowed
+// expression.
+func checkLinearCompositeLit(lit *ast.CompositeLit) *linearViolation {
+	if lit.Type != nil {
+		if violation := checkLinearTypeExpr(lit.Type); violation != nil {
+			return violation
+		}
+	}
+
+	for _, elt := range lit.Elts {
+		if kv, ok := elt.(*ast.KeyValueExpr); ok {
+			if violation := checkLinearExprs([]ast.Expr{kv.Key, kv.Value}); violation != nil {
+				return violation
+			}
+
+			continue
+		}
+
+		if violation := checkLinearExpr(elt); violation != nil {
+			return violation
+		}
+	}
+
+	return nil
+}
+
+// checkLinearDecl validates a declaration statement (S2): var and const
+// declarations only, with every spec value an allowed expression.
+func checkLinearDecl(decl *ast.DeclStmt) *linearViolation {
+	gen, ok := decl.Decl.(*ast.GenDecl)
+	if !ok {
+		return &linearViolation{node: decl, reason: "declaration statement not allowed in thin body"}
+	}
+
+	if gen.Tok != token.VAR && gen.Tok != token.CONST {
+		return &linearViolation{node: decl, reason: gen.Tok.String() + " declaration not allowed in thin body"}
+	}
+
+	for _, spec := range gen.Specs {
+		if vs, ok := spec.(*ast.ValueSpec); ok {
+			if violation := checkLinearExprs(vs.Values); violation != nil {
+				return violation
 			}
 		}
 	}
 
-	// Check for simple error-handling wrapper pattern:
-	// result, err := pkg.Func(...)
-	// if err != nil { return ... }
-	// return result
-	if len(stmts) >= 2 && len(stmts) <= 3 {
-		if isSimpleErrorWrapper(stmts) {
-			return ""
+	return nil
+}
+
+// checkLinearExpr validates a value-position expression against the linear
+// thin-body grammar (rules E1-E10 of the check-thin-api spec). It returns nil
+// when the expression is allowed, or the first offending node with a reason.
+func checkLinearExpr(expr ast.Expr) *linearViolation {
+	switch e := expr.(type) {
+	case *ast.Ident, *ast.BasicLit, *ast.Ellipsis: // E1, E8
+		return nil
+	case *ast.FuncLit: // E5 — body walked by the statement grammar
+		return checkLinearFuncLit(e)
+	case *ast.SelectorExpr: // E2
+		return checkLinearExpr(e.X)
+	case *ast.ParenExpr: // E8
+		return checkLinearExpr(e.X)
+	case *ast.CallExpr: // E3
+		return checkLinearCallExpr(e)
+	case *ast.CompositeLit: // E4
+		return checkLinearCompositeLit(e)
+	case *ast.UnaryExpr: // E6
+		return checkLinearUnaryExpr(e)
+	case *ast.BinaryExpr: // E7
+		return checkLinearExprs([]ast.Expr{e.X, e.Y})
+	case *ast.TypeAssertExpr: // E9
+		return checkLinearTypeAssert(e)
+	default:
+		return &linearViolation{node: expr, reason: exprKindName(expr) + " not allowed in thin expression"}
+	}
+}
+
+// checkLinearExprStmt validates an expression statement (S3): the expression
+// must be an allowed call (E3, any head).
+func checkLinearExprStmt(stmt *ast.ExprStmt) *linearViolation {
+	call, ok := stmt.X.(*ast.CallExpr)
+	if !ok {
+		return &linearViolation{node: stmt, reason: "expression statement must be a call in thin body"}
+	}
+
+	return checkLinearCallExpr(call)
+}
+
+// checkLinearExprs returns the first violation among the given value-position
+// expressions, or nil if all are allowed.
+func checkLinearExprs(exprs []ast.Expr) *linearViolation {
+	for _, expr := range exprs {
+		if violation := checkLinearExpr(expr); violation != nil {
+			return violation
 		}
 	}
 
-	return fmt.Sprintf("has %d statements (thin functions have 1 or simple error handling)", len(stmts))
+	return nil
+}
+
+// checkLinearFuncLit validates a function literal (E5): its body is walked
+// by the statement grammar, and any violation found inside is flagged as a
+// closure violation for naming.
+func checkLinearFuncLit(lit *ast.FuncLit) *linearViolation {
+	violation := checkLinearBody(lit.Body.List)
+	if violation != nil {
+		violation.closure = true
+	}
+
+	return violation
+}
+
+// checkLinearGoHead validates a go statement's call head (S4): qualified
+// heads only — E3a, or a generic instantiation (E3c) over E3a. Bare-Ident
+// heads (E3b) and function-literal heads (inline goroutines) are rejected.
+func checkLinearGoHead(fun ast.Expr) *linearViolation {
+	base, _ := genericHeadParts(fun)
+	if _, ok := base.(*ast.SelectorExpr); !ok {
+		return &linearViolation{node: fun, reason: "go statement must launch a qualified call (pkg.F or recv.M)"}
+	}
+
+	return checkLinearCallHead(fun)
+}
+
+// checkLinearGoStmt validates a go statement (S4): a qualified call head
+// with allowed argument expressions.
+func checkLinearGoStmt(goStmt *ast.GoStmt) *linearViolation {
+	if violation := checkLinearGoHead(goStmt.Call.Fun); violation != nil {
+		return violation
+	}
+
+	return checkLinearExprs(goStmt.Call.Args)
+}
+
+// checkLinearGuard validates an if statement against the error-guard shape
+// (S5): no init clause, condition exactly `X != nil`, no else clause, and a
+// body that is a lone return.
+func checkLinearGuard(guard *ast.IfStmt) *linearViolation {
+	if guard.Init != nil {
+		return guardViolation(guard, "init clause not allowed")
+	}
+
+	if violation := checkLinearGuardCond(guard.Cond); violation != nil {
+		return violation
+	}
+
+	if guard.Else != nil {
+		return guardViolation(guard.Else, "else clause not allowed")
+	}
+
+	return checkLinearGuardBody(guard.Body)
+}
+
+// checkLinearGuardBody validates an error-guard's body (S5): exactly one
+// ReturnStmt (the S6 guard position) whose results are allowed expressions.
+func checkLinearGuardBody(body *ast.BlockStmt) *linearViolation {
+	if len(body.List) != 1 {
+		return guardViolation(body, "guard body must be a lone return")
+	}
+
+	ret, ok := body.List[0].(*ast.ReturnStmt)
+	if !ok {
+		return guardViolation(body.List[0], "guard body must be a lone return")
+	}
+
+	return checkLinearExprs(ret.Results)
+}
+
+// checkLinearGuardCond validates an if condition against the error-guard
+// shape (S5): exactly `X != nil` (either operand order) where X is an
+// allowed Ident or SelectorExpr. When X matches the shape but recurses into
+// a forbidden expression, that inner violation is surfaced as-is so the
+// reason names the real defect.
+func checkLinearGuardCond(cond ast.Expr) *linearViolation {
+	bin, ok := cond.(*ast.BinaryExpr)
+	if ok && (bin.Op == token.LAND || bin.Op == token.LOR) {
+		return guardViolation(cond, "compound condition")
+	}
+
+	if ok && bin.Op == token.NEQ {
+		if inner, matched := checkNilGuardOperands(bin.X, bin.Y); matched {
+			return inner
+		}
+
+		if inner, matched := checkNilGuardOperands(bin.Y, bin.X); matched {
+			return inner
+		}
+	}
+
+	return guardViolation(cond, "condition is not a nil comparison")
+}
+
+// checkLinearStmt validates one body statement against the linear thin-body
+// statement grammar (S1-S6). isLast reports whether the statement is the
+// body's final one — the only position outside an error-guard body where a
+// return is allowed (S6).
+func checkLinearStmt(stmt ast.Stmt, isLast bool) *linearViolation {
+	switch s := stmt.(type) {
+	case *ast.AssignStmt: // S1
+		return checkLinearAssign(s)
+	case *ast.DeclStmt: // S2
+		return checkLinearDecl(s)
+	case *ast.ExprStmt: // S3
+		return checkLinearExprStmt(s)
+	case *ast.GoStmt: // S4
+		return checkLinearGoStmt(s)
+	case *ast.IfStmt: // S5
+		return checkLinearGuard(s)
+	case *ast.ReturnStmt: // S6
+		if !isLast {
+			return &linearViolation{node: s, reason: "mid-body return not allowed in thin body"}
+		}
+
+		return checkLinearExprs(s.Results)
+	default:
+		return &linearViolation{node: stmt, reason: stmtKindName(stmt) + " not allowed in thin body"}
+	}
+}
+
+// checkLinearTypeAssert validates a type assertion (E9): the operand is a
+// value expression and the asserted type is a type position (E10).
+func checkLinearTypeAssert(assert *ast.TypeAssertExpr) *linearViolation {
+	if violation := checkLinearExpr(assert.X); violation != nil {
+		return violation
+	}
+
+	if assert.Type == nil { // x.(type) — only legal in a type switch, which the statement grammar forbids
+		return &linearViolation{node: assert, reason: "type switch guard not allowed in thin expression"}
+	}
+
+	return checkLinearTypeExpr(assert.Type)
+}
+
+// checkLinearTypeExpr validates an expression in a type position (E10):
+// make's first argument, a type assertion's type, a composite literal's type,
+// or a generic instantiation's type arguments. Only type node kinds are
+// accepted; array lengths are value expressions and recurse accordingly.
+func checkLinearTypeExpr(expr ast.Expr) *linearViolation {
+	switch t := expr.(type) {
+	case *ast.Ident, *ast.SelectorExpr, *ast.FuncType, *ast.InterfaceType, *ast.StructType:
+		return nil
+	case *ast.ArrayType:
+		if t.Len != nil {
+			if violation := checkLinearExpr(t.Len); violation != nil {
+				return violation
+			}
+		}
+
+		return checkLinearTypeExpr(t.Elt)
+	case *ast.ChanType:
+		return checkLinearTypeExpr(t.Value)
+	case *ast.MapType:
+		if violation := checkLinearTypeExpr(t.Key); violation != nil {
+			return violation
+		}
+
+		return checkLinearTypeExpr(t.Value)
+	case *ast.StarExpr:
+		return checkLinearTypeExpr(t.X)
+	default:
+		return &linearViolation{node: expr, reason: exprKindName(expr) + " not allowed in type position"}
+	}
+}
+
+// checkLinearUnaryExpr validates a unary expression (E6): only & + - ^ ! are
+// allowed; receive (<-) and every other operator are violations.
+func checkLinearUnaryExpr(unary *ast.UnaryExpr) *linearViolation {
+	switch unary.Op {
+	case token.AND, token.ADD, token.SUB, token.XOR, token.NOT:
+		return checkLinearExpr(unary.X)
+	default:
+		return &linearViolation{node: unary, reason: "unary operator " + unary.Op.String() + " not allowed"}
+	}
+}
+
+// checkNilGuardOperands matches one operand order of an S5 error-guard
+// condition: nilSide must be the nil identifier and value an Ident or
+// SelectorExpr. matched reports whether the pair has that shape; when it
+// does, the returned violation is the value operand's own expression-grammar
+// violation (nil when the operand is allowed).
+func checkNilGuardOperands(value, nilSide ast.Expr) (violation *linearViolation, matched bool) {
+	nilIdent, ok := nilSide.(*ast.Ident)
+	if !ok || nilIdent.Name != "nil" {
+		return nil, false
+	}
+
+	switch value.(type) {
+	case *ast.Ident, *ast.SelectorExpr:
+		return checkLinearExpr(value), true
+	default:
+		return nil, false
+	}
 }
 
 func checkNils(_ context.Context) error {
@@ -422,51 +805,6 @@ func checkNilsFix(ctx context.Context) error {
 func checkNilsForFail(ctx context.Context) error {
 	targ.Print(ctx, "Checking for nil issues...\n")
 	return targ.RunContext(ctx, "nilaway", "./...")
-}
-
-// checkReturnThinness checks if a return statement is a thin wrapper.
-func checkReturnThinness(ret *ast.ReturnStmt) string {
-	if len(ret.Results) == 0 {
-		return "" // Empty return is thin
-	}
-
-	// Single result
-	if len(ret.Results) == 1 {
-		result := ret.Results[0]
-
-		// Call to another package
-		if call, ok := result.(*ast.CallExpr); ok {
-			if isExternalCall(call) {
-				return ""
-			}
-
-			return "calls local function, not external package"
-		}
-		// Returning a variable or selector (like pkg.Var)
-		if isExternalSelector(result) {
-			return ""
-		}
-		// Returning a literal
-		if isBasicLit(result) {
-			return ""
-		}
-		// Returning an identifier (variable, nil, true, false)
-		if _, ok := result.(*ast.Ident); ok {
-			return ""
-		}
-	}
-
-	// Multiple results - check if it's a call with multiple returns
-	// e.g., return pkg.Func(args...)
-	if len(ret.Results) >= 1 {
-		if call, ok := ret.Results[0].(*ast.CallExpr); ok {
-			if isExternalCall(call) {
-				return ""
-			}
-		}
-	}
-
-	return "return expression is not a simple external call or re-export"
 }
 
 // checkSpecThinness checks if a type/const/var spec is thin.
@@ -651,22 +989,17 @@ func checkValueSpecThinness(fset *token.FileSet, path string, tok token.Token, v
 		return nil
 	}
 
-	// Variables: check if assigned from external package or is a function call
+	// Variables: every value must satisfy the linear expression grammar
+	// (re-exports, calls, literals, and linear-bodied function literals).
 	if tok == token.VAR {
 		for _, val := range vs.Values {
-			if isExternalSelector(val) || isExternalCall(val) || isBasicLit(val) {
-				continue
-			}
-			// Allow nil assignments
-			if ident, ok := val.(*ast.Ident); ok && ident.Name == "nil" {
-				continue
-			}
-
-			return &thinViolation{
-				File:   path,
-				Line:   fset.Position(vs.Pos()).Line,
-				Name:   "var " + nameListString(vs.Names),
-				Reason: "var value is not a re-export, external call, or literal",
+			if violation := checkLinearExpr(val); violation != nil {
+				return &thinViolation{
+					File:   path,
+					Line:   fset.Position(violation.node.Pos()).Line,
+					Name:   closureName("var "+nameListString(vs.Names), violation.closure),
+					Reason: violation.reason,
+				}
 			}
 		}
 	}
@@ -677,6 +1010,16 @@ func checkValueSpecThinness(fset *token.FileSet, path string, tok token.Token, v
 func clean(ctx context.Context) {
 	targ.Print(ctx, "Cleaning...\n")
 	os.Remove("coverage.out")
+}
+
+// closureName appends the " (closure)" marker to a violation's enclosing
+// declaration name when the violation was found inside a FuncLit body.
+func closureName(name string, closure bool) string {
+	if closure {
+		return name + " (closure)"
+	}
+
+	return name
 }
 
 // commandFailure wraps a failed command's error with the command itself and
@@ -915,6 +1258,29 @@ func deleteDeadcode(ctx context.Context) error {
 	return nil
 }
 
+// exprKindName returns a human-readable name for an expression node's kind,
+// used in linear-grammar violation reasons.
+func exprKindName(expr ast.Expr) string {
+	switch expr.(type) {
+	case *ast.IndexExpr, *ast.IndexListExpr:
+		return "index expression"
+	case *ast.SliceExpr:
+		return "slice expression"
+	case *ast.StarExpr:
+		return "star expression (value dereference)"
+	case *ast.FuncLit:
+		return "function literal"
+	case *ast.KeyValueExpr:
+		return "key-value expression"
+	case *ast.CallExpr:
+		return "call expression"
+	case *ast.BasicLit:
+		return "basic literal"
+	default:
+		return fmt.Sprintf("%T", expr)
+	}
+}
+
 func findRedundantTests(ctx context.Context, args RedundantTestArgs) error {
 	pattern := args.BaselinePattern
 	if pattern == "" {
@@ -1068,6 +1434,20 @@ func generate(ctx context.Context) error {
 	return targ.RunContext(ctx, "go", "generate", "./...")
 }
 
+// genericHeadParts splits a possibly generic call head (E3c) into its base
+// and type-argument expressions: an IndexExpr/IndexListExpr wrapper yields
+// its X and indices; any other head is its own base with no type arguments.
+func genericHeadParts(fun ast.Expr) (base ast.Expr, typeArgs []ast.Expr) {
+	switch head := fun.(type) {
+	case *ast.IndexExpr:
+		return head.X, []ast.Expr{head.Index}
+	case *ast.IndexListExpr:
+		return head.X, head.Indices
+	default:
+		return fun, nil
+	}
+}
+
 // getModulePath reads the module path from go.mod, caching the result.
 func getModulePath() string {
 	modulePathOnce.Do(func() {
@@ -1113,6 +1493,12 @@ func globs(dir string, ext []string) ([]string, error) {
 	})
 
 	return files, err
+}
+
+// guardViolation builds an S5 violation for an if statement that is not the
+// error-guard shape, naming the specific deviation.
+func guardViolation(node ast.Node, detail string) *linearViolation {
+	return &linearViolation{node: node, reason: "if is not the error-guard shape: " + detail}
 }
 
 // hasBuildTagOrGenerated checks if a file has build tags or generated markers.
@@ -1266,24 +1652,6 @@ func isExportedFunc(funcName string) bool {
 	return funcName[0] >= 'A' && funcName[0] <= 'Z'
 }
 
-// isExternalCall checks if a call expression calls an external package.
-func isExternalCall(expr ast.Expr) bool {
-	call, ok := expr.(*ast.CallExpr)
-	if !ok {
-		return false
-	}
-
-	// Check if the function being called is pkg.Func
-	if sel, ok := call.Fun.(*ast.SelectorExpr); ok {
-		// pkg.Func() - sel.X is the package identifier
-		if _, ok := sel.X.(*ast.Ident); ok {
-			return true
-		}
-	}
-
-	return false
-}
-
 // isExternalSelector checks if an expression is pkg.Something.
 func isExternalSelector(expr ast.Expr) bool {
 	sel, ok := expr.(*ast.SelectorExpr)
@@ -1355,54 +1723,6 @@ func isPublicAPIEntryPoint(path string) bool {
 	}
 
 	// This is a public API entry point file
-	return true
-}
-
-// isSimpleErrorWrapper checks for pattern:
-//
-//	result, err := pkg.Func(...)
-//	if err != nil { return ... }
-//	return result
-func isSimpleErrorWrapper(stmts []ast.Stmt) bool {
-	// First statement should be assignment
-	assign, ok := stmts[0].(*ast.AssignStmt)
-	if !ok {
-		return false
-	}
-
-	// Should be := or =
-	if assign.Tok != token.DEFINE && assign.Tok != token.ASSIGN {
-		return false
-	}
-
-	// RHS should be external call
-	if len(assign.Rhs) != 1 {
-		return false
-	}
-
-	if !isExternalCall(assign.Rhs[0]) {
-		return false
-	}
-
-	// Second statement should be if err != nil
-	ifStmt, ok := stmts[1].(*ast.IfStmt)
-	if !ok {
-		return false
-	}
-
-	// Check it's checking err != nil
-	bin, ok := ifStmt.Cond.(*ast.BinaryExpr)
-	if !ok || bin.Op != token.NEQ {
-		return false
-	}
-
-	// If there's a third statement, it should be a return
-	if len(stmts) == 3 {
-		_, ok := stmts[2].(*ast.ReturnStmt)
-
-		return ok
-	}
-
 	return true
 }
 
@@ -1783,6 +2103,33 @@ func reorderDeclsCheck(ctx context.Context) error {
 	targ.Printf(ctx, "All files are correctly ordered (%d files processed).\n", filesProcessed)
 
 	return nil
+}
+
+// stmtKindName returns a human-readable name for a statement node's kind,
+// used in linear-grammar violation reasons.
+func stmtKindName(stmt ast.Stmt) string {
+	switch stmt.(type) {
+	case *ast.ForStmt:
+		return "for statement"
+	case *ast.RangeStmt:
+		return "range statement"
+	case *ast.SwitchStmt, *ast.TypeSwitchStmt:
+		return "switch statement"
+	case *ast.SelectStmt:
+		return "select statement"
+	case *ast.DeferStmt:
+		return "defer statement"
+	case *ast.SendStmt:
+		return "channel send statement"
+	case *ast.IncDecStmt:
+		return "increment/decrement statement"
+	case *ast.LabeledStmt:
+		return "labeled statement"
+	case *ast.BranchStmt:
+		return "branch statement"
+	default:
+		return fmt.Sprintf("%T", stmt)
+	}
 }
 
 func test(ctx context.Context) error {
