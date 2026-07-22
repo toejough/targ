@@ -258,9 +258,12 @@ Greps: `check-thin-api|thin-api|thin wrapper|thin functions|checkThinAPI|CheckTh
 2. ✅ Orient — recall + issue + code verified; design discussed; 3 points approved
 3. ✅ Plan — revision 2; Gate A closed (round 1: docs PASS, ask/code/clarity findings fixed;
    round 2: all three angles ACK, no counters)
-4. ☐ Execute (T1–T5, TDD, Gate B per refactor)
-5. ☐ Document (T6a; Gate C — subject may be absent: no prose docs to touch)
-6. ☐ Complete (close #23, commit; Gate D)
+4. ✅ Execute — T1–T4 via workflow (Gate B: T1 PASS r1, T2 FAIL r1→fix→PASS r2, T3 PASS r1,
+   T4 PASS r1; four Minor findings on record, none blocking); T5: scope-contained diff
+   (2 files), dev suite green, check-thin-api green, commit 4476ed2, check-full PASS:8
+5. ✅ Document — dispositions re-verified post-implementation (gate description "Check public
+   API is thin wrappers" still accurate; no prose docs touched); Gate C N/A (subject absent)
+6. ☐ Complete (close #23 after Joe's disposition of residual Minors + sort-option flag; Gate D)
 7. ☐ Capture (close) — lessons audit + closing /learn
 
 (Task-list tooling is absent in this environment — TaskCreate/TaskUpdate not present; this
