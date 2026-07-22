@@ -374,6 +374,7 @@ func TestCheckLinearBody_Grammar(t *testing.T) {
 		{"guard body not lone return", "if err != nil {\nlog()\nreturn err\n}", "lone return"},
 		{"guard body assignment", "if err != nil {\nerr = closeErr\n}", "lone return"},
 		{"guard empty body", "if err != nil {\n}", "lone return"},
+		{"guard nil against nil", "if nil != nil {\nreturn err\n}", "nil comparison"},
 		{"guard non-nil comparison", "if a != b {\nreturn x\n}", "nil comparison"},
 		{"guard equality comparison", "if err == nil {\nreturn x\n}", "nil comparison"},
 		{"guard non-binary condition", "if ok {\nreturn x\n}", "nil comparison"},
@@ -528,8 +529,14 @@ func TestCheckLinearExpr_Grammar(t *testing.T) {
 		// Forbidden: call heads outside E3a-c
 		{"chained selector call head", `a.b.C(x)`, "call head"},
 		{"nested generic call head", `f[T][U](x)`, "call head"},
-		// Forbidden: type nodes in value position (E10 is type-position only)
-		{"bare type in value position", `map[string]int`, "not allowed"},
+		// Forbidden: type nodes in value position (E10 is type-position only),
+		// each named human-readably in the violation reason
+		{"bare map type in value position", `map[string]int`, "map type not allowed"},
+		{"bare chan type in value position", `chan int`, "channel type not allowed"},
+		{"bare array type in value position", `[]int`, "array type not allowed"},
+		{"bare func type in value position", `func(int) error`, "function type not allowed"},
+		{"bare interface type in value position", `interface{ M() }`, "interface type not allowed"},
+		{"bare struct type in value position", `struct{ A int }`, "struct type not allowed"},
 		// Forbidden: non-type nodes in type positions (E10)
 		{"call in make type position", `make(f(), 1)`, "type position"},
 		{"index in make type position", `make(pkg.List[int], 1)`, "type position"},
@@ -593,25 +600,56 @@ func TestProperty_ThinGrammar(t *testing.T) {
 		`return`, // mid-body once injected before the final statement
 	}
 
-	rapid.Check(t, func(rt *rapid.T) {
-		g := NewWithT(rt)
+	// Capture what needs the real *testing.T once, before rapid shadows t;
+	// each iteration overwrites the same fixture file in this dir.
+	path := filepath.Join(t.TempDir(), "fixture.go")
 
-		body := rapid.SliceOfN(rapid.SampledFrom(thin), 1, 5).Draw(rt, "body")
-		if rapid.Bool().Draw(rt, "trailingReturn") {
+	rapid.Check(t, func(t *rapid.T) {
+		g := NewWithT(t)
+
+		body := rapid.SliceOfN(rapid.SampledFrom(thin), 1, 5).Draw(t, "body")
+		if rapid.Bool().Draw(t, "trailingReturn") {
 			body = append(body, `return pkg.F()`)
 		}
 
-		g.Expect(analyzeSrc(t, fixtureSrc(body))).To(BeEmpty(),
+		g.Expect(os.WriteFile(path, []byte(fixtureSrc(body)), 0o600)).To(Succeed())
+		violations, err := analyzeThinness(path)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(violations).To(BeEmpty(),
 			"a body of allowed templates must yield zero violations")
 
-		pos := rapid.IntRange(0, len(body)-1).Draw(rt, "pos")
-		bad := rapid.SampledFrom(forbidden).Draw(rt, "bad")
+		pos := rapid.IntRange(0, len(body)-1).Draw(t, "pos")
+		bad := rapid.SampledFrom(forbidden).Draw(t, "bad")
 		injected := slices.Insert(slices.Clone(body), pos, bad)
 
-		g.Expect(analyzeSrc(t, fixtureSrc(injected))).To(
+		g.Expect(os.WriteFile(path, []byte(fixtureSrc(injected)), 0o600)).To(Succeed())
+		violations, err = analyzeThinness(path)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(violations).To(
 			ContainElement(HaveField("Line", fixtureStmtLine(injected, pos))),
 			"a violation must land on the injected statement's first line")
 	})
+}
+
+// TestSortedViolationFiles verifies checkThinAPI's cross-file report order is
+// deterministic: the helper returns the by-file grouping's keys in sorted
+// (lexical path) order regardless of map-iteration order, and leaves the
+// per-file violation slices untouched (source order preserved).
+func TestSortedViolationFiles(t *testing.T) {
+	t.Parallel()
+	g := NewWithT(t)
+
+	byFile := map[string][]thinViolation{
+		"z.go":     {{File: "z.go", Line: 1}},
+		"a/sub.go": {{File: "a/sub.go", Line: 3}, {File: "a/sub.go", Line: 7}},
+		"m.go":     {{File: "m.go", Line: 2}},
+	}
+
+	g.Expect(sortedViolationFiles(byFile)).To(Equal([]string{"a/sub.go", "m.go", "z.go"}))
+	g.Expect(byFile["a/sub.go"]).To(Equal([]thinViolation{
+		{File: "a/sub.go", Line: 3},
+		{File: "a/sub.go", Line: 7},
+	}), "per-file violations must keep their source order")
 }
 
 // analyzeSrc writes the fixture source to a temp .go file, runs

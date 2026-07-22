@@ -463,7 +463,7 @@ func checkLinearCallBase(fun ast.Expr) *linearViolation {
 // checkLinearCallHead, and every argument must be an allowed expression.
 // Exception: make's first argument is a type expression (E10).
 func checkLinearCallExpr(call *ast.CallExpr) *linearViolation {
-	if violation := checkLinearCallHead(call.Fun); violation != nil {
+	if violation := checkLinearCallHead(genericHeadParts(call.Fun)); violation != nil {
 		return violation
 	}
 
@@ -479,11 +479,11 @@ func checkLinearCallExpr(call *ast.CallExpr) *linearViolation {
 	return checkLinearExprs(args)
 }
 
-// checkLinearCallHead validates a call's Fun position: an E3a/E3b base head,
-// or a generic instantiation (E3c) — IndexExpr/IndexListExpr wrapping an
-// E3a/E3b base head, with the index arguments as type positions (E10).
-func checkLinearCallHead(fun ast.Expr) *linearViolation {
-	base, typeArgs := genericHeadParts(fun)
+// checkLinearCallHead validates a call's Fun position, pre-split by
+// genericHeadParts: an E3a/E3b base head, or a generic instantiation (E3c) —
+// IndexExpr/IndexListExpr wrapping an E3a/E3b base head, with the index
+// arguments as type positions (E10).
+func checkLinearCallHead(base ast.Expr, typeArgs []ast.Expr) *linearViolation {
 	if violation := checkLinearCallBase(base); violation != nil {
 		return violation
 	}
@@ -614,13 +614,14 @@ func checkLinearFuncLit(lit *ast.FuncLit) *linearViolation {
 // checkLinearGoHead validates a go statement's call head (S4): qualified
 // heads only — E3a, or a generic instantiation (E3c) over E3a. Bare-Ident
 // heads (E3b) and function-literal heads (inline goroutines) are rejected.
+// The head is decomposed once and the parts threaded to checkLinearCallHead.
 func checkLinearGoHead(fun ast.Expr) *linearViolation {
-	base, _ := genericHeadParts(fun)
+	base, typeArgs := genericHeadParts(fun)
 	if _, ok := base.(*ast.SelectorExpr); !ok {
 		return &linearViolation{node: fun, reason: "go statement must launch a qualified call (pkg.F or recv.M)"}
 	}
 
-	return checkLinearCallHead(fun)
+	return checkLinearCallHead(base, typeArgs)
 }
 
 // checkLinearGoStmt validates a go statement (S4): a qualified call head
@@ -775,18 +776,25 @@ func checkLinearUnaryExpr(unary *ast.UnaryExpr) *linearViolation {
 }
 
 // checkNilGuardOperands matches one operand order of an S5 error-guard
-// condition: nilSide must be the nil identifier and value an Ident or
-// SelectorExpr. matched reports whether the pair has that shape; when it
-// does, the returned violation is the value operand's own expression-grammar
-// violation (nil when the operand is allowed).
+// condition: nilSide must be the nil identifier and value an Ident (other
+// than nil itself — `nil != nil` is not a guard) or SelectorExpr. matched
+// reports whether the pair has that shape; when it does, the returned
+// violation is the value operand's own expression-grammar violation (nil
+// when the operand is allowed).
 func checkNilGuardOperands(value, nilSide ast.Expr) (violation *linearViolation, matched bool) {
 	nilIdent, ok := nilSide.(*ast.Ident)
 	if !ok || nilIdent.Name != "nil" {
 		return nil, false
 	}
 
-	switch value.(type) {
-	case *ast.Ident, *ast.SelectorExpr:
+	switch v := value.(type) {
+	case *ast.Ident:
+		if v.Name == "nil" {
+			return nil, false
+		}
+
+		return checkLinearExpr(value), true
+	case *ast.SelectorExpr:
 		return checkLinearExpr(value), true
 	default:
 		return nil, false
@@ -917,12 +925,12 @@ func checkThinAPI(ctx context.Context) error {
 		byFile[v.File] = append(byFile[v.File], v)
 	}
 
-	// Print violations grouped by file
+	// Print violations grouped by file, in deterministic path order
 	targ.Printf(ctx, "\nFound %d non-thin declarations in %d files:\n", len(violations), len(byFile))
 
-	for file, fileViolations := range byFile {
+	for _, file := range sortedViolationFiles(byFile) {
 		targ.Printf(ctx, "\n%s:\n", file)
-		for _, v := range fileViolations {
+		for _, v := range byFile[file] {
 			targ.Printf(ctx, "  %d: %s - %s\n", v.Line, v.Name, v.Reason)
 		}
 	}
@@ -1259,7 +1267,9 @@ func deleteDeadcode(ctx context.Context) error {
 }
 
 // exprKindName returns a human-readable name for an expression node's kind,
-// used in linear-grammar violation reasons.
+// used in linear-grammar violation reasons. Bare type expressions delegate to
+// typeExprKindName; genuinely unknown kinds fall back to the raw Go AST type
+// name.
 func exprKindName(expr ast.Expr) string {
 	switch expr.(type) {
 	case *ast.IndexExpr, *ast.IndexListExpr:
@@ -1277,7 +1287,7 @@ func exprKindName(expr ast.Expr) string {
 	case *ast.BasicLit:
 		return "basic literal"
 	default:
-		return fmt.Sprintf("%T", expr)
+		return typeExprKindName(expr)
 	}
 }
 
@@ -2105,6 +2115,20 @@ func reorderDeclsCheck(ctx context.Context) error {
 	return nil
 }
 
+// sortedViolationFiles returns the keys of a by-file violation grouping in
+// sorted (lexical path) order so checkThinAPI's cross-file report order is
+// deterministic; per-file violation slices are left untouched (source order).
+func sortedViolationFiles(byFile map[string][]thinViolation) []string {
+	files := make([]string, 0, len(byFile))
+	for file := range byFile {
+		files = append(files, file)
+	}
+
+	slices.Sort(files)
+
+	return files
+}
+
 // stmtKindName returns a human-readable name for a statement node's kind,
 // used in linear-grammar violation reasons.
 func stmtKindName(stmt ast.Stmt) string {
@@ -2216,6 +2240,28 @@ func tidy(ctx context.Context) error {
 func todoCheck(ctx context.Context) error {
 	targ.Print(ctx, "Checking for TODOs...\n")
 	return targ.Run("golangci-lint", "run", "-c", "dev/golangci-todos.toml")
+}
+
+// typeExprKindName names bare type-expression nodes that surface in
+// value-position violation reasons; genuinely unknown kinds fall back to the
+// raw Go AST type name (%T) so no violation is ever nameless.
+func typeExprKindName(expr ast.Expr) string {
+	switch expr.(type) {
+	case *ast.ArrayType:
+		return "array type"
+	case *ast.ChanType:
+		return "channel type"
+	case *ast.FuncType:
+		return "function type"
+	case *ast.InterfaceType:
+		return "interface type"
+	case *ast.MapType:
+		return "map type"
+	case *ast.StructType:
+		return "struct type"
+	default:
+		return fmt.Sprintf("%T", expr)
+	}
 }
 
 func watch(ctx context.Context) error {
