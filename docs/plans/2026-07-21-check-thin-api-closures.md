@@ -31,7 +31,9 @@ sorting of `checkThinAPI`'s cross-file output. That is a fifth behavior change J
 approved — struck. Tests don't need it: per-file violations from the walker arrive in source
 order (deterministic), and T1/T2 tests don't go through `checkThinAPI` at all. The pre-existing
 nondeterministic cross-file print order stays as-is; flagged to Joe in the close-out report as an
-optional one-line follow-up, not part of this plan.
+optional one-line follow-up, not part of this plan. **Close-out disposition (2026-07-22): Joe
+approved handling it immediately — landed in bf1dad6 (`sortedViolationFiles`; per-file source
+order preserved).**
 
 ## Why this strengthens the intent (settled at orientation)
 
@@ -263,7 +265,10 @@ Greps: `check-thin-api|thin-api|thin wrapper|thin functions|checkThinAPI|CheckTh
    (2 files), dev suite green, check-thin-api green, commit 4476ed2, check-full PASS:8
 5. ✅ Document — dispositions re-verified post-implementation (gate description "Check public
    API is thin wrappers" still accurate; no prose docs touched); Gate C N/A (subject absent)
-6. ☐ Complete (close #23 after Joe's disposition of residual Minors + sort-option flag; Gate D)
+6. ✅ Complete — Joe dispositioned all four residual Minors as fix-now and pulled the
+   sort-order follow-up in-scope; both landed in bf1dad6 (impl + Gate B PASS r1, check-full
+   PASS:8 post-commit). Gate D on close-out prose: FAIL r1 (citation errors, fixed +
+   crystallized as vault note 343) → PASS r2; #23 closed with the AC→evidence chain
 7. ☐ Capture (close) — lessons audit + closing /learn
 
 (Task-list tooling is absent in this environment — TaskCreate/TaskUpdate not present; this
