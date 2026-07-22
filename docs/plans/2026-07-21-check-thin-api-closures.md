@@ -269,7 +269,10 @@ Greps: `check-thin-api|thin-api|thin wrapper|thin functions|checkThinAPI|CheckTh
    sort-order follow-up in-scope; both landed in bf1dad6 (impl + Gate B PASS r1, check-full
    PASS:8 post-commit). Gate D on close-out prose: FAIL r1 (citation errors, fixed +
    crystallized as vault note 343) → PASS r2; #23 closed with the AC→evidence chain
-7. ☐ Capture (close) — lessons audit + closing /learn
+7. ✅ Capture (close) — sweep ran (session tail ingested; vocab OK); lessons audit: Gate D
+   citation reversal → note 343; Gate A test-layering reversal → note 344; Gate A unapproved-
+   scope reversal → note 345; workflow crash-resume confirmed approach → note 346; close-out
+   disposition preference → note 347; T2 Gate B r1 FAIL judged codebase-specific, no lesson
 
 (Task-list tooling is absent in this environment — TaskCreate/TaskUpdate not present; this
 section is the tracking mechanism.)
