@@ -228,7 +228,8 @@ extracts `Body.List`. Only T3 uses temp-dir fixture files through `analyzeThinne
   gate-dependency lesson).
 - **T6 — document, close, capture.** Doc dispositions below (no prose docs need updating; the
   gate's one-line description stays accurate). Close #23 with the evidence chain (each AC → test
-  name/output). Closing `/learn` + lessons audit.
+  name/output). In the close-out report to Joe: flag the optional cross-file output-sort
+  follow-up (see Scope note) for a yes/no. Closing `/learn` + lessons audit.
 
 ## Doc-surface disposition (non-waivable grep, run 2026-07-21; Gate A docs angle PASSed it)
 
@@ -255,8 +256,8 @@ Greps: `check-thin-api|thin-api|thin wrapper|thin functions|checkThinAPI|CheckTh
 
 1. ✅ Capture (open) — sweep ran (background), vocab OK
 2. ✅ Orient — recall + issue + code verified; design discussed; 3 points approved
-3. ⏳ Plan — revision 2 committed; Gate A round 1 done (docs PASS; ask/code/clarity findings
-   addressed above); ACK round pending
+3. ✅ Plan — revision 2; Gate A closed (round 1: docs PASS, ask/code/clarity findings fixed;
+   round 2: all three angles ACK, no counters)
 4. ☐ Execute (T1–T5, TDD, Gate B per refactor)
 5. ☐ Document (T6a; Gate C — subject may be absent: no prose docs to touch)
 6. ☐ Complete (close #23, commit; Gate D)
