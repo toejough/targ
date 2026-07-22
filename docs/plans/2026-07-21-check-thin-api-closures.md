@@ -1,7 +1,7 @@
 # check-thin-api: walk closures, linear thin-body grammar, composite-literal returns
 
 **Issue:** [targ#23](https://github.com/toejough/targ/issues/23) — "check-thin-api: walk closure bodies; accept composite-literal returns"
-**Date:** 2026-07-21 · **Branch:** main · **Status:** plan (Gate A pending)
+**Date:** 2026-07-21 · **Branch:** main · **Status:** plan revision 2 (Gate A round 1 findings addressed)
 
 ## Ask trace
 
@@ -14,15 +14,24 @@ all approved by Joe:
    (not a separate, stricter 1-statement rule).
 2. **Close the whole loophole** — call arguments and composite-literal field values are validated
    too, not just FuncLits ("everything in a checked file is inspected" becomes literally true).
-3. **`go` statement allowance** — a `go` launching a plain qualified call is deliberately allowed
-   (the spawned logic lives in internal/; the edge only launches it).
+3. **`go` statement allowance** — a `go` launching a plain **qualified** call is deliberately
+   allowed (the spawned logic lives in internal/; the edge only launches it).
 
-Issue AC amendment (recorded per the resolution rule): the issue's "all existing non-closure
-acceptance behavior unchanged" is superseded by approved point 2 — argument/field validation
-deliberately tightens some previously-accepted shapes (e.g. `return pkg.F(forbiddenExpr)`), and
-unification deliberately relaxes others (multi-statement linear named funcs, local calls). Also:
-no test suite for the thinness functions exists today (repo-wide grep by the test-map scout), so
-"the current test suite still passes" is satisfied trivially; this plan creates the suite.
+**AC amendment (approved, intentional):** the issue's original AC said "all existing non-closure
+acceptance behavior unchanged." Approved point 2 deliberately goes further: call-argument and
+composite-literal-field validation now applies everywhere, so some previously-accepted shapes
+(e.g. `return pkg.F(m[k])`) now FAIL, and unification deliberately relaxes others
+(multi-statement linear named functions; local calls — see E3b). Tests must cover both
+directions of the delta. Separately: no test suite for the thinness functions exists today
+(verified by the test-map scout), so "the current test suite still passes" is satisfied
+trivially; this plan creates the suite.
+
+**Scope note (Gate A ask-alignment finding, resolved):** an earlier revision added deterministic
+sorting of `checkThinAPI`'s cross-file output. That is a fifth behavior change Joe never
+approved — struck. Tests don't need it: per-file violations from the walker arrive in source
+order (deterministic), and T1/T2 tests don't go through `checkThinAPI` at all. The pre-existing
+nondeterministic cross-file print order stays as-is; flagged to Joe in the close-out report as an
+optional one-line follow-up, not part of this plan.
 
 ## Why this strengthens the intent (settled at orientation)
 
@@ -42,10 +51,13 @@ were never inspected) in favor of a transparent form that *is* inspected.
 | `targ check-thin-api` green | "All 2 public API files are thin wrappers." exit 0 | baseline scout ran it |
 | `targ check-full` fully green | "PASS:8 / All checks passed!" exit 0, all 8 checks listed | baseline scout ran it (full run, ~80s) |
 | dev-tagged tests green | `go test -tags targ ./dev/` → `ok … 0.446s` | orchestrator ran it, 2026-07-21 |
-| Checked surface = `targ.go`, `cmd/targ/main.go` only | walk skip rules: `.git/vendor/internal/testdata` SkipDir; `_test.go`, `internal/`, `examples/`, `generated_`, build-tag/generated-marker files skipped; dev/targets.go excluded by its `//go:build targ` line | code-map scout applied the verbatim skip rules to the tree |
+| Checked surface = `targ.go`, `cmd/targ/main.go` only | walk skip rules: `.git/vendor/internal/testdata` SkipDir; `_test.go`, `internal/`, `examples/`, `generated_`, build-tag/generated-marker files skipped; dev/targets.go excluded by its `//go:build targ` line | code-map scout applied the verbatim skip rules to the tree; Gate A code reviewer independently re-verified |
+| New grammar keeps both checked files green | every declaration in targ.go (all 26 funcs incl. Checksum/Watch closures, Register's `core.CallerSkipPublicAPI+1`, const/var/type blocks) and cmd/targ/main.go hand-walked against S1–S6/E1–E10: all accepted | Gate A code-alignment reviewer, statement-by-statement |
+| Corpus verdicts correct | three must-PASS shapes, fsPrimitives composite return, four lock closures, hugot NewPipeline all pass; WriteFileExcl fails exactly at statement 5 | Gate A code-alignment reviewer, statement-by-statement |
 | No existing tests cover any thinness function | repo-wide grep for the seven function names in `_test.go` files: definitions only | test-map scout |
-| dev/ is exempt from lint + coverage gates but subject to reorder-decls-check | golangci has no `run.build-tags` (dev/ excluded from analysis); `targ test` runs without `-tags targ` (dev/ never in coverage.out); reorder walks all non-generated .go files | code-map + test-map scouts, empirically confirmed |
-| engram consumes this checker via the targ module | `/Users/joe/repos/personal/engram/dev/targs.go:13` — `_ "github.com/toejough/targ/dev"` | orchestrator grep, 2026-07-21 |
+| dev/ exempt from lint + coverage gates, subject to reorder-decls-check | golangci has no `run.build-tags`; `targ test` runs without `-tags targ`; reorder walks all non-generated .go files | code-map + test-map scouts, empirically confirmed |
+| `checkReturnThinness`/`isSimpleErrorWrapper` safe to delete | referenced only inside `checkFuncThinness`; no `_test.go` references | Gate A code-alignment reviewer |
+| engram consumes this checker via the targ module | `/Users/joe/repos/personal/engram/dev/targs.go:13` — `_ "github.com/toejough/targ/dev"` | orchestrator grep; Gate A code reviewer re-confirmed |
 
 ## The grammar (normative spec)
 
@@ -59,12 +71,12 @@ Every statement in a body must be one of:
 
 | # | Statement | Constraints |
 | --- | --- | --- |
-| S1 | AssignStmt (`:=` or `=`) | every LHS is an Ident (incl. `_`) or a SelectorExpr (field set on local/captured value, incl. tuple form); every RHS is an allowed expression |
+| S1 | AssignStmt (`:=` or `=`) | LHS: each element is an Ident (incl. `_`) or a SelectorExpr (field of a local/captured value); tuples of these are allowed (`a, b := …`, `cmd.Dir, cmd.Stdout, cmd.Stderr = …`). RHS: each value individually satisfies the expression grammar. |
 | S2 | DeclStmt (`var`/`const`) | every spec value is an allowed expression |
-| S3 | ExprStmt | the expression is an allowed CallExpr (E3) |
-| S4 | GoStmt | the call's Fun passes the call-head rule (E3a–c — a FuncLit head, i.e. an inline goroutine, is NOT allowed); args are allowed expressions |
-| S5 | IfStmt (error-guard only) | no Init clause; Cond is `X != nil` (BinaryExpr NEQ, exactly one operand the `nil` ident, the other an Ident or SelectorExpr); no Else; Body is exactly one ReturnStmt (S6-validated) |
-| S6 | ReturnStmt | only as the body's final statement (or as an S5 guard body); **every** result is an allowed expression |
+| S3 | ExprStmt | the expression is an allowed CallExpr (E3, any head) |
+| S4 | GoStmt | the call's Fun must be a **qualified** head only — E3a, or a generic instantiation (E3c) over E3a. Bare-Ident heads (E3b) and FuncLit heads (inline goroutines) are NOT allowed. Args are allowed expressions. This is the approved point-3 wording ("plain qualified call") taken literally; relax only if a real corpus demands it. |
+| S5 | IfStmt (error-guard only) | no Init clause; Cond is exactly `X != nil` (BinaryExpr NEQ, one operand the `nil` ident, the other an Ident or SelectorExpr — compound conditions like `a != nil && b == nil` fail); no Else; Body is exactly one ReturnStmt (its results validated per S6's expression rule) |
+| S6 | ReturnStmt | allowed in exactly two syntactic positions: (i) the **last** statement of a function/closure body, or (ii) the **sole** statement of an S5 guard body. A ReturnStmt anywhere else is a violation ("mid-body return"). Every result is an allowed expression. |
 
 Anything else — `for`/`range`/`switch`/`select`, non-guard `if`, `defer`, channel send,
 IncDecStmt, labeled/branch statements, nested FuncDecls — is a violation naming the statement
@@ -78,18 +90,18 @@ Allowed (recursive):
 | --- | --- | --- |
 | E1 | Ident, BasicLit | variables, `nil`/`true`/`false`, literals |
 | E2 | SelectorExpr | X recursed (chains like `out.Embeddings` allowed — field access is data) |
-| E3 | CallExpr | Fun is (a) SelectorExpr with Ident X — qualified `pkg.F(...)`/`recv.M(...)`; (b) bare Ident — local call **or** builtin conversion (`int(fd)`, `fsPrimitives()`); (c) IndexExpr/IndexListExpr over (a)/(b) — generic instantiation. Every argument recursed; Ellipsis allowed. |
-| E4 | CompositeLit | every element recursed (KeyValueExpr: key and value both) |
+| E3 | CallExpr | Fun is one of: **(a)** SelectorExpr with Ident X — qualified `pkg.F(...)`/`recv.M(...)`; **(b)** bare Ident — local call or builtin conversion (`fsPrimitives()`, `int(fd)`); **(c)** IndexExpr/IndexListExpr *wrapping* an (a) or (b) head — generic instantiation (`pkg.F[T](x)`); (c) is a wrapper over (a)/(b), never an independent head. Every argument recursed; Ellipsis allowed. Exception: `make`'s first argument is a type expression (E10). |
+| E4 | CompositeLit | the literal's Type is a type expression (E10); every element recursed; KeyValueExpr: key and value both recursed |
 | E5 | FuncLit | body checked by the statement grammar (the core of change 1) |
-| E6 | UnaryExpr | Op in `& + - ^ !` only (address-of, sign, complement, not); operand recursed. Receive (`<-`) is NOT allowed. |
+| E6 | UnaryExpr | Op in `& + - ^ !` only; operand recursed. Receive (`<-`) is NOT allowed. |
 | E7 | BinaryExpr | both operands recursed, any operator (needed: `os.O_APPEND\|os.O_CREATE`, `core.CallerSkipPublicAPI+1`) |
 | E8 | ParenExpr, Ellipsis | recursed / pass-through |
-| E9 | TypeAssertExpr | operand recursed, type is a type expression (`session.(*hugot.Session)`) |
-| E10 | Type expressions | ArrayType, ChanType, MapType, StarExpr, FuncType, InterfaceType, StructType — signatures/types carry no statements; needed for `make(chan os.Signal, n)` and pointer types |
+| E9 | TypeAssertExpr | operand recursed; asserted Type is a type expression (E10) — `session.(*hugot.Session)` |
+| E10 | Type expressions — **type positions only** | Ident, SelectorExpr, ArrayType, ChanType, MapType, StarExpr, FuncType, InterfaceType, StructType, accepted **only** where Go requires a type: `make`'s first argument, TypeAssertExpr.Type, CompositeLit.Type, generic index arguments. In **value** position these nodes are forbidden — in particular `*p` (value dereference via StarExpr) fails; no corpus shape needs it, and admitting it would be accidental, not decided (Gate A code finding, resolved). |
 
 Explicitly forbidden as value expressions: IndexExpr/SliceExpr (`m[k]`, `s[i:j]` — state access
-beyond simple data), receive ops, IIFE (`func(){...}()` — FuncLit call head), everything not
-listed. Violations name the node kind.
+beyond simple data), value dereference (`*p`), receive ops, IIFE (`func(){...}()` — FuncLit call
+head), everything not listed. Violations name the node kind.
 
 ### Rationale for the corpus-driven rules (each validated against real code)
 
@@ -121,43 +133,95 @@ listed. Violations name the node kind.
 
 ### Violation reporting
 
-One violation per offending statement/expression: File, Line (of the offending node), Name (the
-enclosing top-level decl via `funcDeclName`, with `(closure)` appended when inside a FuncLit),
-Reason (specific: "for statement not allowed in thin body", "call argument is not thin: …").
-`checkThinAPI` sorts violations by file then line before printing (replaces today's
-nondeterministic map-iteration order; needed for stable tests, flagged as a small in-scope
-output-quality fix).
+One violation per offending statement/expression, in the existing `thinViolation` struct and the
+existing print format (file header, then `  <line>: <name> - <reason>`):
+
+- **File/Line**: position of the offending node.
+- **Name**: for FuncDecl scopes, `funcDeclName(fn)`; inside a FuncLit, append ` (closure)`. For
+  FuncLits under a top-level `var`, the enclosing name is `"var " + nameListString(vs.Names)`
+  (the existing dev/targets.go:668 convention) with ` (closure)` appended — `funcDeclName` takes
+  a FuncDecl and cannot name this path (Gate A code finding, resolved).
+- **Reason**: specific — e.g. `for statement not allowed in thin body`,
+  `call argument is not thin: index expression`, `if is not the error-guard shape: compound
+  condition`.
+
+Within-file violations arrive in source order from the walker (deterministic). Cross-file print
+order (map iteration) is unchanged — see Scope note. Tests assert on `thinViolation` struct
+fields (whitebox), never on printed text.
 
 ## Tasks (TDD; RED must fail before GREEN; Gate B after each refactor)
 
 Implementation lives in `dev/targets.go` (helpers inserted at exact alphabetical positions in the
-unexported-funcs run; `targ reorder-decls` auto-fixes). Tests in new `dev/thin_api_test.go`:
-`//go:build targ`, `package dev` (whitebox, per dev/ precedent), gomega dot-import,
-`g := NewWithT(t)`, `t.Parallel()` (no Chdir needed — tests call `analyzeThinness(path)` on
-fixture files written to `t.TempDir()`). Test command (verified working at baseline):
+unexported-funcs run; `targ reorder-decls` auto-fixes). **All T1–T4 tests go in one new file,
+`dev/thin_api_test.go`**: `//go:build targ`, `package dev` (whitebox, per dev/ precedent), gomega
+dot-import, `g := NewWithT(t)`, `t.Parallel()` (no Chdir needed). Test-function naming:
+`TestCheckLinearExpr_*` (T1), `TestCheckLinearBody_*` (T2), `TestAnalyzeThinness_*` (T3),
+`TestProperty_*` (T4). Test command (verified working at baseline):
 `go test -tags targ -run '<TestName>' ./dev/`.
 
-- **T1 — expression grammar.** RED: table-driven tests for E1–E10 + forbidden kinds (each case an
-  inline source string → temp .go file → `analyzeThinness`, asserting on violation
-  presence/reason; expression cases exercised through minimal single-return functions). GREEN:
-  `checkLinearExpr` + call-head/type-expr helpers (small per-kind helpers; default complexity
-  budgets: cyclomatic ≤10, cognitive ≤30, ≤60 lines — lint doesn't gate dev/ but CLAUDE.md does).
-  REFACTOR + Gate B.
-- **T2 — statement grammar.** RED: tests for S1–S6 + forbidden statements + guard tightening
-  (compound cond fails, non-return body fails, else fails, mid-body return fails). GREEN:
-  `checkLinearBody`/`checkLinearStmt` + error-guard helper, FuncLit recursion, violation model
-  with `(closure)` naming. REFACTOR + Gate B.
-- **T3 — integration.** RED: corpus fixture tests — engram worktree shapes (RunCommand,
-  StartSignalPulses, OpenDebugFile, lock conversions, hugot NewPipeline with FuncLit-in-return,
-  main() wiring) must pass; `WriteFileExcl` must fail exactly at its statement 5; targ.go shapes
-  (Checksum/Watch closures, Register binary-op arg, const/var blocks) must pass; composite-literal
-  returns pass with embedded-FuncLit violations still caught; var-init FuncLits both ways. GREEN:
-  `checkFuncThinness` delegates to the linear checker; `checkValueSpecThinness` var path uses
-  `checkLinearExpr`; delete `checkReturnThinness` + `isSimpleErrorWrapper`; sorted output.
-  REFACTOR + Gate B.
-- **T4 — property test (rapid).** RED: generator composes bodies from allowed-statement templates
-  (must pass) and injects one forbidden statement at a random position (must fail, reported line
-  matches the injection). Modest scope: one property, template-based.
+**Test-target layering (Gate A code finding, resolved):** T1/T2 tests call the new helpers
+*directly* — they do not go through `analyzeThinness`, which still dispatches to the old
+`checkFuncThinness` path until T3 wires the delegation. T1 parses expressions with
+`parser.ParseExpr(src)`; T2 parses `"package p\nfunc f() { … }"` with `parser.ParseFile` and
+extracts `Body.List`. Only T3 uses temp-dir fixture files through `analyzeThinness`.
+
+- **T1 — expression grammar.** RED: table-driven `TestCheckLinearExpr_*` cases for E1–E10 and
+  each forbidden kind, shaped like:
+
+  ```go
+  cases := []struct{ name, src string; wantReason string }{ // wantReason "" = allowed
+      {"qualified call", `pkg.F(x)`, ""},
+      {"builtin conversion", `int(fd)`, ""},
+      {"flag or", `os.O_APPEND | os.O_CREATE`, ""},
+      {"funclit walked", `func() { x := 1 }`, ""}, // body delegated to checkLinearBody
+      {"index expr", `m[k]`, "index expression"},
+      {"iife", `func() {}()`, "function literal call"},
+      {"receive", `<-ch`, "unary operator"},
+  }
+  // per case: expr, err := parser.ParseExpr(c.src); reason := checkLinearExpr(expr); assert
+  ```
+
+  Expected RED: compile error (`checkLinearExpr` undefined) — a valid RED per dev/ precedent.
+  GREEN: `checkLinearExpr` + call-head/type-position helpers (small per-kind helpers; default
+  complexity budgets: cyclomatic ≤10, cognitive ≤30, ≤60 lines — lint doesn't gate dev/ but
+  CLAUDE.md does). REFACTOR + Gate B.
+- **T2 — statement grammar.** RED: `TestCheckLinearBody_*` cases for S1–S6, forbidden statements,
+  and guard tightening — concretely, at minimum: the RunCommand 3-statement shape (pass);
+  `if err != nil { return err }` guard (pass); `if closeErr != nil && err == nil { err = closeErr }`
+  (fail: compound condition); `if err != nil { log(); return err }` (fail: guard body not a lone
+  return); `if a != b { return x }` (fail: not a nil comparison); guard with Else (fail); a
+  ReturnStmt that is neither the body's last statement nor an S5 guard body (fail: mid-body
+  return); `for`/`switch`/`defer`/IncDec (fail, reason names the kind); `go pkg.F(x)` (pass) vs
+  `go localFunc()` and `go func(){}()` (fail). Fixture pattern: parse
+  `"package p\nfunc f() { …body… }"`, extract `Body.List`, call `checkLinearBody`. Expected RED:
+  compile error (`checkLinearBody` undefined). GREEN: `checkLinearBody`/`checkLinearStmt` +
+  error-guard helper, FuncLit recursion, violation model with closure naming. REFACTOR + Gate B.
+- **T3 — integration.** RED: `TestAnalyzeThinness_*` fixtures — inline source strings (hermetic
+  copies of the corpus shapes, cited to their source lines) written to `t.TempDir()` .go files,
+  through `analyzeThinness(path)`, asserting on the returned `[]thinViolation` structs. Helper:
+  `analyzeSrc(t, src string) []thinViolation` (write temp file, run, return). Fixtures and
+  expectations:
+  - engram corpus (from the 700-internal-purity worktree, cited lines): RunCommand (main.go:40-49),
+    StartSignalPulses (:129-140), OpenDebugFile (:124-128), the four lock closures with
+    `int`/`uint32`/`uintptr` conversions (:99-111), `fsPrimitives` composite-literal return
+    (:56-91 minus WriteFileExcl), hugot `NewPipeline` (hugot.go:28-49: wrapper + type-assert arg +
+    FuncLit-in-return + captured-receiver call), engram `main()` wiring (nested qualified calls,
+    local calls as field values, `hugotRuntime{}` local composite, `...` spread of a call result)
+    — all zero violations.
+  - `WriteFileExcl` (main.go:69-89): exactly one violation; its Line equals the fixture line of
+    statement 5 (the compound-condition `if`), Name ends in `(closure)`, Reason names the guard
+    shape.
+  - targ.go shapes: `Checksum`/`Watch` closures (bare local-call returns), `Register`
+    (`core.CallerSkipPublicAPI+1` arg), the const/var blocks — zero violations.
+  - composite-literal return with an embedded FuncLit containing a `for` — exactly the FuncLit
+    violation; `var X = func() { … }` both ways (linear → pass; with a loop → fail, Name
+    `var X (closure)`); multi-result `return pkg.F(), m[k]` fails on the second result.
+  GREEN: `checkFuncThinness` delegates to the linear checker; `checkValueSpecThinness` var path
+  uses `checkLinearExpr`; delete `checkReturnThinness` + `isSimpleErrorWrapper`. REFACTOR + Gate B.
+- **T4 — property test (rapid).** RED: `TestProperty_ThinGrammar` — generator composes bodies
+  from allowed-statement templates (must yield zero violations) and injects one forbidden
+  statement at a random position (must yield ≥1 violation whose Line matches the injection).
+  Modest scope: one property, template-based.
 - **T5 — smoke + full validation.** `targ check-thin-api` on the repo (expect "All 2 public API
   files are thin wrappers."); `go test -tags targ ./dev/` green; `targ reorder-decls`; commit;
   `targ check-full` green (check-uncommitted requires the committed tree — order per the
@@ -166,7 +230,7 @@ fixture files written to `t.TempDir()`). Test command (verified working at basel
   gate's one-line description stays accurate). Close #23 with the evidence chain (each AC → test
   name/output). Closing `/learn` + lessons audit.
 
-## Doc-surface disposition (non-waivable grep, run 2026-07-21)
+## Doc-surface disposition (non-waivable grep, run 2026-07-21; Gate A docs angle PASSed it)
 
 Greps: `check-thin-api|thin-api|thin wrapper|thin functions|checkThinAPI|CheckThinAPI` repo-wide;
 `closure|FuncLit|function literal` over README/CLAUDE/docs/specs/.claude/examples.
@@ -191,7 +255,8 @@ Greps: `check-thin-api|thin-api|thin wrapper|thin functions|checkThinAPI|CheckTh
 
 1. ✅ Capture (open) — sweep ran (background), vocab OK
 2. ✅ Orient — recall + issue + code verified; design discussed; 3 points approved
-3. ⏳ Plan — this document; commit + Gate A (4 angles) next
+3. ⏳ Plan — revision 2 committed; Gate A round 1 done (docs PASS; ask/code/clarity findings
+   addressed above); ACK round pending
 4. ☐ Execute (T1–T5, TDD, Gate B per refactor)
 5. ☐ Document (T6a; Gate C — subject may be absent: no prose docs to touch)
 6. ☐ Complete (close #23, commit; Gate D)
