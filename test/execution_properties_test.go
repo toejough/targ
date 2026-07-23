@@ -1565,29 +1565,38 @@ func TestProperty_Execution(t *testing.T) {
 		t.Parallel()
 		g := NewWithT(t)
 
-		var dep2Cancelled atomic.Bool
+		// dep1 fails only after dep2 is in-flight, so the first error
+		// always reaches a running dep2 — no schedule exists where dep2
+		// is skipped before its body starts.
+		dep2Started := make(chan struct{})
+		dep2Result := make(chan error, 1)
 
 		dep1 := targ.Targ(func() error {
+			<-dep2Started
 			return errors.New("dep1 fails")
 		}).Name("dep1")
 
+		// dep2's only exit is observing cancellation — no timers, so a
+		// passing run has no wall-clock dependence. If default parallel
+		// mode stopped cancelling on first error, dep2 would block
+		// forever and the test would fail via the go test timeout.
 		dep2 := targ.Targ(func(ctx context.Context) error {
-			select {
-			case <-ctx.Done():
-				dep2Cancelled.Store(true)
-				return ctx.Err()
-			case <-time.After(5 * time.Second):
-				return nil
-			}
+			close(dep2Started)
+			<-ctx.Done()
+
+			dep2Result <- ctx.Err()
+
+			return ctx.Err()
 		}).Name("dep2")
 
 		// Default parallel (no CollectAllErrors) should cancel dep2
 		main := targ.Targ(func() {}).Name("main").
 			Deps(dep1, dep2, targ.DepModeParallel)
 
+		// Execute returns only after every parallel dep has settled, so
+		// dep2's recorded outcome is already in the channel here.
 		_, err := targ.Execute([]string{"app", "main"}, main, dep1, dep2)
 		g.Expect(err).To(HaveOccurred())
-		// dep2 should have been cancelled
-		g.Eventually(dep2Cancelled.Load).Should(BeTrue())
+		g.Expect(dep2Result).To(Receive(MatchError(context.Canceled)))
 	})
 }
