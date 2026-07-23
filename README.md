@@ -684,7 +684,7 @@ Source: /home/user/dev
 
 | Flag                        | Description                                  |
 | --------------------------- | -------------------------------------------- |
-| `--no-cache`                | Force rebuild of the build tool binary       |
+| `--no-binary-cache`         | Force rebuild of the build tool binary       |
 | `--keep`                    | Keep generated bootstrap file for inspection |
 | `--create NAME [CMD]`       | Create a new target (function or shell)      |
 | `--completion [bash\|zsh\|fish]` | Print shell completion script           |
@@ -782,6 +782,6 @@ Re-running `--sync` updates the module version (like `go get -u`).
 Targ caches compiled binaries in `~/.cache/targ/`. The cache is invalidated when source files or `go.mod`/`go.sum` change — including the sources of any local filesystem `replace` targets named in `go.mod`.
 
 ```bash
-targ --no-cache <command>   # force rebuild
+targ --no-binary-cache <command>   # force rebuild
 rm -rf ~/.cache/targ/       # clear all cached binaries
 ```
