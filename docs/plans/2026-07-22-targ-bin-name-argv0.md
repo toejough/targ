@@ -62,9 +62,10 @@ deliberately keeps the key as the regression pin.**
 
 Unstamped bootstrap spawns (today): dispatchCompletion (:2865) and the `__list` query in
 `queryModuleCommands` (:3781). **Check item pre-resolved (Gate A round 1, live-traced): they
-stay unrouted.** `RunWithEnv` (internal/core/run_env.go:162) calls `env.BinaryName()`
-unconditionally, but the child-side `__complete`/`__list` handlers — `doCompletion`
-(internal/core/completion.go:679) and `doListTo` (internal/core/run_env.go:926) — never receive
+stay unrouted.** `RunWithEnv` (internal/core/run_env.go:164, call at :167) calls
+`env.BinaryName()` unconditionally, but the child-side `__complete`/`__list` handlers —
+`doCompletion` (internal/core/completion.go:679) and `doListTo` (internal/core/run_env.go:931,
+re-measured on the pristine tree) — never receive
 or use the name, so routing those spawns would be silent scope growth for zero behavior. The T2
 implementer notes this disposition in the report; no code change there.
 
@@ -246,8 +247,9 @@ Tests live blackbox where the subject is exported. Conventions: gomega `g := New
 1. ✅ Capture (open) — sweep current from #23 close (same session)
 2. ✅ Orient — 4-angle investigation (wf_91044066-a14) + briefing; Joe approved option 1 and
    filed-now disposition; incidental dispatch bug filed as #24
-3. ☐ Plan — rev 2; Gate A round 1: 4 angles, 1 Critical + 5 Important + 6 Minor, all addressed
-   above; ACK round pending
+3. ✅ Plan — rev 2; Gate A round 1: 4 angles, 1 Critical + 5 Important + 6 Minor, all addressed;
+   ACK round: clarity + docs ACK, ask + code one convergent Minor (two stale anchors from the
+   round-1 mid-fix tree, corrected above and self-verified). Gate A closed
 4. ☐ Execute (T1–T3, TDD, Gate B per task)
 5. ☐ Document (T4a; Gate C — likely N/A)
 6. ☐ Complete (close #22, commit; Gate D)
