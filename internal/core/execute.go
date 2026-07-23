@@ -132,10 +132,6 @@ func (osRunEnv) Args() []string {
 }
 
 func (osRunEnv) BinaryName() string {
-	if name := os.Getenv("TARG_BIN_NAME"); name != "" {
-		return name
-	}
-
 	if len(os.Args) == 0 {
 		return "targ"
 	}

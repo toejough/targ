@@ -289,6 +289,17 @@ func CheckImportExistsWithFileOps(fileOps FileOps, path, packagePath string) (bo
 	return false, nil
 }
 
+// ChildCommand builds the exec.Cmd for a targ-built bootstrap binary, presenting
+// displayName as the child's argv[0] so its help/completion output shows the name
+// the user actually typed rather than the cache path. Env is left nil (inherit).
+func ChildCommand(ctx context.Context, binaryPath, displayName string, args ...string) *exec.Cmd {
+	//nolint:gosec // G204: build tool runs targ-built bootstrap binaries by design
+	cmd := exec.CommandContext(ctx, binaryPath, args...)
+	cmd.Args = append([]string{displayName}, args...)
+
+	return cmd
+}
+
 // ContainsHelpFlag returns true if args contain --help or -h.
 func ContainsHelpFlag(args []string) bool {
 	for _, a := range args {
@@ -1413,10 +1424,8 @@ func (r *targRunner) executeBuild(buildDir, binaryPath, tempFile string, isolate
 }
 
 func (r *targRunner) executeBuiltBinary(binaryPath, targBinName string) int {
-	//nolint:gosec // build tool runs compiled binary by design
-	cmd := exec.CommandContext(context.Background(), binaryPath, r.args...)
+	cmd := ChildCommand(context.Background(), binaryPath, targBinName, r.args...)
 
-	cmd.Env = append(os.Environ(), "TARG_BIN_NAME="+targBinName)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = r.errOut
 	cmd.Stdin = os.Stdin
@@ -1924,10 +1933,8 @@ func (r *targRunner) tryRunCached(binaryPath, targBinName string) (exitCode int,
 		return 0, false
 	}
 
-	//nolint:gosec // build tool runs cached binary by design
-	cmd := exec.CommandContext(context.Background(), binaryPath, r.args...)
+	cmd := ChildCommand(context.Background(), binaryPath, targBinName, r.args...)
 
-	cmd.Env = append(os.Environ(), "TARG_BIN_NAME="+targBinName)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = r.errOut
 	cmd.Stdin = os.Stdin
@@ -3953,13 +3960,10 @@ func runGoBuild(ctx buildContext, binaryPath, tempFile string, errOut io.Writer)
 
 // runModuleBinary executes a module binary with the given args.
 func runModuleBinary(binaryPath string, args []string, errOut io.Writer, binArg string) error {
-	//nolint:gosec // G204: binaryPath is a locally-built Go binary
-	proc := exec.CommandContext(context.Background(), binaryPath, args...)
+	proc := ChildCommand(context.Background(), binaryPath, extractBinName(binArg), args...)
 	proc.Stdin = os.Stdin
 	proc.Stdout = os.Stdout
 	proc.Stderr = errOut
-
-	proc.Env = append(os.Environ(), "TARG_BIN_NAME="+extractBinName(binArg))
 
 	err := proc.Run()
 	if err != nil {

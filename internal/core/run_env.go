@@ -31,14 +31,9 @@ func (e *ExecuteEnv) Args() []string {
 	return e.args
 }
 
-// BinaryName returns the binary name for test environments.
-// Checks TARG_BIN_NAME env var first, then derives from args[0] or returns "app".
+// BinaryName returns the binary name for test environments,
+// derived from args[0], or "app" when no args were provided.
 func (e *ExecuteEnv) BinaryName() string {
-	// Check env map for TARG_BIN_NAME (same as osRunEnv behavior)
-	if name := e.env["TARG_BIN_NAME"]; name != "" {
-		return name
-	}
-
 	if len(e.args) > 0 {
 		return e.args[0]
 	}

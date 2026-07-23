@@ -724,24 +724,26 @@ func TestProperty_CompletionSuggestions(t *testing.T) {
 		g.Expect(result.Output).To(ContainSubstring("Usage"))
 	})
 
-	t.Run("BinaryNameFromEnvironment", func(t *testing.T) {
+	t.Run("BinaryNameFromArgsNotEnvironment", func(t *testing.T) {
 		t.Parallel()
 		g := NewWithT(t)
 
 		target := targ.Targ(func() {}).Name("build")
 
-		// Test custom binary name via env - using Env option for DI
+		// TARG_BIN_NAME is deliberately set: the args-derived name must win.
+		// This is the regression pin for the env-var removal (targ#22).
 		result, err := targ.ExecuteWithOptions(
-			[]string{"app", "--completion"},
+			[]string{"mycli", "--completion"},
 			targ.RunOptions{Env: map[string]string{
 				"SHELL":         "/bin/bash",
-				"TARG_BIN_NAME": "mycli",
+				"TARG_BIN_NAME": "fromenv",
 			}},
 			target,
 		)
 		g.Expect(err).NotTo(HaveOccurred())
-		// The completion script should use the custom binary name
+		// The completion script must embed the args-derived binary name.
 		g.Expect(result.Output).To(ContainSubstring("mycli"))
+		g.Expect(result.Output).NotTo(ContainSubstring("fromenv"))
 	})
 
 	// Tests for command line tokenizer with quotes and escapes

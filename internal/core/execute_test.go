@@ -10,6 +10,24 @@ import (
 	"github.com/toejough/targ/internal/core"
 )
 
+func TestExecuteEnvBinaryName(t *testing.T) {
+	t.Parallel()
+
+	t.Run("DerivesFromArgs", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		g.Expect(core.NewExecuteEnv([]string{"mycli"}).BinaryName()).To(Equal("mycli"))
+	})
+
+	t.Run("FallsBackToAppWithoutArgs", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		g.Expect(core.NewExecuteEnv(nil).BinaryName()).To(Equal("app"))
+	})
+}
+
 func TestExecuteEnvGetenv(t *testing.T) {
 	t.Parallel()
 
