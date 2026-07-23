@@ -19,7 +19,11 @@
 - Declaration ordering: funcs alphabetical within groups; run `targ reorder-decls` after adding declarations rather than hand-placing.
 - No new package-level mutable state.
 - Commit trailer: `AI-Used: [claude]` (never Co-Authored-By).
-- Commit only at the points this plan marks — `targ deadcode` (part of check-full) fails on an unwired helper, so Task 1 does NOT commit; the first commit lands after Task 2 wires the helper.
+- Commit only at the points this plan marks. Task 1 does not commit: a helper without its consumer is not a meaningful standalone change, so the first commit lands after Task 2 wires it. (Verified: this is NOT a deadcode-gate constraint — targ's deadcode gate filters findings under `internal/`, and test-referenced helpers aren't dead to `deadcode -test` anyway. The grouping is for commit atomicity only.)
+
+## Review gates (context for the implementer)
+
+"Gate B/C fires here" markers refer to the orchestrating workflow's review checkpoints: at each marked point the orchestrator dispatches an independent reviewer over the diff produced so far (Gate B: design-fit; Gate C: doc relevance/clarity). They are pause points — complete the step, stop, and wait for the orchestrator's verdict before the next step. They add no work items for the implementer.
 
 ## Doc-surface disposition (enumeration grep result)
 
@@ -61,7 +65,6 @@ package runner_test
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	. "github.com/onsi/gomega"
@@ -174,12 +177,10 @@ func TestReplaceDirFiles_CollectsFilesystemReplaceTargets(t *testing.T) {
 		g.Expect(err).To(HaveOccurred())
 		g.Expect(err.Error()).To(ContainSubstring("go.mod"))
 	})
-
-	_ = strings.TrimSpace // placeholder guard removed in Step 3 if unused
 }
 ```
 
-Note for the implementer: `g.THelper()` does not exist on `GomegaWithT` in some gomega versions — if it fails to compile, take `t *testing.T` as the first parameter of `writeTestFile` and call `t.Helper()` instead, passing `g` alongside. Match whichever pattern compiles; do not add a dependency. Remove the `_ = strings.TrimSpace` line and the `strings` import if unused after Step 3.
+Note for the implementer: `g.THelper()` does not exist on `GomegaWithT` in some gomega versions — if it fails to compile, take `t *testing.T` as the first parameter of `writeTestFile` and call `t.Helper()` instead, passing `g` alongside. Match whichever pattern compiles; do not add a dependency.
 
 Add to `internal/runner/export_test.go` (alphabetical among the Export funcs; imports gain `github.com/toejough/targ/internal/discover`):
 
@@ -197,7 +198,9 @@ Expected: compile FAILURE — `undefined: collectReplaceDirFiles` (referenced by
 
 - [ ] **Step 3: Write the minimal implementation**
 
-In `internal/runner/runner.go`, add two funcs (placement handled by `targ reorder-decls` in Step 5) and the import `"golang.org/x/mod/modfile"`:
+In `internal/runner/runner.go`, add two funcs (placement handled by `targ reorder-decls` in Step 5). Import context: add exactly one import, `"golang.org/x/mod/modfile"` (to the third-party group); `errors`, `fmt`, `os`, `path/filepath`, and `slices` are already imported (runner.go:10-24). The constants used below already exist: `goModFile` = "go.mod" and `goSumFile` = "go.sum" (defined near runner.go:947), `targLocalModule` = the pseudo-module name (runner.go:957) — reuse them verbatim, do not redefine.
+
+**`modfile.Parse` is load-bearing — do NOT substitute `modfile.ParseLax`.** ParseLax silently ignores `replace` (and `exclude`) statements by design (they only apply in the main module), so with ParseLax every test below that expects replace targets fails and the fix is a no-op. This was verified empirically during plan review.
 
 ```go
 // collectReplaceDirFiles collects cache-key inputs from the filesystem
@@ -243,7 +246,7 @@ func filesystemReplaceDirs(moduleRoot string) ([]string, error) {
 		return nil, fmt.Errorf("reading go.mod: %w", err)
 	}
 
-	parsed, err := modfile.ParseLax(goModFile, data, nil)
+	parsed, err := modfile.Parse(goModFile, data, nil)
 	if err != nil {
 		return nil, fmt.Errorf("parsing go.mod: %w", err)
 	}
@@ -267,7 +270,10 @@ func filesystemReplaceDirs(moduleRoot string) ([]string, error) {
 }
 ```
 
-If `goModFile`/`goSumFile` constants differ from expectations, read their definitions near `isIncludableModuleFile` (runner.go:3545) and reuse them verbatim. Then run `targ tidy` to promote `golang.org/x/mod` to a direct dependency.
+- [ ] **Step 3.5: Promote the new dependency**
+
+Run: `targ tidy`
+Expected: `golang.org/x/mod` moves from the `// indirect` block to a direct requirement in `go.mod`.
 
 - [ ] **Step 4: Run tests to verify they pass (GREEN)**
 
@@ -276,7 +282,7 @@ Expected: PASS, including all six new subtests.
 
 - [ ] **Step 5: Refactor + ordering**
 
-Run: `targ reorder-decls` then `targ test` again (expected: PASS). Review the two new funcs for DRY/SRP/YAGNI — they should read as if written with `collectModuleFiles` originally. **Gate B fires here** (design-fit reviewer on the diff). Do NOT commit yet — the helper is unwired and `targ deadcode` would fail; the commit lands at the end of Task 2.
+Run: `targ reorder-decls` then `targ test` again (expected: PASS). Refactor check, concretely: both new funcs use `fmt.Errorf("...: %w", err)` wrapping like their neighbors; each has one responsibility (`filesystemReplaceDirs` resolves directories, `collectReplaceDirFiles` walks and collects); no logic is duplicated from `collectModuleFiles` (it is called, not copied). If all three hold, no further refactoring — do not invent abstractions. **Gate B fires here** (design-fit reviewer on the diff). Do NOT commit yet — the commit covering Tasks 1+2 lands at the end of Task 2 (see Global Constraints).
 
 ### Task 2: Wire replace-target files into `computeModuleCacheKey`
 
@@ -358,7 +364,23 @@ Expected: `EditingReplaceTargetChangesKey` FAILS with the two keys EQUAL (today'
 
 - [ ] **Step 3: Write the minimal wiring**
 
-In `computeModuleCacheKey`, extend the real-module branch:
+In `computeModuleCacheKey` (runner.go:2662), the real-module branch currently reads (runner.go:2670-2680):
+
+```go
+	// Only walk the module directory for real modules. Pseudo-modules (targ.local)
+	// have no go.mod and their "root" may be a large directory like ~/ that should
+	// not be walked. Tagged files alone suffice for cache invalidation.
+	if mt.ModulePath != targLocalModule {
+		moduleFiles, err := collectModuleFiles(importRoot)
+		if err != nil {
+			return "", fmt.Errorf("gathering module files: %w", err)
+		}
+
+		cacheInputs = slices.Concat(taggedFiles, moduleFiles)
+	}
+```
+
+Replace that whole block with (the change: one new `collectReplaceDirFiles` call between the walk and the concat, and `replaceFiles` added to the concat):
 
 ```go
 	// Only walk the module directory for real modules. Pseudo-modules (targ.local)
@@ -386,8 +408,8 @@ Expected: PASS — all cache_key_test.go tests green, no other test regressions.
 
 - [ ] **Step 5: Refactor check + full verification**
 
-Review `computeModuleCacheKey` complexity (it gains one call — should stay under lint limits; if lint flags it, extract the real-module branch into a `collectCacheInputs` helper). Run `targ reorder-decls`, then `targ check-full`.
-Expected: fully green (lint, coverage ≥80% on `collectReplaceDirFiles`, `filesystemReplaceDirs`, `computeModuleCacheKey`, ordering, deadcode, nils). **Gate B fires here** on the combined Task 1+2 diff.
+Run: `targ reorder-decls`, then `targ check-full`.
+Expected: fully green (lint, coverage ≥80% on `collectReplaceDirFiles`, `filesystemReplaceDirs`, `computeModuleCacheKey`, ordering, deadcode, nils). Decision rule: if — and only if — check-full flags `computeModuleCacheKey` for cyclomatic/cognitive complexity, extract its real-module branch into a `collectCacheInputs(mt moduleTargets, importRoot string, taggedFiles []discover.TaggedFile) ([]discover.TaggedFile, error)` helper and re-run `targ reorder-decls && targ check-full`; otherwise leave the function as written — no preemptive extraction. **Gate B fires here** on the combined Task 1+2 diff.
 
 - [ ] **Step 6: Commit**
 
@@ -484,7 +506,34 @@ AI-Used: [claude]"
 
 **Interfaces:** none (prose only).
 
-- [ ] **Step 1: Apply the three README updates**
+Two separate commits keep the #27 diff 1:1 traceable to the ask while still fixing the adjacent (pre-existing) deprecated-flag drift rather than deferring it.
+
+- [ ] **Step 1: Update the invalidation invariant (the #27-scoped change)**
+
+README.md line 782 — change:
+
+```markdown
+Targ caches compiled binaries in `~/.cache/targ/`. The cache is invalidated when source files or `go.mod`/`go.sum` change.
+```
+
+to:
+
+```markdown
+Targ caches compiled binaries in `~/.cache/targ/`. The cache is invalidated when source files or `go.mod`/`go.sum` change — including the sources of any local filesystem `replace` targets named in `go.mod`.
+```
+
+- [ ] **Step 2: Commit the invariant update**
+
+```bash
+git add README.md
+git commit -m "docs(readme): cache invalidation covers local replace targets
+
+AI-Used: [claude]"
+```
+
+- [ ] **Step 3: Fix the deprecated flag name (separate chore commit)**
+
+Re-grep first: `grep -n -- --no-cache README.md` — update every hit identically (fix all instances, not just the first). At the time of planning there are exactly two:
 
 Line 687 flag-table row — change:
 
@@ -498,42 +547,26 @@ to:
 | `--no-binary-cache`         | Force rebuild of the build tool binary       |
 ```
 
-Lines 780-787 Cache Management section — change:
+Line 785 example — change:
 
 ```markdown
-## Cache Management
-
-Targ caches compiled binaries in `~/.cache/targ/`. The cache is invalidated when source files or `go.mod`/`go.sum` change.
-
-```bash
 targ --no-cache <command>   # force rebuild
-rm -rf ~/.cache/targ/       # clear all cached binaries
-```
 ```
 
 to:
 
 ```markdown
-## Cache Management
-
-Targ caches compiled binaries in `~/.cache/targ/`. The cache is invalidated when source files or `go.mod`/`go.sum` change — including the sources of any local filesystem `replace` targets named in `go.mod`.
-
-```bash
 targ --no-binary-cache <command>   # force rebuild
-rm -rf ~/.cache/targ/              # clear all cached binaries
-```
 ```
 
-Before editing, re-grep `--no-cache` in README.md — if other rows/sections reference it beyond lines 687/785, update them identically (fix all instances, not just the first).
-
-- [ ] **Step 2: Verify + commit**
+- [ ] **Step 4: Verify + commit the chore**
 
 Run: `targ check-full`
-Expected: green. **Gate C fires here** (relevance + clarity reviewers over the README diff).
+Expected: green. **Gate C fires here** (relevance + clarity reviewers over both README diffs).
 
 ```bash
 git add README.md
-git commit -m "docs(readme): cache invalidation covers local replace targets; --no-binary-cache
+git commit -m "docs(readme): document --no-binary-cache over deprecated --no-cache
 
 AI-Used: [claude]"
 ```
@@ -542,6 +575,6 @@ AI-Used: [claude]"
 
 ## Self-review notes
 
-- **Spec coverage:** issue #27's fix-direction (b) = parse filesystem replaces + hash target dirs with the same walk (Tasks 1-2); its stipulated fails-under-today test = Task 2 Step 1-2; workaround docs = Task 4. Scope decisions pinned: all filesystem replaces hashed (not just targ's — any replaced dep affects build output); one level only (no transitive replace-chasing — matches the issue's "same walk as collectModuleFiles"); missing target dir hashes a marker instead of erroring; unparseable go.mod errors (such a module cannot build anyway); go.work out of scope (rejected in docs/archive/research-gomod-tree-traversal.md §5.2).
+- **Spec coverage:** issue #27's fix-direction (b) = parse filesystem replaces + hash target dirs with the same walk (Tasks 1-2); its stipulated fails-under-today test = Task 2 Step 1-2; workaround docs = Task 4. Scope decisions pinned: all filesystem replaces hashed (not just targ's — any replaced dep affects build output); one level only (no transitive replace-chasing — matches the issue's "same walk as collectModuleFiles"); missing target dir hashes a marker instead of erroring; unparseable go.mod errors (such a module cannot build anyway); go.work out of scope for this fix (docs/archive/research-gomod-tree-traversal.md §5.2 rates it MEDIUM viability — complexity for marginal benefit over the multi-module build).
 - **Known cost (accepted):** with a filesystem replace active, every cache-key computation walks and hashes the replaced tree. Dev-mode only; correctness over cache-hit speed there.
 - **Type consistency:** `collectReplaceDirFiles(moduleRoot string) ([]discover.TaggedFile, error)` and `ExportModuleCacheKey(modulePath, importRoot string, bootstrap []byte) (string, error)` are used with identical signatures across Tasks 1-3.
