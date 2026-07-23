@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	. "github.com/onsi/gomega"
+	"pgregory.net/rapid"
 
 	"github.com/toejough/targ/internal/runner"
 )
@@ -54,6 +55,45 @@ func TestModuleCacheKey_ReplaceTargetEdits(t *testing.T) {
 		second, err := runner.ExportModuleCacheKey("example.com/consumer", consumer, []byte("bootstrap"))
 		g.Expect(err).NotTo(HaveOccurred())
 		g.Expect(second).To(Equal(first), "no edits, no invalidation — the cache must still hit")
+	})
+}
+
+func TestProperty_ReplaceTargetCacheKey(t *testing.T) {
+	t.Parallel()
+
+	rapid.Check(t, func(rt *rapid.T) {
+		g := NewWithT(rt)
+
+		dep := t.TempDir()
+		writeTestFile(g, dep, "go.mod", "module example.com/dep\n\ngo 1.25\n")
+
+		name := rapid.StringMatching(`[a-z][a-z0-9]{0,8}\.go`).Draw(rt, "name")
+
+		content1 := "package dep\n// " + rapid.StringMatching(`[ -~]{0,40}`).Draw(rt, "content1") + "\n"
+		content2 := "package dep\n// " + rapid.StringMatching(`[ -~]{0,40}`).Draw(rt, "content2") + "\n"
+
+		if content1 == content2 {
+			content2 += "//\n"
+		}
+
+		writeTestFile(g, dep, name, content1)
+
+		consumer := t.TempDir()
+		writeTestFile(g, consumer, "go.mod",
+			"module example.com/consumer\n\ngo 1.25\n\nreplace example.com/dep => "+dep+"\n")
+
+		key1, err := runner.ExportModuleCacheKey("example.com/consumer", consumer, []byte("b"))
+		g.Expect(err).NotTo(HaveOccurred())
+
+		key1again, err := runner.ExportModuleCacheKey("example.com/consumer", consumer, []byte("b"))
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(key1again).To(Equal(key1), "determinism: same tree, same key")
+
+		writeTestFile(g, dep, name, content2)
+
+		key2, err := runner.ExportModuleCacheKey("example.com/consumer", consumer, []byte("b"))
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(key2).NotTo(Equal(key1), "sensitivity: any content edit changes the key")
 	})
 }
 
