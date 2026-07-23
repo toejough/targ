@@ -34,15 +34,22 @@ awaiting his call.
   `-timeout=30s` remains in dev/; `go test -tags targ ./dev/` green; `targ check-full` green
   post-commit on targ itself. No Gate B (no refactor phase — a literal swap has no design
   surface); Gate A's code angle covers the change form.
-- **T2 — file the engram issue (item 2).** Repo toejough/engram. Content: the five
-  internal/cli `*_EndToEnd` tests each `go build` the full engram binary (linking the 90MB
-  go:embed ONNX model) inside the test body, then spawn it (extract ~90MB model to fresh
-  XDG cache in at least TestRunCommand_EndToEnd; load ONNX runtime; 4.7–13.8s each
-  standalone; package ~15s unloaded, 52–63s under check-full load). Ask: share ONE built
-  binary across the suite (TestMain or sync.Once), warm/share the model cache where the test's
-  purpose permits, and prefer the cheapest real invocation for startup-composed capabilities —
-  citing the existing engram lesson to that effect. Frame: restores real headroom regardless
-  of any gate budget; the gate-side 30s→10m fix (targ#25) is landing independently.
+- **T2 — file the engram issue (item 2).** Repo toejough/engram. Content (mechanism as
+  verified against the engram tree by Gate A round 1, correcting the investigation report):
+  the five internal/cli `*_EndToEnd` tests each `go build` the full engram binary (linking the
+  90MB go:embed ONNX model) inside the test body — the shared dominant repeated cost
+  (4.7–13.8s per test standalone; package ~15s unloaded, 52–63s under check-full load). Model
+  load + ONNX runtime init are lazy (internal/embed/hugot.go — first Embed/ModelID/Dims call)
+  and happen only in the subprocesses of TestEngramLearn_Fact/Feedback_EndToEnd (auto-embed)
+  and TestEngramQuery_F6F91_EndToEnd (query), which inherit the parent env and hit the warm
+  user cache; extraction costs appear only cold (e.g. CI). TestRunCommand_EndToEnd
+  (`update --dry-run`) and TestOpenDebugFile_EndToEnd never reach the embedder — their
+  XDG_CACHE_HOME pins are hygiene, not model cost. Ask: share ONE built binary across the
+  suite (TestMain or sync.Once), keep the warm-cache inheritance for the three model-loading
+  tests where each test's purpose permits, and prefer the cheapest real invocation for
+  startup-composed capabilities — citing the existing engram lesson to that effect. Frame:
+  restores real headroom regardless of any gate budget; the gate-side 30s→10m fix (targ#25)
+  lands independently.
 - **T3 — file the targ structural issue (item 3).** Repo toejough/targ. Pickup-ready content
   (a fresh agent must be able to execute without this session): the two structural options with
   the measured facts — (a) ordered dep groups (native: split CheckFull's single
@@ -55,14 +62,21 @@ awaiting his call.
   neither is needed today (10m fix suffices, probe-validated), the trigger condition for
   picking it up (a consumer's suite outgrowing even relaxed budgets, or wall-clock pressure
   on check-full), and the `--dep-mode serial` CLI caveat (flattens groups, silently drops
-  CollectAllErrors — command.go:1944-1966).
+  CollectAllErrors — command.go:1944-1966). Framing note (Gate A docs finding): `--dep-mode`
+  is a public flag (listed in `targ --help`) but is absent from every spec flag enumeration
+  (specs/implementation.md:40/:121, architecture.md:21, tests.md:34, requirements.md:21) —
+  the issue describes it as the public flag it is; the spec-registry staleness is RAISED in
+  the close-out for Joe's disposition, not fixed in this cycle.
 - **T4 — close #25 + validation + capture.** Commit T1 (conventional message, `AI-Used:
-  [claude]` trailer); `targ check-full` post-commit; push (close comment cites the SHA — the
-  established delivery convention this session); close #25 with the AC→evidence chain citing
-  the probe. Gate D over ALL outward prose before anything ships: T1's commit message, both
-  issue bodies, the #25 close comment. Delivery note raised (not assumed): engram goes green
-  on check-full only after it re-bumps its targ pin — flagged for Joe, not done unilaterally.
-  Lessons audit + closing /learn.
+  [claude]` trailer); `targ check-full` post-commit; push (close comment cites the SHA,
+  mirroring the #22 (2bc60d2) and #23 (4476ed2) close comments this session); close #25 with
+  the AC→evidence chain citing the probe. Gate D over ALL outward prose before anything
+  ships: T1's commit message, both issue bodies, the #25 close comment. Raised-not-actioned
+  items the close-out report MUST carry for Joe's disposition: (1) engram goes green on
+  check-full only after it re-bumps its targ pin; (2) the bootstrap-cache non-invalidation
+  observed during the probe (vault note 371) — raised in the briefing, not in Joe's
+  enumeration, so not filed; (3) the `--dep-mode` spec-registry staleness (public flag absent
+  from all spec enumerations). Lessons audit + closing /learn.
 
 ## Doc-surface disposition (non-waivable grep, run 2026-07-23)
 
@@ -83,7 +97,9 @@ No prose doc mentions the coverage leg's go-test `-timeout` value. Gate C expect
 1. ✅ Capture (open) — sweep current (session); probe-trap lesson crystallized (note 371)
 2. ✅ Orient — /recall glance run; note 335 applied (bootstrap-cache: raise-not-file);
    assessment stated (ask sound; explicit 10m over flag deletion)
-3. ☐ Plan — this doc; Gate A pending
+3. ☐ Plan — rev 2: Gate A round 1 (ask 1 Imp + 1 Min; code 1 Imp — T2 mechanism corrected to
+   the tree-verified account; docs 2 — --dep-mode framing + raised spec staleness; clarity
+   ACK) all addressed; ACK round pending
 4. ☐ Execute (T1; probe = evidence chain, no unit seam)
 5. ☐ Document (expected N/A per disposition table; Gate C subject-absent if so)
 6. ☐ Complete (T2, T3 filings; close #25; commit; Gate D over all outward prose)
