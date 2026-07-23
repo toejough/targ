@@ -707,8 +707,11 @@ These flags modify target execution from the CLI:
 | `--watch PATTERN`     | Re-run on file changes (repeatable)          |
 | `--cache PATTERN`     | Skip if files unchanged (repeatable)         |
 | `--while CMD`         | Run while shell command succeeds             |
+| `--dep-mode MODE`     | Override dependency mode (`serial` or `parallel`) |
 
 Runtime flags conflict with compile-time config by default (see [No Surprises](#no-surprises)). Use `targ.Disabled` to allow CLI override.
+
+Note: `--dep-mode` bypasses the conflict detection above and silently overrides compile-time dependency modes: it flattens all of a target's [dependency groups](#dependencies) into a single group and ignores any `targ.CollectAllErrors` — e.g. `--dep-mode serial` on `check-full` reverts it to fail-fast on the first error.
 
 ### Quick Target Scaffolding
 
