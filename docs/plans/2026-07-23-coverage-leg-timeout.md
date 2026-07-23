@@ -103,7 +103,16 @@ No prose doc mentions the coverage leg's go-test `-timeout` value. Gate C expect
    the tree-verified account; docs 2 — --dep-mode framing + raised spec staleness; clarity
    ACK) all addressed; ACK round: ask/docs/clarity ACK, code 1 Minor (ModelID does not
    trigger lazy init — self-verified against hugot.go:229-239, fixed above). Gate A closed
-4. ☐ Execute (T1; probe = evidence chain, no unit seam)
-5. ☐ Document (expected N/A per disposition table; Gate C subject-absent if so)
-6. ☐ Complete (T2, T3 filings; close #25; commit; Gate D over all outward prose)
-7. ☐ Capture (close) — lessons audit + closing /learn
+4. ✅ Execute — T1 landed (822f27b): dev suite green, check-full PASS:8 post-commit, pushed;
+   zero -timeout=30s remains
+5. ✅ Document — N/A confirmed (no doc surface cites the value; Gate C subject absent)
+6. ✅ Complete — Gate D PASS (4 Minors: two line-range and two measurement-honesty fixes,
+   applied pre-filing); engram#704 and targ#26 filed from the gated drafts; #25 auto-closed
+   by the pushed "Fixes" keyword as anticipated, evidence comment posted with both refs
+7. ✅ Capture (close) — lessons audit: Gate A r1 T2-mechanism finding + ACK-round ModelID
+   finding both map to note 343 (subagent reports are leads, not citable sources — no new
+   note; the discipline held at Gate D, slipped at plan-write); Gate D Minors = gate working,
+   no lesson; note 335 applied (bootstrap-cache + spec staleness raised, not filed); probe
+   agent deaths = transient API errors, no lesson. Closing sweep run. Raised for Joe:
+   (1) engram re-bump to go green, (2) bootstrap-cache non-invalidation disposition,
+   (3) --dep-mode spec-registry staleness
