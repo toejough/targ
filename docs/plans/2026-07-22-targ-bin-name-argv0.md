@@ -250,7 +250,12 @@ Tests live blackbox where the subject is exported. Conventions: gomega `g := New
 3. ✅ Plan — rev 2; Gate A round 1: 4 angles, 1 Critical + 5 Important + 6 Minor, all addressed;
    ACK round: clarity + docs ACK, ask + code one convergent Minor (two stale anchors from the
    round-1 mid-fix tree, corrected above and self-verified). Gate A closed
-4. ☐ Execute (T1–T3, TDD, Gate B per task)
-5. ☐ Document (T4a; Gate C — likely N/A)
-6. ☐ Complete (close #22, commit; Gate D)
+4. ✅ Execute — T1 (reader) + T2 (writer) via workflow, Gate B PASS round 1 each; T3: scope
+   exactly the six planned files, AC5 grep gate holds (2 pin hits only), hermetic smoke exact
+   on cached AND fresh-build paths incl. renamed-wrapper argv[0] proof (targ-new/mytool),
+   commit 2bc60d2, check-full PASS:8 post-commit. Carried item: T2's gate observed a
+   pre-existing wall-clock flake (test/execution_properties_test.go
+   DefaultParallelStillCancelsOnFirstError, 1s budget) — outside plan scope, flagged to Joe
+5. ✅ Document — doc-surface grep re-verified zero hits outside this plan doc; Gate C N/A
+6. ☐ Complete (close #22 with evidence chain + April supersession; Gate D)
 7. ☐ Capture (close) — lessons audit + closing /learn
