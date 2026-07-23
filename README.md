@@ -785,3 +785,5 @@ Targ caches compiled binaries in `~/.cache/targ/`. The cache is invalidated when
 targ --no-binary-cache <command>   # force rebuild
 rm -rf ~/.cache/targ/       # clear all cached binaries
 ```
+
+`--no-cache` still works as a deprecated alias for `--no-binary-cache` and prints a warning.

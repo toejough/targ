@@ -118,7 +118,7 @@ Items derived from: ground truth (existing codebase)
 
 **Package:** `internal/flags`
 **Files:** `flags.go`, `placeholders.go`
-**Purpose:** Registry of all built-in CLI flags (`--no-cache`, `--keep`, `--create`, `--completion`, `--sync`, `--to-func`, `--to-string`, `--source`, `--times`, `--timeout`, `--watch`, `--cache`, `--parallel`, `--retry`, `--backoff`). Flag mode classification (targ-only vs. binary mode). Placeholder definitions.
+**Purpose:** Registry of all built-in CLI flags (`--completion`, `--help`, `--source`, `--timeout`, `--parallel`, `--times`, `--retry`, `--backoff`, `--watch`, `--cache`, `--while`, `--dep-mode`, `--no-binary-cache`, `--create`, `--sync`, `--to-func`, `--to-string`, `--init`, `--alias`, `--move`, plus the deprecated `--no-cache` alias). Flag mode classification (targ-only vs. binary mode). Placeholder definitions.
 **Key types:** `Def`, `FlagMode`, `Placeholder`
 **Traces to:** ARCH-10
 
