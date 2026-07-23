@@ -39,7 +39,9 @@ awaiting his call.
   the five internal/cli `*_EndToEnd` tests each `go build` the full engram binary (linking the
   90MB go:embed ONNX model) inside the test body — the shared dominant repeated cost
   (4.7–13.8s per test standalone; package ~15s unloaded, 52–63s under check-full load). Model
-  load + ONNX runtime init are lazy (internal/embed/hugot.go — first Embed/ModelID/Dims call)
+  load + ONNX runtime init are lazy (internal/embed/hugot.go — first Embed/Dims call;
+  ModelID deliberately short-circuits without init, hugot.go:229-239, and the NewLazyEmbedder
+  doc comment at :188-190 stating otherwise is stale — worth a bonus note in the issue)
   and happen only in the subprocesses of TestEngramLearn_Fact/Feedback_EndToEnd (auto-embed)
   and TestEngramQuery_F6F91_EndToEnd (query), which inherit the parent env and hit the warm
   user cache; extraction costs appear only cold (e.g. CI). TestRunCommand_EndToEnd
@@ -97,9 +99,10 @@ No prose doc mentions the coverage leg's go-test `-timeout` value. Gate C expect
 1. ✅ Capture (open) — sweep current (session); probe-trap lesson crystallized (note 371)
 2. ✅ Orient — /recall glance run; note 335 applied (bootstrap-cache: raise-not-file);
    assessment stated (ask sound; explicit 10m over flag deletion)
-3. ☐ Plan — rev 2: Gate A round 1 (ask 1 Imp + 1 Min; code 1 Imp — T2 mechanism corrected to
+3. ✅ Plan — rev 2: Gate A round 1 (ask 1 Imp + 1 Min; code 1 Imp — T2 mechanism corrected to
    the tree-verified account; docs 2 — --dep-mode framing + raised spec staleness; clarity
-   ACK) all addressed; ACK round pending
+   ACK) all addressed; ACK round: ask/docs/clarity ACK, code 1 Minor (ModelID does not
+   trigger lazy init — self-verified against hugot.go:229-239, fixed above). Gate A closed
 4. ☐ Execute (T1; probe = evidence chain, no unit seam)
 5. ☐ Document (expected N/A per disposition table; Gate C subject-absent if so)
 6. ☐ Complete (T2, T3 filings; close #25; commit; Gate D over all outward prose)
