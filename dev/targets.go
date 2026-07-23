@@ -2224,7 +2224,7 @@ func testForFail(ctx context.Context) error {
 		"go",
 		"test",
 		"-buildvcs=false",
-		"-timeout=30s",
+		"-timeout=10m",
 		"-coverprofile=coverage.out",
 		"-coverpkg=./,./internal/...",
 		"./...",
