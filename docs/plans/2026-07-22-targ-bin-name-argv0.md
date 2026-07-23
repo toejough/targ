@@ -257,5 +257,10 @@ Tests live blackbox where the subject is exported. Conventions: gomega `g := New
    pre-existing wall-clock flake (test/execution_properties_test.go
    DefaultParallelStillCancelsOnFirstError, 1s budget) — outside plan scope, flagged to Joe
 5. ✅ Document — doc-surface grep re-verified zero hits outside this plan doc; Gate C N/A
-6. ☐ Complete (close #22 with evidence chain + April supersession; Gate D)
-7. ☐ Capture (close) — lessons audit + closing /learn
+6. ✅ Complete — Gate D PASS (4 Minors: grep-scope wording fixed pre-post; two transparency
+   notes; 2bc60d2 treated as immutable now that the close comment cites it); #22 closed with
+   the evidence chain + April supersession paragraph
+7. ✅ Capture (close) — sweep ran (vocab OK); lessons: scratchpad-fixture Critical → note 369;
+   concurrent live-executor anchor corruption → note 370; Gate D citation discipline held this
+   cycle (note 343 applied — zero citation findings beyond scope wording). Carried to Joe:
+   pre-existing wall-clock flake disposition + consumer module bumps
