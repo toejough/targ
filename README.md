@@ -779,7 +779,7 @@ Re-running `--sync` updates the module version (like `go get -u`).
 
 ## Cache Management
 
-Targ caches compiled binaries in `~/.cache/targ/`. The cache is invalidated when source files or `go.mod`/`go.sum` change — including the sources of any local filesystem `replace` targets named in `go.mod`.
+Targ caches compiled binaries in `~/.cache/targ/`. The cache is invalidated when source files or `go.mod`/`go.sum` change — including local filesystem directories referenced by `replace` directives.
 
 ```bash
 targ --no-binary-cache <command>   # force rebuild
