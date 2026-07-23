@@ -1832,12 +1832,10 @@ func (r *targRunner) prepareBootstrap(
 		return moduleBootstrap{}, fmt.Errorf("error gathering tagged files: %w", err)
 	}
 
-	moduleFiles, err := collectModuleFiles(importRoot)
+	cacheInputs, err := collectCacheInputs(taggedFiles, importRoot)
 	if err != nil {
-		return moduleBootstrap{}, fmt.Errorf("error gathering module files: %w", err)
+		return moduleBootstrap{}, fmt.Errorf("error gathering cache inputs: %w", err)
 	}
-
-	cacheInputs := slices.Concat(taggedFiles, moduleFiles)
 
 	cacheKey, err := computeCacheKey(modulePath, importRoot, "targ", buf.Bytes(), cacheInputs)
 	if err != nil {
@@ -2483,6 +2481,23 @@ func cleanupStaleModSymlinks(root string) {
 	}
 }
 
+// collectCacheInputs assembles the cache-key inputs for a module build: the
+// tagged files plus the module's own files and any filesystem replace-target
+// files, so every bootstrap path shares one invalidation contract.
+func collectCacheInputs(taggedFiles []discover.TaggedFile, importRoot string) ([]discover.TaggedFile, error) {
+	moduleFiles, err := collectModuleFiles(importRoot)
+	if err != nil {
+		return nil, fmt.Errorf("gathering module files: %w", err)
+	}
+
+	replaceFiles, err := collectReplaceDirFiles(importRoot)
+	if err != nil {
+		return nil, fmt.Errorf("gathering replace target files: %w", err)
+	}
+
+	return slices.Concat(taggedFiles, moduleFiles, replaceFiles), nil
+}
+
 func collectFilePaths(infos []discover.PackageInfo) []string {
 	// Count total files for preallocation
 	totalFiles := 0
@@ -2704,17 +2719,12 @@ func computeModuleCacheKey(mt moduleTargets, importRoot string, bootstrap []byte
 	// have no go.mod and their "root" may be a large directory like ~/ that should
 	// not be walked. Tagged files alone suffice for cache invalidation.
 	if mt.ModulePath != targLocalModule {
-		moduleFiles, err := collectModuleFiles(importRoot)
-		if err != nil {
-			return "", fmt.Errorf("gathering module files: %w", err)
-		}
+		var err error
 
-		replaceFiles, err := collectReplaceDirFiles(importRoot)
+		cacheInputs, err = collectCacheInputs(taggedFiles, importRoot)
 		if err != nil {
-			return "", fmt.Errorf("gathering replace target files: %w", err)
+			return "", fmt.Errorf("gathering cache inputs: %w", err)
 		}
-
-		cacheInputs = slices.Concat(taggedFiles, moduleFiles, replaceFiles)
 	}
 
 	cacheKey, err := computeCacheKey(mt.ModulePath, importRoot, "targ", bootstrap, cacheInputs)
@@ -3169,7 +3179,11 @@ func filesystemReplaceDirs(moduleRoot string) ([]string, error) {
 
 	parsed, err := modfile.Parse(goModFile, data, nil)
 	if err != nil {
-		return nil, fmt.Errorf("parsing go.mod: %w", err)
+		fmt.Fprintf(os.Stderr,
+			"warning: cannot parse go.mod for replace directives (%v); "+
+				"replace-target cache invalidation disabled\n", err)
+
+		return nil, nil
 	}
 
 	var dirs []string

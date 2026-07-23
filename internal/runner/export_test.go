@@ -94,6 +94,19 @@ func ExportModuleCacheKey(modulePath, importRoot string, bootstrap []byte) (stri
 	return computeModuleCacheKey(moduleTargets{ModulePath: modulePath}, importRoot, bootstrap)
 }
 
+// ExportPrepareBootstrap wraps (*targRunner).prepareBootstrap for testing,
+// returning the cache key computed for a single-module/isolated build.
+func ExportPrepareBootstrap(startDir, importRoot, modulePath string) (string, error) {
+	r := &targRunner{startDir: startDir, errOut: io.Discard}
+
+	boot, err := r.prepareBootstrap(nil, importRoot, modulePath)
+	if err != nil {
+		return "", err
+	}
+
+	return boot.cacheKey, nil
+}
+
 // ExportWriteCommandList wraps writeCommandList for testing.
 func ExportWriteCommandList(w io.Writer, entries []ExportCmdEntry) {
 	internal := make([]cmdEntry, len(entries))

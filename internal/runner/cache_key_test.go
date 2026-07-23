@@ -58,6 +58,34 @@ func TestModuleCacheKey_ReplaceTargetEdits(t *testing.T) {
 	})
 }
 
+func TestPrepareBootstrap_ReplaceTargetEdits(t *testing.T) {
+	t.Parallel()
+
+	t.Run("EditingReplaceTargetChangesKey", func(t *testing.T) {
+		t.Parallel()
+		g := NewGomegaWithT(t)
+
+		dep := t.TempDir()
+		writeTestFile(g, dep, "go.mod", "module example.com/dep\n\ngo 1.25\n")
+		writeTestFile(g, dep, "dep.go", "package dep\n\nconst Timeout = 30\n")
+
+		consumer := t.TempDir()
+		writeTestFile(g, consumer, "go.mod",
+			"module example.com/consumer\n\ngo 1.25\n\nreplace example.com/dep => "+dep+"\n")
+
+		before, err := runner.ExportPrepareBootstrap(consumer, consumer, "example.com/consumer")
+		g.Expect(err).NotTo(HaveOccurred())
+
+		writeTestFile(g, dep, "dep.go", "package dep\n\nconst Timeout = 600\n")
+
+		after, err := runner.ExportPrepareBootstrap(consumer, consumer, "example.com/consumer")
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(after).NotTo(Equal(before),
+			"issue #27 (single-module/isolated bootstrap path): editing a local "+
+				"replace target must invalidate the cached binary")
+	})
+}
+
 func TestProperty_ReplaceTargetCacheKey(t *testing.T) {
 	t.Parallel()
 
@@ -187,16 +215,17 @@ func TestReplaceDirFiles_CollectsFilesystemReplaceTargets(t *testing.T) {
 			"existence flips must still change the cache key")
 	})
 
-	t.Run("UnparseableGoModErrors", func(t *testing.T) {
+	t.Run("UnparseableGoModDegradesToNoReplaceDirs", func(t *testing.T) {
 		t.Parallel()
 		g := NewGomegaWithT(t)
 
 		consumer := t.TempDir()
 		writeTestFile(g, consumer, "go.mod", "module \x00 not a go.mod")
 
-		_, err := runner.ExportCollectReplaceDirFiles(consumer)
-		g.Expect(err).To(HaveOccurred())
-		g.Expect(err.Error()).To(ContainSubstring("go.mod"))
+		files, err := runner.ExportCollectReplaceDirFiles(consumer)
+		g.Expect(err).NotTo(HaveOccurred(),
+			"a future-toolchain go.mod must not hard-fail every targ run")
+		g.Expect(files).To(BeEmpty())
 	})
 }
 
