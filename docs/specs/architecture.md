@@ -18,7 +18,7 @@ Struct fields with `targ:"..."` tags define CLI arguments. Supported tag keys: `
 
 ## ARCH-3: Command Resolution and Execution
 
-`Execute(args, targets...)` is the main entry point. Resolves command name from args[1], looks up target in flat list or group hierarchy, parses remaining args against the target's struct tags, invokes the target function. `RuntimeOverrides` extract `--times`, `--timeout`, `--watch`, `--cache`, `--parallel`, `--retry`, `--backoff` from args before target-specific parsing. Conflict detection: if a target has compile-time config (e.g., `.Cache("**/*.go")`) and CLI provides the same flag, error unless `targ.Disabled` was used. `RunEnv` interface abstracts I/O for testability. `Main()` wraps `Execute` with `os.Args` and `os.Exit`.
+`Execute(args, targets...)` is the main entry point. Resolves command name from args[1], looks up target in flat list or group hierarchy, parses remaining args against the target's struct tags, invokes the target function. `RuntimeOverrides` extract `--times`, `--timeout`, `--watch`, `--cache`, `--parallel`, `--retry`, `--backoff`, `--dep-mode` from args before target-specific parsing. Conflict detection: if a target has compile-time config (e.g., `.Cache("**/*.go")`) and CLI provides the same flag, error unless `targ.Disabled` was used. `RunEnv` interface abstracts I/O for testability. `Main()` wraps `Execute` with `os.Args` and `os.Exit`.
 
 **Induced from:** IMPL-5, T-3, T-16, T-17, T-18
 **Traces to:** REQ-1, REQ-3, REQ-4, DES-1, DES-2

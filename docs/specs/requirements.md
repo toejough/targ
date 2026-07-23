@@ -18,7 +18,7 @@ Struct fields tagged with `targ:"..."` become CLI arguments. Tags specify: flag/
 
 ## REQ-3: Target execution with runtime overrides
 
-Targets execute their function with parsed arguments. Built-in runtime flags (`--times`, `--timeout`, `--watch`, `--cache`, `--parallel`, `--retry`, `--backoff`) modify execution behavior. Overrides are extracted before target-specific argument parsing.
+Targets execute their function with parsed arguments. Built-in runtime flags (`--times`, `--timeout`, `--watch`, `--cache`, `--parallel`, `--retry`, `--backoff`, `--dep-mode`) modify execution behavior. Overrides are extracted before target-specific argument parsing.
 
 **Induced from:** ARCH-3, ARCH-15
 **Traces to:** UC-1

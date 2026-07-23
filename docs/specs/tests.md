@@ -31,7 +31,7 @@ Items derived from: L4 implementation (existing test suite)
 
 ## T-3: Execution behavior
 
-**Given** registered targets, **When** executed via `Execute()`, **Then** targets run in correct order, runtime overrides (`--times`, `--timeout`, `--parallel`, `--retry`, `--backoff`, `--watch`, `--cache`) are applied, and conflicts between compile-time config and CLI flags produce errors.
+**Given** registered targets, **When** executed via `Execute()`, **Then** targets run in correct order, runtime overrides (`--times`, `--timeout`, `--parallel`, `--retry`, `--backoff`, `--watch`, `--cache`, `--dep-mode`) are applied, and conflicts between compile-time config and CLI flags produce errors.
 
 - Property: no targets prints message
 - Property: multiple targets run sequentially
