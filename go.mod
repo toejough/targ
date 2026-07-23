@@ -12,6 +12,7 @@ require (
 	github.com/onsi/gomega v1.39.0
 	github.com/toejough/go-reorder v0.0.0-20260323214627-2c2148c725b2
 	github.com/toejough/testredundancy v0.0.0-20260129180558-09d0fdc0bb61
+	golang.org/x/mod v0.32.0
 	pgregory.net/rapid v1.2.0
 )
 
@@ -34,7 +35,6 @@ require (
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
-	golang.org/x/mod v0.32.0 // indirect
 	golang.org/x/net v0.48.0 // indirect
 	golang.org/x/sync v0.19.0 // indirect
 	golang.org/x/sys v0.39.0 // indirect

@@ -29,6 +29,8 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"golang.org/x/mod/modfile"
+
 	"github.com/toejough/targ/internal/core"
 	"github.com/toejough/targ/internal/discover"
 	"github.com/toejough/targ/internal/flags"
@@ -2569,6 +2571,37 @@ func collectModuleTaggedFiles(mt moduleTargets) ([]discover.TaggedFile, error) {
 	return files, nil
 }
 
+// collectReplaceDirFiles collects cache-key inputs from the filesystem
+// replace-directive targets in the module's go.mod. Local replace targets are
+// not fingerprinted by go.sum, so their sources must be hashed directly or the
+// cached binary goes stale when they change (issue #27).
+func collectReplaceDirFiles(moduleRoot string) ([]discover.TaggedFile, error) {
+	dirs, err := filesystemReplaceDirs(moduleRoot)
+	if err != nil {
+		return nil, err
+	}
+
+	var files []discover.TaggedFile
+
+	for _, dir := range dirs {
+		_, statErr := os.Stat(dir)
+		if statErr != nil {
+			// Hash the absence so the key still changes when the dir appears.
+			files = append(files, discover.TaggedFile{Path: "replace-missing:" + dir})
+			continue
+		}
+
+		dirFiles, err := collectModuleFiles(dir)
+		if err != nil {
+			return nil, fmt.Errorf("collecting replace target files: %w", err)
+		}
+
+		files = append(files, dirFiles...)
+	}
+
+	return files, nil
+}
+
 func collectSortedCommands(registry []moduleRegistry) []cmdEntry {
 	totalCmds := 0
 	for _, reg := range registry {
@@ -2676,7 +2709,12 @@ func computeModuleCacheKey(mt moduleTargets, importRoot string, bootstrap []byte
 			return "", fmt.Errorf("gathering module files: %w", err)
 		}
 
-		cacheInputs = slices.Concat(taggedFiles, moduleFiles)
+		replaceFiles, err := collectReplaceDirFiles(importRoot)
+		if err != nil {
+			return "", fmt.Errorf("gathering replace target files: %w", err)
+		}
+
+		cacheInputs = slices.Concat(taggedFiles, moduleFiles, replaceFiles)
 	}
 
 	cacheKey, err := computeCacheKey(mt.ModulePath, importRoot, "targ", bootstrap, cacheInputs)
@@ -3113,6 +3151,43 @@ func fetchPackage(packagePath string) error {
 	}
 
 	return nil
+}
+
+// filesystemReplaceDirs returns the target directories of filesystem replace
+// directives in the module's go.mod, resolved against moduleRoot. Per the
+// go.mod spec, a replacement with no version is a directory path.
+func filesystemReplaceDirs(moduleRoot string) ([]string, error) {
+	//nolint:gosec // build tool reads source files by design
+	data, err := os.ReadFile(filepath.Join(moduleRoot, goModFile))
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+
+		return nil, fmt.Errorf("reading go.mod: %w", err)
+	}
+
+	parsed, err := modfile.Parse(goModFile, data, nil)
+	if err != nil {
+		return nil, fmt.Errorf("parsing go.mod: %w", err)
+	}
+
+	var dirs []string
+
+	for _, rep := range parsed.Replace {
+		if rep.New.Version != "" {
+			continue
+		}
+
+		dir := rep.New.Path
+		if !filepath.IsAbs(dir) {
+			dir = filepath.Join(moduleRoot, dir)
+		}
+
+		dirs = append(dirs, dir)
+	}
+
+	return dirs, nil
 }
 
 // findCommandBinary finds the binary path for a command in the registry.

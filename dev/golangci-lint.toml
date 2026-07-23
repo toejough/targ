@@ -48,6 +48,7 @@ allow = [
 	'github.com/toejough/targ',
 	'github.com/toejough/go-reorder',
 	'github.com/bmatcuk/doublestar/v4',
+	'golang.org/x/mod',
 	'golang.org/x/tools/go/packages',
 	'github.com/charmbracelet/lipgloss',
 ]

@@ -1,6 +1,10 @@
 package runner
 
-import "io"
+import (
+	"io"
+
+	"github.com/toejough/targ/internal/discover"
+)
 
 // Test-only exports for superseding tests.
 
@@ -25,6 +29,11 @@ type ExportModuleRegistry struct {
 	ModuleRoot string
 	ModulePath string
 	Commands   []ExportCommandInfo
+}
+
+// ExportCollectReplaceDirFiles wraps collectReplaceDirFiles for testing.
+func ExportCollectReplaceDirFiles(moduleRoot string) ([]discover.TaggedFile, error) {
+	return collectReplaceDirFiles(moduleRoot)
 }
 
 // ExportCollectSortedCommands wraps collectSortedCommands for testing.
@@ -78,6 +87,11 @@ func ExportFindCommandBinary(registry []ExportModuleRegistry, cmdName string) (s
 	}
 
 	return findCommandBinary(internal, cmdName)
+}
+
+// ExportModuleCacheKey computes a module cache key for testing.
+func ExportModuleCacheKey(modulePath, importRoot string, bootstrap []byte) (string, error) {
+	return computeModuleCacheKey(moduleTargets{ModulePath: modulePath}, importRoot, bootstrap)
 }
 
 // ExportWriteCommandList wraps writeCommandList for testing.
