@@ -651,12 +651,16 @@ AI-Used: [claude]"
 
 **Files:**
 - Modify: `internal/core/command.go:1944-1966` (`runNodeDeps`)
-- Test: `test/overrides_properties_test.go` (new subtests in `TestProperty_Overrides`, after `DepModeOverrideFlattensMixedGroups` ~:529)
+- Test: `internal/core/command_internal_test.go` (whitebox flatten test), `test/overrides_properties_test.go` (public subtests in `TestProperty_Overrides`, after `DepModeOverrideFlattensMixedGroups` ~:529)
 
 **Interfaces:**
 - Consumes: `depGroup{targets, mode, collectAll}` (target.go:691-694), Tasks 3/5 runners.
 
+> **CORRECTION (2026-07-24, execution round 1):** the original Step 1 asserted `errors.As(err, &targ.MultiError)` through `targ.Execute()`. That is unachievable: Execute's CLI dispatch layer deliberately collapses propagated errors to a bare `ExitError{Code: 1}` with no `Unwrap()` (established convention across ~16 sites in `internal/core/run_env.go`; the suite's existing `errors.As` checks all go through `.Run()`, never `.Execute()` — see vault note 411). Gate A's code-alignment pass verified Execute's signature but not its error-collapsing semantics. Replaced with: (a) a deterministic public serial test using `ran==2` as the discriminator (serial fail-fast pre-fix runs exactly 1 dep; serial collect-all runs exactly 2 — no goroutine races), (b) a public parallel regression lock (green-deterministic post-fix), and (c) a whitebox `runNodeDeps` test asserting the flattened group's `collectAll` flag structurally for BOTH modes. Behavioral collect-all execution semantics are already locked by Task 5's public tests; composition of (c) with those gives end-to-end coverage.
+
 - [ ] **Step 1: Write the failing tests**
+
+Public tests in `test/overrides_properties_test.go`:
 
 ```go
 	t.Run("DepModeSerialPreservesCollectAllErrors", func(t *testing.T) {
@@ -683,23 +687,23 @@ AI-Used: [claude]"
 			main, dep1, dep2, dummy(),
 		)
 		g.Expect(err).To(HaveOccurred())
-
-		var me *targ.MultiError
-		g.Expect(errors.As(err, &me)).To(BeTrue(),
-			"--dep-mode serial must preserve CollectAllErrors")
-		g.Expect(me.Results()).To(HaveLen(2))
-		g.Expect(ran.Load()).To(Equal(int32(2)), "both deps must run despite the first failing")
+		g.Expect(ran.Load()).To(Equal(int32(2)),
+			"--dep-mode serial must preserve CollectAllErrors: both deps run despite the first failing")
 	})
 
 	t.Run("DepModeParallelPreservesCollectAllErrors", func(t *testing.T) {
 		t.Parallel()
 		g := NewWithT(t)
 
+		var ran atomic.Int32
+
 		dep1 := targ.Targ(func() error {
+			ran.Add(1)
 			return errors.New("dep1 failed")
 		}).Name("dep1")
 
 		dep2 := targ.Targ(func() error {
+			ran.Add(1)
 			return errors.New("dep2 failed")
 		}).Name("dep2")
 
@@ -711,20 +715,60 @@ AI-Used: [claude]"
 			main, dep1, dep2, dummy(),
 		)
 		g.Expect(err).To(HaveOccurred())
-
-		var me *targ.MultiError
-		g.Expect(errors.As(err, &me)).To(BeTrue(),
-			"--dep-mode parallel must preserve CollectAllErrors")
-		g.Expect(me.Results()).To(HaveLen(2))
+		g.Expect(ran.Load()).To(Equal(int32(2)),
+			"--dep-mode parallel must preserve CollectAllErrors: no dep is cancelled")
 	})
 ```
 
-(Add `errors` / `sync/atomic` to the test file's imports if absent.)
+Whitebox test in `internal/core/command_internal_test.go` (alphabetical placement among the file's test funcs):
+
+```go
+func TestRunNodeDepsFlattenPreservesCollectAll(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		depMode  string
+		wantMode DepMode
+	}{
+		{name: "SerialFlatten", depMode: "serial", wantMode: DepModeSerial},
+		{name: "ParallelFlatten", depMode: "parallel", wantMode: DepModeParallel},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			g := NewWithT(t)
+
+			var buf bytes.Buffer
+
+			dep1 := Targ(func() {}).Name("dep1")
+			dep2 := Targ(func() {}).Name("dep2")
+			owner := Targ(func() {}).Name("owner").
+				Deps(dep1).
+				Deps(dep2, DepModeParallel, CollectAllErrors)
+
+			node := &commandNode{Target: owner}
+			ctx := WithExecInfo(context.Background(), ExecInfo{Output: &buf})
+
+			err := runNodeDeps(ctx, node, RuntimeOverrides{DepMode: tt.depMode})
+
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(owner.depGroups).To(HaveLen(1), "flatten must produce a single group")
+			g.Expect(owner.depGroups[0].mode).To(Equal(tt.wantMode))
+			g.Expect(owner.depGroups[0].collectAll).To(BeTrue(),
+				"any original group having CollectAllErrors must set it on the flattened group")
+		})
+	}
+}
+```
+
+(Imports: add `sync/atomic` to overrides_properties_test.go if absent; `bytes`/`context` to command_internal_test.go if absent. Adjust the `commandNode` construction to the struct's actual field shape if `Target` is not the field name — re-locate with `grep -n "type commandNode" internal/core/command.go`.)
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `go test ./test/ -run 'TestProperty_Overrides/DepMode.*PreservesCollectAll'`
-Expected: FAIL — `errors.As(err, &me)` is false (flatten dropped `collectAll`; fail-fast returned a plain error)
+Run: `go test ./test/ -run 'TestProperty_Overrides/DepMode.*PreservesCollectAll' && go test ./internal/core/ -run TestRunNodeDepsFlattenPreservesCollectAll`
+Expected: public serial subtest FAILS deterministically with `ran` = 1 (flatten dropped `collectAll` → serial fail-fast stops after dep1); whitebox subtests FAIL on `collectAll` BeTrue. The public parallel subtest may flakily pass pre-fix (fail-fast races dep2) — its RED evidence is NOT required; the serial + whitebox failures are the red proof.
 
 - [ ] **Step 3: Implement**
 
