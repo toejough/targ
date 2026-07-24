@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Cap the concurrency of parallel dependency groups at `min(n, max(2, numCPU/2))` so `check-full`'s eight-leg fan-out no longer stacks unbounded load, and make `CollectAllErrors` survive the `--dep-mode` flatten and work for serial groups.
+**Goal:** Cap the concurrency of parallel dependency groups at `min(n, max(2, GOMAXPROCS/2))` so `check-full`'s eight-leg fan-out no longer stacks unbounded load, and make `CollectAllErrors` survive the `--dep-mode` flatten and work for serial groups.
 
-**Architecture:** A pure `parallelCap(n, cpus)` helper computes the bound; both parallel group runners (`runGroupParallelAll`, `runGroupParallel` in `internal/core/target.go`) take an explicit `capN` parameter and enforce it with a channel semaphore (no new dependencies — `golang.org/x/sync` is depguard-blocked). A new `runGroupSerialAll` runner gives serial groups real collect-all semantics, dispatched from `runDeps`. The `--dep-mode` flatten in `runNodeDeps` (`internal/core/command.go`) preserves `collectAll` when any original group had it.
+**Architecture:** A pure `parallelCap(n, procs)` helper computes the bound; both parallel group runners (`runGroupParallelAll`, `runGroupParallel` in `internal/core/target.go`) take an explicit `capN` parameter and enforce it with a channel semaphore (no new dependencies — `golang.org/x/sync` is depguard-blocked). A new `runGroupSerialAll` runner gives serial groups real collect-all semantics, dispatched from `runDeps`. The `--dep-mode` flatten in `runNodeDeps` (`internal/core/command.go`) preserves `collectAll` when any original group had it.
 
 **Tech Stack:** Go 1.25.5 (builtin `min`/`max`), gomega assertions, existing channel idioms. No new module dependencies.
 
@@ -18,11 +18,12 @@
 - Tests: `t.Parallel()` in every parent and subtest (paralleltest lint); no shared mutable state across parallel subtests; NO timing/load-dependent assertions (upper-bound concurrency assertions and pre-canceled contexts only — no sleeps as synchronization).
 - TDD red step mandatory: run each new test before implementing; confirm the expected failure.
 - Commit trailer: `AI-Used: [claude]` (NOT Co-Authored-By).
+- Per-task commits are user-confirmed (Joe, 2026-07-24, Gate A resolution): each task lands as its own atomic conventional commit; no hold-for-go-ahead gate.
 - Cyclomatic headroom: cyclop max is 10 (default; no override block). `runDeps` goes from ~7 to ~8 with the new dispatch case — do NOT inline cap computation branches or semaphore logic into `runDeps`; keep them in the helpers.
 
 ## Design Decisions (settled during orientation; do not relitigate in-task)
 
-1. **Cap formula: `min(n, max(2, cpus/2))`.** Joe picked "max(1, numCPU/2), no knob". Deviation, with rationale: the repo's own behavioral contract (four subtests in `test/execution_properties_test.go:298,543,631,674`) gates exactly 2 deps on a shared channel and requires both to start concurrently — a cap of 1 (any machine with ≤3 cores) would break `.Deps(..., Parallel)`'s observable "parallel means concurrent" property and those tests with it. Floor 2 is identical to Joe's formula on every machine with ≥4 cores, and preserves the API property on smaller ones. Considered `max(1, …)` per the literal answer; chose `max(2, …)` because of this test-contract fact discovered post-decision. No knob (YAGNI, per Joe's pick).
+1. **Cap formula: `min(n, max(2, GOMAXPROCS/2))` — user-decided.** History: Joe initially picked "max(1, numCPU/2), no knob"; the plan's first draft self-substituted a floor of 2 (the four subtests at `test/execution_properties_test.go:298,543,631,674` gate exactly 2 deps and require both to start concurrently, so a cap of 1 breaks the "parallel means concurrent" contract); Gate A ask-alignment correctly flagged that override as a decision belonging to the user. Escalated 2026-07-24: Joe answered "just use max procs", then confirmed the exact formula `min(n, max(2, GOMAXPROCS/2))` — the halving cap sourced from `runtime.GOMAXPROCS(0)` (respects container CPU quotas, unlike `NumCPU`), floor 2 preserving the concurrency contract. No knob (YAGNI, per Joe's pick).
 2. **Full CollectAllErrors fix** (Joe's pick): flatten preserves `collectAll` (union across original groups), AND serial groups honor `collectAll` via new `runGroupSerialAll`. This also fixes the pre-existing silent gap where `Deps(a, b, CollectAllErrors)` without `DepModeParallel` was accepted but ignored (dispatch at target.go:502 only honored it for parallel).
 3. **Queued-target skip in fail-fast runner:** after acquiring the semaphore, `runGroupParallel` checks `ctx.Err()`; a canceled context short-circuits to a `Cancelled` result without firing `OnStart` or `Run`. Rationale: with a cap, a queued dep could otherwise START fresh work after a sibling already failed — a regression of fail-fast semantics. The guarantee is best-effort (same as today's mid-flight cancellation), tested deterministically via a pre-canceled context.
 4. **`runGroupSerialAll` output:** quiet on success (like `runGroupSerial`); on failure prints per-target `Error:` lines as they occur and a `FormatDetailedSummary` block at the end, returns `reportedError{NewMultiError(results)}` (mirrors `runGroupParallelAll`'s failure reporting without the parallel printer machinery, which serial output doesn't need).
@@ -32,7 +33,7 @@
 
 ## Doc-Surface Enumeration (grep run 2026-07-23)
 
-Greps: `grep -rn --include="*.md" -iE "dep-mode|collectallerrors|collect-all|collect all|fail-fast|fail fast|fan-out|fanout|unbounded|semaphore|concurrenc" README.md CLAUDE.md docs/` plus the #28 plan's disposition table as prior art.
+Greps: `grep -rn --include="*.md" -iE "dep-mode|collectallerrors|collect-all|collect all|fail-fast|fail fast|fan-out|fanout|unbounded|semaphore|concurrenc" README.md CLAUDE.md docs/` plus `grep -rn "CollectAllErrors" --include="*.go" targ.go internal/` for GoDoc comment surfaces (Gate A caught that the `*.md`-only grep is structurally blind to doc comments), plus the #28 plan's disposition table as prior art.
 
 | Surface | Disposition | Reason |
 |---|---|---|
@@ -49,6 +50,9 @@ Greps: `grep -rn --include="*.md" -iE "dep-mode|collectallerrors|collect-all|col
 | `docs/specs/architecture.md:21` (ARCH-3 execute) | keep | Override extraction unchanged |
 | `docs/specs/architecture.md:42` (ARCH-6 results) | update | "`MultiError` collects all failures from parallel `CollectAllErrors` mode" → drop "parallel" |
 | `docs/specs/tests.md:34` (T-3) | update | Add property lines for the cap, serial collect-all, and flatten-preserves-collectAll tests |
+| `docs/specs/use-cases.md` (UC-5 parallel execution) | keep | High-level use-case prose; traces to REQ-7/DES-5 which ARE updated; UC-5's own text stays accurate |
+| `targ.go:17-19` (`CollectAllErrors` re-export GoDoc) | update | Says "parallel deps" — false once serial groups honor it; Task 5 Step 4 rewrites it (pkg.go.dev/IDE surface, invisible to the `*.md` grep) |
+| `internal/core/target.go:50-52` (`CollectAllErrors` GoDoc) | update | Same text as targ.go re-export; Task 5 Step 4 rewrites it |
 | `docs/archive/*` (architecture.md, design.md, requirements.md, issues.md) | N/A | Archive convention: no retro-edits |
 | `docs/plans/*` (incl. 2026-07-23-coverage-leg-timeout.md, 2026-07-23-issue-28-dep-mode-flag-docs.md, 2026-02-13-dep-group-chaining*.md) | N/A | Historical session records; #28's caveat wording anticipated "if #26 later changes the flatten/drop, the wording gets revisited then" — that revisit is the two `update` rows above, not edits to the plan docs |
 | `CLAUDE.md` (repo) | keep | No dep-semantics content |
@@ -82,19 +86,19 @@ func TestParallelCap(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
-		n    int
-		cpus int
-		want int
+		name  string
+		n     int
+		procs int
+		want  int
 	}{
-		{name: "TenCoresEightTargets", n: 8, cpus: 10, want: 5},
-		{name: "FourCoresFloorsAtTwo", n: 8, cpus: 4, want: 2},
-		{name: "TwoCoresFloorsAtTwo", n: 8, cpus: 2, want: 2},
-		{name: "OneCoreFloorsAtTwo", n: 8, cpus: 1, want: 2},
-		{name: "SingleTargetCapsAtOne", n: 1, cpus: 10, want: 1},
-		{name: "ZeroTargetsCapsAtZero", n: 0, cpus: 10, want: 0},
-		{name: "ManyCoresCapsAtN", n: 8, cpus: 32, want: 8},
-		{name: "OddCoresIntegerDivision", n: 3, cpus: 7, want: 3},
+		{name: "TenProcsEightTargets", n: 8, procs: 10, want: 5},
+		{name: "FourProcsFloorsAtTwo", n: 8, procs: 4, want: 2},
+		{name: "TwoProcsFloorsAtTwo", n: 8, procs: 2, want: 2},
+		{name: "OneProcFloorsAtTwo", n: 8, procs: 1, want: 2},
+		{name: "SingleTargetCapsAtOne", n: 1, procs: 10, want: 1},
+		{name: "ZeroTargetsCapsAtZero", n: 0, procs: 10, want: 0},
+		{name: "ManyProcsCapsAtN", n: 8, procs: 32, want: 8},
+		{name: "OddProcsIntegerDivision", n: 3, procs: 7, want: 3},
 	}
 
 	for _, tt := range tests {
@@ -102,7 +106,7 @@ func TestParallelCap(t *testing.T) {
 			t.Parallel()
 			g := NewWithT(t)
 
-			g.Expect(parallelCap(tt.n, tt.cpus)).To(Equal(tt.want))
+			g.Expect(parallelCap(tt.n, tt.procs)).To(Equal(tt.want))
 		})
 	}
 }
@@ -119,10 +123,10 @@ In `internal/core/target.go`, after `classifyCollectAllResult` and before `paral
 
 ```go
 // parallelCap bounds how many targets in a parallel dep group run
-// concurrently: min(n, max(2, cpus/2)). The floor of 2 keeps parallel
-// groups observably concurrent even on low-core machines.
-func parallelCap(n, cpus int) int {
-	return min(n, max(2, cpus/2))
+// concurrently: min(n, max(2, procs/2)). The floor of 2 keeps parallel
+// groups observably concurrent even at GOMAXPROCS=1.
+func parallelCap(n, procs int) int {
+	return min(n, max(2, procs/2))
 }
 ```
 
@@ -234,7 +238,7 @@ b) Update `runDeps` (target.go:497) to pass the cap (add `"runtime"` to imports)
 
 ```go
 case group.mode == DepModeParallel && group.collectAll:
-	err = runGroupParallelAll(ctx, group.targets, parallelCap(len(group.targets), runtime.NumCPU()))
+	err = runGroupParallelAll(ctx, group.targets, parallelCap(len(group.targets), runtime.GOMAXPROCS(0)))
 ```
 
 (The plain-parallel case gets the same treatment in Task 3; until then it compiles unchanged.)
@@ -378,7 +382,7 @@ And `runDeps` (:505):
 
 ```go
 case group.mode == DepModeParallel:
-	err = runGroupParallel(ctx, group.targets, parallelCap(len(group.targets), runtime.NumCPU()))
+	err = runGroupParallel(ctx, group.targets, parallelCap(len(group.targets), runtime.GOMAXPROCS(0)))
 ```
 
 - [ ] **Step 4: Run tests**
@@ -442,9 +446,9 @@ AI-Used: [claude]"
 		err := main.Run(context.Background())
 		g.Expect(err).NotTo(HaveOccurred())
 
-		bound := max(2, runtime.NumCPU()/2)
+		bound := max(2, runtime.GOMAXPROCS(0)/2)
 		g.Expect(int(maxSeen.Load())).To(BeNumerically("<=", bound),
-			"parallel dep concurrency must not exceed max(2, numCPU/2)")
+			"parallel dep concurrency must not exceed max(2, GOMAXPROCS/2)")
 	})
 ```
 
@@ -473,7 +477,8 @@ AI-Used: [claude]"
 ### Task 5: `runGroupSerialAll` + serial collect-all dispatch
 
 **Files:**
-- Modify: `internal/core/target.go` — new func between `runGroupSerial` (:1017) and `runShellCommand` (:1031); `runDeps` gains a `case group.collectAll:` arm
+- Modify: `internal/core/target.go` — new func between `runGroupSerial` (:1017) and `runShellCommand` (:1031); `runDeps` gains a `case group.collectAll:` arm; `CollectAllErrors` doc comment (:50-52)
+- Modify: `targ.go:17-19` (`CollectAllErrors` re-export doc comment)
 - Test: `test/execution_properties_test.go` (new subtests in the collect-all block, ~:1445-1610)
 
 **Interfaces:**
@@ -595,9 +600,9 @@ b) Dispatch in `runDeps` (target.go:497) — full switch after this task:
 ```go
 		switch {
 		case group.mode == DepModeParallel && group.collectAll:
-			err = runGroupParallelAll(ctx, group.targets, parallelCap(len(group.targets), runtime.NumCPU()))
+			err = runGroupParallelAll(ctx, group.targets, parallelCap(len(group.targets), runtime.GOMAXPROCS(0)))
 		case group.mode == DepModeParallel:
-			err = runGroupParallel(ctx, group.targets, parallelCap(len(group.targets), runtime.NumCPU()))
+			err = runGroupParallel(ctx, group.targets, parallelCap(len(group.targets), runtime.GOMAXPROCS(0)))
 		case group.collectAll:
 			err = runGroupSerialAll(ctx, group.targets)
 		default:
@@ -605,15 +610,30 @@ b) Dispatch in `runDeps` (target.go:497) — full switch after this task:
 		}
 ```
 
-- [ ] **Step 4: Run tests**
+- [ ] **Step 4: Update the `CollectAllErrors` GoDoc comments** (highest-visibility doc surface for this behavior — pkg.go.dev / IDE hover / `go doc`). In BOTH `internal/core/target.go:50-51` and `targ.go:17-18`, replace:
+
+```go
+	// CollectAllErrors causes parallel deps to run all targets to completion
+	// and collect all errors, rather than cancelling on first failure.
+```
+
+with:
+
+```go
+	// CollectAllErrors causes deps to run all targets to completion and
+	// collect all errors, rather than stopping on the first failure.
+	// Applies to both parallel and serial dependency groups.
+```
+
+- [ ] **Step 5: Run tests**
 
 Run: `go test ./test/ && go test ./internal/core/`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
-git add internal/core/target.go test/execution_properties_test.go
+git add internal/core/target.go targ.go test/execution_properties_test.go
 git commit -m "feat(core): honor CollectAllErrors for serial dep groups
 
 AI-Used: [claude]"
@@ -758,7 +778,7 @@ AI-Used: [claude]"
 - [ ] **Step 1: README Dependencies section** — after the mixed-groups example (~:347, the chained `.Deps()` code block), add:
 
 ```markdown
-Parallel groups run at most `max(2, numCPU/2)` targets at once; excess targets queue until a slot frees up.
+Parallel groups run at most `min(n, max(2, GOMAXPROCS/2))` targets concurrently (where `n` is the group's target count); excess targets queue until a slot frees up.
 ```
 
 - [ ] **Step 2: README :380** — replace:
@@ -787,7 +807,7 @@ with:
 
 with:
 
-> In parallel mode, fail-fast cancels remaining targets (default) or `CollectAllErrors` runs all and reports all failures; serial groups honor `CollectAllErrors` by continuing past failures. Parallel groups are bounded to `min(n, max(2, numCPU/2))` concurrent targets.
+> In parallel mode, fail-fast cancels remaining targets (default) or `CollectAllErrors` runs all and reports all failures; serial groups honor `CollectAllErrors` by continuing past failures. Parallel groups are bounded to `min(n, max(2, GOMAXPROCS/2))` concurrent targets.
 
 - [ ] **Step 6: specs/architecture.md ARCH-6 (:42)** — replace:
 
@@ -804,7 +824,7 @@ with:
 - [ ] **Step 8: specs/tests.md T-3** — append to the property list:
 
 ```markdown
-- Property: parallel dep concurrency never exceeds max(2, numCPU/2)
+- Property: parallel dep concurrency never exceeds min(n, max(2, GOMAXPROCS/2))
 - Property: serial CollectAllErrors runs every dep in order and reports all failures
 - Property: --dep-mode flatten preserves CollectAllErrors (serial and parallel)
 ```
@@ -813,7 +833,7 @@ and append the new test names to the **Tests:** line if T-3 lists them (follow t
 
 - [ ] **Step 9: Verify doc claims against behavior**
 
-Run: `grep -n "ignores any" README.md` → no matches; `grep -c "tracked in #26" docs/specs/implementation.md` → 0.
+Run: `grep -n "ignores any" README.md` → no matches; `grep -c "tracked in #26" docs/specs/implementation.md` → 0; `grep -rn "parallel deps to run all targets" targ.go internal/core/target.go` → no matches (Task 5 Step 4 rewrote both GoDoc comments).
 
 - [ ] **Step 10: Commit**
 
@@ -831,7 +851,7 @@ AI-Used: [claude]"
 - [ ] **Step 1:** `cd /Users/joe/repos/personal/targ && pwd` — confirm cwd (vault note 359: verify cwd before every build-runner invocation).
 - [ ] **Step 2:** Run `targ --no-binary-cache check-full` (note 371: bypass the bootstrap binary cache so the gate binary embeds this change). Expected: all eight legs report, exit 0. This run itself exercises the capped parallel collect-all path for real.
 - [ ] **Step 3:** Real-binary probe of the fixed flatten: `targ --no-binary-cache check-nils --dep-mode serial` (a target with a serial dep chain; confirms flatten path executes). Then confirm collect-all survival on a failing case only if one exists naturally — do NOT commit synthetic failures; the automated tests in Task 6 are the failing-path proof.
-- [ ] **Step 4:** Observe cap behavior in Step 2's output: at most 5 legs (10-core machine) show `starting...` before the first completions. If all 8 start simultaneously, the cap is not wired — stop and debug.
+- [ ] **Step 4:** Observe cap behavior in Step 2's output: at most 5 legs (GOMAXPROCS=10 machine → cap 5) show `starting...` before the first completions. If all 8 start simultaneously, the cap is not wired — stop and debug.
 
 ---
 
