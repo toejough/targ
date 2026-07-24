@@ -500,7 +500,7 @@ func (t *Target) runDeps(ctx context.Context) error {
 
 		switch {
 		case group.mode == DepModeParallel && group.collectAll:
-			err = runGroupParallelAll(ctx, group.targets)
+			err = runGroupParallelAll(ctx, group.targets, parallelCap(len(group.targets), runtime.GOMAXPROCS(0)))
 		case group.mode == DepModeParallel:
 			err = runGroupParallel(ctx, group.targets)
 		default:
@@ -909,7 +909,7 @@ func runGroupParallel(ctx context.Context, targets []*Target) error {
 }
 
 //nolint:cyclop,funlen // sequential pipeline with error handling at each step
-func runGroupParallelAll(ctx context.Context, targets []*Target) error {
+func runGroupParallelAll(ctx context.Context, targets []*Target, capN int) error {
 	out := outputFromContext(ctx)
 
 	// Compute max target name length for prefix alignment
@@ -934,11 +934,16 @@ func runGroupParallelAll(ctx context.Context, targets []*Target) error {
 	resultCh := make(chan targetResult, len(targets))
 	results := make([]TargetResult, len(targets))
 
+	sem := make(chan struct{}, max(1, capN))
+
 	for i, dep := range targets {
 		name := dep.GetName()
 		results[i].Name = name
 
 		go func(idx int, d *Target, targetName string) {
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
 			tctx := WithExecInfo(ctx, ExecInfo{
 				Parallel:   true,
 				Name:       targetName,
