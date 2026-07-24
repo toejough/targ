@@ -19,7 +19,8 @@
 - TDD red step mandatory: run each new test before implementing; confirm the expected failure.
 - Commit trailer: `AI-Used: [claude]` (NOT Co-Authored-By).
 - Per-task commits are user-confirmed (Joe, 2026-07-24, Gate A resolution): each task lands as its own atomic conventional commit; no hold-for-go-ahead gate.
-- Cyclomatic headroom: cyclop max is 10 (default; no override block). `runDeps` goes from ~7 to ~8 with the new dispatch case — do NOT inline cap computation branches or semaphore logic into `runDeps`; keep them in the helpers.
+- Cyclomatic headroom: cyclop max is 10 (default; no override block). `runDeps` goes from ~7 to ~8 with the new dispatch case — do NOT inline cap computation branches or semaphore logic into `runDeps`; keep them in the helpers. Enforcement is mechanical, not on trust: cyclop runs inside `targ check-full` (Task 8's gate), and Task 6 Step 3 already names the `anyGroupCollectsAll` extraction as the fallback if `runNodeDeps` tips over.
+- File:line anchors in this plan were measured at plan time (HEAD 65b1d1c). If an anchor misses at execution time, re-locate with `grep -n "func <name>" <file>` and adjust — do not guess offsets.
 
 ## Design Decisions (settled during orientation; do not relitigate in-task)
 
@@ -64,7 +65,7 @@ Greps: `grep -rn --include="*.md" -iE "dep-mode|collectallerrors|collect-all|col
 
 **Files:**
 - Modify: `internal/core/target.go` (insert func between `classifyCollectAllResult` ending ~:764 and `parallelShellEnv` at :766)
-- Test: `internal/core/target_internal_test.go` (new file, whitebox `package core`)
+- Test: `internal/core/target_internal_test.go` (new file — verified absent at plan time; whitebox `package core`, needed to reach unexported funcs, mirroring the existing `command_internal_test.go` convention)
 
 **Interfaces:**
 - Produces: `func parallelCap(n, procs int) int` — later tasks call it from `runDeps`.
@@ -234,7 +235,7 @@ func runGroupParallelAll(ctx context.Context, targets []*Target, capN int) error
 }
 ```
 
-b) Update `runDeps` (target.go:497) to pass the cap (add `"runtime"` to imports):
+b) Update `runDeps` (target.go:497) to pass the cap (`"runtime"` is already in target.go's imports — verified at plan time, along with `"time"`, `"errors"`, `"fmt"`; no import edits needed anywhere in this plan):
 
 ```go
 case group.mode == DepModeParallel && group.collectAll:
@@ -610,7 +611,7 @@ b) Dispatch in `runDeps` (target.go:497) — full switch after this task:
 		}
 ```
 
-- [ ] **Step 4: Update the `CollectAllErrors` GoDoc comments** (highest-visibility doc surface for this behavior — pkg.go.dev / IDE hover / `go doc`). In BOTH `internal/core/target.go:50-51` and `targ.go:17-18`, replace:
+- [ ] **Step 4: Update the `CollectAllErrors` GoDoc comments** (highest-visibility doc surface for this behavior — pkg.go.dev / IDE hover / `go doc`). Measured at plan time: `grep -rn "parallel deps to run all targets" targ.go internal/` → exactly 2 matches (`targ.go:17`, `internal/core/target.go:50`) — these are the only copies. In BOTH, replace:
 
 ```go
 	// CollectAllErrors causes parallel deps to run all targets to completion
@@ -833,7 +834,13 @@ and append the new test names to the **Tests:** line if T-3 lists them (follow t
 
 - [ ] **Step 9: Verify doc claims against behavior**
 
-Run: `grep -n "ignores any" README.md` → no matches; `grep -c "tracked in #26" docs/specs/implementation.md` → 0; `grep -rn "parallel deps to run all targets" targ.go internal/core/target.go` → no matches (Task 5 Step 4 rewrote both GoDoc comments).
+These are POST-EDIT checks; the pre-edit baselines were measured at plan time (HEAD 65b1d1c) so the executor can confirm each count flipped:
+
+| Command | Baseline (measured) | Expected after Task 7 |
+|---|---|---|
+| `grep -c "ignores any" README.md` | 1 | 0 |
+| `grep -c "tracked in #26" docs/specs/implementation.md` | 1 | 0 |
+| `grep -rn "parallel deps to run all targets" targ.go internal/` | 2 matches (targ.go:17, internal/core/target.go:50) | no matches (Task 5 Step 4 rewrote both) |
 
 - [ ] **Step 10: Commit**
 
