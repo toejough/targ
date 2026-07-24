@@ -14,8 +14,9 @@ import (
 const (
 	// Cancelled indicates a target was cancelled during parallel execution.
 	Cancelled = core.Cancelled
-	// CollectAllErrors causes parallel deps to run all targets to completion
-	// and collect all errors, rather than cancelling on first failure.
+	// CollectAllErrors causes deps to run all targets to completion and
+	// collect all errors, rather than stopping on the first failure.
+	// Applies to both parallel and serial dependency groups.
 	CollectAllErrors = core.CollectAllErrors
 	// DepModeMixed indicates a target has multiple dependency groups with different modes.
 	DepModeMixed = core.DepModeMixed

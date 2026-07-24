@@ -1601,6 +1601,64 @@ func TestProperty_Execution(t *testing.T) {
 		g.Expect(me.Results()[1].Name).To(Equal("dep2"))
 	})
 
+	t.Run("SerialCollectAllErrorsRunsAllInOrder", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		var mu sync.Mutex
+
+		var order []string
+
+		record := func(name string) {
+			mu.Lock()
+
+			order = append(order, name)
+
+			mu.Unlock()
+		}
+
+		dep1 := targ.Targ(func() error {
+			record("dep1")
+			return errors.New("dep1 failed")
+		}).Name("dep1")
+
+		dep2 := targ.Targ(func() error {
+			record("dep2")
+			return errors.New("dep2 failed")
+		}).Name("dep2")
+
+		dep3 := targ.Targ(func() { record("dep3") }).Name("dep3")
+
+		main := targ.Targ(func() {}).Name("main").
+			Deps(dep1, dep2, dep3, targ.CollectAllErrors)
+
+		err := main.Run(context.Background())
+		g.Expect(err).To(HaveOccurred())
+
+		var me *targ.MultiError
+		g.Expect(errors.As(err, &me)).To(BeTrue())
+		g.Expect(me.Results()).To(HaveLen(3))
+		g.Expect(order).To(Equal([]string{"dep1", "dep2", "dep3"}),
+			"serial collect-all must run every dep, in declaration order")
+	})
+
+	// NOTE: this second subtest is a regression lock, green immediately —
+	// all-passing serial deps return nil under both old and new dispatch;
+	// the genuine TDD red phase for Task 5 is SerialCollectAllErrorsRunsAllInOrder above.
+	t.Run("SerialCollectAllErrorsAllPassingSucceeds", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		dep1 := targ.Targ(func() {}).Name("dep1")
+		dep2 := targ.Targ(func() {}).Name("dep2")
+
+		main := targ.Targ(func() {}).Name("main").
+			Deps(dep1, dep2, targ.CollectAllErrors)
+
+		err := main.Run(context.Background())
+		g.Expect(err).NotTo(HaveOccurred())
+	})
+
 	t.Run("DefaultParallelStillCancelsOnFirstError", func(t *testing.T) {
 		t.Parallel()
 		g := NewWithT(t)

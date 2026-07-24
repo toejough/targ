@@ -47,8 +47,9 @@ type DepOption int
 
 // DepOption values.
 const (
-	// CollectAllErrors causes parallel deps to run all targets to completion
-	// and collect all errors, rather than cancelling on first failure.
+	// CollectAllErrors causes deps to run all targets to completion and
+	// collect all errors, rather than stopping on the first failure.
+	// Applies to both parallel and serial dependency groups.
 	CollectAllErrors DepOption = iota + 1
 )
 
@@ -503,6 +504,8 @@ func (t *Target) runDeps(ctx context.Context) error {
 			err = runGroupParallelAll(ctx, group.targets, parallelCap(len(group.targets), runtime.GOMAXPROCS(0)))
 		case group.mode == DepModeParallel:
 			err = runGroupParallel(ctx, group.targets, parallelCap(len(group.targets), runtime.GOMAXPROCS(0)))
+		case group.collectAll:
+			err = runGroupSerialAll(ctx, group.targets)
 		default:
 			err = runGroupSerial(ctx, group.targets)
 		}
@@ -1048,6 +1051,46 @@ func runGroupSerial(ctx context.Context, targets []*Target) error {
 	}
 
 	return nil
+}
+
+// runGroupSerialAll runs targets sequentially, continuing past failures and
+// collecting every result (CollectAllErrors semantics for serial groups).
+// Quiet on success; on failure prints per-target errors plus a detailed
+// summary and returns a MultiError.
+func runGroupSerialAll(ctx context.Context, targets []*Target) error {
+	out := outputFromContext(ctx)
+	results := make([]TargetResult, len(targets))
+	hasFailure := false
+
+	for i, dep := range targets {
+		results[i].Name = dep.GetName()
+
+		start := time.Now()
+		err := dep.Run(ctx)
+
+		results[i].Duration = time.Since(start)
+		results[i].Err = err
+		results[i].Status = classifyCollectAllResult(err)
+
+		if results[i].Status != Pass {
+			hasFailure = true
+		}
+
+		if err != nil && !errors.Is(err, context.Canceled) {
+			_, _ = fmt.Fprintf(out, "Error: %v\n", err)
+		}
+	}
+
+	if !hasFailure {
+		return nil
+	}
+
+	summary := FormatDetailedSummary(results)
+	if summary != "" {
+		_, _ = fmt.Fprintln(out, "\n"+summary)
+	}
+
+	return reportedError{err: NewMultiError(results)}
 }
 
 // runShellCommand executes a shell command string.
