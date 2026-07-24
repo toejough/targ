@@ -897,12 +897,11 @@ func executeDepsOnlyTarget(
 		return args, nil
 	}
 
-	// Run dependencies
-	if len(node.Target.depGroups) > 0 {
-		err := node.Target.runDeps(ctx)
-		if err != nil {
-			return nil, err
-		}
+	// Delegate to the shared override-aware runner; with no function to
+	// execute it runs only the dependencies (--dep-mode applies there)
+	err := runTargetWithOverrides(ctx, node, nodeInstance(node), opts)
+	if err != nil {
+		return nil, err
 	}
 
 	return args, nil

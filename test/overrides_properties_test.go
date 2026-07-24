@@ -578,6 +578,36 @@ func TestProperty_Overrides(t *testing.T) {
 		g.Expect(order).To(Equal([]string{"a", "b", "c", "main"}))
 	})
 
+	t.Run("DepModeSerialAppliesToDepsOnlyTarget", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		order := make([]string, 0, 3)
+
+		var mu sync.Mutex
+
+		record := func(name string) {
+			mu.Lock()
+
+			order = append(order, name)
+
+			mu.Unlock()
+		}
+
+		depA := targ.Targ(func() { record("a") }).Name("a")
+		depB := targ.Targ(func() { record("b") }).Name("b")
+		depC := targ.Targ(func() { record("c") }).Name("c")
+		all := targ.Targ().Name("all").Deps(depA, depB, depC, targ.DepModeParallel)
+
+		_, err := targ.Execute(
+			[]string{"app", "--dep-mode", "serial", "all"},
+			all, depA, depB, depC, dummy(),
+		)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(order).To(Equal([]string{"a", "b", "c"}),
+			"--dep-mode serial on a deps-only target must run deps serially in declaration order")
+	})
+
 	t.Run("DepModeSerialPreservesCollectAllErrors", func(t *testing.T) {
 		t.Parallel()
 		g := NewWithT(t)
