@@ -67,7 +67,7 @@ Greps: `grep -rn --include="*.md" -iE "dep-mode|collectallerrors|collect-all|col
 - Test: `internal/core/target_internal_test.go` (new file, whitebox `package core`)
 
 **Interfaces:**
-- Produces: `func parallelCap(n, cpus int) int` — later tasks call it from `runDeps`.
+- Produces: `func parallelCap(n, procs int) int` — later tasks call it from `runDeps`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -461,7 +461,7 @@ Expected: PASS
 
 - [ ] **Step 3: Mutation sanity check (manual red)**
 
-Temporarily change `parallelCap` to `return n` and re-run the test on a machine where 6 > max(2, numCPU/2) would... — NOT verifiable on a 10-core machine (bound=5 < 6 targets, but without sleeps overlap of all 6 is not guaranteed, so the test may still pass). Skip the mutation check; the deterministic bound proof lives in the whitebox cap=1 tests (Tasks 2–3). This subtest is a public-API regression tripwire, not the primary proof.
+Temporarily change `parallelCap` to `return n` and re-run the test on a machine where 6 > max(2, GOMAXPROCS/2) would... — NOT verifiable on a GOMAXPROCS=10 machine (bound=5 < 6 targets, but without sleeps overlap of all 6 is not guaranteed, so the test may still pass). Skip the mutation check; the deterministic bound proof lives in the whitebox cap=1 tests (Tasks 2–3). This subtest is a public-API regression tripwire, not the primary proof.
 
 - [ ] **Step 4: Commit**
 
@@ -857,6 +857,6 @@ AI-Used: [claude]"
 
 ### Task 9: Complete
 
-- [ ] **Step 1:** Close issue #26 with a comment naming what landed (Option B semaphore with `min(n, max(2, numCPU/2))`, the fail-fast queued-skip, serial collect-all, flatten preservation) and what was explicitly not done (Option A ordering; the `runNodeDeps` lasting-mutation wart, noted as pre-existing).
+- [ ] **Step 1:** Close issue #26 with a comment naming what landed (Option B semaphore with `min(n, max(2, GOMAXPROCS/2))`, the fail-fast queued-skip, serial collect-all, flatten preservation) and what was explicitly not done (Option A ordering; the `runNodeDeps` lasting-mutation wart, noted as pre-existing).
 - [ ] **Step 2:** Confirm working tree clean (`git status`), all commits present with `AI-Used: [claude]` trailer.
 - [ ] **Step 3:** Delete no docs — the plan file stays as a session record (repo convention).
