@@ -8,6 +8,7 @@ package targ_test
 import (
 	"context"
 	"errors"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -580,6 +581,45 @@ func TestProperty_Execution(t *testing.T) {
 		err := <-errCh
 		g.Expect(err).NotTo(HaveOccurred())
 		g.Expect(completedCount.Load()).To(Equal(int32(2)))
+	})
+
+	t.Run("ParallelDepsRespectConcurrencyCap", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		var (
+			mu      sync.Mutex
+			cur     atomic.Int32
+			maxSeen atomic.Int32
+		)
+
+		mkDep := func(name string) *targ.Target {
+			return targ.Targ(func() {
+				c := cur.Add(1)
+
+				mu.Lock()
+				if c > maxSeen.Load() {
+					maxSeen.Store(c)
+				}
+				mu.Unlock()
+
+				cur.Add(-1)
+			}).Name(name)
+		}
+
+		deps := []any{
+			mkDep("c1"), mkDep("c2"), mkDep("c3"),
+			mkDep("c4"), mkDep("c5"), mkDep("c6"),
+			targ.DepModeParallel,
+		}
+		main := targ.Targ(func() {}).Name("main").Deps(deps...)
+
+		err := main.Run(context.Background())
+		g.Expect(err).NotTo(HaveOccurred())
+
+		bound := max(2, runtime.GOMAXPROCS(0)/2)
+		g.Expect(int(maxSeen.Load())).To(BeNumerically("<=", bound),
+			"parallel dep concurrency must not exceed max(2, GOMAXPROCS/2)")
 	})
 
 	t.Run("SuccessfulExecutionReturnsNil", func(t *testing.T) {
