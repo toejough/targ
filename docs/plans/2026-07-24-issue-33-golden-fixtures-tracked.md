@@ -10,7 +10,7 @@
 
 ## Global Constraints
 
-- **The replacement pattern is `**/testdata/rapid/`, NOT the issue's `testdata/rapid/`.** A pattern containing a middle slash is anchored to the `.gitignore`'s own directory, so `testdata/rapid/` only matches `<root>/testdata/rapid/` and would silently stop ignoring all five nested rapid dirs. Verified empirically in a scratch repo (`git check-ignore -q` per representative path): under `testdata/rapid/`, `internal/core/testdata/rapid/b.fail` and `test/testdata/rapid/c.fail` both report **visible**; under `**/testdata/rapid/`, both report **IGNORED** and `internal/runner/testdata/golden/d.golden` stays **visible**. This deviation from the issue text is deliberate — see Design notes.
+- **The replacement pattern is `**/testdata/rapid/`, NOT the issue's `testdata/rapid/`.** A pattern containing a middle slash is anchored to the `.gitignore`'s own directory, so `testdata/rapid/` only matches `<root>/testdata/rapid/` and would silently stop ignoring all six nested rapid dirs. Verified empirically in a scratch repo (`git check-ignore -q` per representative path): under `testdata/rapid/`, `internal/core/testdata/rapid/b.fail` and `test/testdata/rapid/c.fail` both report **visible**; under `**/testdata/rapid/`, both report **IGNORED** and `internal/runner/testdata/golden/d.golden` stays **visible**. This deviation from the issue text is deliberate — see Design notes.
 - **Scope review is set equality, not subset** (vault 360, 150): stage explicit paths; the staged set must equal exactly the four `.golden` files plus `.gitignore`. Verify with `git diff --cached --name-only` before committing — never `git add -A` or `git add .`.
 - **The issue's own Acceptance command is the gate** (issue #33, Acceptance): `git worktree add /tmp/wt HEAD && (cd /tmp/wt && targ check-full)` passes all 8 legs. `targ check-full` run in the dev checkout CANNOT verify this fix — the fixtures are present on disk there, so the coverage leg passes identically before and after. Every acceptance claim must come from a scratch clone/worktree, not from the dev checkout.
 - **Verify optional consumers positively** (vault 420): the golden test reads fixtures from disk; "the command exited 0" is not evidence. The fresh-clone probe must assert the four files EXIST in the clone and that `TestGoldenFile_HelpOutput`'s four subtests actually RAN and compared — in addition to, not instead of, the full `check-full` leg count.
@@ -177,7 +177,7 @@ loss.
 Narrow the pattern to `**/testdata/rapid/`, the artifacts the comment
 was written for. The `**/` prefix is required: a middle-slash pattern
 is anchored to the .gitignore's own directory, so a bare
-`testdata/rapid/` would have stopped ignoring all five nested rapid
+`testdata/rapid/` would have stopped ignoring all six nested rapid
 directories. Drop the now-redundant `test/testdata/` line — that
 directory contains only rapid artifacts.
 
