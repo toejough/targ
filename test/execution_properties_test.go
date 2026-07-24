@@ -1642,9 +1642,6 @@ func TestProperty_Execution(t *testing.T) {
 			"serial collect-all must run every dep, in declaration order")
 	})
 
-	// NOTE: this second subtest is a regression lock, green immediately —
-	// all-passing serial deps return nil under both old and new dispatch;
-	// the genuine TDD red phase for Task 5 is SerialCollectAllErrorsRunsAllInOrder above.
 	t.Run("SerialCollectAllErrorsAllPassingSucceeds", func(t *testing.T) {
 		t.Parallel()
 		g := NewWithT(t)
