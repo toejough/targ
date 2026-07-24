@@ -77,3 +77,68 @@ func TestRunGroupParallelAllBoundsConcurrency(t *testing.T) {
 	g.Expect(ran.Load()).To(Equal(int32(5)), "all targets must run")
 	g.Expect(maxSeen.Load()).To(Equal(int32(1)), "cap 1 must serialize execution")
 }
+
+func TestRunGroupParallelBoundsConcurrency(t *testing.T) {
+	t.Parallel()
+	g := NewWithT(t)
+
+	var (
+		buf     bytes.Buffer
+		mu      sync.Mutex
+		cur     atomic.Int32
+		maxSeen atomic.Int32
+		ran     atomic.Int32
+	)
+
+	makeTarget := func(name string) *Target {
+		return Targ(func() {
+			c := cur.Add(1)
+
+			mu.Lock()
+			if c > maxSeen.Load() {
+				maxSeen.Store(c)
+			}
+			mu.Unlock()
+
+			ran.Add(1)
+			cur.Add(-1)
+		}).Name(name)
+	}
+
+	targets := []*Target{makeTarget("t1"), makeTarget("t2"), makeTarget("t3"), makeTarget("t4")}
+	ctx := WithExecInfo(context.Background(), ExecInfo{Output: &buf})
+
+	err := runGroupParallel(ctx, targets, 1)
+
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(ran.Load()).To(Equal(int32(4)), "all targets must run")
+	g.Expect(maxSeen.Load()).To(Equal(int32(1)), "cap 1 must serialize execution")
+}
+
+func TestRunGroupParallelSkipsOnCanceledContext(t *testing.T) {
+	t.Parallel()
+	g := NewWithT(t)
+
+	var (
+		buf bytes.Buffer
+		ran atomic.Int32
+	)
+
+	makeTarget := func(name string) *Target {
+		return Targ(func() {
+			ran.Add(1)
+		}).Name(name)
+	}
+
+	targets := []*Target{makeTarget("t1"), makeTarget("t2"), makeTarget("t3")}
+
+	ctx, cancel := context.WithCancel(
+		WithExecInfo(context.Background(), ExecInfo{Output: &buf}),
+	)
+	cancel() // canceled before the group starts
+
+	err := runGroupParallel(ctx, targets, 1)
+
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(ran.Load()).To(Equal(int32(0)), "no target may start on a canceled context")
+}
