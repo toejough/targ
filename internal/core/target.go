@@ -761,6 +761,13 @@ func classifyCollectAllResult(err error) Result {
 	return Fail
 }
 
+// parallelCap bounds how many targets in a parallel dep group run
+// concurrently: min(n, max(2, procs/2)). The floor of 2 keeps parallel
+// groups observably concurrent even at GOMAXPROCS=1.
+func parallelCap(n, procs int) int {
+	return min(n, max(2, procs/2)) //nolint:mnd // 2 is the concurrency-floor constant of the cap formula
+}
+
 // parallelShellEnv returns a ShellEnv with PrefixWriter-wrapped stdout/stderr
 // if running in parallel mode, or nil for serial mode.
 func parallelShellEnv(ctx context.Context) (*internalsh.ShellEnv, *PrefixWriter) {
