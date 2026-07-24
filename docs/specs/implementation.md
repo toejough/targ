@@ -119,7 +119,7 @@ Items derived from: ground truth (existing codebase)
 **Package:** `internal/flags`
 **Files:** `flags.go`, `placeholders.go`
 **Purpose:** Registry of all built-in CLI flags (`--completion`, `--help`, `--source`, `--timeout`, `--parallel`, `--times`, `--retry`, `--backoff`, `--watch`, `--cache`, `--while`, `--dep-mode`, `--no-binary-cache`, `--create`, `--sync`, `--to-func`, `--to-string`, `--init`, `--alias`, `--move`, plus the deprecated `--no-cache` alias). Flag mode classification (targ-only vs. binary mode). Placeholder definitions.
-**Caveat:** `--dep-mode` (`serial`|`parallel`) overrides how a target's dependency groups execute; the override flattens all dependency groups into a single group and drops the `CollectAllErrors` option — e.g. `--dep-mode serial` on `check-full` reverts it to fail-fast on the first error (behavioral fix tracked in #26).
+**Caveat:** `--dep-mode` (`serial`|`parallel`) overrides how a target's dependency groups execute; the override flattens all dependency groups into a single group. The `CollectAllErrors` option survives the flatten (any group having it sets it on the flattened group) — e.g. `--dep-mode serial` on `check-full` runs the legs one at a time and still reports all failures.
 **Key types:** `Def`, `FlagMode`, `Placeholder`
 **Traces to:** ARCH-10
 

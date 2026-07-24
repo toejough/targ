@@ -44,6 +44,9 @@ Items derived from: L4 implementation (existing test suite)
 - Property: timeout flag enforces limit
 - Property: times flag controls repetition
 - Fuzz: backoff arbitrary parameters, builder chain ordering, cache patterns, deps, descriptions
+- Property: parallel dep concurrency never exceeds min(n, max(2, GOMAXPROCS/2))
+- Property: serial CollectAllErrors runs every dep in order and reports all failures
+- Property: --dep-mode flatten preserves CollectAllErrors (serial and parallel)
 
 **Tests:** `TestProperty_Execution`, `TestProperty_Invariant`, `TestProperty_Overrides`, `FuzzBackoff_ArbitraryParameters`, `FuzzBuilderChain_ArbitraryOrder`, `FuzzCache_ArbitraryPatterns`, `FuzzDeps_ArbitraryDependencies`, `FuzzDescription_ArbitraryStrings`
 **Traces to L4:** IMPL-5 (Command Parsing and Execution)

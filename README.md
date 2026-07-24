@@ -347,6 +347,8 @@ Chain `.Deps()` calls to mix serial and parallel groups:
 targ.Targ(ci).Deps(generate).Deps(lint, test, targ.DepModeParallel).Deps(deploy)
 ```
 
+Parallel groups run at most `min(n, max(2, GOMAXPROCS/2))` targets concurrently (where `n` is the group's target count); excess targets queue until a slot frees up.
+
 Deps-only targets run dependencies without their own function:
 
 ```go
@@ -377,7 +379,7 @@ Every target execution produces a result: **Pass**, **Fail**, **Cancelled**, or 
 FAIL:1 PASS:1
 ```
 
-By default, the first failure cancels remaining targets. Use `targ.CollectAllErrors` to run all and report all failures:
+By default, the first failure cancels remaining targets. Use `targ.CollectAllErrors` to run all and report all failures (works with serial groups too — every dep runs, all failures are reported):
 
 ```go
 targ.Targ(ci).Deps(lint, test, targ.DepModeParallel, targ.CollectAllErrors)
@@ -711,7 +713,7 @@ These flags modify target execution from the CLI:
 
 Runtime flags conflict with compile-time config by default (see [No Surprises](#no-surprises)). Use `targ.Disabled` to allow CLI override.
 
-Note: `--dep-mode` bypasses the conflict detection above and silently overrides compile-time dependency modes: it flattens all of a target's [dependency groups](#dependencies) into a single group and ignores any `targ.CollectAllErrors` — e.g. `--dep-mode serial` on `check-full` reverts it to fail-fast on the first error.
+Note: `--dep-mode` bypasses the conflict detection above and silently overrides compile-time dependency modes: it flattens all of a target's [dependency groups](#dependencies) into a single group. `targ.CollectAllErrors` survives the flatten — if any group collects all errors, the flattened group does too.
 
 ### Quick Target Scaffolding
 

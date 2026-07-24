@@ -39,7 +39,7 @@ Global mutable `RegistryState` stores targets registered via `Register()` in `in
 
 ## ARCH-6: Result Classification and Reporting
 
-`Result` enum: Pass, Fail, Cancelled, Errored. `ClassifyResult()` maps error types: nil→Pass, context.Canceled→Cancelled (or Fail if first), DeadlineExceeded→Errored, other→Fail. `MultiError` collects all failures from parallel CollectAllErrors mode. `FormatSummary()` and `FormatDetailedSummary()` produce human-readable output with per-target status, truncated error snippets.
+`Result` enum: Pass, Fail, Cancelled, Errored. `ClassifyResult()` maps error types: nil→Pass, context.Canceled→Cancelled (or Fail if first), DeadlineExceeded→Errored, other→Fail. `MultiError` collects all failures from CollectAllErrors mode (parallel or serial). `FormatSummary()` and `FormatDetailedSummary()` produce human-readable output with per-target status, truncated error snippets.
 
 **Induced from:** IMPL-8, T-6
 **Traces to:** REQ-7, DES-5

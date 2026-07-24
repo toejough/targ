@@ -46,7 +46,7 @@ Targets can be organized into named groups forming a command tree. Groups can ne
 
 ## REQ-7: Execution results are classified and reported
 
-Every target execution produces a result: Pass, Fail, Cancelled, or Errored. Parallel mode with `CollectAllErrors` collects all failures. Summary output shows per-target status with truncated error snippets.
+Every target execution produces a result: Pass, Fail, Cancelled, or Errored. `CollectAllErrors` collects all failures, in both parallel and serial modes. Summary output shows per-target status with truncated error snippets.
 
 **Induced from:** ARCH-6
 **Traces to:** UC-5
@@ -172,7 +172,7 @@ Fluent builder API: `targ.Targ(fn).Name("x").Deps(a, b).Cache("**/*.go").Watch("
 
 ## DES-5: Dependency execution model
 
-`.Deps(targets..., mode)` declares dependencies. Serial by default. `targ.DepModeParallel` for parallel. Chain `.Deps()` for mixed serial/parallel groups. In parallel mode, fail-fast cancels remaining targets (default) or `CollectAllErrors` runs all and reports all failures.
+`.Deps(targets..., mode)` declares dependencies. Serial by default. `targ.DepModeParallel` for parallel. Chain `.Deps()` for mixed serial/parallel groups. In parallel mode, fail-fast cancels remaining targets (default) or `CollectAllErrors` runs all and reports all failures; serial groups honor `CollectAllErrors` by continuing past failures. Parallel groups are bounded to `min(n, max(2, GOMAXPROCS/2))` concurrent targets.
 
 **Induced from:** ARCH-1, ARCH-6, ARCH-7
 **Traces to:** UC-1, UC-5
