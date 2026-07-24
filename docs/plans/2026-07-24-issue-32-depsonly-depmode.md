@@ -4,7 +4,7 @@
 
 **Goal:** Make deps-only targets (`targ.Targ().Name("all").Deps(...)`) honor the `--dep-mode` CLI override exactly as function-bearing targets do.
 
-**Architecture:** `runDeps` has three callers; `runNodeDeps` (`internal/core/command.go:1945`) is the only one that applies the `--dep-mode` flatten (with the CollectAllErrors union rule from #26). Deps-only targets currently take `executeDepsOnlyTarget` (`command.go:889`), which calls `node.Target.runDeps(ctx)` raw — bypassing `opts.Overrides`. The fix replaces that raw call (and its `len(depGroups) > 0` guard, which `runNodeDeps` performs itself) with `runNodeDeps(ctx, node, opts.Overrides)`, while **keeping the `opts.HelpOnly` early-return** — `runNodeDeps` takes `RuntimeOverrides`, not `RunOptions`, so it cannot see HelpOnly; the function-bearing path short-circuits HelpOnly upstream, and `TestProperty_Execution/DepsOnlyTargetHelpShowsDeps` pins that deps must not run under `--help`.
+**Architecture:** `runDeps` has three callers; `runNodeDeps` (`internal/core/command.go:1945`) is the only one that applies the `--dep-mode` flatten (with the CollectAllErrors union rule from #26). Deps-only targets currently take `executeDepsOnlyTarget` (`command.go:889`), which calls `node.Target.runDeps(ctx)` raw — bypassing `opts.Overrides`. The fix replaces that raw call (and its `len(depGroups) > 0` guard) by delegating to `runTargetWithOverrides(ctx, node, nodeInstance(node), opts)` — the shared override-aware runner, which routes through `runNodeDeps` and returns before function execution when `node.Func` is invalid (`command.go:2027-2030`; `nodeInstance` yields a safe zero value for type-less nodes) — while **keeping the `opts.HelpOnly` early-return**, which the shared runner cannot see; the function-bearing path short-circuits HelpOnly upstream, and `TestProperty_Execution/DepsOnlyTargetHelpShowsDeps` pins that deps must not run under `--help`. *(Amended after Gate B: the original plan called `runNodeDeps` directly; the design-fit review showed delegation removes a hand-rolled duplicate of `runTargetWithOverrides`'s first three lines.)*
 
 **Tech Stack:** Go 1.25.5, gomega assertions, `targ` build system for all verification (never bare `go test`).
 
@@ -67,17 +67,15 @@ Insert into `test/overrides_properties_test.go` directly ABOVE the `t.Run("DepMo
 
 		var mu sync.Mutex
 
-		record := func(name string) func() {
-			return func() {
-				mu.Lock()
-				order = append(order, name)
-				mu.Unlock()
-			}
+		record := func(name string) {
+			mu.Lock()
+			order = append(order, name)
+			mu.Unlock()
 		}
 
-		depA := targ.Targ(record("a")).Name("a")
-		depB := targ.Targ(record("b")).Name("b")
-		depC := targ.Targ(record("c")).Name("c")
+		depA := targ.Targ(func() { record("a") }).Name("a")
+		depB := targ.Targ(func() { record("b") }).Name("b")
+		depC := targ.Targ(func() { record("c") }).Name("c")
 		all := targ.Targ().Name("all").Deps(depA, depB, depC, targ.DepModeParallel)
 
 		_, err := targ.Execute(
@@ -114,8 +112,9 @@ func executeDepsOnlyTarget(
 		return args, nil
 	}
 
-	// Run dependencies through the override layer so --dep-mode applies
-	err := runNodeDeps(ctx, node, opts.Overrides)
+	// Delegate to the shared override-aware runner; with no function to
+	// execute it runs only the dependencies (--dep-mode applies there)
+	err := runTargetWithOverrides(ctx, node, nodeInstance(node), opts)
 	if err != nil {
 		return nil, err
 	}
@@ -124,7 +123,7 @@ func executeDepsOnlyTarget(
 }
 ```
 
-The `len(node.Target.depGroups) > 0` guard is deleted deliberately: `runNodeDeps` performs its own `node.Target == nil || len(node.Target.depGroups) == 0` guard (`command.go:1946`). The `opts.HelpOnly` early-return MUST remain (see Architecture).
+The `len(node.Target.depGroups) > 0` guard is deleted deliberately: `runNodeDeps` (called first inside `runTargetWithOverrides`) performs its own `node.Target == nil || len(node.Target.depGroups) == 0` guard (`command.go:1946`). The `opts.HelpOnly` early-return MUST remain (see Architecture).
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
@@ -146,11 +145,12 @@ git commit -m "$(cat <<'EOF'
 fix(core): honor --dep-mode override for deps-only targets
 
 executeDepsOnlyTarget called Target.runDeps directly, bypassing the
-runNodeDeps override layer, so --dep-mode parsed successfully and then
-silently did nothing for deps-only targets. Route it through
-runNodeDeps (which guards empty depGroups itself and preserves
-CollectAllErrors through the flatten); keep the HelpOnly early-return,
-which runNodeDeps cannot see.
+override layer, so --dep-mode parsed successfully and then silently
+did nothing for deps-only targets. Delegate to runTargetWithOverrides,
+the shared override-aware runner, which routes deps through runNodeDeps
+(guarding empty depGroups itself and preserving CollectAllErrors
+through the flatten) and no-ops the absent function; keep the HelpOnly
+early-return, which the shared runner cannot see.
 
 Closes #32
 
