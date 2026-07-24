@@ -1,0 +1,8 @@
+Sync targets from a remote package.
+
+Usage:
+  targ --sync <package-path>
+
+Examples:
+  targ --sync github.com/user/repo
+  targ --sync github.com/user/repo/tools

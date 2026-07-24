@@ -1,0 +1,8 @@
+Convert a string target to a function target.
+
+Usage:
+  targ --to-func <target-name>
+
+Examples:
+  targ --to-func test
+  targ --to-func dev/lint

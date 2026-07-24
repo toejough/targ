@@ -1,0 +1,27 @@
+Create a new target in the nearest targ file.
+
+Usage:
+  targ --create [group...] <name> [flags...] "<shell-command>"
+
+Formats:
+  duration  <int><unit> where unit is s (seconds), m (minutes), h (hours)
+
+Positionals:
+  <group...>
+  <name> (required)
+  "<shell-command>" (required)
+
+Flags:
+  --deps <targets...>         Deps to run first
+  --cache <patterns...>       Skip if unchanged
+  --watch <patterns...>       Re-run on change
+  --timeout <duration>        Execution timeout
+  --times <n>                 Run n times
+  --retry                     Continue on failure
+  --backoff <duration,mult>   Backoff (1s,2.0)
+  --dep-mode <mode>           serial or parallel
+
+Examples:
+  targ --create test "go test ./..."
+  targ --create dev lint --deps fmt --cache "**/*.go" "golangci-lint run"
+  targ --create test --timeout 30s --retry "go test ./..."

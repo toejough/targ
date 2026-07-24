@@ -1,0 +1,8 @@
+Convert a function target to a string target.
+
+Usage:
+  targ --to-string <target-name>
+
+Examples:
+  targ --to-string test
+  targ --to-string dev/lint

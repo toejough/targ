@@ -6,7 +6,7 @@
 coverage.out
 .claude/settings.local.json
 .targ-cache/
-test/testdata/
-# Rapid/property test artifacts
-testdata/
+# Ignore new .fail cases written by rapid property tests; golden fixtures stay tracked.
+# Some .fail files predate this rule and remain tracked; rapid re-runs saved cases.
+**/testdata/rapid/
 .superpowers/
