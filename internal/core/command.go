@@ -1949,16 +1949,27 @@ func runNodeDeps(ctx context.Context, node *commandNode, overrides RuntimeOverri
 
 	target := node.Target
 
-	// Apply --dep-mode override: flatten all groups into one
+	// Apply --dep-mode override: flatten all groups into one.
+	// CollectAllErrors survives the flatten — if any original group
+	// collected all errors, the flattened group does too.
 	if overrides.DepMode != "" {
 		var mode DepMode
 		if overrides.DepMode == depModeParallelStr {
 			mode = DepModeParallel
 		}
 
+		collectAll := false
+
+		for _, g := range target.depGroups {
+			if g.collectAll {
+				collectAll = true
+				break
+			}
+		}
+
 		allDeps := target.GetDeps()
 		if len(allDeps) > 0 {
-			target.depGroups = []depGroup{{targets: allDeps, mode: mode}}
+			target.depGroups = []depGroup{{targets: allDeps, mode: mode, collectAll: collectAll}}
 		}
 	}
 

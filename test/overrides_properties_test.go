@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -575,6 +576,62 @@ func TestProperty_Overrides(t *testing.T) {
 		g.Expect(err).NotTo(HaveOccurred())
 		// With serial override, execution order should be deterministic: a, b, c, main
 		g.Expect(order).To(Equal([]string{"a", "b", "c", "main"}))
+	})
+
+	t.Run("DepModeSerialPreservesCollectAllErrors", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		var ran atomic.Int32
+
+		dep1 := targ.Targ(func() error {
+			ran.Add(1)
+			return errors.New("dep1 failed")
+		}).Name("dep1")
+
+		dep2 := targ.Targ(func() error {
+			ran.Add(1)
+			return errors.New("dep2 failed")
+		}).Name("dep2")
+
+		main := targ.Targ(func() {}).Name("main").
+			Deps(dep1, dep2, targ.DepModeParallel, targ.CollectAllErrors)
+
+		_, err := targ.Execute(
+			[]string{"app", "--dep-mode", "serial", "main"},
+			main, dep1, dep2, dummy(),
+		)
+		g.Expect(err).To(HaveOccurred())
+		g.Expect(ran.Load()).To(Equal(int32(2)),
+			"--dep-mode serial must preserve CollectAllErrors: both deps run despite the first failing")
+	})
+
+	t.Run("DepModeParallelPreservesCollectAllErrors", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		var ran atomic.Int32
+
+		dep1 := targ.Targ(func() error {
+			ran.Add(1)
+			return errors.New("dep1 failed")
+		}).Name("dep1")
+
+		dep2 := targ.Targ(func() error {
+			ran.Add(1)
+			return errors.New("dep2 failed")
+		}).Name("dep2")
+
+		main := targ.Targ(func() {}).Name("main").
+			Deps(dep1, dep2, targ.CollectAllErrors)
+
+		_, err := targ.Execute(
+			[]string{"app", "--dep-mode", "parallel", "main"},
+			main, dep1, dep2, dummy(),
+		)
+		g.Expect(err).To(HaveOccurred())
+		g.Expect(ran.Load()).To(Equal(int32(2)),
+			"--dep-mode parallel must preserve CollectAllErrors: no dep is cancelled")
 	})
 
 	t.Run("CacheDirFlagSetsDirectory", func(t *testing.T) {

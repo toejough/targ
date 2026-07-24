@@ -1,6 +1,8 @@
 package core
 
 import (
+	"bytes"
+	"context"
 	"path/filepath"
 	"reflect"
 	"testing"
@@ -116,4 +118,43 @@ func TestProperty_UnrecognizedTagKeyError(t *testing.T) {
 		g.Expect(err).To(HaveOccurred())
 		g.Expect(err.Error()).To(ContainSubstring("arg"))
 	})
+}
+
+func TestRunNodeDepsFlattenPreservesCollectAll(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		depMode  string
+		wantMode DepMode
+	}{
+		{name: "SerialFlatten", depMode: "serial", wantMode: DepModeSerial},
+		{name: "ParallelFlatten", depMode: "parallel", wantMode: DepModeParallel},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			g := NewWithT(t)
+
+			var buf bytes.Buffer
+
+			dep1 := Targ(func() {}).Name("dep1")
+			dep2 := Targ(func() {}).Name("dep2")
+			owner := Targ(func() {}).Name("owner").
+				Deps(dep1).
+				Deps(dep2, DepModeParallel, CollectAllErrors)
+
+			node := &commandNode{Target: owner}
+			ctx := WithExecInfo(context.Background(), ExecInfo{Output: &buf})
+
+			err := runNodeDeps(ctx, node, RuntimeOverrides{DepMode: tt.depMode})
+
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(owner.depGroups).To(HaveLen(1), "flatten must produce a single group")
+			g.Expect(owner.depGroups[0].mode).To(Equal(tt.wantMode))
+			g.Expect(owner.depGroups[0].collectAll).To(BeTrue(),
+				"any original group having CollectAllErrors must set it on the flattened group")
+		})
+	}
 }
