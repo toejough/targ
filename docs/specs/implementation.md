@@ -61,7 +61,7 @@ Items derived from: ground truth (existing codebase)
 
 **Package:** `internal/core`
 **File:** `result.go`
-**Purpose:** Execution result classification (`Pass`, `Fail`, `Cancelled`, `Errored`), `MultiError` for parallel failures, `FormatSummary()` and `FormatDetailedSummary()` for human-readable output.
+**Purpose:** Execution result classification (`Pass`, `Fail`, `Cancelled`, `Errored`), `MultiError` for CollectAllErrors failures (parallel or serial), `FormatSummary()` and `FormatDetailedSummary()` for human-readable output.
 **Key types:** `Result`, `MultiError`, `TargetResult`
 **Traces to:** ARCH-6
 

@@ -77,7 +77,7 @@ Items derived from: L4 implementation (existing test suite)
 
 ## T-6: Result classification and reporting
 
-**Given** target execution outcomes (nil, context.Canceled, DeadlineExceeded, other errors), **When** classified, **Then** correct Result status (Pass/Fail/Cancelled/Errored) is assigned. Multi-error collects all parallel failures. Summary formatting shows per-target status.
+**Given** target execution outcomes (nil, context.Canceled, DeadlineExceeded, other errors), **When** classified, **Then** correct Result status (Pass/Fail/Cancelled/Errored) is assigned. Multi-error collects all failures from CollectAllErrors mode (parallel or serial). Summary formatting shows per-target status.
 
 - Property: string values for each status
 - Property: nil → Pass, context.Canceled → Cancelled (or Fail if first), DeadlineExceeded → Errored
