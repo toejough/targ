@@ -24,13 +24,13 @@
 
 ## Design Decisions (settled during orientation; do not relitigate in-task)
 
-1. **Cap formula: `min(n, max(2, GOMAXPROCS/2))` — user-decided.** History: Joe initially picked "max(1, numCPU/2), no knob"; the plan's first draft self-substituted a floor of 2 (the four subtests at `test/execution_properties_test.go:298,543,631,674` gate exactly 2 deps and require both to start concurrently, so a cap of 1 breaks the "parallel means concurrent" contract); Gate A ask-alignment correctly flagged that override as a decision belonging to the user. Escalated 2026-07-24: Joe answered "just use max procs", then confirmed the exact formula `min(n, max(2, GOMAXPROCS/2))` — the halving cap sourced from `runtime.GOMAXPROCS(0)` (respects container CPU quotas, unlike `NumCPU`), floor 2 preserving the concurrency contract. No knob (YAGNI, per Joe's pick).
+1. **Cap formula: `min(n, max(2, GOMAXPROCS/2))` — user-decided.** History: Joe initially picked "max(1, numCPU/2), no knob"; the plan's first draft self-substituted a floor of 2 (dep-group parallelism tests at `test/execution_properties_test.go:298,543` gate exactly 2 deps and require both to start concurrently, and `DefaultParallelStillCancelsOnFirstError` at :1564 needs true 2-way concurrency via a handshake channel — a cap of 1 breaks the "parallel means concurrent" contract; Gate A code-alignment note: the superficially-similar tests at :631,:674 exercise the top-level `--parallel` flag path in `run_env.go`, which this plan does not touch); Gate A ask-alignment correctly flagged that override as a decision belonging to the user. Escalated 2026-07-24: Joe answered "just use max procs", then confirmed the exact formula `min(n, max(2, GOMAXPROCS/2))` — the halving cap sourced from `runtime.GOMAXPROCS(0)` (respects container CPU quotas, unlike `NumCPU`), floor 2 preserving the concurrency contract. No knob (YAGNI, per Joe's pick).
 2. **Full CollectAllErrors fix** (Joe's pick): flatten preserves `collectAll` (union across original groups), AND serial groups honor `collectAll` via new `runGroupSerialAll`. This also fixes the pre-existing silent gap where `Deps(a, b, CollectAllErrors)` without `DepModeParallel` was accepted but ignored (dispatch at target.go:502 only honored it for parallel).
 3. **Queued-target skip in fail-fast runner:** after acquiring the semaphore, `runGroupParallel` checks `ctx.Err()`; a canceled context short-circuits to a `Cancelled` result without firing `OnStart` or `Run`. Rationale: with a cap, a queued dep could otherwise START fresh work after a sibling already failed — a regression of fail-fast semantics. The guarantee is best-effort (same as today's mid-flight cancellation), tested deterministically via a pre-canceled context.
 4. **`runGroupSerialAll` output:** quiet on success (like `runGroupSerial`); on failure prints per-target `Error:` lines as they occur and a `FormatDetailedSummary` block at the end, returns `reportedError{NewMultiError(results)}` (mirrors `runGroupParallelAll`'s failure reporting without the parallel printer machinery, which serial output doesn't need).
 5. **Semaphore acquired inside the goroutine** (spawn all, gate execution): keeps the result-collection loop unchanged (all N goroutines send exactly one result) and means `OnStart`/"starting..." only fires when a target actually begins.
 6. **Cap clamp:** runners treat `capN < 1` as 1 (defensive; `parallelCap` returns 0 only for n=0, where no goroutines spawn anyway).
-7. **Out of scope (pre-existing, unchanged):** `runNodeDeps`'s flatten permanently mutates the registered `*Target`'s `depGroups` (observable on a second execution in-process; command.go:1961). Not this issue.
+7. **Out of scope (pre-existing, unchanged):** `runNodeDeps`'s flatten permanently mutates the registered `*Target`'s `depGroups` (observable on a second execution in-process; command.go:1961). Also out of scope: the top-level `--parallel` flag path (`executeDefaultParallel`, `internal/core/run_env.go:281`) has the same unbounded fan-out structurally — candidate follow-up issue, to be surfaced to Joe at close (Task 9). Neither is this issue.
 
 ## Doc-Surface Enumeration (grep run 2026-07-23)
 
@@ -127,9 +127,11 @@ In `internal/core/target.go`, after `classifyCollectAllResult` and before `paral
 // concurrently: min(n, max(2, procs/2)). The floor of 2 keeps parallel
 // groups observably concurrent even at GOMAXPROCS=1.
 func parallelCap(n, procs int) int {
-	return min(n, max(2, procs/2))
+	return min(n, max(2, procs/2)) //nolint:mnd // 2 is the concurrency-floor constant of the cap formula
 }
 ```
+
+(The `//nolint:mnd` is required — the `mnd` linter flags the bare `2` argument in non-test files; empirically probed against `dev/golangci-lint.toml` during Gate A, and the comment form matches the repo's existing precedent at `command.go:360,651,1161,1979`.)
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -150,7 +152,7 @@ AI-Used: [claude]"
 ### Task 2: Bound `runGroupParallelAll` with a semaphore
 
 **Files:**
-- Modify: `internal/core/target.go:905` (`runGroupParallelAll` signature + body), `:497-516` (`runDeps` call site), imports (add `"runtime"`)
+- Modify: `internal/core/target.go:905` (`runGroupParallelAll` signature + body), `:497-516` (`runDeps` call site); no import changes (`"runtime"` already imported at target.go:10 — adding it again is a compile error)
 - Test: `internal/core/target_internal_test.go`
 
 **Interfaces:**
@@ -530,6 +532,9 @@ In the collect-all block of `TestProperty_Execution` (alphabetical placement wit
 			"serial collect-all must run every dep, in declaration order")
 	})
 
+	// NOTE: this second subtest is a regression lock, green immediately —
+	// all-passing serial deps return nil under both old and new dispatch;
+	// the genuine TDD red phase for Task 5 is SerialCollectAllErrorsRunsAllInOrder above.
 	t.Run("SerialCollectAllErrorsAllPassingSucceeds", func(t *testing.T) {
 		t.Parallel()
 		g := NewWithT(t)
@@ -866,4 +871,5 @@ AI-Used: [claude]"
 
 - [ ] **Step 1:** Close issue #26 with a comment naming what landed (Option B semaphore with `min(n, max(2, GOMAXPROCS/2))`, the fail-fast queued-skip, serial collect-all, flatten preservation) and what was explicitly not done (Option A ordering; the `runNodeDeps` lasting-mutation wart, noted as pre-existing).
 - [ ] **Step 2:** Confirm working tree clean (`git status`), all commits present with `AI-Used: [claude]` trailer.
+- [ ] **Step 2.5:** Surface the `--parallel` top-level fan-out follow-up to Joe (Design Decision 7): same unbounded structure in `executeDefaultParallel` (`internal/core/run_env.go:281`); file an issue only on Joe's yes.
 - [ ] **Step 3:** Delete no docs — the plan file stays as a session record (repo convention).
