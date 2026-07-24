@@ -109,11 +109,14 @@ testdata/
 Replace with:
 
 ```
-# Rapid/property test artifacts (kept out of git; golden fixtures are tracked)
+# Ignore new .fail cases written by rapid property tests; golden fixtures stay tracked.
+# Some .fail files predate this rule and remain tracked; rapid re-runs saved cases.
 **/testdata/rapid/
 ```
 
-That is: delete the redundant `test/testdata/` line, replace bare `testdata/` with `**/testdata/rapid/`, and extend the existing comment to say why the narrowing exists. Net: 3 lines → 2.
+That is: delete the redundant `test/testdata/` line, replace bare `testdata/` with `**/testdata/rapid/`, and rewrite the comment to say why the narrowing exists. Net: 3 lines → 3.
+
+*(Amended after Gate B: the original plan prescribed a single comment line reading "Rapid/property test artifacts (kept out of git; golden fixtures are tracked)". The design-fit review showed that claim is false in this tree — 29 `.fail` files under `internal/core/` and `internal/discover/` are tracked. They were grandfathered, not force-added: on 2026-01-27 when they landed, `.gitignore` held only `test/testdata/`; the bare `testdata/` blanket arrived 2026-01-29 in `72701ef`. They are also live — rapid globs `testdata/rapid/<Test>/<Test>-*.fail` and replays every match on each run (`rapid@v1.2.0` `engine.go:252`, `persist.go:62`) — so untracking them would delete 29 regression seeds and is deferred to a follow-up issue. Gate C then sharpened the wording to name `.fail` explicitly and to say "re-runs saved cases" rather than requiring knowledge of the rapid library.)*
 
 - [ ] **Step 2: Verify the pattern's anchoring and blast radius before staging**
 
