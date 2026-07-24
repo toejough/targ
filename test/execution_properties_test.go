@@ -1436,9 +1436,12 @@ func TestProperty_Execution(t *testing.T) {
 			return dep1Err
 		}).Name("dep1")
 
-		dep2 := targ.Targ(func() error {
-			time.Sleep(50 * time.Millisecond) // Delay to ensure dep1 fails first
-			return errors.New("dep2 failed")
+		dep2 := targ.Targ(func(ctx context.Context) error {
+			// Block until the group cancels (dep1's failure), so dep1 is
+			// deterministically the first error regardless of scheduling.
+			<-ctx.Done()
+
+			return ctx.Err()
 		}).Name("dep2")
 
 		mainCalled := false
