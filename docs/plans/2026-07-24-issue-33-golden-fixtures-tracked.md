@@ -4,15 +4,16 @@
 
 **Goal:** Make `targ check-full` pass in a fresh clone by tracking the four golden fixtures that `.gitignore`'s blanket `testdata/` currently hides.
 
-**Architecture:** `.gitignore:11` is a bare `testdata/` (comment above it: "Rapid/property test artifacts"), which matches every `testdata/` directory at any depth and therefore also hides `internal/runner/testdata/golden/*.golden` — the four fixtures `TestGoldenFile_HelpOutput` (`internal/runner/runner_help_test.go:16-80`) reads. Narrow the pattern to the artifacts it was written for, and stage the fixtures.
+**Architecture:** `.gitignore:11` is a bare `testdata/` (comment above it: "Rapid/property test artifacts"), which matches every `testdata/` directory at any depth and therefore also hides `internal/runner/testdata/golden/*.golden` — the four fixtures `TestGoldenFile_HelpOutput` (`internal/runner/runner_help_test.go:16-82`) reads. Narrow the pattern from bare `testdata/` to `**/testdata/rapid/` (the artifacts the comment above it names), and stage the four fixtures the narrowed rule exposes.
 
 **Tech Stack:** git ignore semantics, Go test fixtures, `targ` build system for verification.
 
 ## Global Constraints
 
 - **The replacement pattern is `**/testdata/rapid/`, NOT the issue's `testdata/rapid/`.** A pattern containing a middle slash is anchored to the `.gitignore`'s own directory, so `testdata/rapid/` only matches `<root>/testdata/rapid/` and would silently stop ignoring all five nested rapid dirs. Verified empirically in a scratch repo (`git check-ignore -q` per representative path): under `testdata/rapid/`, `internal/core/testdata/rapid/b.fail` and `test/testdata/rapid/c.fail` both report **visible**; under `**/testdata/rapid/`, both report **IGNORED** and `internal/runner/testdata/golden/d.golden` stays **visible**. This deviation from the issue text is deliberate — see Design notes.
-- **Scope review is set equality, not subset** (vault 360, 150): stage explicit paths; the staged set must equal exactly the four `.golden` files plus `.gitignore`. Verify with `git diff --cached --name-only` before committing — never `git add -A`/`.`.
-- **Verify optional consumers positively** (vault 420): the golden test reads fixtures from disk; "the command exited 0" is not evidence. The fresh-clone probe must assert the four files EXIST in the clone and that `TestGoldenFile_HelpOutput`'s four subtests actually RAN and compared.
+- **Scope review is set equality, not subset** (vault 360, 150): stage explicit paths; the staged set must equal exactly the four `.golden` files plus `.gitignore`. Verify with `git diff --cached --name-only` before committing — never `git add -A` or `git add .`.
+- **The issue's own Acceptance command is the gate** (issue #33, Acceptance): `git worktree add /tmp/wt HEAD && (cd /tmp/wt && targ check-full)` passes all 8 legs. `targ check-full` run in the dev checkout CANNOT verify this fix — the fixtures are present on disk there, so the coverage leg passes identically before and after. Every acceptance claim must come from a scratch clone/worktree, not from the dev checkout.
+- **Verify optional consumers positively** (vault 420): the golden test reads fixtures from disk; "the command exited 0" is not evidence. The fresh-clone probe must assert the four files EXIST in the clone and that `TestGoldenFile_HelpOutput`'s four subtests actually RAN and compared — in addition to, not instead of, the full `check-full` leg count.
 - **Full-suite green gates sequence AFTER the commit** (vault 395): `targ check-full`'s `check-uncommitted` leg fails by design on a dirty tree. Pre-commit, expect every leg green EXCEPT `check-uncommitted`.
 - **TDD RED is mandatory** and here means: observe the fresh-clone failure BEFORE the fix, from a clone of the current `HEAD`.
 - Commit trailer is `AI-Used: [claude]`.
@@ -32,9 +33,11 @@ Ran over the repo for `gitignore|testdata|golden|fixture` (`*.md` in `README.md`
 | File | Disposition | Reason |
 | --- | --- | --- |
 | `docs/specs/tests.md:200,203,207` (T-? golden-file help output; `TestGoldenFile_HelpOutput` in the Tests roster) | keep | Describes what the golden test asserts; the fix changes fixture *tracking*, not the property or the test's behavior. Still accurate. |
+| `internal/runner/runner_help_test.go:17,79` (`// Set TARG_UPDATE_GOLDEN=1 to regenerate golden files.` and the same string in the failure message) | keep | The only place the regeneration procedure is documented. The procedure is unchanged by tracking — `TARG_UPDATE_GOLDEN=1` still rewrites the files; the only difference is that `git status` now shows the result, which is the intended effect. |
 | `dev/targets.go:849` (`name == "testdata"` → `filepath.SkipDir`) | keep | A source-walker skip for `.go` discovery, unrelated to git ignore rules; unaffected by tracking fixtures. |
 | `README.md`, `CLAUDE.md` | N/A | Zero hits for gitignore/testdata/golden/fixture — no contributor-facing ignore convention is documented anywhere to update. |
-| `docs/plans/*`, `docs/archive/*` | N/A | Historical records kept as written (grep for `gitignore`/`golden fixture` returned no plan-doc hits regardless). |
+| `docs/archive/tasks.md:899-910,1064` (TASK-040, the historical task that created these fixtures) | keep | `docs/archive/` is a kept-as-written historical record; TASK-040 describes creating the golden files, not how git treats them. (Correction: an earlier draft of this table claimed the archive grep returned no hits — it returns 89 across `docs/archive/` + `docs/plans/`; none require an update, but the count was misstated.) |
+| `docs/plans/*` (this cycle's and prior cycles' plans) | N/A | Historical planning records, kept as written per repo convention. |
 | `*.yml`/`*.yaml`/`*.toml`/`*.json` | N/A | Zero `testdata` hits — no CI or tooling config encodes the ignore convention. |
 
 ---
@@ -46,7 +49,7 @@ Ran over the repo for `gitignore|testdata|golden|fixture` (`*.md` in `README.md`
 
 **Interfaces:**
 - Consumes: nothing.
-- Produces: the RED evidence quoted into the Task 3 report.
+- Produces: two pieces of RED evidence quoted into the Task 3 report — (a) terminal output showing four `--- FAIL` lines (subtests `create`, `sync`, `to-func`, `to-string`), each reporting `failed to read golden file testdata/golden/<name>.golden`; (b) `targ check-full` in the clone reporting 7/8 legs with `check-coverage-for-fail` as the failing leg.
 
 - [ ] **Step 1: Clone the current HEAD and prove the fixtures are absent**
 
@@ -67,13 +70,21 @@ cd "$SCRATCH/clone-red" && go test ./internal/runner -run TestGoldenFile_HelpOut
 
 Expected: FAIL — each of the four subtests fails at `failed to read golden file testdata/golden/<name>.golden`. Record the exact failure text; it is the RED evidence.
 
-- [ ] **Step 3: Confirm the same test passes in the working tree (isolates the cause to tracking, not the test)**
+- [ ] **Step 3: Run the issue's own Acceptance command in the clone — the gate that must flip**
+
+```bash
+cd "$SCRATCH/clone-red" && targ check-full 2>&1 | tail -15
+```
+
+Expected: **7/8 legs**, with `check-coverage-for-fail` the failing leg (the golden test's failure sinks the coverage run). This is the exact condition issue #33's Acceptance line names, observed pre-fix. If it reports 8/8, STOP — the premise is wrong and the plan needs rework, not implementation.
+
+- [ ] **Step 4: Confirm the same test passes in the dev checkout (isolates the cause to tracking, not the test)**
 
 ```bash
 cd /Users/joe/repos/personal/targ && go test ./internal/runner -run TestGoldenFile_HelpOutput 2>&1 | tail -5
 ```
 
-Expected: PASS — proving the fixtures exist locally and only their absence from git causes the clone failure.
+Expected: PASS — proving the fixtures exist locally and only their absence from git causes the clone failure. (This is a control, NOT acceptance evidence — see Global Constraints.)
 
 ### Task 2: GREEN — narrow the ignore and track the fixtures
 
@@ -207,15 +218,23 @@ git -C "$SCRATCH/clone-green" ls-files | grep -c 'testdata/rapid/'
 
 Expected: the first count is the number of already-tracked `.fail` files (pre-existing, unchanged by this fix); the second must equal it. Record both numbers. No NEW rapid artifacts became tracked — compare against `git -C /Users/joe/repos/personal/targ ls-files | grep -c 'testdata/rapid/'` at the pre-fix commit.
 
-- [ ] **Step 4: Full suite on the clean committed tree**
+- [ ] **Step 4: Run the issue's Acceptance command in the fresh clone — 8/8**
+
+```bash
+cd "$SCRATCH/clone-green" && targ check-full 2>&1 | tail -15
+```
+
+Expected: **ALL 8 legs PASS** — the literal acceptance criterion from issue #33, now satisfied in a pristine checkout. Quote the leg summary. Contrast with Task 1 Step 3's 7/8 from the same command on the pre-fix clone: that before/after pair is the acceptance evidence.
+
+- [ ] **Step 5: Full suite on the clean committed dev tree**
 
 ```bash
 cd /Users/joe/repos/personal/targ && targ check-full 2>&1 | tail -12
 ```
 
-Expected: ALL legs PASS including `check-uncommitted`. No pre-existing-failure exemptions.
+Expected: ALL legs PASS including `check-uncommitted`. This is a regression check on the dev checkout (it passed before the fix too) — not acceptance evidence.
 
-- [ ] **Step 5: Clean up scratch clones**
+- [ ] **Step 6: Clean up scratch clones**
 
 ```bash
 rm -rf "$SCRATCH"
