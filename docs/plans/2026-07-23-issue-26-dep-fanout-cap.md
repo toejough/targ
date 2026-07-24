@@ -176,7 +176,7 @@ func TestRunGroupParallelAllBoundsConcurrency(t *testing.T) {
 		ran     atomic.Int32
 	)
 
-	mk := func(name string) *Target {
+	makeTarget := func(name string) *Target {
 		return Targ(func() {
 			c := cur.Add(1)
 
@@ -191,7 +191,7 @@ func TestRunGroupParallelAllBoundsConcurrency(t *testing.T) {
 		}).Name(name)
 	}
 
-	targets := []*Target{mk("t1"), mk("t2"), mk("t3"), mk("t4"), mk("t5")}
+	targets := []*Target{makeTarget("t1"), makeTarget("t2"), makeTarget("t3"), makeTarget("t4"), makeTarget("t5")}
 	ctx := WithExecInfo(context.Background(), ExecInfo{Output: &buf})
 
 	err := runGroupParallelAll(ctx, targets, 1)
@@ -288,7 +288,7 @@ func TestRunGroupParallelBoundsConcurrency(t *testing.T) {
 		ran     atomic.Int32
 	)
 
-	mk := func(name string) *Target {
+	makeTarget := func(name string) *Target {
 		return Targ(func() {
 			c := cur.Add(1)
 
@@ -303,7 +303,7 @@ func TestRunGroupParallelBoundsConcurrency(t *testing.T) {
 		}).Name(name)
 	}
 
-	targets := []*Target{mk("t1"), mk("t2"), mk("t3"), mk("t4")}
+	targets := []*Target{makeTarget("t1"), makeTarget("t2"), makeTarget("t3"), makeTarget("t4")}
 	ctx := WithExecInfo(context.Background(), ExecInfo{Output: &buf})
 
 	err := runGroupParallel(ctx, targets, 1)
@@ -322,13 +322,13 @@ func TestRunGroupParallelSkipsOnCanceledContext(t *testing.T) {
 		ran atomic.Int32
 	)
 
-	mk := func(name string) *Target {
+	makeTarget := func(name string) *Target {
 		return Targ(func() {
 			ran.Add(1)
 		}).Name(name)
 	}
 
-	targets := []*Target{mk("t1"), mk("t2"), mk("t3")}
+	targets := []*Target{makeTarget("t1"), makeTarget("t2"), makeTarget("t3")}
 
 	ctx, cancel := context.WithCancel(
 		WithExecInfo(context.Background(), ExecInfo{Output: &buf}),
