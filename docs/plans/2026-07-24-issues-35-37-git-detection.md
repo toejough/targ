@@ -46,9 +46,12 @@ Tasks are strictly sequential — each consumes the previous task's signatures:
   | Condition | Result | Meaning |
   | --- | --- | --- |
   | open fails with `fs.ErrNotExist` | `("", nil)` | no config here — **keep walking** (the walk-up depends on this) |
+  | open fails with `syscall.ENOTDIR` | `("", nil)` | `<dir>/.git` is a FILE, so the path traversal failed — **keep walking** so the worktree pointer branch can run (see below) |
   | open fails otherwise (e.g. permission) | `("", err)` | a config exists but is unreadable — **stop** (Task 2) |
   | scan fails mid-file | `("", err)` | this IS the config and the read broke — **stop** (Task 1) |
   | clean EOF, no origin section | `("", nil)` | keep walking |
+
+- **Tasks 2 and 3 are NOT independent — they jointly define the open-error classification, and the interaction is a real defect if missed.** Both modify `ParseGitConfigOriginURLWithOpen`'s error handling, and the conflict exists in the final combined state whichever lands first. In a worktree `<dir>/.git` is a file, so the direct probe `open(<dir>/.git/config)` fails with **`ENOTDIR`, not `ENOENT`** — empirically confirmed: `errors.Is(err, fs.ErrNotExist)` is **false** and `errors.Is(err, syscall.ENOTDIR)` is **true**. Without the `ENOTDIR` branch, Task 2 classifies that as a hard stop, `DetectRepoURLFromDirWithOpen` returns an error immediately, and **Task 3's pointer-resolution branch is never reached** — silently defeating the entire #37 fix. A Gate A reviewer applied all four tasks verbatim in a real worktree and reproduced exactly this: both `DetectsRepoURLFromInsideAGitWorktree` and `DetectRepoURLDelegatesToTheInjectableForm` fail with `not a directory`. Task 2's fixture therefore includes a worktree-shaped case so the interaction is caught within Task 2, before Task 3 exists.
 
 - **Worktree resolution mechanics (verified against a live worktree, twice).** In a linked worktree, `.git` is a file containing `gitdir: <abs path>`; that gitdir holds `HEAD`, `index`, `refs`, `commondir` — **no `config`**. `commondir` contains `../..` (relative), resolving to the main `.git`, where `config` lives. A Gate A reviewer independently created a real worktree and confirmed the fixture in Task 3 reproduces this exact depth relationship, with no daylight between fixture and reality.
 - **Why `.git/config` is tried before the pointer file.** Go's `os.Open` on a *directory* succeeds (reads fail with EISDIR), so probing `.git`-as-a-file first would need EISDIR handling for the common case. Trying `<dir>/.git/config` first keeps the normal-repo path untouched and reaches the pointer logic only when it misses.
@@ -350,6 +353,27 @@ Folded on the user's explicit decision; see Design notes.
 
 The root skip is deliberate: `t.TempDir()` cleanup and mode bits are honoured for normal users, but root reads regardless of mode, which would make the assertion environment-dependent — exactly the coupling Task 4 removes elsewhere.
 
+Add this second subtest in the same step. It pins the Task 2/3 interaction *within Task 2*, so the regression cannot hide until Task 3 exists:
+
+```go
+	t.Run("AGitPointerFileIsNotTreatedAsAnUnreadableConfig", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		// A worktree's .git is a FILE, so <dir>/.git/config fails with ENOTDIR,
+		// not ENOENT. That must read as "no config here, keep walking" — if it
+		// stops the walk, the worktree pointer branch can never run.
+		dir := t.TempDir()
+		g.Expect(os.WriteFile(filepath.Join(dir, ".git"),
+			[]byte("gitdir: /nonexistent/worktrees/wt1\n"), 0o600)).To(Succeed())
+
+		url, err := core.ParseGitConfigOriginURLWithOpen(
+			filepath.Join(dir, ".git", "config"), core.OSOpen())
+		g.Expect(err).NotTo(HaveOccurred(), "ENOTDIR means no config here, not an unreadable config")
+		g.Expect(url).To(BeEmpty())
+	})
+```
+
 - [ ] **Step 2: Run the test to verify it fails (RED)**
 
 Run: `go test ./internal/core -run 'TestProperty_GitDetection/WalkUpStopsOnUnreadableConfig' -v 2>&1 | tail -15`
@@ -366,7 +390,11 @@ Expected: FAIL on `Expect(err).To(HaveOccurred())` — after Task 1, every open 
 func ParseGitConfigOriginURLWithOpen(path string, open FileOpener) (string, error) {
 	f, err := open(path)
 	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
+		// Absent, or the path ran through a .git that is a file rather than a
+		// directory (a worktree pointer) — either way there is no config here,
+		// so the caller keeps walking. Anything else means a config exists and
+		// could not be read.
+		if errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ENOTDIR) {
 			return "", nil
 		}
 
@@ -379,7 +407,9 @@ func ParseGitConfigOriginURLWithOpen(path string, open FileOpener) (string, erro
 }
 ```
 
-`osOpen` already wraps with `fmt.Errorf("opening %s: %w", path, err)` (`git.go:151`), so `errors.Is(err, fs.ErrNotExist)` matches through the wrap. Add `errors` and `io/fs` to the imports if not already present.
+`osOpen` already wraps with `fmt.Errorf("opening %s: %w", path, err)` (`git.go:151`), so `errors.Is` matches through the wrap — verified for both sentinels. Add `errors`, `io/fs`, and `syscall` to the imports (`syscall` is permitted by `depguard`'s `$gostd` allowlist).
+
+The `ENOTDIR` branch is not optional and not a Task 3 concern: without it this task breaks the worktree fix. See the Design note on Task 2/3 interaction.
 
 - [ ] **Step 4: Run the tests to verify they pass (GREEN)**
 
@@ -416,7 +446,7 @@ EOF
 - Test: `internal/core/git_test.go`
 
 **Interfaces:**
-- Consumes: Task 1's signatures (Task 2 is independent of this task; either order works, but the plan runs 2 before 3).
+- Consumes: Task 1's signatures, and Task 2's `ENOTDIR` branch — **without it this task cannot work**, because the direct probe's `ENOTDIR` failure stops the walk before the pointer branch below is reached. Tasks 2 and 3 are not independent; see the Design note.
 - Produces: no signature changes.
 
 - [ ] **Step 1: Write the failing test**
