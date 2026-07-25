@@ -162,6 +162,47 @@ func TestProperty_GitDetection(t *testing.T) {
 		g.Expect(url).NotTo(ContainSubstring("parent"), "must never report a different repository's URL")
 	})
 
+	t.Run("WalkUpStopsOnUnreadableConfigInsteadOfUsingParentRepo", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		if os.Geteuid() == 0 {
+			t.Skip("root bypasses file permission bits, so an unreadable config cannot be simulated")
+		}
+
+		parent := t.TempDir()
+		g.Expect(os.MkdirAll(filepath.Join(parent, ".git"), 0o755)).To(Succeed())
+		g.Expect(os.WriteFile(filepath.Join(parent, ".git", "config"),
+			[]byte("[remote \"origin\"]\n\turl = git@github.com:someone/parent.git\n"), 0o600)).To(Succeed())
+
+		child := filepath.Join(parent, "child")
+		g.Expect(os.MkdirAll(filepath.Join(child, ".git"), 0o755)).To(Succeed())
+		unreadable := filepath.Join(child, ".git", "config")
+		g.Expect(os.WriteFile(unreadable, []byte("[remote \"origin\"]\n\turl = x\n"), 0o600)).To(Succeed())
+		g.Expect(os.Chmod(unreadable, 0o000)).To(Succeed())
+
+		url, err := core.DetectRepoURLFromDirWithOpen(child, core.OSOpenForTest)
+		g.Expect(err).To(HaveOccurred(), "an unreadable config must stop the walk, not fall through to the parent")
+		g.Expect(url).To(BeEmpty())
+	})
+
+	t.Run("AGitPointerFileIsNotTreatedAsAnUnreadableConfig", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		// A worktree's .git is a FILE, so <dir>/.git/config fails with ENOTDIR,
+		// not ENOENT. That must read as "no config here, keep walking" — if it
+		// stops the walk, the worktree pointer branch can never run.
+		dir := t.TempDir()
+		g.Expect(os.WriteFile(filepath.Join(dir, ".git"),
+			[]byte("gitdir: /nonexistent/worktrees/wt1\n"), 0o600)).To(Succeed())
+
+		url, err := core.ParseGitConfigOriginURLWithOpen(
+			filepath.Join(dir, ".git", "config"), core.OSOpenForTest)
+		g.Expect(err).ToNot(HaveOccurred(), "ENOTDIR means no config here, not an unreadable config")
+		g.Expect(url).To(BeEmpty())
+	})
+
 	t.Run("DetectRepoURLReturnsRepoFromGitConfig", func(t *testing.T) {
 		t.Parallel()
 		g := NewWithT(t)

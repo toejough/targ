@@ -6,9 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 
 	internalsh "github.com/toejough/targ/internal/sh"
 )
@@ -139,13 +141,22 @@ func ParseGitConfigContent(r io.Reader) (string, error) {
 }
 
 // ParseGitConfigOriginURLWithOpen reads a git config file using injected opener.
-// A config that cannot be opened yields ("", nil) — the caller treats that as
-// "no config here" and keeps walking. A config that opens but cannot be read
-// returns an error.
+// A file that is simply absent yields ("", nil) — the caller treats that as
+// "no config here" and keeps walking. A config that exists but cannot be opened
+// or read returns an error, so an unreadable repo never falls through to its
+// parent.
 func ParseGitConfigOriginURLWithOpen(path string, open FileOpener) (string, error) {
 	f, err := open(path)
 	if err != nil {
-		return "", nil
+		// Absent, or the path ran through a .git that is a file rather than a
+		// directory (a worktree pointer) — either way there is no config here,
+		// so the caller keeps walking. Anything else means a config exists and
+		// could not be read.
+		if errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ENOTDIR) {
+			return "", nil
+		}
+
+		return "", fmt.Errorf("opening git config: %w", err)
 	}
 
 	defer func() { _ = f.Close() }()
