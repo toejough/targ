@@ -282,11 +282,29 @@ func TestProperty_GitDetection(t *testing.T) {
 		t.Parallel()
 		g := NewWithT(t)
 
-		// DetectRepoURL uses os.Getwd and os.Open, so in this repo it should find the URL
-		url := core.DetectRepoURL()
-		// In the targ repo, we expect a GitHub URL
-		g.Expect(url).To(ContainSubstring("github.com"))
-		g.Expect(url).To(ContainSubstring("targ"))
+		repo := t.TempDir()
+		g.Expect(os.MkdirAll(filepath.Join(repo, ".git"), 0o755)).To(Succeed())
+		g.Expect(os.WriteFile(filepath.Join(repo, ".git", "config"),
+			[]byte("[remote \"origin\"]\n\turl = git@github.com:toejough/targ.git\n"), 0o600)).To(Succeed())
+
+		url, err := core.DetectRepoURLFromDirWithOpen(repo, core.OSOpenForTest)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(url).To(Equal("https://github.com/toejough/targ"))
+	})
+
+	t.Run("DetectRepoURLDelegatesToTheInjectableForm", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		// This is a wiring/coverage pin, not a correctness test. A stronger test
+		// would use os.Chdir to change the working directory and verify the full
+		// path, but that is process-global and violates this repo's parallel-test
+		// rules. So we pin that the zero-argument entry point delegates to
+		// DetectRepoURLWithDeps without asserting anything about the checkout it
+		// happens to run in.
+		want, err := core.DetectRepoURLWithDeps(os.Getwd, core.OSOpenForTest)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(core.DetectRepoURL()).To(Equal(want))
 	})
 
 	t.Run("ParseGitConfigContentExtractsOriginURL", func(t *testing.T) {
