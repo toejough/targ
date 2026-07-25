@@ -353,7 +353,9 @@ Folded on the user's explicit decision; see Design notes.
 
 The root skip is deliberate: `t.TempDir()` cleanup and mode bits are honoured for normal users, but root reads regardless of mode, which would make the assertion environment-dependent — exactly the coupling Task 4 removes elsewhere.
 
-Add this second subtest in the same step. It pins the Task 2/3 interaction *within Task 2*, so the regression cannot hide until Task 3 exists:
+Add this second subtest in the same step. It pins the Task 2/3 interaction *within Task 2*, so the regression cannot hide until Task 3 exists.
+
+**This one is a regression pin, not a RED-driven test — it is expected to PASS immediately.** Task 1's code swallows every open error uniformly, which already satisfies its assertions, so it cannot go red in this plan's sequence. It exists to fail against the *naive* Task 2 fix (the `fs.ErrNotExist`-only version that Gate A caught), which is a state this plan never commits. Step 2's RED command deliberately targets `WalkUpStopsOnUnreadableConfig` by name and excludes this subtest; do not treat its passing as a missing RED step.
 
 ```go
 	t.Run("AGitPointerFileIsNotTreatedAsAnUnreadableConfig", func(t *testing.T) {
@@ -428,9 +430,13 @@ cannot be opened — permissions, most plausibly — the open error was
 indistinguishable from "no config here", so the walk ascended and could
 report a parent repository's URL.
 
-Treat only fs.ErrNotExist as "keep walking"; any other open failure
-stops the walk. osOpen already wraps with %w, so errors.Is matches
-through it.
+Classify the open error instead of swallowing it: fs.ErrNotExist keeps
+walking, and so does ENOTDIR, which is what a path traversal through a
+worktree's .git FILE returns — without that second case this change
+would stop the walk before worktree pointer resolution could run, and
+silently revert repo-URL detection in every worktree. Any other open
+failure stops the walk. osOpen already wraps with %w, so errors.Is
+matches through it.
 
 Refs #35
 
