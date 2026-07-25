@@ -9,6 +9,7 @@ var (
 	ConvertExamplesForTest          = convertExamples
 	ExtractPackagePathForTest       = extractPackagePath
 	FirstLineForTest                = firstLine
+	OSOpenForTest                   = osOpen
 	ParseGroupLikeForTest           = parseGroupLike
 	ParseTargetLikeForTest          = parseTargetLike
 	PositionalDisplayNameForTest    = positionalDisplayName

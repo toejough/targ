@@ -39,25 +39,32 @@ func CheckCleanWorkTreeWith(ctx context.Context, run CommandRunner) error {
 	return nil
 }
 
-// DetectRepoURL attempts to find the repository URL by parsing .git/config.
-// It walks up from the current directory looking for a .git directory,
-// then parses the config file for the remote "origin" URL.
-// Returns empty string if not found.
+// DetectRepoURL attempts to find the repository URL by parsing the repo's git
+// config, walking up from the current directory. Detection is best-effort — it
+// feeds optional help text — so any failure yields an empty string.
 func DetectRepoURL() string {
-	return DetectRepoURLWithDeps(os.Getwd, osOpen)
+	url, _ := DetectRepoURLWithDeps(os.Getwd, osOpen)
+
+	return url
 }
 
-// DetectRepoURLFromDirWithOpen walks up from dir looking for .git/config using injected opener.
-func DetectRepoURLFromDirWithOpen(dir string, open FileOpener) string {
+// DetectRepoURLFromDirWithOpen walks up from dir looking for a git config using
+// the injected opener. A config that cannot be read stops the walk and returns
+// an error, so a broken config never falls through to a parent repository's URL.
+func DetectRepoURLFromDirWithOpen(dir string, open FileOpener) (string, error) {
 	for {
-		gitConfig := filepath.Join(dir, ".git", "config")
-		if url := ParseGitConfigOriginURLWithOpen(gitConfig, open); url != "" {
-			return url
+		url, err := ParseGitConfigOriginURLWithOpen(filepath.Join(dir, ".git", "config"), open)
+		if err != nil {
+			return "", err
+		}
+
+		if url != "" {
+			return url, nil
 		}
 
 		parent := filepath.Dir(dir)
 		if parent == dir {
-			return ""
+			return "", nil
 		}
 
 		dir = parent
@@ -65,10 +72,11 @@ func DetectRepoURLFromDirWithOpen(dir string, open FileOpener) string {
 }
 
 // DetectRepoURLWithDeps is a testable version that accepts injected dependencies.
-func DetectRepoURLWithDeps(getwd func() (string, error), open FileOpener) string {
+// A getwd failure is wrapped and returned; otherwise detection proceeds as DetectRepoURLFromDirWithOpen.
+func DetectRepoURLWithDeps(getwd func() (string, error), open FileOpener) (string, error) {
 	dir, err := getwd()
 	if err != nil {
-		return ""
+		return "", fmt.Errorf("resolving working directory: %w", err)
 	}
 
 	return DetectRepoURLFromDirWithOpen(dir, open)
@@ -90,8 +98,9 @@ func NormalizeGitURL(url string) string {
 }
 
 // ParseGitConfigContent extracts the origin remote URL from git config content.
-// This is a pure function that operates on an io.Reader.
-func ParseGitConfigContent(r io.Reader) string {
+// It returns an error only when the content could not be read to the end; a
+// config with no origin section is ("", nil).
+func ParseGitConfigContent(r io.Reader) (string, error) {
 	scanner := bufio.NewScanner(r)
 	inOrigin := false
 
@@ -116,19 +125,27 @@ func ParseGitConfigContent(r io.Reader) string {
 
 			parts := strings.SplitN(line, "=", keyValueParts)
 			if len(parts) == keyValueParts {
-				return NormalizeGitURL(strings.TrimSpace(parts[1]))
+				return NormalizeGitURL(strings.TrimSpace(parts[1])), nil
 			}
 		}
 	}
 
-	return ""
+	err := scanner.Err()
+	if err != nil {
+		return "", fmt.Errorf("reading git config: %w", err)
+	}
+
+	return "", nil
 }
 
 // ParseGitConfigOriginURLWithOpen reads a git config file using injected opener.
-func ParseGitConfigOriginURLWithOpen(path string, open FileOpener) string {
+// A config that cannot be opened yields ("", nil) — the caller treats that as
+// "no config here" and keeps walking. A config that opens but cannot be read
+// returns an error.
+func ParseGitConfigOriginURLWithOpen(path string, open FileOpener) (string, error) {
 	f, err := open(path)
 	if err != nil {
-		return ""
+		return "", nil
 	}
 
 	defer func() { _ = f.Close() }()

@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"io"
+	"io/fs"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -124,6 +127,41 @@ func TestProperty_CleanWorkTree(t *testing.T) {
 func TestProperty_GitDetection(t *testing.T) {
 	t.Parallel()
 
+	t.Run("ParseGitConfigContentReportsScanError", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		// A line longer than bufio.Scanner's 64KB default token cap aborts the
+		// scan with bufio.ErrTooLong — the realistic read failure for a config.
+		huge := "[remote \"origin\"]\n\turl = " + strings.Repeat("x", 70*1024) + "\n"
+
+		url, err := core.ParseGitConfigContent(strings.NewReader(huge))
+		g.Expect(err).To(HaveOccurred(), "an aborted scan must not look like a clean parse")
+		g.Expect(url).To(BeEmpty())
+	})
+
+	t.Run("WalkUpStopsOnScanErrorInsteadOfUsingParentRepo", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		// parent/ is a repo with a valid origin; parent/child/ is a repo whose
+		// config cannot be scanned. Detection from child must NOT report the
+		// parent's URL.
+		parent := t.TempDir()
+		g.Expect(os.MkdirAll(filepath.Join(parent, ".git"), 0o755)).To(Succeed())
+		g.Expect(os.WriteFile(filepath.Join(parent, ".git", "config"),
+			[]byte("[remote \"origin\"]\n\turl = git@github.com:someone/parent.git\n"), 0o600)).To(Succeed())
+
+		child := filepath.Join(parent, "child")
+		g.Expect(os.MkdirAll(filepath.Join(child, ".git"), 0o755)).To(Succeed())
+		g.Expect(os.WriteFile(filepath.Join(child, ".git", "config"),
+			[]byte("[remote \"origin\"]\n\turl = "+strings.Repeat("x", 70*1024)+"\n"), 0o600)).To(Succeed())
+
+		url, err := core.DetectRepoURLFromDirWithOpen(child, core.OSOpenForTest)
+		g.Expect(err).To(HaveOccurred(), "a broken config must stop the walk, not fall through to the parent")
+		g.Expect(url).NotTo(ContainSubstring("parent"), "must never report a different repository's URL")
+	})
+
 	t.Run("DetectRepoURLReturnsRepoFromGitConfig", func(t *testing.T) {
 		t.Parallel()
 		g := NewWithT(t)
@@ -149,7 +187,8 @@ func TestProperty_GitDetection(t *testing.T) {
 	remote = origin
 `
 		reader := strings.NewReader(config)
-		url := core.ParseGitConfigContent(reader)
+		url, err := core.ParseGitConfigContent(reader)
+		g.Expect(err).ToNot(HaveOccurred())
 		g.Expect(url).To(Equal("https://github.com/user/repo"))
 	})
 
@@ -163,7 +202,8 @@ func TestProperty_GitDetection(t *testing.T) {
 	remote = origin
 `
 		reader := strings.NewReader(config)
-		url := core.ParseGitConfigContent(reader)
+		url, err := core.ParseGitConfigContent(reader)
+		g.Expect(err).ToNot(HaveOccurred())
 		g.Expect(url).To(BeEmpty())
 	})
 
@@ -194,7 +234,8 @@ func TestProperty_GitDetection(t *testing.T) {
 			return nil, errors.New("should not be called")
 		}
 
-		url := core.DetectRepoURLWithDeps(failingGetwd, dummyOpen)
+		url, err := core.DetectRepoURLWithDeps(failingGetwd, dummyOpen)
+		g.Expect(err).To(HaveOccurred())
 		g.Expect(url).To(BeEmpty())
 	})
 
@@ -203,11 +244,12 @@ func TestProperty_GitDetection(t *testing.T) {
 		g := NewWithT(t)
 
 		failingOpen := func(_ string) (io.ReadCloser, error) {
-			return nil, errors.New("file not found")
+			return nil, fs.ErrNotExist
 		}
 
 		// When open fails for all paths, eventually we reach root and return empty
-		url := core.DetectRepoURLFromDirWithOpen("/tmp/nonexistent", failingOpen)
+		url, err := core.DetectRepoURLFromDirWithOpen("/tmp/nonexistent", failingOpen)
+		g.Expect(err).ToNot(HaveOccurred())
 		g.Expect(url).To(BeEmpty())
 	})
 
@@ -216,10 +258,11 @@ func TestProperty_GitDetection(t *testing.T) {
 		g := NewWithT(t)
 
 		failingOpen := func(_ string) (io.ReadCloser, error) {
-			return nil, errors.New("file not found")
+			return nil, fs.ErrNotExist
 		}
 
-		url := core.ParseGitConfigOriginURLWithOpen("/nonexistent/.git/config", failingOpen)
+		url, err := core.ParseGitConfigOriginURLWithOpen("/nonexistent/.git/config", failingOpen)
+		g.Expect(err).ToNot(HaveOccurred())
 		g.Expect(url).To(BeEmpty())
 	})
 }
