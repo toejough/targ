@@ -54,14 +54,43 @@ func DetectRepoURL() string {
 // the injected opener. A config that cannot be read stops the walk and returns
 // an error, so a broken config never falls through to a parent repository's URL.
 func DetectRepoURLFromDirWithOpen(dir string, open FileOpener) (string, error) {
+	// parseConfigAtPath is a shared helper that parses a config at a given path,
+	// propagating errors so the walk stops on genuine read failures.
+	parseConfigAtPath := func(path string) (string, error) {
+		url, err := ParseGitConfigOriginURLWithOpen(path, open)
+		if err != nil {
+			return "", err
+		}
+
+		return url, nil
+	}
+
 	for {
-		url, err := ParseGitConfigOriginURLWithOpen(filepath.Join(dir, ".git", "config"), open)
+		// Try direct config.
+		url, err := parseConfigAtPath(filepath.Join(dir, ".git", "config"))
 		if err != nil {
 			return "", err
 		}
 
 		if url != "" {
 			return url, nil
+		}
+
+		// Try worktree pointer and its common dir.
+		path, err := gitDirConfigPath(dir, open)
+		if err != nil {
+			return "", err
+		}
+
+		if path != "" {
+			url, err := parseConfigAtPath(path)
+			if err != nil {
+				return "", err
+			}
+
+			if url != "" {
+				return url, nil
+			}
 		}
 
 		parent := filepath.Dir(dir)
@@ -172,6 +201,61 @@ var (
 // defaultCommandRunner wraps internalsh.OutputContext.
 func defaultCommandRunner(ctx context.Context, name string, args ...string) (string, error) {
 	return internalsh.OutputContext(ctx, name, args, os.Stdin)
+}
+
+// gitDirConfigPath resolves a worktree's .git pointer file to the config path in
+// the repository's common dir. A linked worktree's .git is a file holding
+// "gitdir: <path>"; that directory has no config of its own, only a commondir
+// file naming the main .git (usually "../.."). Returns ("", nil) when dir is
+// not a worktree (either .git is a directory, or .git does not exist). Returns
+// ("", error) if the pointer exists but cannot be read or followed — such errors
+// stop the walk, preventing a broken worktree pointer from falling through to a
+// parent repository's URL.
+func gitDirConfigPath(dir string, open FileOpener) (string, error) {
+	// Helper to classify open/read errors: absent or directory → nil, other → error.
+	stopOnIOError := func(context string, err error) error {
+		if errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ENOTDIR) {
+			return nil
+		}
+
+		return fmt.Errorf("%s: %w", context, err)
+	}
+
+	pointer, err := open(filepath.Join(dir, ".git"))
+	if err != nil {
+		return "", stopOnIOError("reading worktree pointer", err)
+	}
+
+	defer func() { _ = pointer.Close() }()
+
+	data, err := io.ReadAll(pointer)
+	if err != nil {
+		return "", stopOnIOError("reading worktree pointer", err)
+	}
+
+	gitDir, found := strings.CutPrefix(strings.TrimSpace(string(data)), "gitdir: ")
+	if !found {
+		return "", nil
+	}
+
+	common, err := open(filepath.Join(gitDir, "commondir"))
+	if err != nil {
+		return "", stopOnIOError("reading commondir", err)
+	}
+
+	defer func() { _ = common.Close() }()
+
+	rel, err := io.ReadAll(common)
+	if err != nil {
+		return "", stopOnIOError("reading commondir", err)
+	}
+
+	commonDir := strings.TrimSpace(string(rel))
+	if !filepath.IsAbs(commonDir) {
+		commonDir = filepath.Join(gitDir, commonDir)
+	}
+
+	return filepath.Join(commonDir, "config"), nil
 }
 
 // osOpen wraps os.Open to match the FileOpener signature.

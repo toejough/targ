@@ -124,6 +124,7 @@ func TestProperty_CleanWorkTree(t *testing.T) {
 	})
 }
 
+//nolint:maintidx // Test function with many subtests has low maintainability index by design
 func TestProperty_GitDetection(t *testing.T) {
 	t.Parallel()
 
@@ -201,6 +202,80 @@ func TestProperty_GitDetection(t *testing.T) {
 			filepath.Join(dir, ".git", "config"), core.OSOpenForTest)
 		g.Expect(err).ToNot(HaveOccurred(), "ENOTDIR means no config here, not an unreadable config")
 		g.Expect(url).To(BeEmpty())
+	})
+
+	t.Run("WalkUpStopsOnUnreadableWorktreePointerInsteadOfUsingParentRepo", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		if os.Geteuid() == 0 {
+			t.Skip("root bypasses file permission bits, so an unreadable pointer cannot be simulated")
+		}
+
+		// parent/ is a repo with a valid origin; parent/child/ is a worktree whose
+		// .git pointer file cannot be read. Detection from child must NOT report
+		// the parent's URL — an unreadable pointer is an error, not a "keep walking"
+		// condition.
+		parent := t.TempDir()
+		g.Expect(os.MkdirAll(filepath.Join(parent, ".git"), 0o755)).To(Succeed())
+		g.Expect(os.WriteFile(filepath.Join(parent, ".git", "config"),
+			[]byte("[remote \"origin\"]\n\turl = git@github.com:someone/parent.git\n"), 0o600)).To(Succeed())
+
+		child := filepath.Join(parent, "child")
+		g.Expect(os.MkdirAll(child, 0o755)).To(Succeed())
+		unreadablePointer := filepath.Join(child, ".git")
+		g.Expect(os.WriteFile(unreadablePointer, []byte("gitdir: /nonexistent\n"), 0o600)).To(Succeed())
+		g.Expect(os.Chmod(unreadablePointer, 0o000)).To(Succeed())
+
+		url, err := core.DetectRepoURLFromDirWithOpen(child, core.OSOpenForTest)
+		g.Expect(err).To(HaveOccurred(), "an unreadable worktree pointer must stop the walk, not fall through to the parent")
+		g.Expect(url).To(BeEmpty())
+		g.Expect(err.Error()).To(ContainSubstring("worktree pointer"))
+	})
+
+	t.Run("DetectsRepoURLFromInsideAGitWorktree", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		// Real linked-worktree layout: the worktree's .git is a FILE holding a
+		// gitdir: pointer; that gitdir has no config of its own, only a
+		// commondir pointing at the main .git, where config lives.
+		root := t.TempDir()
+		mainGit := filepath.Join(root, "main", ".git")
+		wtGit := filepath.Join(mainGit, "worktrees", "wt1")
+		g.Expect(os.MkdirAll(wtGit, 0o755)).To(Succeed())
+		g.Expect(os.WriteFile(filepath.Join(mainGit, "config"),
+			[]byte("[remote \"origin\"]\n\turl = git@github.com:toejough/targ.git\n"), 0o600)).To(Succeed())
+		g.Expect(os.WriteFile(filepath.Join(wtGit, "commondir"), []byte("../..\n"), 0o600)).To(Succeed())
+
+		wt := filepath.Join(root, "wt1")
+		g.Expect(os.MkdirAll(wt, 0o755)).To(Succeed())
+		g.Expect(os.WriteFile(filepath.Join(wt, ".git"),
+			[]byte("gitdir: "+wtGit+"\n"), 0o600)).To(Succeed())
+
+		url, err := core.DetectRepoURLFromDirWithOpen(wt, core.OSOpenForTest)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(url).To(Equal("https://github.com/toejough/targ"),
+			"a worktree must resolve its gitdir pointer to the common dir's config")
+	})
+
+	t.Run("WalkUpSucceedsWhenConfigFoundInAncestorDirectory", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		// parent/ is a repo with a valid origin; parent/child/ has no .git.
+		// Detection from child should walk up and find parent's config.
+		parent := t.TempDir()
+		g.Expect(os.MkdirAll(filepath.Join(parent, ".git"), 0o755)).To(Succeed())
+		g.Expect(os.WriteFile(filepath.Join(parent, ".git", "config"),
+			[]byte("[remote \"origin\"]\n\turl = git@github.com:someone/ancestor.git\n"), 0o600)).To(Succeed())
+
+		child := filepath.Join(parent, "child")
+		g.Expect(os.MkdirAll(child, 0o755)).To(Succeed())
+
+		url, err := core.DetectRepoURLFromDirWithOpen(child, core.OSOpenForTest)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(url).To(Equal("https://github.com/someone/ancestor"))
 	})
 
 	t.Run("DetectRepoURLReturnsRepoFromGitConfig", func(t *testing.T) {
