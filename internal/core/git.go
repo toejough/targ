@@ -42,8 +42,9 @@ func CheckCleanWorkTreeWith(ctx context.Context, run CommandRunner) error {
 }
 
 // DetectRepoURL attempts to find the repository URL by parsing the repo's git
-// config, walking up from the current directory. Detection is best-effort — it
-// feeds optional help text — so any failure yields an empty string.
+// config, walking up from the current directory. Detection is best-effort: its
+// only consumer is the optional "More info" line in help output, so any failure
+// yields an empty string. Call DetectRepoURLWithDeps if you need the error.
 func DetectRepoURL() string {
 	url, _ := DetectRepoURLWithDeps(os.Getwd, osOpen)
 
@@ -51,7 +52,8 @@ func DetectRepoURL() string {
 }
 
 // DetectRepoURLFromDirWithOpen walks up from dir looking for a git config using
-// the injected opener. A config that cannot be read stops the walk and returns
+// the injected opener. A directory with no config is how the walk proceeds to
+// its parent; a config that exists but cannot be read stops the walk and returns
 // an error, so a broken config never falls through to a parent repository's URL.
 func DetectRepoURLFromDirWithOpen(dir string, open FileOpener) (string, error) {
 	// parseConfigAtPath is a shared helper that parses a config at a given path,
