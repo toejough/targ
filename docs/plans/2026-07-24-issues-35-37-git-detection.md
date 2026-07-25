@@ -20,6 +20,8 @@ Tasks are strictly sequential — each consumes the previous task's signatures:
 | 4 | detection tests independent of the checkout | #37 (folded "Related") | 1, 3 |
 | 5 | docs + whole-suite and real-worktree verification | both | 1-4 |
 
+**Closure mechanics:** every task commit uses `Refs #N`, never `Closes #N`. Both issues are closed by manual comment at Task 5, after all their work has landed. This matches the repo's convention (`git log --grep` confirms `Closes #` appears only on a commit that is the last one an issue needs — `d53605f`, `bca9850` — while `Refs #` marks partial work: `aa21f71`, `bf1dad6`). It matters here because both issues are closed by more than one commit: #35 by Tasks 1-2 and #37 by Tasks 3-4, so an auto-close keyword on any single commit would close the issue before the rest of its approved work exists.
+
 ## Global Constraints
 
 - **Blast radius is closed and verified**: the five chain functions have callers only in `internal/core/git.go`, `internal/core/git_test.go`, and `internal/core/command.go:1859,1909` (both call bare `DetectRepoURL()`, whose signature does not change). `internal/core` is internal and `targ.go` re-exports none of it, so `check-thin-api` is unaffected — confirmed by a reviewer running the gate against the applied diff.
@@ -549,7 +551,7 @@ commondir (relative or absolute) to the config. The direct
 <dir>/.git/config probe still runs first, so the ordinary-repo path is
 untouched.
 
-Closes #37
+Refs #37
 
 AI-Used: [claude]
 EOF
