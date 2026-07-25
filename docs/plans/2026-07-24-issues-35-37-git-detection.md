@@ -2,49 +2,74 @@
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Stop `DetectRepoURL` from reporting the wrong repository's URL when a config read fails (#35), and make it work in a `git worktree` (#37).
+**Goal:** Stop `DetectRepoURL` from reporting the wrong repository's URL when a config cannot be read (#35), and make it work inside a `git worktree` (#37).
 
-**Architecture:** `internal/core/git.go` holds a five-deep chain that all returns bare `string`: `DetectRepoURL` → `DetectRepoURLWithDeps` → `DetectRepoURLFromDirWithOpen` (walks up looking for `<dir>/.git/config`) → `ParseGitConfigOriginURLWithOpen` → `ParseGitConfigContent`. Two changes: the internal chain gains `error` returns so a failed *read* can stop the walk instead of silently ascending into a parent repo, and the walk learns to resolve a worktree's `.git` **file** (a `gitdir:` pointer) to the common dir where `config` actually lives. `DetectRepoURL()` keeps its bare-string signature and swallows at the boundary.
+**Architecture:** `internal/core/git.go` holds a five-deep chain that all returns bare `string`: `DetectRepoURL` → `DetectRepoURLWithDeps` → `DetectRepoURLFromDirWithOpen` (walks up looking for `<dir>/.git/config`) → `ParseGitConfigOriginURLWithOpen` → `ParseGitConfigContent`. The internal chain gains `error` returns so a failed *read* stops the walk instead of silently ascending into a parent repo, and the walk learns to resolve a worktree's `.git` **file** (a `gitdir:` pointer) to the common dir where `config` actually lives. `DetectRepoURL()` keeps its bare-string signature and swallows at the boundary.
 
 **Tech Stack:** Go 1.25.5, gomega, `t.TempDir()` real-filesystem fixtures, `targ` build system.
 
+## Task order and dependencies
+
+Tasks are strictly sequential — each consumes the previous task's signatures:
+
+| Task | Delivers | Closes | Depends on |
+| --- | --- | --- | --- |
+| 1 | error-returning chain; a broken read stops the walk | #35 (Observed) | — |
+| 2 | unreadable-config (non-`ErrNotExist` open) also stops the walk | #35 (folded sibling) | 1 |
+| 3 | worktree `gitdir:` pointer resolution | #37 (Expected) | 1 |
+| 4 | detection tests independent of the checkout | #37 (folded "Related") | 1, 3 |
+| 5 | docs + whole-suite and real-worktree verification | both | 1-4 |
+
 ## Global Constraints
 
-- **Blast radius is closed and verified**: `DetectRepoURL` and its four helpers have callers only in `internal/core/git.go`, `internal/core/git_test.go`, and `internal/core/command.go:1859,1909` (enumerated with `grep -rn '\bFn(' --include='*.go' .` per function). `internal/core` is internal; `targ.go` re-exports none of these, so `check-thin-api` is unaffected.
-- **New tests use real `t.TempDir()` fixtures, not injected fake openers.** CLAUDE.md: *"No IO mocking. Do not mock filesystem, network, or other IO in unit tests."* The existing `failingOpen`/`dummyOpen` closures in `git_test.go` predate that rule; they get signature updates only (rewriting them is out of scope). Repo precedent for `t.TempDir()`: 23 call sites across 6 files.
-- **Per-function coverage ≥80%** (`check-coverage-for-fail`). Every new error branch needs a test, and `DetectRepoURL()` itself must stay covered — see Task 3's wiring assertion.
-- **No flaky tests**: no wall-clock, no load dependence, no shared mutable state across parallel subtests. Each subtest gets its own `t.TempDir()`.
+- **Blast radius is closed and verified**: the five chain functions have callers only in `internal/core/git.go`, `internal/core/git_test.go`, and `internal/core/command.go:1859,1909` (both call bare `DetectRepoURL()`, whose signature does not change). `internal/core` is internal and `targ.go` re-exports none of it, so `check-thin-api` is unaffected — confirmed by a reviewer running the gate against the applied diff.
+- **Five existing test call sites break on Task 1's signature change, not three.** All of these need the two-value form: `ParseGitConfigContentExtractsOriginURL` (`git_test.go:152`), `ParseGitConfigContentHandlesMissingOrigin` (`:166`), `DetectRepoURLWithDepsHandlesGetwdError` (`:197`), `DetectRepoURLFromDirWithOpenHandlesOpenError` (`:210`), `ParseGitConfigOriginURLWithOpenHandlesOpenError` (`:222`). Missing the first two yields `assignment mismatch` compile errors.
+- **New tests use real `t.TempDir()` fixtures, not injected fake openers.** CLAUDE.md: *"No IO mocking. Do not mock filesystem, network, or other IO in unit tests."* The existing `failingOpen`/`dummyOpen` closures predate that rule; they get signature and sentinel updates only. Repo precedent for `t.TempDir()`: 23 call sites across 6 files.
+- **`git_test.go` is `package core_test` (blackbox).** Every call from a test is `core.Fn(...)` — that prefix is required, not optional.
+- **Per-function coverage ≥80%** (`check-coverage-for-fail`). Every new error branch needs a test, and `DetectRepoURL()` must stay covered — see Task 4's wiring assertion.
+- **No flaky tests**: no wall-clock, no load dependence, no shared mutable state. Each subtest gets its own `t.TempDir()`.
 - **Full-suite green gates sequence AFTER the commit** (vault 395): `check-uncommitted` fails by design on a dirty tree.
 - **A stale `golangci-lint` cache produces phantom `lint-full` failures** citing deleted paths (CLAUDE.md). If `lint-full` fails, run `golangci-lint cache clean` and re-run BEFORE treating it as a real finding.
 - Commit trailer is `AI-Used: [claude]`.
 
 ## Design notes
 
-- **Why the err route fixes a bug rather than silencing a linter (user's decision, recorded).** Joe chose the error-returning chain over a local-handling variant. Worth stating precisely: every error is swallowed at `DetectRepoURL()`, the only production entry point, so no user ever sees one. The value is that an error gives the walk-up a way to **stop**. Today a mid-scan failure returns `""`, `DetectRepoURLFromDirWithOpen` ascends to the parent directory, and a *different repository's* config can be parsed and returned as yours. A bare `string` cannot express "stop, do not ascend". That is the real #35 defect, and only the err route fixes it.
-- **The realistic scan failure is `bufio.ErrTooLong`, not disk failure.** `bufio.Scanner`'s default token cap is 64KB, so a config line longer than that aborts the scan. This is the trigger the RED test uses, because it is reproducible with a real file and is the case a user could actually hit.
+- **Why the err route fixes a bug rather than silencing a linter (user's decision, recorded).** Joe chose the error-returning chain over a local-handling variant. Every error is swallowed at `DetectRepoURL()`, the only production entry point, so no user ever sees one. The value is that an error gives the walk-up a way to **stop**. Today a failed read returns `""`, `DetectRepoURLFromDirWithOpen` ascends to the parent directory, and a *different repository's* config can be parsed and returned as yours. A bare `string` cannot express "stop, do not ascend". That is the real #35 defect, and only the err route fixes it.
+- **Both adjacent items were put to the user and both were folded in (decisions recorded).** Gate A's ask-alignment reviewer correctly caught that an earlier draft gated one adjacent item while silently folding another. Both were escalated:
+  - *Test environment-coupling* (#37 "Related", phrased there as "worth deciding") → **fold** (Task 4). Verified beforehand: once Task 3 lands, a worktree of this repo has a `github.com` origin, so the existing assertion would pass untouched and #37 is closable without Task 4 — the fold buys the local-path-clone case, which is what forced #33's acceptance run to use a GitHub-origin clone.
+  - *Unreadable-config fallthrough* (named in neither issue) → **fold** (Task 2), against the author's recommendation to defer. Recorded as the user's call; implemented in full.
+- **The realistic scan failure is `bufio.ErrTooLong`, not disk failure.** `bufio.Scanner`'s default token cap is 64KB, so a config line longer than that aborts the scan. Empirically confirmed by a Gate A reviewer: a 70KB line makes `Scan()` return false after one line, `Err()` returns `bufio.ErrTooLong`, the error survives a `fmt.Errorf("%w")` wrap, and scanning does **not** resume on later lines.
 - **Error semantics — exactly which condition stops the walk:**
-  - open fails → `("", nil)`. Means "no readable config here, try the parent." The walk-up **depends** on this; it is not an error.
-  - scan fails → `("", err)`. Means "this IS a config and the read broke." Stops the walk.
-  - clean EOF, no origin → `("", nil)`. Keep walking.
-- **NOT folded in, proposed as a gated follow-up:** the same wrong-repo fallthrough occurs when `.git/config` exists but is **unreadable** (permission denied) — open fails, the walk ascends, wrong URL. Fixing it means distinguishing `fs.ErrNotExist` (keep walking) from other open errors (stop). It is a genuine sibling of #35 but appears in neither issue. Per the propose-don't-fold rule (vault 393/345), it is recorded here as an explicitly optional item awaiting Joe's yes/no — **not** implemented by this plan.
-- **Worktree resolution mechanics (verified against a live worktree).** In a linked worktree, `.git` is a file containing `gitdir: <abs path>`; that gitdir holds `HEAD`, `index`, `refs`, `commondir` — **no `config`**. `commondir` contains `../..` (relative), resolving to the main `.git`, where `config` lives. Verified: `cat .git` → `gitdir: /Users/joe/repos/personal/targ/.git/worktrees/pre-rebuild`; `cat <gitdir>/commondir` → `../..`; the joined path's `config` exists.
+
+  | Condition | Result | Meaning |
+  | --- | --- | --- |
+  | open fails with `fs.ErrNotExist` | `("", nil)` | no config here — **keep walking** (the walk-up depends on this) |
+  | open fails otherwise (e.g. permission) | `("", err)` | a config exists but is unreadable — **stop** (Task 2) |
+  | scan fails mid-file | `("", err)` | this IS the config and the read broke — **stop** (Task 1) |
+  | clean EOF, no origin section | `("", nil)` | keep walking |
+
+- **Worktree resolution mechanics (verified against a live worktree, twice).** In a linked worktree, `.git` is a file containing `gitdir: <abs path>`; that gitdir holds `HEAD`, `index`, `refs`, `commondir` — **no `config`**. `commondir` contains `../..` (relative), resolving to the main `.git`, where `config` lives. A Gate A reviewer independently created a real worktree and confirmed the fixture in Task 3 reproduces this exact depth relationship, with no daylight between fixture and reality.
 - **Why `.git/config` is tried before the pointer file.** Go's `os.Open` on a *directory* succeeds (reads fail with EISDIR), so probing `.git`-as-a-file first would need EISDIR handling for the common case. Trying `<dir>/.git/config` first keeps the normal-repo path untouched and reaches the pointer logic only when it misses.
+- **Complexity headroom is measured, not assumed.** A Gate A reviewer measured the post-change functions: `DetectRepoURLFromDirWithOpen` cyclomatic 8 / cognitive 15; `gitDirConfigPath` cyclomatic 7 / cognitive 6 — against configured limits of cyclop 10 and gocognit/gocyclo 30. No extraction is needed; do not pre-emptively split.
 
 ## Doc-surface enumeration grep
 
-Ran over the repo for `worktree|DetectRepoURL|More info|repo ?URL|scanner` (`*.md` in `README.md`, `CLAUDE.md`, `docs/specs/`, `specs/`) plus `worktree|\.git/config` in non-test `*.go`:
+Ran `worktree|DetectRepoURL|More info|repo ?URL|scanner|gitdir` over `*.md` (`README.md`, `CLAUDE.md`, `docs/`, `specs/`) and `DetectRepoURL|ParseGitConfig|NormalizeGitURL|worktree|\.git/config|gitdir|More info` over `*.go` (including test files and doc comments):
 
 | File | Disposition | Reason |
 | --- | --- | --- |
-| `CLAUDE.md:40` (worktree caveat added in the #33 cycle) | **update** | It states `check-full` cannot pass in a worktree because `DetectRepoURL` reads `.git` as a path. This fix makes that false. Task 4 rewrites the clause; the `golangci-lint` cache half of the sentence stays (still true). |
-| `docs/specs/implementation.md:88-89` (IMPL git integration; key functions list) | keep | Describes purpose and names `DetectRepoURL`/`ParseGitConfigContent`. Both still exist with the same public behavior; internal signatures are not spec'd at this level. |
-| `docs/specs/architecture.md:91` (`DetectRepoURL()` parses `.git/config` for origin) | keep | Still accurate — it does parse `.git/config`; the fix only adds *where it finds it* in a worktree. Wording is not contradicted. |
-| `docs/specs/tests.md:123,129` (T-? git detection given/when/then; `TestProperty_CleanWorkTree` roster) | keep | The roster names `TestProperty_CleanWorkTree`, not `TestProperty_GitDetection`; the given/when/then ("Repo URL detection parses `.git/config`") remains true. |
-| `docs/specs/tests.md:163` (repo URL shown when no more-info text) | keep | Help behavior unchanged. |
-| `docs/specs/requirements.md:105`, `README.md:412` | N/A | Both are about `CheckCleanWorkTree()`, a different function in the same file, untouched. |
-| `specs/001-parallel-output/research.md:35` (Scanner 64KB cap) | keep | A historical research note about PrefixWriter, unrelated to git config parsing — though it independently corroborates the 64KB cap this plan relies on. |
-| `internal/core/types.go:53` (`If empty, targ attempts to detect it from .git/config.`) | keep | Doc comment on `RunOptions.RepoURL`; still true. |
-| `internal/core/git.go:42,50` (doc comments on the changed functions) | **update** | Task 1/2 rewrite these to describe the error returns and worktree resolution — part of the code change, not a separate doc task. |
+| `CLAUDE.md:40` (worktree caveat added in the #33 cycle) | **update** | States `check-full` cannot pass in a worktree because `DetectRepoURL` reads `.git` as a path. Task 3 makes that false. Task 5 rewrites the clause; the `golangci-lint` cache clause stays (still true). |
+| `internal/core/git.go:42,50` (doc comments on the changed functions) | **update** | Rewritten in Tasks 1-3 to state each function's error contract and the worktree resolution — part of the code change, not a separate doc task. |
+| `docs/specs/implementation.md:88-89` (git integration purpose; key-functions list) | keep | Names `DetectRepoURL`/`ParseGitConfigContent`; both still exist with unchanged public behavior. Internal signatures are not spec'd at this level. |
+| `docs/specs/architecture.md:91` (`DetectRepoURL()` parses `.git/config`) | keep | Still accurate — it does parse `.git/config`; the fix only changes *where it finds it* in a worktree. Considered adding "and worktrees" and rejected: the sentence describes the parse, not the search domain, and specs here stay behavioural-abstract. |
+| `docs/specs/tests.md:123,129` (git detection given/when/then; `TestProperty_CleanWorkTree` roster) | keep | Roster names `TestProperty_CleanWorkTree`, not `TestProperty_GitDetection`; "Repo URL detection parses `.git/config`" remains true. |
+| `docs/specs/tests.md:163` (repo URL shown when no more-info text) | keep | Help behaviour unchanged. |
+| `docs/specs/requirements.md:105`, `README.md:412` | N/A | Both concern `CheckCleanWorkTree()`, a different function in the same file, untouched. |
+| `internal/core/types.go:52,53,56` (`RepoURL` / `MoreInfoText` doc comments, "detect it from `.git/config`") | keep | Still true — detection still reads `.git/config`; only its search path widens. |
+| `internal/runner/runner.go:3812,3861` (hardcoded `More info: …#readme`) | keep | Fallback text printed when no target files exist; never reaches the detection chain. |
+| `internal/help/render.go:288`, `internal/help/generators.go:157,239` (render the "More info" section) | keep | Pure consumers — `renderMoreInfo` prints whatever string it is handed (`render.go:284-292`); unaffected by where that string came from. |
+| `test/hierarchy_properties_test.go:395` (asserts output contains `More info:`) | keep | Asserts the section renders, not its content; passes regardless of detection outcome. |
+| `specs/001-parallel-output/research.md:35` (Scanner 64KB cap) | keep | Historical research note about PrefixWriter — unrelated, though it independently corroborates the cap this plan relies on. |
 | `docs/plans/*` (3 files mentioning worktree/DetectRepoURL) | N/A | Historical planning records, kept as written per repo convention. |
 
 ---
@@ -52,21 +77,22 @@ Ran over the repo for `worktree|DetectRepoURL|More info|repo ?URL|scanner` (`*.m
 ### Task 1: #35 — error-returning chain that stops the walk
 
 **Files:**
-- Modify: `internal/core/git.go` (`ParseGitConfigContent`, `ParseGitConfigOriginURLWithOpen`, `DetectRepoURLFromDirWithOpen`, `DetectRepoURLWithDeps`, `DetectRepoURL`)
+- Modify: `internal/core/git.go` (all five chain functions)
 - Test: `internal/core/git_test.go` (`TestProperty_GitDetection`)
 
 **Interfaces:**
-- Consumes: nothing from other tasks.
-- Produces the signatures Task 2 builds on:
+- Consumes: nothing.
+- Produces the signatures Tasks 2-4 build on:
   - `ParseGitConfigContent(r io.Reader) (string, error)`
   - `ParseGitConfigOriginURLWithOpen(path string, open FileOpener) (string, error)`
   - `DetectRepoURLFromDirWithOpen(dir string, open FileOpener) (string, error)`
   - `DetectRepoURLWithDeps(getwd func() (string, error), open FileOpener) (string, error)`
-  - `DetectRepoURL() string` — **unchanged signature**
+  - `DetectRepoURL() string` — **unchanged**
+  - `OSOpen() FileOpener` — new exported accessor (see Step 3)
 
 - [ ] **Step 1: Write the failing tests**
 
-Add to `TestProperty_GitDetection` in `internal/core/git_test.go`. Note `strings.NewReader` is not IO mocking — `ParseGitConfigContent` is a pure function over an `io.Reader`.
+Add to `TestProperty_GitDetection` in `internal/core/git_test.go`. (`strings.NewReader` is not IO mocking — `ParseGitConfigContent` is a pure function over an `io.Reader`.)
 
 ```go
 	t.Run("ParseGitConfigContentReportsScanError", func(t *testing.T) {
@@ -105,16 +131,24 @@ Add to `TestProperty_GitDetection` in `internal/core/git_test.go`. Note `strings
 	})
 ```
 
-Implementer note: `osOpen` is currently unexported (`git.go:150`). The blackbox test package needs it — export a thin accessor `OSOpen() FileOpener` returning `osOpen`, or export `osOpen` as `OSOpen`. Pick one, keep it a one-liner, and use it consistently in both tasks' tests.
-
 - [ ] **Step 2: Run the tests to verify they fail (RED)**
 
 Run: `go test ./internal/core -run 'TestProperty_GitDetection' 2>&1 | tail -20`
-Expected: compilation failure first (`ParseGitConfigContent` returns 1 value, `core.OSOpen` undefined). After adding only the accessor and the two-value signature stubs, expected: `WalkUpStopsOnScanErrorInsteadOfUsingParentRepo` FAILS by reporting the parent's URL — that is the #35 defect reproduced. Record the exact failure text.
+
+Expected, in two stages:
+1. **Compile errors first** — `core.OSOpen` undefined, plus `assignment mismatch` at all five existing call sites listed in Global Constraints. Add the `OSOpen` accessor and convert all five sites to the two-value form before expecting a behavioural failure.
+2. **Then the real RED**: `WalkUpStopsOnScanErrorInsteadOfUsingParentRepo` fails on its **first** assertion — `Expect(err).To(HaveOccurred())` — because the pre-fix code returns `nil`. Gomega's `NewWithT` calls `Fatalf`, so the subtest aborts there and the "must never report a different repository's URL" line is never reached or printed. That first-assertion failure IS the #35 defect (no error, walk continued). Record its exact text; do not expect to see the parent-URL message.
 
 - [ ] **Step 3: Implement the error chain (GREEN)**
 
-In `internal/core/git.go`:
+In `internal/core/git.go`. Export the opener accessor as a function (matching `FileOpener`'s function type), and give it a doc comment — `revive` fails an exported symbol without one:
+
+```go
+// OSOpen returns the default FileOpener, which reads real files from disk.
+func OSOpen() FileOpener {
+	return osOpen
+}
+```
 
 ```go
 // ParseGitConfigContent extracts the origin remote URL from git config content.
@@ -158,12 +192,11 @@ func ParseGitConfigContent(r io.Reader) (string, error) {
 }
 ```
 
-`ParseGitConfigOriginURLWithOpen` — an open failure means "no readable config here", which the walk-up relies on, so it is reported as `("", nil)`; only a scan failure propagates:
-
 ```go
 // ParseGitConfigOriginURLWithOpen reads a git config file using injected opener.
-// A file that cannot be opened yields ("", nil) — the caller treats that as
-// "no config here". Only a config that opens but cannot be read returns an error.
+// A file that is simply absent yields ("", nil) — the caller treats that as
+// "no config here" and keeps walking. Only a config that exists but cannot be
+// read returns an error.
 func ParseGitConfigOriginURLWithOpen(path string, open FileOpener) (string, error) {
 	f, err := open(path)
 	if err != nil {
@@ -175,8 +208,6 @@ func ParseGitConfigOriginURLWithOpen(path string, open FileOpener) (string, erro
 	return ParseGitConfigContent(f)
 }
 ```
-
-`DetectRepoURLFromDirWithOpen` — propagate the scan error instead of ascending:
 
 ```go
 // DetectRepoURLFromDirWithOpen walks up from dir looking for a git config using
@@ -203,8 +234,6 @@ func DetectRepoURLFromDirWithOpen(dir string, open FileOpener) (string, error) {
 }
 ```
 
-`DetectRepoURLWithDeps` and the public entry point:
-
 ```go
 // DetectRepoURLWithDeps is a testable version that accepts injected dependencies.
 func DetectRepoURLWithDeps(getwd func() (string, error), open FileOpener) (string, error) {
@@ -217,29 +246,37 @@ func DetectRepoURLWithDeps(getwd func() (string, error), open FileOpener) (strin
 }
 
 // DetectRepoURL attempts to find the repository URL by parsing the repo's git
-// config. It walks up from the current directory. Detection is best-effort — it
-// feeds optional help text — so failures yield an empty string.
+// config, walking up from the current directory. Detection is best-effort — it
+// feeds optional help text — so any failure yields an empty string.
 func DetectRepoURL() string {
-	url, _ := DetectRepoURLWithDeps(os.Getwd, osOpen) //nolint:errcheck // best-effort: help text degrades to no link
+	url, _ := DetectRepoURLWithDeps(os.Getwd, osOpen)
 
 	return url
 }
 ```
 
-Update the three existing error-path subtests to the two-value form (`url, err := ...`; assert `err` per the semantics above — `HandlesOpenError` cases expect `err` to be nil, since an unopenable config is "keep walking", not a failure).
+Do **not** add a `//nolint:errcheck` on that assignment: `errcheck` does not fire on an explicit blank identifier, and the repo's autofix (`issues.fix = true`) strips the dead directive anyway.
+
+Then convert all five existing call sites to the two-value form. For the two `HandlesOpenError` subtests, assert `err` is **nil** — an absent config is "keep walking", not a failure — and change their fakes to return a not-exist sentinel so they keep meaning that after Task 2:
+
+```go
+		failingOpen := func(_ string) (io.ReadCloser, error) {
+			return nil, fs.ErrNotExist
+		}
+```
 
 - [ ] **Step 4: Run the tests to verify they pass (GREEN)**
 
-Run: `go test ./internal/core -run 'TestProperty_GitDetection' -v 2>&1 | grep -E '^(--- |ok|FAIL)'`
-Expected: all subtests PASS, including both new ones.
+Run: `go test ./internal/core -run 'TestProperty_GitDetection' -v 2>&1 | grep -E '^(=== RUN|--- |ok|FAIL)'`
+Expected: every subtest PASS, including both new ones.
 
 - [ ] **Step 5: Refactor check + Gate B**
 
-Confirm the result reads as one coherent chain: every function's doc comment states its error contract, and the "open failure is not an error" rule is stated exactly once (on `ParseGitConfigOriginURLWithOpen`) rather than repeated. Then dispatch Gate B: a fresh-context design-fit reviewer over the diff, charged with DRY/SRP/YAGNI and "does the result read as written-from-the-start". The unit is done only when Gate B closes.
+Confirm the chain reads as one design: every function's doc comment states its error contract, and the "absent config is not an error" rule is stated once (on `ParseGitConfigOriginURLWithOpen`) rather than repeated. Then dispatch Gate B — a fresh-context design-fit reviewer over the diff, charged with DRY/SRP/YAGNI and "does the result read as written-from-the-start". Done only when Gate B closes.
 
 - [ ] **Step 6: Pre-commit checks, then commit**
 
-Run `targ check` then `targ check-full`. Expected: every leg PASS except `check-uncommitted`. If `lint-full` fails, run `golangci-lint cache clean` and re-run before believing it.
+Run `targ check` then `targ check-full`. Expected: every leg PASS except `check-uncommitted`. If `lint-full` fails, `golangci-lint cache clean` and re-run before believing it.
 
 ```bash
 git add internal/core/git.go internal/core/git_test.go
@@ -253,31 +290,132 @@ parent directory and could parse a DIFFERENT repository's config,
 reporting its URL as this repo's.
 
 Give the internal chain error returns so a failed read stops the walk.
-An unopenable config still yields ("", nil) — the walk-up depends on
-that — but a config that opens and then fails to scan propagates.
-DetectRepoURL keeps its bare-string signature and swallows at the
-boundary, since it feeds optional help text.
+An absent config still yields ("", nil) — the walk-up depends on that —
+but a config that opens and then fails to scan propagates. DetectRepoURL
+keeps its bare-string signature and swallows at the boundary, since it
+feeds optional help text.
 
 The realistic trigger is bufio.ErrTooLong: Scanner's default 64KB token
-cap aborts on a longer line, which the regression test reproduces with
-a real config file.
+cap aborts on a longer line, which the regression test reproduces with a
+real config file.
 
-Closes #35
+Refs #35
 
 AI-Used: [claude]
 EOF
 )"
 ```
 
-### Task 2: #37 — resolve a worktree's `.git` pointer file
+### Task 2: #35 (folded sibling) — an unreadable config also stops the walk
+
+Folded on the user's explicit decision; see Design notes.
 
 **Files:**
-- Modify: `internal/core/git.go` (`DetectRepoURLFromDirWithOpen` + a new unexported helper)
+- Modify: `internal/core/git.go` (`ParseGitConfigOriginURLWithOpen`)
 - Test: `internal/core/git_test.go`
 
 **Interfaces:**
-- Consumes: Task 1's `(string, error)` signatures.
-- Produces: no signature changes; `DetectRepoURLFromDirWithOpen` gains worktree support internally.
+- Consumes: Task 1's signatures.
+- Produces: no signature change; the open-error branch is refined.
+
+- [ ] **Step 1: Write the failing test**
+
+```go
+	t.Run("WalkUpStopsOnUnreadableConfigInsteadOfUsingParentRepo", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		if os.Geteuid() == 0 {
+			t.Skip("root bypasses file permission bits, so an unreadable config cannot be simulated")
+		}
+
+		parent := t.TempDir()
+		g.Expect(os.MkdirAll(filepath.Join(parent, ".git"), 0o755)).To(Succeed())
+		g.Expect(os.WriteFile(filepath.Join(parent, ".git", "config"),
+			[]byte("[remote \"origin\"]\n\turl = git@github.com:someone/parent.git\n"), 0o600)).To(Succeed())
+
+		child := filepath.Join(parent, "child")
+		g.Expect(os.MkdirAll(filepath.Join(child, ".git"), 0o755)).To(Succeed())
+		unreadable := filepath.Join(child, ".git", "config")
+		g.Expect(os.WriteFile(unreadable, []byte("[remote \"origin\"]\n\turl = x\n"), 0o600)).To(Succeed())
+		g.Expect(os.Chmod(unreadable, 0o000)).To(Succeed())
+
+		url, err := core.DetectRepoURLFromDirWithOpen(child, core.OSOpen())
+		g.Expect(err).To(HaveOccurred(), "an unreadable config must stop the walk, not fall through to the parent")
+		g.Expect(url).To(BeEmpty())
+	})
+```
+
+The root skip is deliberate: `t.TempDir()` cleanup and mode bits are honoured for normal users, but root reads regardless of mode, which would make the assertion environment-dependent — exactly the coupling Task 4 removes elsewhere.
+
+- [ ] **Step 2: Run the test to verify it fails (RED)**
+
+Run: `go test ./internal/core -run 'TestProperty_GitDetection/WalkUpStopsOnUnreadableConfig' -v 2>&1 | tail -15`
+Expected: FAIL on `Expect(err).To(HaveOccurred())` — after Task 1, every open failure still yields `("", nil)`, so the walk ascends and returns the parent's URL with no error.
+
+- [ ] **Step 3: Distinguish absent from unreadable (GREEN)**
+
+```go
+// ParseGitConfigOriginURLWithOpen reads a git config file using injected opener.
+// A file that is simply absent yields ("", nil) — the caller treats that as
+// "no config here" and keeps walking. A config that exists but cannot be opened
+// or read returns an error, so an unreadable repo never falls through to its
+// parent.
+func ParseGitConfigOriginURLWithOpen(path string, open FileOpener) (string, error) {
+	f, err := open(path)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return "", nil
+		}
+
+		return "", fmt.Errorf("opening git config: %w", err)
+	}
+
+	defer func() { _ = f.Close() }()
+
+	return ParseGitConfigContent(f)
+}
+```
+
+`osOpen` already wraps with `fmt.Errorf("opening %s: %w", path, err)` (`git.go:151`), so `errors.Is(err, fs.ErrNotExist)` matches through the wrap. Add `errors` and `io/fs` to the imports if not already present.
+
+- [ ] **Step 4: Run the tests to verify they pass (GREEN)**
+
+Run: `go test ./internal/core -run 'TestProperty_GitDetection' -v 2>&1 | grep -E '^(=== RUN|--- |ok|FAIL)'`
+Expected: all subtests PASS. The two `HandlesOpenError` subtests must still pass — Task 1 changed their fakes to `fs.ErrNotExist`, which now takes the keep-walking branch by name rather than by accident.
+
+- [ ] **Step 5: Refactor check + Gate B**, then commit:
+
+```bash
+git add internal/core/git.go internal/core/git_test.go
+git commit -m "$(cat <<'EOF'
+fix(core): an unreadable git config stops detection instead of ascending
+
+Sibling of the scan-error fallthrough: when .git/config exists but
+cannot be opened — permissions, most plausibly — the open error was
+indistinguishable from "no config here", so the walk ascended and could
+report a parent repository's URL.
+
+Treat only fs.ErrNotExist as "keep walking"; any other open failure
+stops the walk. osOpen already wraps with %w, so errors.Is matches
+through it.
+
+Refs #35
+
+AI-Used: [claude]
+EOF
+)"
+```
+
+### Task 3: #37 — resolve a worktree's `.git` pointer file
+
+**Files:**
+- Modify: `internal/core/git.go` (`DetectRepoURLFromDirWithOpen` + new unexported helper)
+- Test: `internal/core/git_test.go`
+
+**Interfaces:**
+- Consumes: Task 1's signatures (Task 2 is independent of this task; either order works, but the plan runs 2 before 3).
+- Produces: no signature changes.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -309,18 +447,14 @@ EOF
 	})
 ```
 
-Note the expected value is the *normalized* URL — `NormalizeGitURL` converts `git@github.com:toejough/targ.git` to `https://github.com/toejough/targ`. Confirm against `NormalizeGitURL`'s existing tests (`git_test.go:174,182`) before asserting.
-
-The worktree root is placed OUTSIDE `main/` deliberately: if it were nested inside, the walk-up would find `main/.git/config` on its own and the test would pass without the pointer logic ever running.
+The worktree root sits OUTSIDE `main/` deliberately: nested, the walk-up would find `main/.git/config` on its own and the test would pass without the pointer logic ever running. The expected value is the normalized URL — a Gate A reviewer confirmed `NormalizeGitURL("git@github.com:toejough/targ.git")` → `https://github.com/toejough/targ`.
 
 - [ ] **Step 2: Run the test to verify it fails (RED)**
 
 Run: `go test ./internal/core -run 'TestProperty_GitDetection/DetectsRepoURLFromInsideAGitWorktree' -v 2>&1 | tail -15`
-Expected: FAIL — `url` is empty, because the walk finds no `<dir>/.git/config` at any level and returns `("", nil)`. That is the #37 defect reproduced.
+Expected: FAIL — `url` is empty (the walk finds no `<dir>/.git/config` at any level and returns `("", nil)`), so the `Equal` assertion fails. That is the #37 defect reproduced.
 
 - [ ] **Step 3: Implement pointer resolution (GREEN)**
-
-Add an unexported helper and call it from the walk, after the direct-config attempt misses:
 
 ```go
 // gitDirConfigPath resolves a worktree's .git pointer file to the config path in
@@ -367,7 +501,7 @@ func gitDirConfigPath(dir string, open FileOpener) string {
 }
 ```
 
-Then in `DetectRepoURLFromDirWithOpen`, after the direct attempt returns no URL and no error, try the pointer path before ascending:
+In `DetectRepoURLFromDirWithOpen`, after the direct probe yields no URL and no error, try the pointer path before ascending:
 
 ```go
 		if path := gitDirConfigPath(dir, open); path != "" {
@@ -382,27 +516,21 @@ Then in `DetectRepoURLFromDirWithOpen`, after the direct attempt returns no URL 
 		}
 ```
 
-Watch the cyclomatic/cognitive complexity limits on `DetectRepoURLFromDirWithOpen` (CLAUDE.md: anticipate, don't wait for lint). If the loop body trips a limit, extract the per-directory probe into an unexported `configURLForDir(dir string, open FileOpener) (string, error)` helper and keep the loop to walk-and-ascend.
-
 - [ ] **Step 4: Run the tests to verify they pass (GREEN)**
 
-Run: `go test ./internal/core -run 'TestProperty_GitDetection' -v 2>&1 | grep -E '^(--- |ok|FAIL)'`
+Run: `go test ./internal/core -run 'TestProperty_GitDetection' -v 2>&1 | grep -E '^(=== RUN|--- |ok|FAIL)'`
 Expected: all subtests PASS.
 
-- [ ] **Step 5: Real-worktree verification (not just the fixture)**
+- [ ] **Step 5: Real-worktree verification (the fixture is not the claim)**
 
 ```bash
 git worktree add /tmp/targ-wt-verify HEAD
 cd /tmp/targ-wt-verify && go test ./internal/core -run TestProperty_GitDetection -v 2>&1 | tail -5
 cd /Users/joe/repos/personal/targ && git worktree remove /tmp/targ-wt-verify
 ```
-Expected: PASS in the worktree. This is the positive check that the fixture matches reality — a fixture that passes while a real worktree fails would mean the fixture is wrong.
+Expected: PASS in a real worktree. A fixture that passes while a real worktree fails would mean the fixture is wrong.
 
-- [ ] **Step 6: Refactor check + Gate B**
-
-Confirm the pointer helper reads as part of the file (naming, doc-comment density, error handling style consistent with its neighbours), then dispatch Gate B design-fit over the diff. Done only when Gate B closes.
-
-- [ ] **Step 7: Commit**
+- [ ] **Step 6: Refactor check + Gate B**, then commit:
 
 ```bash
 git add internal/core/git.go internal/core/git_test.go
@@ -428,18 +556,20 @@ EOF
 )"
 ```
 
-### Task 3: replace the environment-coupled detection test
+### Task 4: detection tests independent of the checkout
+
+Folded on the user's explicit decision; see Design notes.
 
 **Files:**
 - Modify: `internal/core/git_test.go` (`DetectRepoURLReturnsRepoFromGitConfig`, `git_test.go:127-136`)
 
 **Interfaces:**
-- Consumes: Tasks 1 and 2.
+- Consumes: Tasks 1 and 3.
 - Produces: nothing consumed later.
 
-- [ ] **Step 1: Replace the assertion**
+- [ ] **Step 1: Replace the environment-coupled assertion**
 
-The current subtest calls the real `core.DetectRepoURL()` and asserts the result contains `github.com` — coupling it to the checkout's remote, so it fails in any clone made from a local path (and, before Task 2, in any worktree). Replace it with a hermetic fixture test plus a wiring assertion that keeps `DetectRepoURL()` covered:
+The current subtest calls the real `core.DetectRepoURL()` and asserts the result contains `github.com`, coupling it to the checkout's remote — so it fails in any clone made from a local path. Replace with a hermetic fixture plus a wiring assertion that keeps `DetectRepoURL()` covered:
 
 ```go
 	t.Run("DetectRepoURLReturnsRepoFromGitConfig", func(t *testing.T) {
@@ -468,13 +598,13 @@ The current subtest calls the real `core.DetectRepoURL()` and asserts the result
 	})
 ```
 
-- [ ] **Step 2: Verify both the test change and the coverage it protects**
+- [ ] **Step 2: Verify the change and the coverage it protects**
 
 ```bash
 go test ./internal/core -run 'TestProperty_GitDetection' -v 2>&1 | grep -E '^(--- |ok|FAIL)'
-go test ./internal/core -coverprofile=/tmp/cov.out >/dev/null 2>&1 && go tool cover -func=/tmp/cov.out | grep -E 'DetectRepoURL|ParseGitConfig|gitDirConfigPath'
+go test ./internal/core -coverprofile=/tmp/cov.out >/dev/null 2>&1 && go tool cover -func=/tmp/cov.out | grep -E 'DetectRepoURL|ParseGitConfig|gitDirConfigPath|OSOpen'
 ```
-Expected: all subtests PASS, and every changed function reports ≥80% coverage — `DetectRepoURL` in particular must not be 0%.
+Expected: all subtests PASS, and every changed function ≥80% — `DetectRepoURL` in particular must not be 0%.
 
 - [ ] **Step 3: Prove the environment coupling is gone**
 
@@ -482,8 +612,9 @@ Expected: all subtests PASS, and every changed function reports ≥80% coverage 
 SC=/private/tmp/claude-501/-Users-joe-repos-personal-targ/1ad2fbb5-120e-4fca-9525-fd94fcf75014/scratchpad/i3537
 rm -rf "$SC" && mkdir -p "$SC" && git clone -q . "$SC/local-clone"
 cd "$SC/local-clone" && go test ./internal/core -run TestProperty_GitDetection 2>&1 | tail -3
+cd /Users/joe/repos/personal/targ && rm -rf "$SC"
 ```
-Expected: PASS in a clone whose origin is a local filesystem path — the exact configuration that fails today. Then `cd` back and `rm -rf "$SC"`.
+Expected: PASS in a clone whose origin is a local filesystem path — the exact configuration that fails today.
 
 - [ ] **Step 4: Commit**
 
@@ -503,19 +634,24 @@ zero-argument entry point covered by pinning that it delegates to
 DetectRepoURLWithDeps rather than by asserting anything about the
 surrounding checkout.
 
+Refs #37
+
 AI-Used: [claude]
 EOF
 )"
 ```
 
-### Task 4: docs + full verification
+### Task 5: docs + full verification
 
 **Files:**
-- Modify: `CLAUDE.md:40` (the worktree caveat)
+- Modify: `CLAUDE.md:40`
+
+**Interfaces:**
+- Consumes: Tasks 1-4 (the caveat is only false once Task 3 lands).
 
 - [ ] **Step 1: Update the CLAUDE.md caveat**
 
-The clause "in a `git worktree` the coverage leg fails regardless of your change, because `DetectRepoURL` reads `.git/config` as a path and a worktree's `.git` is a file (filed separately)" is false once Tasks 2 and 3 land. Replace that clause — keep the surrounding sentence and the `golangci-lint` cache clause, which remain true:
+Replace the now-false worktree clause, keeping the surrounding sentence and the still-true `golangci-lint` clause:
 
 ```markdown
 - **Always run `check-full` before declaring done.** Use `targ check-full`. This reports ALL failures at once (lint, coverage, ordering, dead code, nil checks). Do NOT use `check-for-fail` (stops at first error, causes whack-a-mole). Do NOT use bare `go test` as final validation — it misses lint, coverage thresholds, and declaration ordering. A stale `golangci-lint` result cache can produce phantom `lint-full` failures citing paths that no longer exist — `golangci-lint cache clean` clears them.
@@ -525,14 +661,15 @@ The clause "in a `git worktree` the coverage leg fails regardless of your change
 
 Run `targ check-full`. Expected: ALL 8 legs PASS.
 
-- [ ] **Step 3: Prove the worktree gate is actually fixed — the payoff claim**
+- [ ] **Step 3: Prove the worktree gate is fixed — the payoff claim**
 
 ```bash
+golangci-lint cache clean
 git worktree add /tmp/targ-wt-gate HEAD
 cd /tmp/targ-wt-gate && targ check-full 2>&1 | tail -12
 cd /Users/joe/repos/personal/targ && git worktree remove /tmp/targ-wt-gate
 ```
-Expected: **8/8 in a worktree** — the condition #37 says is impossible today. Quote the leg summary; this is the evidence for both close comments. Run `golangci-lint cache clean` first so a stale cache cannot confound it.
+Expected: **8/8 in a worktree** — the condition #37 says is impossible today. Quote the leg summary; this is the evidence for the close comments.
 
 - [ ] **Step 4: Commit the doc change**
 
