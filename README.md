@@ -530,7 +530,7 @@ Examples:
     bin marker
 ```
 
-`bin marker --help` shows the same Usage and Examples content — both invocations document each other.
+`bin marker --help` produces byte-identical output — both invocations document each other.
 
 ## Dynamic Tag Options
 

@@ -116,4 +116,4 @@ func FormatSummary(results []TargetResult) string
 - Serial mode targets: zero behavior change. `targ.Print` with no ExecInfo in context writes directly to stdout.
 - Existing `fmt.Print` calls in target functions: unaffected. Only `targ.Print`/`targ.Printf` are parallel-aware.
 - Shell commands in serial mode: continue using `DefaultShellEnv()` with `os.Stdout` directly.
-- `--parallel` flag behavior: enhanced with prefixed output and summary, but still executes targets concurrently.
+- `--parallel` flag behavior: enhanced with prefixed output and summary, and now bounded to `min(n, max(2, GOMAXPROCS/2))` concurrent targets - the same cap dependency groups use.

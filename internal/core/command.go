@@ -979,6 +979,10 @@ func executeGroupWithParents(
 
 	subName := args[0]
 
+	// HasDefault describes the sole ROOT, which alone is runnable bare. A
+	// descendant is not, so its help must not advertise the bare form.
+	opts.HasDefault = false
+
 	// Check for glob patterns in subcommand name
 	if isGlobPatternCmd(subName) {
 		matches := findMatchingSubcommands(node, subName)

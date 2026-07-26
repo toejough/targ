@@ -422,9 +422,16 @@ func (e *runExecutor) handleGlobalHelp() bool {
 		return false
 	}
 
-	// For multi-root mode: if arg matches a root command, let command handle help
-	// This allows `targ <cmd> --help` to show command-specific help
-	if !e.hasDefault && len(e.rest) > 0 && !strings.HasPrefix(e.rest[0], "-") {
+	// If arg names something dispatch can resolve, let command execution
+	// handle help. In default mode any non-flag arg resolves against the
+	// sole root (runWithEnvInternal prepends its name before dispatch), so
+	// walking there - and printing whatever nodes it visits along the way -
+	// is the same thing multi-root already does when arg matches a root.
+	if len(e.rest) > 0 && !strings.HasPrefix(e.rest[0], "-") {
+		if e.hasDefault {
+			return false // Let command execution handle help
+		}
+
 		for _, root := range e.roots {
 			if strings.EqualFold(root.Name, e.rest[0]) {
 				return false // Let command execution handle help

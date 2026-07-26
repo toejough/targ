@@ -2,6 +2,7 @@
 package targ_test
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -468,6 +469,82 @@ func TestProperty_Hierarchy(t *testing.T) {
 		multiRootResult, err := targ.Execute([]string{"app", "marker", "--help"}, target, other)
 		g.Expect(err).NotTo(HaveOccurred())
 		g.Expect(multiRootResult.Output).NotTo(ContainSubstring("[marker]"))
+	})
+
+	// Issue #40 (out-of-scope item, now approved for this pass): a sole GROUP
+	// root's `<binary> <sub> --help` used to always render the group's own
+	// help, no matter what subcommand was named - handleGlobalHelp's early
+	// return to command execution was gated on `!hasDefault`, so default
+	// mode never took it. Fixed by dropping that gate: default mode now
+	// hands any non-flag first arg to execution, same as multi-root already
+	// does when the arg matches a registered root name. Execution then walks
+	// to the named node, printing every node's help along the way (the
+	// established convention multi-root's nested `<root> <sub> --help`
+	// already exhibits: both the group's and the subcommand's help print).
+	t.Run("DefaultModeSoleGroupRootHelpDescendsToNamedSubcommand", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		ran := false
+		s1 := targ.Targ(func() { ran = true }).Name("s1").Description("S1-ONLY-DESC")
+		s2 := targ.Targ(func() {}).Name("s2")
+		group := targ.Group("grp", s1, s2)
+
+		result, err := targ.Execute([]string{"app", "s1", "--help"}, group)
+		g.Expect(err).NotTo(HaveOccurred())
+		// s1's description appears once in the group's own subcommand
+		// listing, and - only once the fix walks to it - a second time as
+		// s1's own dedicated help header.
+		g.Expect(strings.Count(result.Output, "S1-ONLY-DESC")).To(Equal(2))
+		g.Expect(strings.Count(result.Output, "Usage:")).To(Equal(2))
+		g.Expect(ran).To(BeFalse())
+		// Only the sole root runs bare, so only its block may advertise the
+		// optional name and the bare form. A descendant's must not.
+		g.Expect(result.Output).To(ContainSubstring("[grp]"))
+		g.Expect(result.Output).NotTo(ContainSubstring("[s1]"))
+	})
+
+	t.Run("DefaultModeSoleGroupRootHelpOnRootNamePrintsOnce", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		sub := targ.Targ(func() {}).Name("s1")
+		group := targ.Group("grp", sub)
+
+		result, err := targ.Execute([]string{"app", "grp", "--help"}, group)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(strings.Count(result.Output, "Usage:")).To(Equal(1))
+	})
+
+	t.Run("DefaultModeSoleGroupRootHelpOnUnknownNameMatchesMultiRootConvention", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		sub := targ.Targ(func() {}).Name("s1")
+		group := targ.Group("grp", sub)
+
+		// Multi-root's `<root> <bogus> --help` prints the group's help, then
+		// reports the unknown command with a fallback usage block. A sole
+		// group root reaches the identical arg list via the default-mode
+		// name prepend, so it must match.
+		result, err := targ.Execute([]string{"app", "bogus", "--help"}, group)
+		g.Expect(err).To(HaveOccurred())
+		g.Expect(result.Output).To(ContainSubstring("Unknown command: bogus"))
+		g.Expect(strings.Count(result.Output, "Usage:")).To(Equal(2))
+	})
+
+	t.Run("DefaultModeSoleGroupRootHelpKeepsGlobalHelpForFlagShapedFirstArg", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		sub := targ.Targ(func() {}).Name("s1")
+		group := targ.Group("grp", sub)
+
+		// A flag-shaped first arg never named a root or subcommand, so
+		// today's behaviour - one global help block - must be unchanged.
+		result, err := targ.Execute([]string{"app", "--bogus-flag", "--help"}, group)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(strings.Count(result.Output, "Usage:")).To(Equal(1))
 	})
 
 	t.Run("HelpWithUnknownCommandShowsGlobalHelp", func(t *testing.T) {
