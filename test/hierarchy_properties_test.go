@@ -452,6 +452,9 @@ func TestProperty_Hierarchy(t *testing.T) {
 			g.Expect(output).To(ContainSubstring("Basic usage:\n    app"))
 			g.Expect(output).To(ContainSubstring("By name:\n    app marker"))
 		}
+		// Both forms reach printCommandHelp through the same interception, so
+		// they agree to the byte - which is what the README promises.
+		g.Expect(namedResult.Output).To(Equal(bareResult.Output))
 	})
 
 	t.Run("DefaultRootBracketDoesNotLeakAcrossExecuteCalls", func(t *testing.T) {
