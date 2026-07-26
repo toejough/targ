@@ -127,29 +127,26 @@ func TestModuleFiles_TerminatesOnSymlinkCycle(t *testing.T) {
 	g.Expect(os.Symlink(mutualX, filepath.Join(mutualY, "tox"))).To(Succeed())
 
 	// Each fixture gets a real .go file so the assertion proves the walk both
-	// TERMINATED and did useful work. Asserting non-nil alone fails on a correct
-	// implementation when a fixture holds only directories and loops — a Gate A
-	// reviewer hit exactly that with an earlier draft of this test.
+	// terminated and did useful work. A non-nil assertion alone would pass
+	// vacuously on a fixture holding only directories and loops.
 	for _, dir := range []string{selfLoop, deep, mutualX} {
 		writeTestFile(g, dir, "found.go", "package p\n")
 	}
 
-	// Assert a BOUNDED FILE COUNT, not mere presence. Removing the visited set
-	// does NOT hang: Go's own filepath.EvalSymlinks gives up at ~128 hops with
-	// "EvalSymlinks: too many links" (measured), and this walker treats an
-	// EvalSymlinks failure as "unreachable, not fatal" — so a guard-less run
-	// terminates anyway, having done 64-128x redundant work, and a presence-only
-	// assertion passes. The count is what discriminates: 1-2 files with the
-	// guard, 64-128 without. Each expected count is measured against THIS
-	// fixture, not a scratch probe — an earlier draft copied 1/2/1 from a probe
-	// whose selfLoop had no a.go, and the test failed on correct code.
+	// Assert a bounded file count, not mere presence. Removing the visited set
+	// does NOT hang: filepath.EvalSymlinks gives up at ~128 hops with
+	// "EvalSymlinks: too many links", and this walker treats an EvalSymlinks
+	// failure as unreachable-not-fatal, so a guard-less run still terminates
+	// after 64-128x redundant walking and a presence-only assertion passes.
+	// Only the count discriminates. Each want below is specific to its fixture's
+	// shape — see the per-case notes.
 	for _, tc := range []struct {
 		dir  string
 		want int
 	}{
 		{selfLoop, 2}, // this fixture writes a.go above, plus found.go below
 		{deep, 2},     // `up` re-enters `nested` once directly and once via the parent before the guard catches it
-		{mutualX, 1},
+		{mutualX, 1},  // y holds no .go files, and its link back to x is already visited
 	} {
 		files, err := runner.ExportCollectModuleFiles(tc.dir)
 		g.Expect(err).NotTo(HaveOccurred(), "a symlink cycle must terminate, not error")
@@ -383,10 +380,9 @@ func TestReplaceDirFiles_FollowsSymlinkedTargetThroughGoMod(t *testing.T) {
 	g := NewWithT(t)
 
 	// The production path: a real `replace … => <symlink>` directive, driven
-	// through filesystemReplaceDirs and collectReplaceDirFiles rather than the
-	// lower-level walker. Without this, no test exercises what a user's go.mod
-	// actually triggers — a Gate A reviewer found the level-1 test above calls
-	// ExportCollectModuleFiles directly and never touches this path.
+	// through filesystemReplaceDirs and collectReplaceDirFiles. The walker-level
+	// tests above call ExportCollectModuleFiles directly and never reach this
+	// path, so only this test covers what a user's go.mod actually triggers.
 	root := t.TempDir()
 	realDir := filepath.Join(root, "real")
 	g.Expect(os.MkdirAll(realDir, 0o755)).To(Succeed())
@@ -401,11 +397,10 @@ func TestReplaceDirFiles_FollowsSymlinkedTargetThroughGoMod(t *testing.T) {
 	files, err := runner.ExportCollectReplaceDirFiles(consumer)
 	g.Expect(err).NotTo(HaveOccurred())
 
-	// Assert the EXACT path, not just the suffix. A suffix match is blind to a
-	// physical-vs-logical prefix mismatch (/private/var vs /var on macOS), which
-	// is precisely the regression this plan's path-identity rule prevents — a
-	// Gate A reviewer found a suffix-only assertion here passed while the walker
-	// was returning resolved paths.
+	// Assert the exact path, not just the suffix. A suffix match is blind to a
+	// physical-vs-logical prefix mismatch (/private/var vs /var on macOS), so it
+	// would still pass if the walker recorded resolved paths instead of the ones
+	// go.mod names.
 	g.Expect(pathsOf(files)).To(ContainElement(filepath.Join(link, "dep.go")),
 		"a symlinked replace target must be hashed under the path go.mod names, not its physical location")
 }
