@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"runtime"
 	"strings"
 	"syscall"
 	"time"
@@ -214,6 +215,16 @@ type listOutput struct {
 	Commands []listCommandInfo `json:"commands"`
 }
 
+// parallelUnit is one CLI target scheduled by runUnitsParallel. It resolves
+// from an explicit root/glob match, or - in default mode - a subcommand name
+// to run against the sole root.
+type parallelUnit struct {
+	node     *commandNode
+	name     string
+	args     []string
+	explicit bool
+}
+
 type runExecutor struct {
 	env        RunEnv
 	opts       RunOptions
@@ -234,173 +245,6 @@ func (e *runExecutor) detectCompletionShell() string {
 	}
 
 	return detectShellFromPath(e.env.Getenv("SHELL"))
-}
-
-// executeDefault executes commands against a single default root.
-// Precondition: len(e.rest) >= 1 (handleNoArgs handles the empty case).
-func (e *runExecutor) executeDefault() error {
-	// If parallel mode, run targets concurrently
-	if e.opts.Overrides.Parallel {
-		return e.executeDefaultParallel()
-	}
-
-	remaining := e.rest
-
-	for len(remaining) > 0 {
-		next, err := e.roots[0].executeWithParents(
-			e.ctx,
-			remaining,
-			nil,
-			map[string]bool{},
-			false,
-			e.opts,
-		)
-		if err != nil {
-			var re reportedError
-			if !errors.As(err, &re) {
-				e.env.Printf("Error: %v\n", err)
-			}
-
-			return ExitError{Code: 1}
-		}
-
-		if len(next) == len(remaining) {
-			e.env.Printf("Unknown command: %s\n", remaining[0])
-			return ExitError{Code: 1}
-		}
-
-		remaining = next
-	}
-
-	return nil
-}
-
-// executeDefaultParallel runs targets in parallel for default (single root) mode.
-//
-//nolint:cyclop,funlen // sequential pipeline with error handling at each step
-func (e *runExecutor) executeDefaultParallel() error {
-	ctx, cancel := context.WithCancel(e.ctx)
-	defer cancel()
-
-	// Collect target names for prefix alignment
-	var targetNames []string
-
-	for _, arg := range e.rest {
-		if !strings.HasPrefix(arg, "-") {
-			targetNames = append(targetNames, arg)
-		}
-	}
-
-	maxNameLen := 0
-	for _, name := range targetNames {
-		if len(name) > maxNameLen {
-			maxNameLen = len(name)
-		}
-	}
-
-	// Set up printer for parallel output
-	const printerBufferMultiplier = 10
-
-	printer := NewPrinter(e.opts.Stdout, len(targetNames)*printerBufferMultiplier)
-
-	type targetResultMsg struct {
-		index    int
-		err      error
-		duration time.Duration
-	}
-
-	resultCh := make(chan targetResultMsg, len(targetNames))
-	results := make([]TargetResult, len(targetNames))
-
-	idx := 0
-
-	for _, arg := range e.rest {
-		if strings.HasPrefix(arg, "-") {
-			continue
-		}
-
-		results[idx].Name = arg
-
-		go func(i int, cmdName string) {
-			tctx := WithExecInfo(ctx, ExecInfo{
-				Parallel:   true,
-				Name:       cmdName,
-				MaxNameLen: maxNameLen,
-				Printer:    printer,
-				Output:     e.opts.Stdout,
-			})
-
-			Print(tctx, "starting...\n")
-
-			start := time.Now()
-
-			_, err := e.roots[0].executeWithParents(
-				tctx,
-				[]string{cmdName},
-				nil,
-				map[string]bool{},
-				false,
-				e.opts,
-			)
-
-			duration := time.Since(start)
-			resultCh <- targetResultMsg{index: i, err: err, duration: duration}
-		}(idx, arg)
-
-		idx++
-	}
-
-	var firstErr error
-
-	firstErrIdx := -1
-
-	for range targetNames {
-		targetResult := <-resultCh
-		results[targetResult.index].Err = targetResult.err
-		results[targetResult.index].Duration = targetResult.duration
-
-		if targetResult.err != nil && firstErr == nil {
-			firstErr = targetResult.err
-			firstErrIdx = targetResult.index
-
-			cancel()
-		}
-	}
-
-	// Classify results and print stop messages
-	for i := range results {
-		isFirst := i == firstErrIdx
-		results[i].Status = ClassifyResult(results[i].Err, isFirst)
-
-		tctx := WithExecInfo(ctx, ExecInfo{
-			Parallel:   true,
-			Name:       results[i].Name,
-			MaxNameLen: maxNameLen,
-			Printer:    printer,
-			Output:     e.opts.Stdout,
-		})
-
-		// Print error text with prefix before the stop message
-		if results[i].Err != nil && !errors.Is(results[i].Err, context.Canceled) {
-			Printf(tctx, "Error: %v\n", results[i].Err)
-		}
-
-		Printf(tctx, "%s (%s)\n", results[i].Status, results[i].Duration.Round(time.Millisecond))
-	}
-
-	// Drain printer and print summary
-	printer.Close()
-
-	summary := FormatSummary(results)
-	if summary != "" {
-		_, _ = fmt.Fprintln(e.opts.Stdout, "\n"+summary)
-	}
-
-	if firstErr != nil {
-		return ExitError{Code: 1}
-	}
-
-	return nil
 }
 
 // executeGlobPattern handles execution of glob-matched targets.
@@ -429,10 +273,12 @@ func (e *runExecutor) executeGlobPattern(name string) error {
 	return nil
 }
 
-// executeMultiRoot executes commands against multiple roots.
-func (e *runExecutor) executeMultiRoot() error {
+// executeRoots is the serial dispatch path shared by default and multi-root
+// mode. A default root reaches it already named, so every arg list here starts
+// with a root name to match and strip.
+func (e *runExecutor) executeRoots() error {
 	if e.opts.Overrides.Parallel {
-		return e.executeMultiRootParallel()
+		return e.runUnitsParallel()
 	}
 
 	remaining := e.rest
@@ -469,7 +315,7 @@ func (e *runExecutor) executeMultiRoot() error {
 			remaining[1:],
 			nil,
 			map[string]bool{},
-			true,
+			!e.hasDefault,
 			e.opts,
 		)
 		if err != nil {
@@ -482,148 +328,6 @@ func (e *runExecutor) executeMultiRoot() error {
 		}
 
 		remaining = next
-	}
-
-	return nil
-}
-
-// executeMultiRootParallel runs targets in parallel for multi-root mode.
-//
-//nolint:cyclop,funlen // sequential pipeline with error handling at each step
-func (e *runExecutor) executeMultiRootParallel() error {
-	ctx, cancel := context.WithCancel(e.ctx)
-	defer cancel()
-
-	// First pass: resolve all target names for prefix alignment
-	type resolvedTarget struct {
-		node *commandNode
-		name string
-	}
-
-	var targets []resolvedTarget
-
-	for _, arg := range e.rest {
-		if strings.HasPrefix(arg, "-") {
-			continue
-		}
-
-		if isGlobPattern(arg) {
-			matches := e.findMatchingRootsGlob(arg)
-			if len(matches) == 0 {
-				e.env.Printf("No targets match pattern: %s\n", arg)
-				return ExitError{Code: 1}
-			}
-
-			for _, matched := range matches {
-				targets = append(targets, resolvedTarget{node: matched, name: matched.Name})
-			}
-
-			continue
-		}
-
-		matched := e.findMatchingRoot(arg)
-		if matched == nil {
-			e.env.Printf("Unknown command: %s\n", arg)
-			printUsage(e.env.Stdout(), e.roots, e.opts)
-
-			return ExitError{Code: 1}
-		}
-
-		targets = append(targets, resolvedTarget{node: matched, name: arg})
-	}
-
-	maxNameLen := 0
-	for _, t := range targets {
-		if len(t.name) > maxNameLen {
-			maxNameLen = len(t.name)
-		}
-	}
-
-	// Set up printer for parallel output
-	const printerBufferMultiplier = 10
-
-	printer := NewPrinter(e.opts.Stdout, len(targets)*printerBufferMultiplier)
-
-	type targetResultMsg struct {
-		index    int
-		err      error
-		duration time.Duration
-	}
-
-	resultCh := make(chan targetResultMsg, len(targets))
-	results := make([]TargetResult, len(targets))
-
-	for i, t := range targets {
-		results[i].Name = t.name
-
-		go func(idx int, node *commandNode, targetName string) {
-			tctx := WithExecInfo(ctx, ExecInfo{
-				Parallel:   true,
-				Name:       targetName,
-				MaxNameLen: maxNameLen,
-				Printer:    printer,
-				Output:     e.opts.Stdout,
-			})
-
-			Print(tctx, "starting...\n")
-
-			start := time.Now()
-
-			_, err := node.executeWithParents(tctx, nil, nil, map[string]bool{}, true, e.opts)
-
-			duration := time.Since(start)
-			resultCh <- targetResultMsg{index: idx, err: err, duration: duration}
-		}(i, t.node, t.name)
-	}
-
-	var firstErr error
-
-	firstErrIdx := -1
-
-	for range targets {
-		resultMsg := <-resultCh
-		results[resultMsg.index].Err = resultMsg.err
-		results[resultMsg.index].Duration = resultMsg.duration
-
-		if resultMsg.err != nil && firstErr == nil {
-			firstErr = resultMsg.err
-			firstErrIdx = resultMsg.index
-
-			cancel()
-		}
-	}
-
-	// Classify results and print stop messages
-	for i := range results {
-		isFirst := i == firstErrIdx
-		results[i].Status = ClassifyResult(results[i].Err, isFirst)
-
-		tctx := WithExecInfo(ctx, ExecInfo{
-			Parallel:   true,
-			Name:       results[i].Name,
-			MaxNameLen: maxNameLen,
-			Printer:    printer,
-			Output:     e.opts.Stdout,
-		})
-
-		// Print error text with prefix before the stop message
-		if results[i].Err != nil && !errors.Is(results[i].Err, context.Canceled) {
-			Printf(tctx, "Error: %v\n", results[i].Err)
-		}
-
-		Printf(tctx, "%s (%s)\n", results[i].Status, results[i].Duration.Round(time.Millisecond))
-	}
-
-	// Drain printer and print summary
-	printer.Close()
-
-	summary := FormatSummary(results)
-	if summary != "" {
-		_, _ = fmt.Fprintln(e.opts.Stdout, "\n"+summary)
-	}
-
-	if firstErr != nil {
-		return ExitError{Code: 1}
 	}
 
 	return nil
@@ -831,6 +535,97 @@ func (e *runExecutor) printCompletion(shell string) error {
 	return nil
 }
 
+// resolveUnits maps each non-flag arg in e.rest to a parallelUnit: glob
+// expansion first, then an explicit root match, then - in default mode only
+// - a subcommand name to run against the sole root. An arg matching none of
+// these is an unknown-command usage error.
+func (e *runExecutor) resolveUnits() ([]parallelUnit, error) {
+	units := make([]parallelUnit, 0, len(e.rest))
+
+	for _, arg := range e.rest {
+		if strings.HasPrefix(arg, "-") {
+			continue
+		}
+
+		if isGlobPattern(arg) {
+			matches := e.findMatchingRootsGlob(arg)
+			if len(matches) == 0 {
+				e.env.Printf("No targets match pattern: %s\n", arg)
+				return nil, ExitError{Code: 1}
+			}
+
+			for _, matched := range matches {
+				units = append(units, parallelUnit{node: matched, name: matched.Name, explicit: true})
+			}
+
+			continue
+		}
+
+		if matched := e.findMatchingRoot(arg); matched != nil {
+			units = append(units, parallelUnit{node: matched, name: arg, explicit: true})
+			continue
+		}
+
+		if e.hasDefault {
+			units = append(units, parallelUnit{
+				node:     e.roots[0],
+				name:     arg,
+				args:     []string{arg},
+				explicit: false,
+			})
+
+			continue
+		}
+
+		e.env.Printf("Unknown command: %s\n", arg)
+		printUsage(e.env.Stdout(), e.roots, e.opts)
+
+		return nil, ExitError{Code: 1}
+	}
+
+	return units, nil
+}
+
+// runUnitsParallel resolves e.rest into units, then runs them concurrently
+// bounded by parallelCap, sharing one printer and one fail-fast cancellation.
+// It is the single fan-out shared by both default and multi-root -p dispatch.
+func (e *runExecutor) runUnitsParallel() error {
+	units, err := e.resolveUnits()
+	if err != nil {
+		return err
+	}
+
+	ctx, cancel := context.WithCancel(e.ctx)
+	defer cancel()
+
+	maxNameLen := 0
+	for _, u := range units {
+		if len(u.name) > maxNameLen {
+			maxNameLen = len(u.name)
+		}
+	}
+
+	// Set up printer for parallel output
+	const printerBufferMultiplier = 10
+
+	printer := NewPrinter(e.opts.Stdout, len(units)*printerBufferMultiplier)
+
+	resultCh := make(chan unitResultMsg, len(units))
+	results := make([]TargetResult, len(units))
+
+	e.startUnits(ctx, units, results, resultCh, printer, maxNameLen)
+
+	firstErrIdx, firstErr := collectUnitResults(resultCh, results, cancel)
+
+	printUnitResults(ctx, results, firstErrIdx, printer, maxNameLen, e.opts.Stdout)
+
+	if firstErr != nil {
+		return ExitError{Code: 1}
+	}
+
+	return nil
+}
+
 // setupContext creates the execution context with optional signal handling and timeout.
 func (e *runExecutor) setupContext() error {
 	// Use provided context if available, otherwise background
@@ -879,6 +674,68 @@ func (e *runExecutor) setupContext() error {
 	return nil
 }
 
+// startUnits launches one goroutine per unit, bounded by a semaphore sized
+// to parallelCap so top-level -p fan-out is capped the same way a parallel
+// dep group is (#26). Acquire precedes the "starting..." print, so a queued
+// unit does not announce itself before it runs; a unit that finds the run
+// already canceled (a sibling failed) skips starting entirely (fail-fast).
+func (e *runExecutor) startUnits(
+	ctx context.Context,
+	units []parallelUnit,
+	results []TargetResult,
+	resultCh chan<- unitResultMsg,
+	printer *Printer,
+	maxNameLen int,
+) {
+	sem := make(chan struct{}, max(1, parallelCap(len(units), runtime.GOMAXPROCS(0))))
+
+	for i, unit := range units {
+		results[i].Name = unit.name
+
+		go func(idx int, unit parallelUnit) {
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			// Skip queued units once the run is canceled (fail-fast):
+			// starting fresh work after a sibling failed would defeat the mode.
+			if ctx.Err() != nil {
+				resultCh <- unitResultMsg{index: idx, err: ctx.Err()}
+				return
+			}
+
+			tctx := WithExecInfo(ctx, ExecInfo{
+				Parallel:   true,
+				Name:       unit.name,
+				MaxNameLen: maxNameLen,
+				Printer:    printer,
+				Output:     e.opts.Stdout,
+			})
+
+			Print(tctx, "starting...\n")
+
+			start := time.Now()
+
+			next, err := unit.node.executeWithParents(
+				tctx, unit.args, nil, map[string]bool{}, unit.explicit, e.opts)
+			// Only default-mode units carry args; one that consumed none of
+			// them named no real subcommand of the sole root.
+			if err == nil && len(unit.args) > 0 && len(next) == len(unit.args) {
+				err = fmt.Errorf("%w: %s", errUnknownCommand, unit.args[0])
+			}
+
+			resultCh <- unitResultMsg{index: idx, err: err, duration: time.Since(start)}
+		}(i, unit)
+	}
+}
+
+// unitResultMsg carries one parallelUnit's outcome back from its goroutine
+// to collectUnitResults.
+type unitResultMsg struct {
+	index    int
+	err      error
+	duration time.Duration
+}
+
 // collectCommands recursively collects command info from a node and its subcommands.
 func collectCommands(node *commandNode, prefix string, commands *[]listCommandInfo) {
 	name := node.Name
@@ -895,6 +752,35 @@ func collectCommands(node *commandNode, prefix string, commands *[]listCommandIn
 	for _, sub := range node.Subcommands {
 		collectCommands(sub, name, commands)
 	}
+}
+
+// collectUnitResults receives one unitResultMsg per unit, records it into
+// results, and cancels the run on the first error so queued units can skip
+// starting (see startUnits). Returns the index of the first failing unit
+// (or -1 if none failed) and its error - error last, per staticcheck ST1008.
+func collectUnitResults(
+	resultCh <-chan unitResultMsg,
+	results []TargetResult,
+	cancel context.CancelFunc,
+) (int, error) {
+	var firstErr error
+
+	firstErrIdx := -1
+
+	for range results {
+		msg := <-resultCh
+		results[msg.index].Err = msg.err
+		results[msg.index].Duration = msg.duration
+
+		if msg.err != nil && firstErr == nil {
+			firstErr = msg.err
+			firstErrIdx = msg.index
+
+			cancel()
+		}
+	}
+
+	return firstErrIdx, firstErr
 }
 
 // detectShellFromPath extracts the shell name from a SHELL path.
@@ -1064,6 +950,46 @@ func matchesGlob(name, pattern string) bool {
 	return strings.EqualFold(name, pattern)
 }
 
+// printUnitResults classifies each unit's result, prints its error text (if
+// any) and stop message with the parallel prefix, then drains the printer
+// and prints the run summary.
+func printUnitResults(
+	ctx context.Context,
+	results []TargetResult,
+	firstErrIdx int,
+	printer *Printer,
+	maxNameLen int,
+	out io.Writer,
+) {
+	for i := range results {
+		isFirst := i == firstErrIdx
+		results[i].Status = ClassifyResult(results[i].Err, isFirst)
+
+		tctx := WithExecInfo(ctx, ExecInfo{
+			Parallel:   true,
+			Name:       results[i].Name,
+			MaxNameLen: maxNameLen,
+			Printer:    printer,
+			Output:     out,
+		})
+
+		// Print error text with prefix before the stop message
+		if results[i].Err != nil && !errors.Is(results[i].Err, context.Canceled) {
+			Printf(tctx, "Error: %v\n", results[i].Err)
+		}
+
+		Printf(tctx, "%s (%s)\n", results[i].Status, results[i].Duration.Round(time.Millisecond))
+	}
+
+	// Drain printer and print summary
+	printer.Close()
+
+	summary := FormatSummary(results)
+	if summary != "" {
+		_, _ = fmt.Fprintln(out, "\n"+summary)
+	}
+}
+
 // runWithEnvInternal contains the actual execution logic.
 //
 //nolint:cyclop // Sequential flow of distinct steps; splitting would obscure logic
@@ -1108,9 +1034,12 @@ func runWithEnvInternal(exec *runExecutor, env RunEnv, opts RunOptions, targets 
 		return err
 	}
 
-	if exec.hasDefault {
-		return exec.executeDefault()
+	// A default root is addressable by name like any other root, so hand the
+	// one dispatch path an arg list that already names it.
+	if exec.hasDefault && !exec.opts.Overrides.Parallel &&
+		!strings.EqualFold(exec.rest[0], exec.roots[0].Name) {
+		exec.rest = append([]string{exec.roots[0].Name}, exec.rest...)
 	}
 
-	return exec.executeMultiRoot()
+	return exec.executeRoots()
 }

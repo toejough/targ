@@ -8,6 +8,7 @@ package targ_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"runtime"
 	"sync"
 	"sync/atomic"
@@ -663,6 +664,137 @@ func TestProperty_Execution(t *testing.T) {
 		g.Expect(result.Output).To(ContainSubstring("grp"))
 	})
 
+	// Issue #40 Unit 2: the parallel dispatch collapse. A sole GROUP root
+	// under -p with a bogus name silently passed before the fix (defect
+	// row 5) - assert on the error TEXT, not merely non-nil, since a
+	// "passes when it should error" regression would slip past HaveOccurred.
+	t.Run("ParallelFlagBogusFailsOnGroupRoot", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		s1 := targ.Targ(func() {}).Name("s1")
+		grp := targ.Group("grp", s1)
+
+		result, err := targ.Execute([]string{"app", "--parallel", "bogus"}, grp)
+		g.Expect(err).To(HaveOccurred())
+		g.Expect(result.Output).To(ContainSubstring("unknown command: bogus"))
+	})
+
+	t.Run("ParallelFlagBogusFailsOnPlainRoot", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		ran := false
+		target := targ.Targ(func() {
+			ran = true
+		}).Name("marker")
+
+		result, err := targ.Execute([]string{"app", "--parallel", "bogus"}, target)
+		g.Expect(err).To(HaveOccurred())
+		g.Expect(result.Output).To(ContainSubstring("unknown command: bogus"))
+		g.Expect(ran).To(BeFalse())
+	})
+
+	// Issue #40 Unit 3: the top-level -p fan-out must be bounded the same
+	// way a parallel dep group is (#26): min(n, max(2, GOMAXPROCS/2)). Each
+	// unit CAS-updates a shared peak and blocks on a gate that the test
+	// closes once peak deterministically reaches the expected cap - not a
+	// scheduling-luck race, since an upper-bound assertion can otherwise
+	// pass by luck alone.
+	t.Run("ParallelFlagDefaultModeRespectsConcurrencyCap", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		capBound := max(2, runtime.GOMAXPROCS(0)/2)
+		n := 2*capBound + 2
+
+		var (
+			inFlight atomic.Int32
+			peak     atomic.Int32
+		)
+
+		gate := make(chan struct{})
+
+		subs := make([]any, 0, n)
+		for i := range n {
+			subs = append(subs, targ.Targ(func() {
+				casPeakTrack(&inFlight, &peak, gate)
+			}).Name(fmt.Sprintf("t%d", i)))
+		}
+
+		// A single group root is the sole registered target, so hasDefault
+		// is true and its subcommands dispatch through default-mode -p.
+		grp := targ.Group("grp", subs...)
+
+		errCh := make(chan error, 1)
+
+		go func() {
+			_, err := targ.Execute(namedArgs(n, "t"), grp)
+			errCh <- err
+		}()
+
+		g.Eventually(peak.Load).Should(BeNumerically(">=", int32(capBound)))
+		close(gate)
+
+		err := <-errCh
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(int(peak.Load())).To(BeNumerically("<=", capBound),
+			"default-mode -p fan-out must not exceed max(2, GOMAXPROCS/2)")
+	})
+
+	t.Run("ParallelFlagMultiRootRespectsConcurrencyCap", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		capBound := max(2, runtime.GOMAXPROCS(0)/2)
+		n := 2*capBound + 2
+
+		var (
+			inFlight atomic.Int32
+			peak     atomic.Int32
+		)
+
+		gate := make(chan struct{})
+
+		roots := make([]any, 0, n)
+		for i := range n {
+			roots = append(roots, targ.Targ(func() {
+				casPeakTrack(&inFlight, &peak, gate)
+			}).Name(fmt.Sprintf("r%d", i)))
+		}
+
+		// Multiple registered roots (not a group), so hasDefault is false
+		// and dispatch goes through the multi-root -p resolution branch.
+		errCh := make(chan error, 1)
+
+		go func() {
+			_, err := targ.Execute(namedArgs(n, "r"), roots...)
+			errCh <- err
+		}()
+
+		g.Eventually(peak.Load).Should(BeNumerically(">=", int32(capBound)))
+		close(gate)
+
+		err := <-errCh
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(int(peak.Load())).To(BeNumerically("<=", capBound),
+			"multi-root -p fan-out must not exceed max(2, GOMAXPROCS/2)")
+	})
+
+	t.Run("ParallelFlagRunsSingleTargetByName", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		ran := false
+		target := targ.Targ(func() {
+			ran = true
+		}).Name("marker")
+
+		_, err := targ.Execute([]string{"app", "--parallel", "marker"}, target)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(ran).To(BeTrue())
+	})
+
 	t.Run("ParallelFlagRunsTargetsInParallel", func(t *testing.T) {
 		t.Parallel()
 		g := NewWithT(t)
@@ -706,6 +838,23 @@ func TestProperty_Execution(t *testing.T) {
 		g.Expect(err).NotTo(HaveOccurred())
 	})
 
+	t.Run("ParallelFlagSurfacesTargetsOwnError", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		target := targ.Targ(func() error {
+			return errors.New("distinctive boom failure")
+		}).Name("boom")
+
+		// Before the fix, -p on a sole default root re-parsed the target's
+		// own name as an argument to itself, so a failing target's real
+		// error never surfaced - only a spurious "unknown command".
+		result, err := targ.Execute([]string{"app", "--parallel", "boom"}, target)
+		g.Expect(err).To(HaveOccurred())
+		g.Expect(result.Output).To(ContainSubstring("distinctive boom failure"))
+		g.Expect(result.Output).NotTo(ContainSubstring("unknown command"))
+	})
+
 	t.Run("ParallelFlagWithSingleRootGroup", func(t *testing.T) {
 		t.Parallel()
 		g := NewWithT(t)
@@ -736,7 +885,7 @@ func TestProperty_Execution(t *testing.T) {
 
 		go func() {
 			// In single-root mode with --parallel, subcommands run concurrently
-			// Add flag-like args that should be skipped by executeDefaultParallel
+			// Add flag-like args that should be skipped during unit resolution
 			_, err := targ.Execute([]string{"app", "--parallel", "-x", "a", "--ignored", "b"}, grp)
 			errCh <- err
 		}()
@@ -1426,6 +1575,77 @@ func TestProperty_Execution(t *testing.T) {
 		g.Expect(called).To(BeFalse())
 	})
 
+	// Issue #40: a module registering exactly one target must run identically
+	// whether invoked bare, by name, or under -p. These pin the serial half
+	// of the default/named-dispatch collapse (Unit 1).
+	t.Run("NameShapedPositionalBindsAsCommandName", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		type GreetArgs struct {
+			Name  string   `targ:"positional,required"`
+			Extra []string `targ:"positional"`
+		}
+
+		var captured GreetArgs
+
+		target := targ.Targ(func(a GreetArgs) {
+			captured = a
+		}).Name("greet")
+
+		// A name-shaped first positional is consumed as the command name,
+		// not as data - the irreducible cost of making `targ <name>` work
+		// (plan "Consequences of the collapse", row 3).
+		_, err := targ.Execute([]string{"app", "greet", "world", "extra"}, target)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(captured.Name).To(Equal("world"))
+		g.Expect(captured.Extra).To(Equal([]string{"extra"}))
+	})
+
+	t.Run("SingleGroupRootRunsSubcommandByName", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		ran := false
+		s1 := targ.Targ(func() {
+			ran = true
+		}).Name("s1")
+		grp := targ.Group("grp", s1)
+
+		_, err := targ.Execute([]string{"app", "grp", "s1"}, grp)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(ran).To(BeTrue())
+	})
+
+	t.Run("SingleTargetBogusCommandFailsWithoutRunning", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		ran := false
+		target := targ.Targ(func() {
+			ran = true
+		}).Name("marker")
+
+		result, err := targ.Execute([]string{"app", "bogus"}, target)
+		g.Expect(err).To(HaveOccurred())
+		g.Expect(result.Output).To(ContainSubstring("bogus"))
+		g.Expect(ran).To(BeFalse())
+	})
+
+	t.Run("SingleTargetRunsByName", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		ran := false
+		target := targ.Targ(func() {
+			ran = true
+		}).Name("marker")
+
+		_, err := targ.Execute([]string{"app", "marker"}, target)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(ran).To(BeTrue())
+	})
+
 	t.Run("ParallelDepsFirstErrorPropagates", func(t *testing.T) {
 		t.Parallel()
 		g := NewWithT(t)
@@ -1697,4 +1917,35 @@ func TestProperty_Execution(t *testing.T) {
 		g.Expect(err).To(HaveOccurred())
 		g.Expect(dep2Result).To(Receive(MatchError(context.Canceled)))
 	})
+}
+
+// casPeakTrack increments inFlight, CAS-updates peak to the new in-flight
+// count whenever it is a fresh high, then blocks on gate before decrementing.
+// Used by the concurrency-cap tests to make the observed peak deterministic
+// rather than a product of scheduling luck.
+func casPeakTrack(inFlight, peak *atomic.Int32, gate <-chan struct{}) {
+	c := inFlight.Add(1)
+
+	for {
+		p := peak.Load()
+		if c <= p || peak.CompareAndSwap(p, c) {
+			break
+		}
+	}
+
+	<-gate
+	inFlight.Add(-1)
+}
+
+// namedArgs builds a `["app", "--parallel", prefix+"0", ..., prefix+"(n-1)"]`
+// CLI arg list for the concurrency-cap tests.
+func namedArgs(n int, prefix string) []string {
+	args := make([]string, 0, n+2)
+	args = append(args, "app", "--parallel")
+
+	for i := range n {
+		args = append(args, fmt.Sprintf("%s%d", prefix, i))
+	}
+
+	return args
 }
