@@ -764,9 +764,11 @@ func classifyCollectAllResult(err error) Result {
 	return Fail
 }
 
-// parallelCap bounds how many targets in a parallel dep group run
-// concurrently: min(n, max(2, procs/2)). The floor of 2 keeps parallel
-// groups observably concurrent even at GOMAXPROCS=1.
+// parallelCap bounds how many targets run concurrently in a parallel dep
+// group or in top-level CLI -p fan-out (run_env.go's startUnits):
+// min(n, max(2, procs/2)). The floor of 2 keeps parallel dependency groups
+// and the top-level -p fan-out both observably concurrent even at
+// GOMAXPROCS=1.
 func parallelCap(n, procs int) int {
 	return min(n, max(2, procs/2)) //nolint:mnd // 2 is the concurrency-floor constant of the cap formula
 }

@@ -331,6 +331,29 @@ Override with `.Name()`:
 targ.Targ(build).Name("compile")
 ```
 
+### Default Target
+
+Exactly one registered target becomes the default target: bare `targ`, `targ <name>`, and `targ -p <name>` all run it.
+
+The target's own name is still matched first, so watch out when a target's first positional argument happens to equal its own name — it's consumed as the command, not bound as data:
+
+```go
+type GreetArgs struct {
+    Name  string   `targ:"positional,required"`
+    Extra []string `targ:"positional"`
+}
+
+func greet(a GreetArgs) {
+    fmt.Println("Hello,", a.Name)
+}
+
+var Greet = targ.Targ(greet).Name("greet")
+```
+
+```
+$ targ greet world extra   # "greet" is consumed as the command; Name="world", Extra=["extra"]
+```
+
 ## Dependencies
 
 Use `.Deps()` to declare dependencies that run before a target:
@@ -490,6 +513,24 @@ Execution:
   Deps: generate, compile (serial)
   Cache: **/*.go, go.mod
 ```
+
+A module registering exactly one target additionally brackets the name in Usage and advertises both working invocations — captured from a real single-target binary (`bin`, sole target `marker`):
+
+```
+$ bin --help
+Usage:
+  bin [targ flags...] [marker]
+
+...
+
+Examples:
+  Basic usage:
+    bin
+  By name:
+    bin marker
+```
+
+`bin marker --help` shows the same Usage and Examples content — both invocations document each other.
 
 ## Dynamic Tag Options
 
@@ -705,7 +746,7 @@ These flags modify target execution from the CLI:
 | `--timeout DURATION`  | Set execution timeout                        |
 | `--retry`             | Continue on failure                          |
 | `--backoff D,M`       | Exponential backoff (duration, multiplier)   |
-| `--parallel` / `-p`   | Run multiple targets concurrently            |
+| `--parallel` / `-p`   | Run multiple targets concurrently, bounded by the same cap as [parallel dep groups](#dependencies) |
 | `--watch PATTERN`     | Re-run on file changes (repeatable)          |
 | `--cache PATTERN`     | Skip if files unchanged (repeatable)         |
 | `--while CMD`         | Run while shell command succeeds             |

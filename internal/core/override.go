@@ -24,7 +24,7 @@ type RuntimeOverrides struct {
 	DepMode           string        // Dependency mode: serial or parallel (--dep-mode)
 	While             string        // Shell command to check (--while "cmd")
 	Deps              []string      // Dependency target paths (--deps target1 target2)
-	Parallel          bool          // Run multiple targets concurrently (--parallel or -p)
+	Parallel          bool          // Run targets concurrently (--parallel or -p), same cap as parallel dep groups
 }
 
 // hasAny returns true if any override is set.

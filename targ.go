@@ -151,12 +151,16 @@ func ExeSuffix() string {
 
 // Execute runs commands with the given args and returns results instead of exiting.
 // This is useful for testing. Args should include the program name as the first element.
+// When exactly one target is provided, Execute makes it the default — runnable bare,
+// by name, or under -p.
 func Execute(args []string, targets ...any) (ExecuteResult, error) {
 	return core.Execute(args, targets...)
 }
 
 // ExecuteRegistered runs the registered targets using os.Args and exits on error.
 // This is used by the targ buildtool for packages that use explicit registration.
+// When exactly one target is registered, ExecuteRegistered makes it the default —
+// runnable bare, by name, or under -p.
 func ExecuteRegistered() {
 	core.ExecuteRegistered()
 }
@@ -191,7 +195,8 @@ func IsWindows() bool {
 	return internalsh.IsWindowsOS()
 }
 
-// Main runs the given targets as a CLI application.
+// Main runs the given targets as a CLI application. When exactly one target
+// is given, Main makes it the default — runnable bare, by name, or under -p.
 // Call this from main() for standalone binaries:
 //
 //	func main() {

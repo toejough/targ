@@ -7,7 +7,7 @@ Items induced from: L2 requirements and design items (bottom-up)
 **Actor:** Developer
 **Starting state:** A Go project with build automation needs
 **End state:** Developer runs `targ <command>` and targets execute with the specified configuration
-**Key interactions:** Define targets via functions or shell strings, configure with builder methods (deps, cache, watch, timeout, retry), run from CLI
+**Key interactions:** Define targets via functions or shell strings, configure with builder methods (deps, cache, watch, timeout, retry), run from CLI. If a project has just one target, the developer can skip naming it — bare `targ`, `targ <name>`, and `targ -p <name>` all reach it
 **Constraints:** Configuration conflicts between compile-time config and CLI flags produce errors rather than silent precedence (No Surprises principle)
 
 **Traces to:** REQ-1, REQ-2, REQ-3, REQ-4, REQ-9, REQ-10, DES-2, DES-3, DES-5

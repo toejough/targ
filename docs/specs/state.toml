@@ -68,7 +68,7 @@ items = [
   "T-21", "T-22", "T-23", "T-24", "T-25",
 ]
 status = "complete"
-history = "Bottom-up adoption: cataloged 20 test items. Coverage gaps for IMPL-1, IMPL-2, IMPL-3, IMPL-14, IMPL-19. Post-completion re-entry: added T-21 (upward discovery), T-22 (ancestor module grouping). Re-entry #2: added T-23 (superseding dispatch), T-24 (superseding display). Re-entry #3: added T-25 (foreground process group)."
+history = "Bottom-up adoption: cataloged 20 test items. Coverage gaps for IMPL-1, IMPL-2, IMPL-3, IMPL-14, IMPL-19. Post-completion re-entry: added T-21 (upward discovery), T-22 (ancestor module grouping). Re-entry #2: added T-23 (superseding dispatch), T-24 (superseding display). Re-entry #3: added T-25 (foreground process group). Re-entry #4: extended T-3 with property bullets for default-dispatch (Issue #40) — sole-target `targ <name>` success, name-shaped first positional binding, top-level -p fan-out bounded by parallelCap."
 
 [tree.L2B]
 layer = "L2"
@@ -79,7 +79,7 @@ items = [
   "ARCH-8", "ARCH-9", "ARCH-10", "ARCH-11", "ARCH-12", "ARCH-13", "ARCH-14", "ARCH-15", "ARCH-16",
 ]
 status = "complete"
-history = "Bottom-up adoption: induced 15 ARCH items from test+implementation clusters (14 derived, 1 standard). Post-completion re-entry: extended ARCH-11, ARCH-12 for UC-6 bidirectional discovery. Re-entry #2: added ARCH-16 for superseding logic. Re-entry #3: updated ARCH-8 for foreground/background process group distinction. Layer migration: moved from L3 to cooperative L2 alongside REQ/DES."
+history = "Bottom-up adoption: induced 15 ARCH items from test+implementation clusters (14 derived, 1 standard). Post-completion re-entry: extended ARCH-11, ARCH-12 for UC-6 bidirectional discovery. Re-entry #2: added ARCH-16 for superseding logic. Re-entry #3: updated ARCH-8 for foreground/background process group distinction. Layer migration: moved from L3 to cooperative L2 alongside REQ/DES. Re-entry #4: extended ARCH-3 to name the default-root dispatch mechanism (Issue #40) — one serial path (executeRoots) with explicit=!hasDefault, one parallelCap-bounded fan-out shared by both modes."
 
 [tree.L2A]
 layer = "L2"
@@ -92,14 +92,14 @@ items = [
   "DES-1", "DES-2", "DES-3", "DES-4", "DES-5", "DES-6", "DES-7",
 ]
 status = "complete"
-history = "Bottom-up adoption: induced 15 REQ + 5 DES items from architecture items. Post-completion re-entry: added REQ-16, REQ-17, DES-6 for UC-6. Post-completion re-entry #2: added REQ-18 (superseding), DES-7 (superseding display) for UC-3/UC-6."
+history = "Bottom-up adoption: induced 15 REQ + 5 DES items from architecture items. Post-completion re-entry: added REQ-16, REQ-17, DES-6 for UC-6. Post-completion re-entry #2: added REQ-18 (superseding), DES-7 (superseding display) for UC-3/UC-6. Post-completion re-entry #3: extended REQ-3 (default-dispatch rule, name-vs-positional precedence) and DES-5 (CLI -p top-level fan-out shares the dep-group parallelCap formula) for Issue #40."
 
 [tree.L1A]
 layer = "L1"
 name = "Targ Core"
 items = ["UC-1", "UC-2", "UC-3", "UC-4", "UC-5", "UC-6"]
 status = "complete"
-history = "Bottom-up adoption: induced 5 UC items from L2 items. REGROUP: single group — all UCs describe facets of one product. Post-completion re-entry: added UC-6 (directory tree traversal, Issue #11)."
+history = "Bottom-up adoption: induced 5 UC items from L2 items. REGROUP: single group — all UCs describe facets of one product. Post-completion re-entry: added UC-6 (directory tree traversal, Issue #11). Re-entry #2: extended UC-1 to acknowledge the optional-command / default-dispatch case (Issue #40)."
 gates = { regroup_proposal = "completed: user approved single group with all 6 UCs", usability_gate = """
 UC-1 Define and Run Build Targets:
   Build: go build ./cmd/targ/ (verified: builds clean)

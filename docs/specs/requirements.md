@@ -18,7 +18,7 @@ Struct fields tagged with `targ:"..."` become CLI arguments. Tags specify: flag/
 
 ## REQ-3: Target execution with runtime overrides
 
-Targets execute their function with parsed arguments. Built-in runtime flags (`--times`, `--timeout`, `--watch`, `--cache`, `--parallel`, `--retry`, `--backoff`, `--dep-mode`) modify execution behavior. Overrides are extracted before target-specific argument parsing.
+Targets execute their function with parsed arguments. Built-in runtime flags (`--times`, `--timeout`, `--watch`, `--cache`, `--parallel`, `--retry`, `--backoff`, `--dep-mode`) modify execution behavior. Overrides are extracted before target-specific argument parsing. When exactly one target is registered, it becomes the default: invocable with no command name, by name, or under `-p`. Command-name resolution happens before positional-argument parsing, so a first positional argument equal to the target's own name is consumed as the command rather than bound as data.
 
 **Induced from:** ARCH-3, ARCH-15
 **Traces to:** UC-1
@@ -172,7 +172,7 @@ Fluent builder API: `targ.Targ(fn).Name("x").Deps(a, b).Cache("**/*.go").Watch("
 
 ## DES-5: Dependency execution model
 
-`.Deps(targets..., mode)` declares dependencies. Serial by default. `targ.DepModeParallel` for parallel. Chain `.Deps()` for mixed serial/parallel groups. In parallel mode, fail-fast cancels remaining targets (default) or `CollectAllErrors` runs all and reports all failures; serial groups honor `CollectAllErrors` by continuing past failures. Parallel groups are bounded to `min(n, max(2, GOMAXPROCS/2))` concurrent targets.
+`.Deps(targets..., mode)` declares dependencies. Serial by default. `targ.DepModeParallel` for parallel. Chain `.Deps()` for mixed serial/parallel groups. In parallel mode, fail-fast cancels remaining targets (default) or `CollectAllErrors` runs all and reports all failures; serial groups honor `CollectAllErrors` by continuing past failures. Parallel groups are bounded to `min(n, max(2, GOMAXPROCS/2))` concurrent targets. The CLI's top-level `--parallel`/`-p` fan-out (REQ-3) is bounded by the identical formula, independently budgeted from any dep-group cap.
 
 **Induced from:** ARCH-1, ARCH-6, ARCH-7
 **Traces to:** UC-1, UC-5

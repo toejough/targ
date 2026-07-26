@@ -160,13 +160,17 @@ One resolver and one bounded fan-out, shared by both modes.
 // an explicit root/glob match, or - in default mode - a subcommand name to run
 // against the sole root.
 type parallelUnit struct {
-	node          *commandNode
-	name          string
-	args          []string
-	explicit      bool
-	checkProgress bool
+	node     *commandNode
+	name     string
+	args     []string
+	explicit bool
 }
 ```
+
+A first implementation added an explicit `checkProgress bool` field, set to `true` alongside
+`args` in the default-mode branch below. Gate B dropped it: only default-mode units ever carry
+non-empty `args`, so `startUnits`' progress check reads `len(unit.args) > 0` directly, without a
+redundant field to keep in sync.
 
 `resolveUnits` maps each non-flag arg to a unit — glob expansion, then explicit root match, then
 (default mode only) a subcommand of the sole root, else an unknown-command usage error:
@@ -201,11 +205,10 @@ func (e *runExecutor) resolveUnits() ([]parallelUnit, error) {
 
 		if e.hasDefault {
 			units = append(units, parallelUnit{
-				node:          e.roots[0],
-				name:          arg,
-				args:          []string{arg},
-				explicit:      false,
-				checkProgress: true,
+				node:     e.roots[0],
+				name:     arg,
+				args:     []string{arg},
+				explicit: false,
 			})
 
 			continue
@@ -265,9 +268,9 @@ func (e *runExecutor) startUnits(
 
 			next, err := unit.node.executeWithParents(
 				tctx, unit.args, nil, map[string]bool{}, unit.explicit, e.opts)
-			// A default-mode unit that consumed nothing named no real subcommand.
-			if err == nil && unit.checkProgress &&
-				len(unit.args) > 0 && len(next) == len(unit.args) {
+			// Only default-mode units carry args; one that consumed none of
+			// them named no real subcommand of the sole root.
+			if err == nil && len(unit.args) > 0 && len(next) == len(unit.args) {
 				err = fmt.Errorf("%w: %s", errUnknownCommand, unit.args[0])
 			}
 
@@ -299,16 +302,23 @@ passes through a caller that knows `hasDefault`:
 A prototype threading the parameter rendered correctly for `targ <name> --help` and had **no
 effect at all** on plain `targ --help`. Recorded because it looks right on paper.
 
-So the signal rides on the node, set once where `hasDefault` is computed
-(`exec.roots[0].IsDefaultRoot = true`). `parseTargets` builds fresh nodes each run, so this is
-per-execution state, not a global — confirmed by a test reusing one `*targ.Target` across two
-`Execute` calls, sole-root then not. All four call sites, including `PrintCommandHelpForTest`,
-then get the right answer with no signature change.
+So the signal rides on `RunOptions`, set once where `hasDefault` is computed
+(`exec.opts.HasDefault = exec.hasDefault`). `RunOptions` already carries exactly this kind of
+internal signal next to `HelpOnly`, and both help paths receive the same `opts` value, so all four
+`printCommandHelp` call sites — including `PrintCommandHelpForTest` — get the right answer with no
+signature change.
+
+A first implementation instead put an `IsDefaultRoot bool` on `commandNode`. It worked, and a test
+reusing one `*targ.Target` across two `Execute` calls confirmed the flag did not leak — but only
+because all five node-constructing functions happen to allocate fresh. Gate B moved it to
+`RunOptions`, where leak-safety follows from by-value assignment rather than from an invariant five
+functions have to keep, and `commandNode` stays parsed metadata that is never mutated after parse.
 
 `printCommandHelp` brackets the name — `usageParts[0] = "[" + usageParts[0] + "]"`, **before** the
 `append([]string{opts.BinaryName, "[targ flags...]"}, ...)` or it brackets the binary name — and
-forwards `DefaultRoot: node.IsDefaultRoot` into `help.TargetHelpOpts`. `WriteTargetHelp` prepends
-the bare example when generating; a caller-supplied `opts.Examples` list still wins untouched.
+forwards `DefaultRoot: opts.HasDefault` into `help.TargetHelpOpts`. `WriteTargetHelp` prepends
+the bare example when generating; a caller-supplied `opts.Examples` list still wins untouched, so
+a module setting its own examples does not get the bare form injected.
 
 **Budget for this:** adding the branch pushes the *existing* `WriteTargetHelp` to cyclop **11,
 max 10** — measured by inlining the extraction back and re-linting. Extract the examples selection
@@ -545,18 +555,18 @@ the semaphore deleted) says the margin is real.
 
 ### Unit 4 — help advertises both forms
 
-**RED 1.** Whitebox (`internal/core`, via `PrintCommandHelpForTest`): `IsDefaultRoot` true renders
+**RED 1.** Whitebox (`internal/core`, via `PrintCommandHelpForTest`): `HasDefault` true renders
 `[name]`, false renders `name`. This closes a real gap — no existing test asserts the full
 default-root usage line.
 **RED 2.** Blackbox: with one registered target, **both** `["app","--help"]` and
 `["app","marker","--help"]` contain the bracketed usage line and both examples. With two
 registered targets, `["app","marker","--help"]` does **not** contain `[marker]`.
-**RED 3.** `IsDefaultRoot` does not leak: reuse one `*targ.Target` across two `Execute` calls,
+**RED 3.** the flag does not leak: reuse one `*targ.Target` across two `Execute` calls,
 sole-root then not.
 
 Run: `targ test` → Expected: FAIL on all three.
 
-**GREEN.** `commandNode.IsDefaultRoot`; set it in `runWithEnvInternal`; bracket in
+**GREEN.** `RunOptions.HasDefault`; set it in `runWithEnvInternal`; bracket in
 `printCommandHelp`; `TargetHelpOpts.DefaultRoot`; bare-example prepend in `WriteTargetHelp`;
 extract `targetHelpExamples`.
 

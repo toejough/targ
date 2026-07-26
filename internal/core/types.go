@@ -33,7 +33,7 @@ type Interleaved[T any] struct {
 
 // RunOptions configures command execution behavior.
 type RunOptions struct {
-	AllowDefault      bool
+	AllowDefault      bool // Makes a sole registered target the default: runnable bare, by name, or under -p
 	BinaryMode        bool // Set by Main() for compiled binary mode
 	DisableHelp       bool
 	DisableTimeout    bool
