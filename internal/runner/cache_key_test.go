@@ -8,6 +8,7 @@ import (
 	. "github.com/onsi/gomega"
 	"pgregory.net/rapid"
 
+	"github.com/toejough/targ/internal/discover"
 	"github.com/toejough/targ/internal/runner"
 )
 
@@ -56,6 +57,107 @@ func TestModuleCacheKey_ReplaceTargetEdits(t *testing.T) {
 		g.Expect(err).NotTo(HaveOccurred())
 		g.Expect(second).To(Equal(first), "no edits, no invalidation — the cache must still hit")
 	})
+}
+
+func TestModuleFiles_FollowsNestedSymlinkedDirectory(t *testing.T) {
+	t.Parallel()
+	g := NewWithT(t)
+
+	// Level 2: a symlinked directory INSIDE a hashed tree. WalkDir reports it as
+	// a non-directory and never reads its contents.
+	root := t.TempDir()
+	target := filepath.Join(root, "target")
+	outside := filepath.Join(root, "outside")
+	g.Expect(os.MkdirAll(filepath.Join(target, "direct"), 0o755)).To(Succeed())
+	g.Expect(os.MkdirAll(outside, 0o755)).To(Succeed())
+	g.Expect(os.WriteFile(filepath.Join(target, "direct", "a.go"), []byte("package a\n"), 0o600)).To(Succeed())
+	g.Expect(os.WriteFile(filepath.Join(outside, "b.go"), []byte("package b\n"), 0o600)).To(Succeed())
+	g.Expect(os.Symlink(outside, filepath.Join(target, "linked"))).To(Succeed())
+
+	files, err := runner.ExportCollectModuleFiles(target)
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(pathsOf(files)).To(ContainElement(HaveSuffix("a.go")))
+	g.Expect(pathsOf(files)).To(ContainElement(HaveSuffix("b.go")),
+		"a symlinked subdirectory's files must be hashed too")
+}
+
+func TestModuleFiles_FollowsSymlinkedReplaceTarget(t *testing.T) {
+	t.Parallel()
+	g := NewWithT(t)
+
+	// Level 1: the replace target itself is a symlink — one checkout shared
+	// across projects. os.Stat follows the link so the dir looks present, but
+	// WalkDir does not descend, so without resolution nothing is hashed.
+	root := t.TempDir()
+	realDir := filepath.Join(root, "real")
+	g.Expect(os.MkdirAll(filepath.Join(realDir, "pkg"), 0o755)).To(Succeed())
+	g.Expect(os.WriteFile(filepath.Join(realDir, "pkg", "a.go"), []byte("package pkg\n"), 0o600)).To(Succeed())
+
+	link := filepath.Join(root, "link")
+	g.Expect(os.Symlink(realDir, link)).To(Succeed())
+
+	files, err := runner.ExportCollectModuleFiles(link)
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(pathsOf(files)).To(ContainElement(HaveSuffix("a.go")),
+		"a symlinked tree's files must be hashed, or edits to them never invalidate the cache")
+}
+
+func TestModuleFiles_TerminatesOnSymlinkCycle(t *testing.T) {
+	t.Parallel()
+	g := NewWithT(t)
+
+	// Following symlinks without a cycle guard does not terminate. Three shapes:
+	// self-loop, ancestor-loop, and mutual loop.
+	root := t.TempDir()
+	selfLoop := filepath.Join(root, "self")
+	g.Expect(os.MkdirAll(selfLoop, 0o755)).To(Succeed())
+	g.Expect(os.WriteFile(filepath.Join(selfLoop, "a.go"), []byte("package a\n"), 0o600)).To(Succeed())
+	g.Expect(os.Symlink(selfLoop, filepath.Join(selfLoop, "loop"))).To(Succeed())
+
+	deep := filepath.Join(root, "deep", "nested")
+	g.Expect(os.MkdirAll(deep, 0o755)).To(Succeed())
+	g.Expect(os.Symlink(filepath.Join(root, "deep"), filepath.Join(deep, "up"))).To(Succeed())
+
+	mutualX := filepath.Join(root, "x")
+	mutualY := filepath.Join(root, "y")
+
+	g.Expect(os.MkdirAll(mutualX, 0o755)).To(Succeed())
+	g.Expect(os.MkdirAll(mutualY, 0o755)).To(Succeed())
+	g.Expect(os.Symlink(mutualY, filepath.Join(mutualX, "toy"))).To(Succeed())
+	g.Expect(os.Symlink(mutualX, filepath.Join(mutualY, "tox"))).To(Succeed())
+
+	// Each fixture gets a real .go file so the assertion proves the walk both
+	// TERMINATED and did useful work. Asserting non-nil alone fails on a correct
+	// implementation when a fixture holds only directories and loops — a Gate A
+	// reviewer hit exactly that with an earlier draft of this test.
+	for _, dir := range []string{selfLoop, deep, mutualX} {
+		g.Expect(os.WriteFile(filepath.Join(dir, "found.go"), []byte("package p\n"), 0o600)).To(Succeed())
+	}
+
+	// Assert a BOUNDED FILE COUNT, not mere presence. Removing the visited set
+	// does NOT hang: Go's own filepath.EvalSymlinks gives up at ~128 hops with
+	// "EvalSymlinks: too many links" (measured), and this walker treats an
+	// EvalSymlinks failure as "unreachable, not fatal" — so a guard-less run
+	// terminates anyway, having done 64-128x redundant work, and a presence-only
+	// assertion passes. The count is what discriminates: 1-2 files with the
+	// guard, 64-128 without. Each expected count is measured against THIS
+	// fixture, not a scratch probe — an earlier draft copied 1/2/1 from a probe
+	// whose selfLoop had no a.go, and the test failed on correct code.
+	for _, tc := range []struct {
+		dir  string
+		want int
+	}{
+		{selfLoop, 2}, // this fixture writes a.go above, plus found.go below
+		{deep, 2},     // `up` re-enters `nested` once directly and once via the parent before the guard catches it
+		{mutualX, 1},
+	} {
+		files, err := runner.ExportCollectModuleFiles(tc.dir)
+		g.Expect(err).NotTo(HaveOccurred(), "a symlink cycle must terminate, not error")
+		g.Expect(pathsOf(files)).To(ContainElement(HaveSuffix("found.go")),
+			"the walk must terminate AND still collect the tree's own files")
+		g.Expect(files).To(HaveLen(tc.want),
+			"a cycle must be visited once, not re-walked until EvalSymlinks' internal link limit stops it")
+	}
 }
 
 func TestPrepareBootstrap_ReplaceTargetEdits(t *testing.T) {
@@ -227,6 +329,49 @@ func TestReplaceDirFiles_CollectsFilesystemReplaceTargets(t *testing.T) {
 			"a future-toolchain go.mod must not hard-fail every targ run")
 		g.Expect(files).To(BeEmpty())
 	})
+}
+
+func TestReplaceDirFiles_FollowsSymlinkedTargetThroughGoMod(t *testing.T) {
+	t.Parallel()
+	g := NewWithT(t)
+
+	// The production path: a real `replace … => <symlink>` directive, driven
+	// through filesystemReplaceDirs and collectReplaceDirFiles rather than the
+	// lower-level walker. Without this, no test exercises what a user's go.mod
+	// actually triggers — a Gate A reviewer found the level-1 test above calls
+	// ExportCollectModuleFiles directly and never touches this path.
+	root := t.TempDir()
+	realDir := filepath.Join(root, "real")
+	g.Expect(os.MkdirAll(realDir, 0o755)).To(Succeed())
+	g.Expect(os.WriteFile(filepath.Join(realDir, "dep.go"), []byte("package dep\n"), 0o600)).To(Succeed())
+
+	link := filepath.Join(root, "link")
+	g.Expect(os.Symlink(realDir, link)).To(Succeed())
+
+	consumer := t.TempDir()
+	g.Expect(os.WriteFile(filepath.Join(consumer, "go.mod"),
+		[]byte("module consumer\n\ngo 1.25.5\n\nreplace example.com/dep => "+link+"\n"), 0o600)).To(Succeed())
+
+	files, err := runner.ExportCollectReplaceDirFiles(consumer)
+	g.Expect(err).NotTo(HaveOccurred())
+
+	// Assert the EXACT path, not just the suffix. A suffix match is blind to a
+	// physical-vs-logical prefix mismatch (/private/var vs /var on macOS), which
+	// is precisely the regression this plan's path-identity rule prevents — a
+	// Gate A reviewer found a suffix-only assertion here passed while the walker
+	// was returning resolved paths.
+	g.Expect(pathsOf(files)).To(ContainElement(filepath.Join(link, "dep.go")),
+		"a symlinked replace target must be hashed under the path go.mod names, not its physical location")
+}
+
+// pathsOf maps tagged files to their paths.
+func pathsOf(files []discover.TaggedFile) []string {
+	paths := make([]string, 0, len(files))
+	for _, f := range files {
+		paths = append(paths, f.Path)
+	}
+
+	return paths
 }
 
 // writeTestFile writes content to dir/name, creating it if needed.

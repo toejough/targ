@@ -2154,6 +2154,63 @@ func annotateSuperseding(allCmds []cmdEntry, primarySource map[string]string) {
 	}
 }
 
+// appendFile reads physicalPath and records it under logicalPath.
+func appendFile(files *[]discover.TaggedFile, logicalPath, physicalPath string) error {
+	//nolint:gosec // build tool reads source files by design
+	data, err := os.ReadFile(physicalPath)
+	if err != nil {
+		return fmt.Errorf("reading file %s: %w", physicalPath, err)
+	}
+
+	*files = append(*files, discover.TaggedFile{Path: logicalPath, Content: data})
+
+	return nil
+}
+
+// appendSymlinkedEntry resolves a symlinked entry and either recurses into it
+// (directory) or reads it (includable file), recording results under the
+// logical path the link occupies.
+func appendSymlinkedEntry(
+	files *[]discover.TaggedFile,
+	logicalPath, physicalPath string,
+	visited map[string]bool,
+) error {
+	target, err := filepath.EvalSymlinks(physicalPath)
+	if err != nil {
+		return nil //nolint:nilerr // a dangling link contributes nothing, like a missing file
+	}
+
+	info, err := os.Stat(target)
+	if err != nil {
+		return nil //nolint:nilerr // same
+	}
+
+	if info.IsDir() {
+		if skipIfVendorOrGit(filepath.Base(logicalPath)) != nil {
+			// skipIfVendorOrGit's filepath.SkipDir sentinel is checked here rather
+			// than returned: this call sits one level below the WalkDir callback, so
+			// returning the sentinel would skip the rest of the symlink's CONTAINING
+			// directory, not just this one entry.
+			return nil //nolint:nilerr // see above: not swallowing an error, declining to skip the wrong scope
+		}
+
+		nested, err := collectModuleFilesFrom(logicalPath, visited)
+		if err != nil {
+			return err
+		}
+
+		*files = append(*files, nested...)
+
+		return nil
+	}
+
+	if !isIncludableModuleFile(filepath.Base(logicalPath)) {
+		return nil
+	}
+
+	return appendFile(files, logicalPath, target)
+}
+
 // backoffToGoCode converts "duration,multiplier" to Go code like "1*time.Second, 2.0".
 func backoffToGoCode(s string) (string, error) {
 	parts := strings.SplitN(s, ",", 2) //nolint:mnd // format is "duration,multiplier"
@@ -2529,34 +2586,63 @@ func collectListArg(remaining []string, i int) ([]string, int) {
 	return values, i
 }
 
+// collectModuleFiles hashes every source file reachable from moduleRoot,
+// following symlinks. WalkDir alone does not descend into symlinked
+// directories, so a shared checkout referenced through a link would
+// contribute nothing to the cache key and edits to it would never trigger a
+// rebuild. Traversal is guarded by a visited set keyed on the resolved real
+// path, which terminates symlink cycles and also hashes a directory reachable
+// by two paths only once.
 func collectModuleFiles(moduleRoot string) ([]discover.TaggedFile, error) {
+	return collectModuleFilesFrom(moduleRoot, map[string]bool{})
+}
+
+// collectModuleFilesFrom walks logicalRoot, following symlinked directories,
+// and records each file under the path the caller would name it by rather than
+// its physical location. visited holds resolved real paths already walked, so a
+// symlink cycle terminates and a directory reachable by two links is hashed
+// once.
+func collectModuleFilesFrom(
+	logicalRoot string,
+	visited map[string]bool,
+) ([]discover.TaggedFile, error) {
+	resolved, err := filepath.EvalSymlinks(logicalRoot)
+	if err != nil {
+		// Unreachable is not fatal here; the caller decides how to record absence.
+		return nil, nil //nolint:nilerr // unreachable target is not an error at this layer
+	}
+
+	if visited[resolved] {
+		return nil, nil
+	}
+
+	visited[resolved] = true
+
 	var files []discover.TaggedFile
 
-	err := filepath.WalkDir(moduleRoot, func(path string, entry os.DirEntry, err error) error {
+	err = filepath.WalkDir(resolved, func(path string, entry os.DirEntry, err error) error {
 		if err != nil {
 			return fmt.Errorf("walking directory: %w", err)
 		}
 
+		// Translate the physical path back onto the caller's logical prefix. For a
+		// tree with no symlinks this is the identity, which is what keeps the cache
+		// key unchanged for ordinary trees.
+		logicalPath := filepath.Join(logicalRoot, strings.TrimPrefix(path, resolved))
+
 		if entry.IsDir() {
 			return skipIfVendorOrGit(entry.Name())
+		}
+
+		if entry.Type()&fs.ModeSymlink != 0 {
+			return appendSymlinkedEntry(&files, logicalPath, path, visited)
 		}
 
 		if !isIncludableModuleFile(entry.Name()) {
 			return nil
 		}
 
-		//nolint:gosec // build tool reads source files by design
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return fmt.Errorf("reading file %s: %w", path, err)
-		}
-
-		files = append(files, discover.TaggedFile{
-			Path:    path,
-			Content: data,
-		})
-
-		return nil
+		return appendFile(&files, logicalPath, path)
 	})
 	if err != nil {
 		return nil, fmt.Errorf("walking module directory: %w", err)

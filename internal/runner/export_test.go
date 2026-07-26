@@ -31,6 +31,11 @@ type ExportModuleRegistry struct {
 	Commands   []ExportCommandInfo
 }
 
+// ExportCollectModuleFiles wraps collectModuleFiles for testing.
+func ExportCollectModuleFiles(moduleRoot string) ([]discover.TaggedFile, error) {
+	return collectModuleFiles(moduleRoot)
+}
+
 // ExportCollectReplaceDirFiles wraps collectReplaceDirFiles for testing.
 func ExportCollectReplaceDirFiles(moduleRoot string) ([]discover.TaggedFile, error) {
 	return collectReplaceDirFiles(moduleRoot)
