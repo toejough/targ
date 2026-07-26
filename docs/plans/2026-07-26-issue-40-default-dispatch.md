@@ -1,333 +1,247 @@
-# Issue #40 — default-root dispatch, bounded CLI fan-out, and the undocumented default target
+# Issue #40 — collapse the two CLI dispatch paths into one
 
-Implementation plan. Branch `issue-40-default-dispatch`, worktree
+Implementation plan, revision 2. Branch `issue-40-default-dispatch`, worktree
 `.claude/worktrees/issue-40`, based on `2473fce`.
 
 Issue #40 supersedes #24 and #34.
 
-## Baseline (measured, not assumed)
+## What breaks for users today
+
+A module that registers exactly one target:
+
+```
+$ targ            → MARKER-ONE          (works)
+$ targ marker     → Error: unknown command: marker
+$ targ -p marker  → [marker] Error: unknown command: marker
+                    FAIL:1
+```
+
+`targ --help` prints `targ [targ flags...] marker` in its Usage line and `targ marker` under
+Examples. Both are the invocation that fails. Adding a second registered target makes both work —
+the trigger is the target *count*.
+
+Separately, `targ -p a b c d e f g h` starts all eight at once regardless of core count, while a
+dependency group of eight has been capped at `min(n, max(2, GOMAXPROCS/2))` since #26.
+
+## Why this revision supersedes revision 1
+
+Revision 1 (committed `f9cb6e1`) planned to *fix* the default-mode functions in place: teach
+`executeDefault` to strip, teach both parallel loops to bound their fan-out. Gate A returned 19
+findings across four angles, two of them Critical and both verified independently:
+
+- The prescribed `explicit: !stripped` made `targ -p bogus` **silently succeed** (exit 0, wrong
+  target runs) where it correctly fails today. Cause: `explicit=true` makes
+  `parse.go`'s `trySubcommandOrUnknown` suppress `errUnknownCommand` and return the arg as
+  leftover. Revision 1's prototype checked five positive cases and never passed a bad name.
+- Revision 1's headline "measured: `0 issues`, no `//nolint` needed" was measured with the wrong
+  linter. This repo has **no root `.golangci` config**, so a bare `golangci-lint run ./...` falls
+  back to golangci-lint's small built-in default set. The project gate is
+  `golangci-lint run -c dev/golangci-lint.toml` (`default = 'all'`), which is what `targ lint-full`
+  invokes. Under the real config the same code produced `cyclop`/`lll`/`varnamelen` findings.
+
+Shown those, Joe redirected: *"Simplify. I think this whole set of errors increasingly shows that
+the default command is subtly complicated. Let's just remove the errors by removing the feature."*
+
+Removing the feature outright was measured first: forcing `hasDefault = false` at `2473fce` breaks
+**102 subtests** — not only dispatch tests but `TestFloat64FlagParsing`,
+`TestProperty_EnvVarBehavior`, `TestProperty_CommandHelp`, `TestParallelOutputShellCommand`,
+positional parsing — because default mode is the substrate the suite uses to exercise a single
+target without naming a command. It also breaks the public `targ.RunOptions.AllowDefault` and
+`targ.Main`'s dedicated-binary story (README Stage 3). Presented with that, Joe chose the
+alternative that serves the same goal: **collapse the two dispatch implementations into one.**
+
+That is the plan below. It deletes more of the subtle code than revision 1 did, and every defect
+#40 reports falls out of the collapse rather than being patched.
+
+## Baseline (measured)
 
 `targ check-full` in this worktree at `2473fce`: **8/8 PASS**.
 
-The first run reported `lint-full` FAIL with 51 findings (wsl_v5 38, prealloc 4, whitespace 3,
-testpackage 2, wrapcheck 2, unparam 1, tparallel 1). `golangci-lint cache clean` followed by
-`targ lint-full` returned `0 issues`, and a full `targ check-full` re-run returned 8/8. That first
-result was the stale-result-cache phantom CLAUDE.md documents, not a real failure. **Anyone
-re-running the baseline in a fresh worktree should clean the lint cache first.**
+The first run reported `lint-full` FAIL with 51 findings; `golangci-lint cache clean` + re-run gave
+`0 issues` and a full 8/8. That was the stale-result-cache phantom CLAUDE.md documents. **Clean the
+lint cache before trusting a baseline in a fresh worktree.**
 
 ## Verified corrections to issue #40's text
 
-Everything in #40 was checked against the code and against real binaries built from this worktree.
-It is accurate except for the following. These are recorded so the next reader does not inherit
-them, exactly as #40 did for #24 and #34.
+Checked against the code and against real binaries. #40 is accurate except:
 
 1. **`-p` does NOT swallow the error.** #40 says the `-p` form "reports a failed target with **no
-   error text at all**" and that "'unknown command' never reaches the user", and repeats it in the
-   #24 corrections list. Measured: `targ -p marker` prints
+   error text at all**". Measured: `targ -p marker` prints
+   `[marker] Error: unknown command: marker` — `run_env.go:384-386` prints it explicitly. The
+   error was never swallowed. What is wrong is that the error is the *spurious* `unknown command`,
+   because the target never runs. Acceptance bullet 3 is therefore **not** satisfied today and is
+   **not** dropped: it becomes true only once dispatch is fixed, and Unit 2 verifies it by
+   asserting a target's own distinctive error reaches `result.Output` under `-p`.
 
-   ```
-   [marker] starting...
-   [marker] Error: unknown command: marker
-   [marker] FAIL (0s)
+2. **Defect A also bites a GROUP root.** #40's examples show only a plain-target root. Measured:
+   `repro40grp grp s1` and `repro40grp grp` both give `Unknown command: grp`.
 
-   FAIL:1
-   ```
+3. **`executeMultiRootParallel` is at `:493`, not `:492`** — `:492` is its `//nolint` line. Every
+   other line number in #40 is exact.
 
-   `run_env.go:384-386` prints the error explicitly, prefixed with the target name. The acceptance
-   criterion built on this claim ("prints the underlying error, not a bare `FAIL:1`") is already
-   satisfied in its literal form today. What is actually wrong is that the error printed is the
-   *spurious* `unknown command`, because Defect A stops the target from ever running. Fixing
-   Defect A makes `-p <name>` print the target's real error. **No separate error-plumbing work is
-   implied by that criterion**, and none is planned.
-
-2. **Defect A also bites a GROUP root.** #40's examples only show a plain-target root. Measured on
-   a module whose sole root is `targ.Group("grp", s1…s8)`:
-
-   ```
-   $ repro40grp grp s1   → Unknown command: grp
-   $ repro40grp grp      → Unknown command: grp
-   ```
-
-   The strip must match the sole root's own name whatever kind of node it is. (Note the error text
-   differs from the plain-target case — `Unknown command: grp` with no `Error:` prefix — because
-   the group's own dispatch emits it.)
-
-3. **`executeMultiRootParallel` is at `:493`, not `:492`.** `:492` is its `//nolint` line. Every
-   other line number in #40 is exact: `:241`, `:281`, `:324`, `:433`, `:559`, `:1098`, `:1111`,
-   `target.go:794`, `command.go:1793`/`:1800`, `generators.go:76`/`:82-87`,
-   `execution_properties_test.go:586`/`:666`/`:709`/`:1266-1279`.
-
-4. **`hasDefault` is read in three places, not one.** `run_env.go:732` (`handleGlobalHelp`),
-   `:753` (`handleNoArgs`), `:1111` (main dispatch). Only `:1111` reaches the four functions #40
-   tables. The other two matter to this plan anyway — see Defect C, where the help fix has to
-   cover **both** help paths, and Out of scope, where `handleNoArgs`' execution path is
-   deliberately untouched.
+4. **`hasDefault` is read in three *functions*** — `handleGlobalHelp` (`:723` and `:732`),
+   `handleNoArgs` (`:753`), `runWithEnvInternal` (`:1111`) — four textual occurrences. Only the
+   `runWithEnvInternal` site reaches the four functions #40 tables.
 
 5. **`printCommandHelp` has a fourth call site** #40 does not mention: `export_test.go:16` aliases
-   it as `PrintCommandHelpForTest`, used at `command_test.go:128` and `:144`. A signature change
-   breaks them; the design below avoids a signature change entirely.
+   it as `PrintCommandHelpForTest` (`command_test.go:128`, `:144`).
 
-### Confirmed by independent enumeration
+## The collapse
 
-- `grep -n "sem\b\|parallelCap\|GOMAXPROCS" internal/core/run_env.go` → no output. Confirmed.
-- `//nolint:cyclop,funlen` on `run_env.go:280` and `:492`. Confirmed.
-- **No fifth uncapped fan-out site exists.** Every `go func` in the repo was enumerated: the two in
-  `run_env.go` (uncapped), the two in `target.go` `runGroupParallel`/`runGroupParallelAll`
-  (capped), and five single-goroutine-per-subprocess sites in `internal/sh` and `dev/` that are not
-  fan-outs. Callers of `executeWithParents`, `findMatchingRoot`, and each of the four functions
-  were enumerated repo-wide.
-- `ParallelFlagRunsTargetsInParallel` registers two roots and therefore exercises
-  `executeMultiRootParallel`; only `ParallelFlagWithSingleRootGroup` is on `executeDefaultParallel`.
-  #40's correction of #34 on this point is right.
+### Settled — do not relitigate in-task
 
-## Measured defect evidence
+- Fix child-side in `internal/core`, not the `internal/runner` wrapper (#40's reasoning holds:
+  `targ.Execute`/`targ.Run` reach this code with no wrapper involved).
+- Top-level and per-dep-group caps stay independent (per-group budgets, matching #26).
+- `target.go`'s `runGroupParallel`/`runGroupParallelAll` are **not** folded in. They are a third
+  instance of the fan-out shape but operate on `[]*Target` with `onStart`/`onStop` hooks one layer
+  down. They remain the reference pattern this code mirrors.
+- The default-target *feature* stays. Only its duplicate *implementation* goes. (Considered
+  removing the feature; measured at 102 broken subtests plus a public API break; Joe chose the
+  collapse instead.)
 
-Fixtures are real modules with a `replace` directive at this worktree, built with `go build` and
-run as real binaries. `GOMAXPROCS=10` on this machine, so `parallelCap(8, 10) = min(8, max(2, 5))
-= 5`.
+### Serial — delete `executeDefault`
 
-| path | command | peak concurrent starts (before) | cap |
-|---|---|---|---|
-| `executeMultiRootParallel` (8 roots) | `-p t1 … t8` | **8** | 5 |
-| `executeDefaultParallel` (1 root group, 8 subs) | `-p s1 … s8` | **8** | 5 |
-
-Peak was measured with an atomic in-flight counter inside each target — no wall-clock timing.
-
-## Design
-
-### Settled during orientation — do not relitigate in-task
-
-- **Fix child-side, in `internal/core`, not in the `internal/runner` wrapper.** #40's reasoning
-  holds: `executeDefault` is reached directly by `targ.Execute`/`targ.Run` with no wrapper
-  involved.
-- **Keep the top-level cap and per-dep-group caps independent.** Per-group budgets, matching #26's
-  design. No shared global budget.
-- **Do not fold `target.go`'s `runGroupParallel`/`runGroupParallelAll` into the new CLI helper.**
-  They are a third near-duplicate of the same fan-out shape, but they operate on `[]*Target` with
-  `onStart`/`onStop` hooks one layer down (inside a single target's `Run`), not over CLI dispatch
-  args. Unifying all three is a larger refactor nobody asked for. They stay as the reference
-  pattern the CLI helper mirrors.
-- **Do not change the two distinct unknown-command output formats.** The default path prints
-  `Error: unknown command: bogus` with no usage block; the multi-root path prints
-  `Unknown command: bogus` plus usage. Both satisfy "still fails, naming bogus". Unifying them is
-  a separate, user-visible change.
-
-### Defect A — strip the sole root's own name
-
-One shared helper, used by both default-mode entry points. Two conformant copies of the same
-strip rule is exactly how the next regression gets in; one site is the point.
+`runWithEnvInternal` prepends the sole root's own name, then always calls `executeMultiRoot`:
 
 ```go
-// stripDefaultRootName drops a leading arg that names the sole default root
-// itself, so `targ <name>` reaches the same code path as bare `targ`. The
-// multi-root path already matches-then-strips; this is the default path's
-// equivalent, and the single site both default-mode entry points share.
-func (e *runExecutor) stripDefaultRootName(args []string) ([]string, bool) {
-	if len(args) > 0 && e.findMatchingRoot(args[0]) != nil {
-		return args[1:], true
+	if exec.hasDefault && !exec.opts.Overrides.Parallel &&
+		!strings.EqualFold(exec.rest[0], exec.roots[0].Name) {
+		exec.rest = append([]string{exec.roots[0].Name}, exec.rest...)
 	}
 
-	return args, false
-}
+	return exec.executeMultiRoot()
 ```
 
-`executeDefault`'s loop becomes:
+`exec.rest` is non-empty here — the zero-arg case went to `handleNoArgs` earlier, and
+`handleSpecialCommands` already indexes `e.rest[0]`.
+
+`executeMultiRoot` stops hardcoding `true` for `executeWithParents`' `explicit` parameter and
+passes `!e.hasDefault` instead.
+
+**That parameter is the entire semantic difference between the two old paths**, and getting it
+wrong is what broke revision 1. In `parse.go`'s `trySubcommandOrUnknown` (`:139-155`), an arg
+matching no positional and no subcommand is an `errUnknownCommand` when `explicit` is false, but
+is returned as leftover `remaining` when it is true — so the caller can try it as the next root.
+That leftover behaviour is *chaining*, which only makes sense with more than one root. With
+`explicit=true` a single-root module would run its target and only then complain about a bad
+trailing arg; with `explicit=false` it reports the error without running anything, matching
+today's behaviour exactly.
+
+### Parallel — delete `executeDefaultParallel`
+
+One resolver and one bounded fan-out, shared by both modes.
 
 ```go
-	remaining := e.rest
-
-	for len(remaining) > 0 {
-		args, stripped := e.stripDefaultRootName(remaining)
-
-		next, err := e.roots[0].executeWithParents(
-			e.ctx,
-			args,
-			nil,
-			map[string]bool{},
-			false,
-			e.opts,
-		)
-		if err != nil {
-			var re reportedError
-			if !errors.As(err, &re) {
-				e.env.Printf("Error: %v\n", err)
-			}
-
-			return ExitError{Code: 1}
-		}
-
-		if !stripped && len(next) == len(args) {
-			e.env.Printf("Unknown command: %s\n", args[0])
-			return ExitError{Code: 1}
-		}
-
-		remaining = next
-	}
-```
-
-The `!stripped` guard is load-bearing and not cosmetic. With `targ marker`, the strip leaves
-`args` empty, `executeWithParents` returns `next` empty, and the pre-existing
-`len(next) == len(args)` progress check would be `0 == 0` — true — and then index `args[0]` and
-panic. Stripping *is* progress, so the check only applies when nothing was stripped. Termination
-still holds in the stripped case because `next` is at most `args`, which is already one shorter
-than `remaining`.
-
-Falling through when the name does not match preserves `targ bogus` → `Error: unknown command:
-bogus`.
-
-### Defect B — one bounded fan-out for both parallel paths
-
-The two loops differ only in how they turn CLI args into work: the default path maps every
-non-flag arg onto `roots[0]`, the multi-root path resolves each arg to a root (with glob
-expansion). Everything after that — printer setup, goroutines, result collection, classification,
-summary — is identical. So the resolution stays per-path and the fan-out is shared.
-
-```go
-// parallelUnit is one CLI target scheduled by runUnitsParallel.
+// parallelUnit is one CLI target scheduled by runUnitsParallel. It resolves from
+// an explicit root/glob match, or - in default mode - a subcommand name to run
+// against the sole root.
 type parallelUnit struct {
-	node     *commandNode
-	name     string
-	args     []string
-	explicit bool
+	node          *commandNode
+	name          string
+	args          []string
+	explicit      bool
+	checkProgress bool
 }
 ```
 
-`explicit` is the sixth argument of `executeWithParents`; the default path passes `false`, the
-multi-root path `true`. It lives on the unit because the default path's value now depends on
-whether the arg named the root itself.
-
-`executeDefaultParallel` becomes a resolver plus a call:
+`resolveUnits` maps each non-flag arg to a unit — glob expansion, then explicit root match, then
+(default mode only) a subcommand of the sole root, else an unknown-command usage error:
 
 ```go
-func (e *runExecutor) executeDefaultParallel() error {
-	var units []parallelUnit
-
-	for _, arg := range e.rest {
-		if strings.HasPrefix(arg, "-") {
+		if matched := e.findMatchingRoot(arg); matched != nil {
+			units = append(units, parallelUnit{node: matched, name: arg, explicit: true})
 			continue
 		}
 
-		args, stripped := e.stripDefaultRootName([]string{arg})
-		units = append(units, parallelUnit{node: e.roots[0], name: arg, args: args, explicit: !stripped})
-	}
+		if e.hasDefault {
+			units = append(units, parallelUnit{
+				node:          e.roots[0],
+				name:          arg,
+				args:          []string{arg},
+				explicit:      false,
+				checkProgress: true,
+			})
 
-	return e.runUnitsParallel(units)
-}
+			continue
+		}
+
+		e.env.Printf("Unknown command: %s\n", arg)
+		printUsage(e.env.Stdout(), e.roots, e.opts)
+
+		return nil, ExitError{Code: 1}
 ```
 
-`executeMultiRootParallel` likewise, with its resolution extracted to `resolveMultiRootUnits`
-(unchanged logic: glob expansion, `findMatchingRoot`, unknown-name usage error).
+The serial prepend is gated on `!Overrides.Parallel` because parallel mode resolves each arg to
+its own unit rather than to one chained arg list.
 
-The shared runner carries the semaphore and the cancellation skip-check, transplanted from
-`runGroupParallel`:
+`startUnits` carries the semaphore and the cancellation skip, transplanted from `runGroupParallel`:
 
 ```go
-	sem := make(chan struct{}, max(1, parallelCap(len(units), runtime.GOMAXPROCS(0))))
+	capN := parallelCap(len(units), runtime.GOMAXPROCS(0))
+	sem := make(chan struct{}, max(1, capN))
 
-	for i, u := range units {
-		results[i].Name = u.name
+	for i, unit := range units {
+		results[i].Name = unit.name
 
 		go func(idx int, unit parallelUnit) {
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
-			// Skip queued units once the run is canceled (fail-fast):
-			// starting fresh work after a sibling failed would defeat the mode.
 			if ctx.Err() != nil {
-				resultCh <- unitResult{index: idx, err: ctx.Err()}
-
+				resultCh <- unitResultMsg{index: idx, err: ctx.Err()}
 				return
 			}
-
-			resultCh <- e.runUnit(ctx, idx, unit, maxNameLen, printer)
-		}(i, u)
-	}
+			...
+			next, err := unit.node.executeWithParents(
+				tctx, unit.args, nil, map[string]bool{}, unit.explicit, e.opts)
+			// A default-mode unit that consumed nothing named no real subcommand;
+			// the serial path reports that, so the parallel path must too.
+			if err == nil && unit.checkProgress &&
+				len(unit.args) > 0 && len(next) == len(unit.args) {
+				err = fmt.Errorf("%w: %s", errUnknownCommand, unit.args[0])
+			}
 ```
 
-Acquire happens before `runUnit`, so a queued unit does not print `starting...` before it runs.
+Acquire precedes the `starting...` print, so a queued unit does not announce itself before it
+runs. `runUnitsParallel` splits into `startUnits` / `collectUnitResults` / `printUnitResults` to
+stay under the complexity limits **without any `//nolint`**.
 
-`runUnitsParallel` further delegates to `runUnit` (execute one unit with parallel-aware output
-wiring), `collectUnitResults` (drain, cancel on first error, return its index), and
-`reportUnitResults` (classify, print errors and stop lines, print summary).
+### Help (#40 Defect C) — advertise both working forms
 
-**Measured lint outcome, not predicted:** with this decomposition, `golangci-lint run ./...`
-returns `0 issues` **with both `//nolint:cyclop,funlen` directives removed and none added**. The
-`//nolint` count in `run_env.go` goes 6 → 4 (the remaining four — `wrapcheck` on `Getwd`,
-`containedctx` on the `ctx` field, `unparam` on `handleList`, `cyclop` on `runWithEnvInternal` —
-are pre-existing and untouched). This was verified by deleting a speculative
-`//nolint:funlen` from `runUnitsParallel` and re-running lint: still `0 issues`.
+The collapse makes `targ <name>` work, so the existing help text stops lying. It still never
+mentions that the *bare* form works. `printCommandHelp` gets one node and `RunOptions`; it cannot
+tell it is rendering the sole root.
 
-### Defect C — help advertises both working forms
+**Threading `isDefaultRoot` as a parameter does not work** — there are two help paths and only one
+passes through a caller that knows `hasDefault`:
 
-`printCommandHelp` receives one node and `RunOptions`; it cannot know it is rendering the sole
-root. #40 says "the caller has to supply the signal" and leaves the threading to the plan.
+| invocation | reaches `printCommandHelp` via |
+|---|---|
+| `targ <name> --help` | `handleGlobalHelp` (`:732`), which knows `hasDefault` |
+| `targ --help` | `extractHelpFlag` empties args → `handleNoArgs` → `roots[0].execute` → the generic `HelpOnly` interception at `command.go:157-161`, which knows nothing |
 
-**A parameter does not work.** There are two help paths for a default root, and only one of them
-runs through a caller that knows `hasDefault`:
+A prototype threading the parameter rendered correctly for `targ <name> --help` and had **no
+effect at all** on plain `targ --help`, the more common invocation. Recorded because it looks
+right on paper.
 
-| invocation | path | reaches `printCommandHelp` via |
-|---|---|---|
-| `targ <name> --help` | `handleSpecialCommands` → `handleGlobalHelp` (`:732` knows `hasDefault`) | direct call |
-| `targ --help` | `extractHelpFlag` empties args → `handleNoArgs` → `roots[0].execute` → `executeWithParents` | the generic `HelpOnly` interception at `command.go:157-161`, which knows nothing |
+So the signal rides on the node, set once where `hasDefault` is computed
+(`exec.roots[0].IsDefaultRoot = true`). `parseTargets` builds fresh nodes each run, so this is
+per-execution state, not a global — confirmed by a test reusing one `*targ.Target` across two
+`Execute` calls, sole-root then not. All four `printCommandHelp` call sites, including
+`PrintCommandHelpForTest`, then get the right answer with no signature change.
 
-A first prototype threaded `isDefaultRoot bool` through `printCommandHelp` and passed `true` only
-from `handleGlobalHelp`. It rendered correctly for `targ <name> --help` and **had no effect at
-all** for plain `targ --help` — the more common invocation. Recorded because it looks right on
-paper.
+`printCommandHelp` brackets the name (`usageParts[0] = "[" + usageParts[0] + "]"` — **before** the
+`append([]string{opts.BinaryName, "[targ flags...]"}, ...)`, or it brackets the binary name
+instead) and forwards `DefaultRoot: node.IsDefaultRoot` into `help.TargetHelpOpts`.
+`WriteTargetHelp` prepends the bare example when generating; a caller-supplied `opts.Examples`
+list still wins untouched.
 
-The signal therefore rides on the node, set once where `hasDefault` is computed:
+**Budget for this:** adding the branch pushes the *existing* `WriteTargetHelp` over `cyclop` under
+the real config. Extract the examples selection into a helper (`targetHelpExamples`). Adding a
+`//nolint` instead is not an option.
 
-```go
-	exec.hasDefault = len(exec.roots) == 1 && opts.AllowDefault
-	if exec.hasDefault {
-		exec.roots[0].IsDefaultRoot = true
-	}
-```
-
-`parseTargets` builds fresh nodes on every run, so this is per-execution state, not a global.
-All four `printCommandHelp` call sites — including `PrintCommandHelpForTest` — then get the right
-answer with no signature change.
-
-`commandNode` gains:
-
-```go
-	// IsDefaultRoot marks the sole registered root when AllowDefault is set:
-	// it runs bare (`targ`) as well as by name (`targ <name>`), and its help
-	// advertises both forms.
-	IsDefaultRoot bool
-```
-
-`printCommandHelp` brackets the name and forwards the fact:
-
-```go
-	// A default root runs bare as well as by name, so its name is optional.
-	if node.IsDefaultRoot {
-		usageParts[0] = "[" + usageParts[0] + "]"
-	}
-```
-
-`help.TargetHelpOpts` gains `DefaultRoot bool`, and `WriteTargetHelp` prepends the bare example
-when generating (a caller-supplied `opts.Examples` list still wins untouched):
-
-```go
-// withBareInvocation prepends the bare-invocation example for a default root
-// and relabels the generated named form, so help advertises both working
-// invocations rather than only the named one.
-func withBareInvocation(generated []Example, binaryName string) []Example {
-	for i := range generated {
-		if generated[i].Title == basicUsageTitle {
-			generated[i].Title = "By name"
-		}
-	}
-
-	return append([]Example{{Title: basicUsageTitle, Code: binaryName}}, generated...)
-}
-```
-
-`GenerateTargetExamples` keeps its signature; the `"Basic usage"` literal becomes a
-`basicUsageTitle` constant shared by both sites.
-
-**Measured rendering** (fixture with one target `marker`, binary `bin`):
+Rendered result (fixture with one target `marker`, binary `bin`):
 
 ```
 Usage:
@@ -340,36 +254,59 @@ Examples:
     bin marker
 ```
 
-Both `targ --help` and `targ marker --help` now produce this. A two-target module's
-`bin marker --help` is byte-identical to before (`bin [targ flags...] marker`, single
-`Basic usage: bin marker`), verified by running both.
+## Intended behaviour changes
 
-## Prototype verification (run before this plan was written)
+Beyond fixing #40's three defects, unifying the paths changes four things. All are consequences of
+having one implementation instead of two, all were measured, and all are intended.
 
-The whole design was applied in a throwaway worktree (`.claude/worktrees/issue-40-proto`, detached
-at `2473fce`) and exercised. Nothing below is a prediction.
+| case | before | after |
+|---|---|---|
+| `targ grp s1`, `targ grp` (sole group root) | `Unknown command: grp` | runs; naming the sole root works like any other root — this **is** Defect A for group roots |
+| `targ -p <bogus>` (sole group root) | **silently PASSES**, exit 0, nothing runs | `Error: unknown command: bogus`, `FAIL:1`, exit 1 |
+| `targ <bogus>` (sole group root) | `Unknown command: bogus`, no usage block | same line and exit code, **plus** a usage block |
+| `targ -p <name>` on a failing target | prints the spurious `unknown command` | prints the target's own error |
 
-| check | result |
-|---|---|
-| `go build ./...` | OK |
-| `go test ./...` | all packages ok, including `test` (`ParallelFlagRunsTargetsInParallel` and `ParallelFlagWithSingleRootGroup` green, untouched) |
-| `golangci-lint run ./...` | `0 issues`, both `cyclop,funlen` nolints deleted, none added |
-| `repro40` (1 plain target) bare / `marker` / `-p marker` / `bogus` | `MARKER-ONE` / `MARKER-ONE` / `PASS:1` / `Error: unknown command: bogus` |
-| `repro40grp grp s1`, `repro40grp grp` | run (peak 1) / run group default (peak 0) |
-| `repro40cap -p t1…t8` peak | **8 → 5** |
-| `repro40grp -p s1…s8` peak | **8 → 5** |
-| `repro40two` (2 roots): `marker`, `-p marker other`, `bogus`, `marker --help` | unchanged in every case |
+The third is a pure output addition on an already-failing path, and matches what multi-root mode
+has always printed. Plain-`Func` sole roots are unaffected (they raise a real error on the first
+pass). Two-target modules are **byte-identical** before and after in every case tested, including
+help.
 
-The prototype worktree is deleted before this plan's commit; execution re-derives the code through
+## Prototype verification (run before this plan was committed)
+
+Applied in a throwaway worktree (`.claude/worktrees/issue-40-proto2`, detached at `2473fce`).
+Nothing below is a prediction. `GOMAXPROCS=10`; `parallelCap(8, 10) = 5`.
+
+| check | command | result |
+|---|---|---|
+| build | `go build ./...` | clean |
+| tests | `go test ./...` | all packages ok |
+| race | `go test -race ./internal/core/... ./test/...` | clean |
+| **lint (real config)** | `golangci-lint cache clean && golangci-lint run -c dev/golangci-lint.toml ./...` | **`0 issues`** |
+| nolint count | `grep -c nolint internal/core/run_env.go` | **6 → 4**, none added |
+| size | `git diff --stat` | **235 insertions, 307 deletions — net −72 lines** |
+| `targ check-full` | in the dirty worktree | 7/8; only `check-uncommitted` fails, by design |
+| `repro40` | bare / `marker` / `-p marker` | `MARKER-ONE` / `MARKER-ONE` / `PASS:1` |
+| `repro40` | `bogus` / `-p bogus` | `Error: unknown command: bogus` exit 1, target does **not** run / `FAIL:1` exit 1 |
+| `repro40grp` | `-p bogus` | `FAIL:1` exit 1 (baseline wrongly passed) |
+| `repro40cap` | `-p t1…t8` | peak **8 → 5** |
+| `repro40grp` | `-p s1…s8` | peak **8 → 5** |
+| `repro40two` | every case incl. `marker --help` | byte-identical to baseline |
+| **kill-switch** | delete `sem` + acquire/release, re-measure ×5 each | peak returns to **8, 8, 8, 8, 8** on both fixtures; restored, back to 5 |
+
+The kill-switch matters: it proves the semaphore is the sole thing bounding concurrency and that
+no runtime or stdlib limit silently backstops it, so a cap test has real teeth.
+
+The prototype worktree is deleted before this plan's commit. Execution re-derives the code through
 TDD rather than transplanting the diff.
 
-## Doc-surface enumeration (run at plan-write time)
+## Doc-surface enumeration
 
 Two invariants change: (1) a module registering exactly one target gets a default that runs bare,
-by name, and under `-p`; (2) CLI-level `--parallel`/`-p` fan-out is now bounded by
-`parallelCap(n, GOMAXPROCS)` — the same formula dep groups have had since #26.
+by name, and under `-p`; (2) CLI `--parallel`/`-p` fan-out is bounded by
+`parallelCap(n, GOMAXPROCS)`.
 
-Commands run (re-runnable):
+Commands run at plan-write time. **Unit 6 re-runs them** and confirms every hit is dispositioned —
+they are a verification step, not just documentation:
 
 ```bash
 grep -rniI --exclude-dir=.git -E "default target|default root|default command|defaults to" .
@@ -380,216 +317,194 @@ grep -rniI --exclude-dir=.git -E "all at once|simultaneous|concurrently|no limit
 grep -rniI --exclude-dir=.git -E "fan-out|fanout|GOMAXPROCS|parallelCap|concurrency cap" .
 grep -rniI --exclude-dir=.git -E -- "--parallel" README.md CLAUDE.md docs/ specs/ projects/ .claude/
 grep -rn "Usage:" . --include="*.go" --include="*.md" --include="*.golden"
-grep -n "^## \|^### " README.md
+grep -rnE "go func\(|go [a-z][A-Za-z]*\(" . --include="*.go"   # method-call goroutines too
 ```
 
-Per-file disposition. Rows marked N/A had hits that are false positives or live in archives.
+The last grep's second alternation exists because `internal/core/printer.go:23` launches a
+goroutine as `go p.run()` — a bare `go func(` search misses that form. It is one printer goroutine
+per parallel call across all four call sites, not a fan-out; the "no fifth uncapped fan-out site"
+conclusion holds, now by a search that could have found one.
 
-| file | line(s) | what it says | disposition | reason |
-|---|---|---|---|---|
-| `README.md` | 319 §Command Names | kebab-case derivation, `.Name()` override | **update** | Natural home for the default-target rule: bare, by name, and `-p <name>` all run the sole target |
-| `README.md` | 474-493 §Example Help Output | `$ targ build --help` → `Usage: build [flags]` | **update** | Add a single-target example showing the bracketed usage line and both invocation examples. Note the existing block is *already* stale independent of this issue (real output is `Usage:\n  <bin> [targ flags...] build`); do not copy its format |
-| `README.md` | 708 `--parallel`/`-p` row | "Run multiple targets concurrently" | **update** | Add the bound, mirroring what :350 does for dep groups |
-| `README.md` | 350 | dep-group cap sentence | keep | Accurate and correctly scoped; the §Runtime Flags update carries the cross-reference |
-| `README.md` | 186 §Execution Control | builder-method table | keep | Zero hits; landmark only in #40's text |
-| `README.md` | 293 | `// name defaults to "golangci-lint"` | N/A | Different sense of "defaults" (auto-derived name) |
-| `docs/specs/use-cases.md` | 5-13 UC-1 | "Developer runs `targ <command>`…" | **update** | Silent on the optional-command case, and `targ <command>` is precisely what is broken for it today |
-| `docs/specs/requirements.md` | 173-178 DES-5 | "Parallel groups are bounded to `min(n, max(2, GOMAXPROCS/2))`" | **update** | Scoped to `.Deps()` only; add the CLI `-p` fan-out using the identical formula |
-| `docs/specs/requirements.md` | 19-24 REQ-3 | runtime-flag enumeration | **update** | Add the default-dispatch behavioural rule (bare / by name / `-p <name>`) |
-| `docs/specs/architecture.md` | 19-24 ARCH-3 | "Command Resolution and Execution" | **update** | No ARCH item names the `hasDefault` mechanism at all; ARCH-3 owns command resolution and is the right home |
-| `docs/specs/tests.md` | 32-53 T-3 | execution-behaviour property list | **update** | Add two property bullets: `targ <name>` succeeds with exactly one registered target; top-level `-p` fan-out never exceeds `parallelCap` |
-| `docs/specs/state.toml` | `[layers.*]`, `[tree.*]` | traced adoption state | **update** | Add a `history` re-entry note; extend existing IDs rather than mint new ones (matches how #26 and #32 re-entered) |
-| `docs/specs/implementation.md` | 36-42 IMPL-5, 117-124 IMPL-15 | purpose blurbs enumerating flags | keep | Enumeration only; no claim to correct |
-| `internal/core/types.go` | `AllowDefault bool` | **no doc comment at all** | **update** | Controls the whole invariant, is part of the public `targ.RunOptions` alias, and its sibling `BinaryMode` is documented |
-| `internal/core/run_env.go` | 239 | "executeDefault executes commands against a single default root." | **update** | The entirety of the in-code documentation of the invariant; must say the name is optional |
-| `internal/core/target.go` | 767-772 `parallelCap` | "bounds how many targets in a parallel **dep group** run concurrently" | **update** | Once the CLI path calls it, the comment's dep-group scoping is wrong |
-| `internal/core/override.go` | 27 `Parallel bool` | "Run multiple targets concurrently (--parallel or -p)" | **update** | Public GoDoc via the `targ.RuntimeOverrides` alias; add the bound |
-| `targ.go` | 152-249 (`Execute`, `ExecuteRegistered`, `ExecuteWithOptions`, `Main`, `Register`) | none mention the default target | **update** | The pkg.go.dev-facing gap; one sentence on `Register`/`Main` is enough |
-| `internal/flags/flags.go` | 71-76 `--parallel` `Desc` | "Run multiple targets concurrently" | keep | This string is rendered inside every `--help`; adding the formula bloats the flag table. The bound belongs in README §Runtime Flags, which the row already implies |
-| `specs/001-parallel-output/contracts/api.md` | 119 | "still executes targets concurrently" | **propose, do not fold** | Closed spec-kit artifact for a shipped, different feature (output prefixing). Listed for Joe's yes/no; not in this cycle's scope |
-| `docs/archive/**` | many | old usage-line templates, `--parallel` rows, REQ-039 | N/A | Archive convention: no retro-edits |
-| `docs/plans/2026-07-23-issue-26-dep-fanout-cap.md` | 33, 918 | names this exact CLI fan-out as deferred out-of-scope for #26 | N/A (cite, don't edit) | Load-bearing prior art: proves the gap was known and deferred |
-| `docs/plans/**` (others) | various | historical records | N/A | Historical |
-| `specs/001-parallel-output/**` (others) | various | printer buffering, thread-safety | N/A | Different concern; "unbounded" refers to line buffers |
-| `projects/portable-targets/**`, `session-learning-prompt.md`, `.claude/skills/**`, `.claude/commands/**` | various | unrelated senses of "default"/"one target"/"at once" | N/A | False positives |
-| `internal/runner/testdata/golden/*.golden` | all | `--create`/`--sync`/`--to-func`/`--to-string` meta-command help | N/A | Static literals in `runner.go`; unreachable from `commandNode` rendering |
-| `internal/runner/runner.go` | 3906 `printMultiModuleHelp` | `Usage: targ [FLAGS...] COMMAND …` | N/A | Only fires when `len(moduleGroups) > 1`; a single-target module always takes `handleSingleModule` |
+| file | line(s) | disposition | reason |
+|---|---|---|---|
+| `README.md` | 319 §Command Names | **update** | Home for the default-target rule: bare, by name, and `-p <name>` all run the sole target |
+| `README.md` | 474-493 §Example Help Output | **update** | Add a single-target example. The existing block is *already* stale independent of this issue (it shows `Usage: build [flags]`; real output is `Usage:\n  <bin> [targ flags...] build`) — regenerate from a real binary, do not copy its format |
+| `README.md` | 708 `--parallel` row | **update** | Add the bound, mirroring what :350 does for dep groups |
+| `README.md` | 350 | keep | Correctly scoped to dep groups; the :708 update carries the cross-reference |
+| `README.md` | 186 §Execution Control | keep | Zero hits; a landmark in #40's text only |
+| `docs/specs/use-cases.md` | 5-13 UC-1 | **update** | Silent on the optional-command case |
+| `docs/specs/requirements.md` | 173-178 DES-5 | **update** | Scoped to `.Deps()`; add the CLI `-p` fan-out using the identical formula |
+| `docs/specs/requirements.md` | 19-24 REQ-3 | **update** | Add the default-dispatch rule |
+| `docs/specs/architecture.md` | 19-24 ARCH-3 | **update** | No ARCH item names the `hasDefault` mechanism; ARCH-3 owns command resolution |
+| `docs/specs/tests.md` | 32-53 T-3 | **update** | Two property bullets: `targ <name>` succeeds with one registered target; top-level `-p` fan-out never exceeds `parallelCap` |
+| `docs/specs/state.toml` | — | **no edit** | Extending existing IDs (REQ-3/DES-5/ARCH-3/T-3/UC-1) is exactly what #26 (`fdd0984`) and #32 (`ac2542e`) did, and **neither touched `state.toml`**. Every `history` note in that file coincides with *minting* a new ID. Revision 1 instructed a history note here, citing a #26/#32 precedent that does not exist — dropped |
+| `internal/core/types.go` | `AllowDefault` | **update** | No doc comment at all, on the field controlling the invariant, exported via `targ.RunOptions`; sibling `BinaryMode` is documented |
+| `internal/core/target.go` | 767-772 `parallelCap` | **update** | Comment says "in a parallel **dep group**"; the CLI path now calls it too |
+| `internal/core/override.go` | 27 `Parallel bool` | **update** | Public GoDoc via `targ.RuntimeOverrides`; add the bound |
+| `targ.go` | 152-249 | **update** | `Execute`/`ExecuteRegistered`/`Main`/`Register` never mention the default target — the pkg.go.dev-facing gap |
+| `internal/flags/flags.go` | 71-76 `--parallel` `Desc` | keep | Rendered inside every `--help`; the formula would bloat the flag table. The bound belongs in README §Runtime Flags |
+| `internal/core/execute_test.go` | 288-320 | **verify, no edit expected** | Runs `ExecuteWithResolution` with `AllowDefault: true` on a single-target registry — real overlap with the rewired dispatch. Revision 1 missed it. Confirm it still passes and say why |
+| `test/completion_properties_test.go` | 352, 892 | **verify, no edit expected** | `HandlesSingleTargetMode` / `SingleRootCompletionWithRemainingArgs` exercise `__complete` in single-root mode; `targ.Execute` always sets `AllowDefault: true`. Real exposure to the dispatch change |
+| `test/validation_properties_test.go` | 12-65 | **verify** | `TestProperty_UsageLine`, single target, `--help`; reaches the bracketed usage line |
+| `test/hierarchy_properties_test.go` | 416-431 | **verify** | `HelpInDefaultModeShowsTargetHelp`, same path |
+| `internal/core/binary_mode_propagation_test.go` | 31, 72, 104, 128 | **verify** | `AllowDefault: true` help rendering |
+| `internal/help/render.go`, `render_test.go` | `"Usage:"` emission | **verify, no edit expected** | The literal string Defect C is about. Assertions are substring/ordering, not exact-match |
+| `internal/runner/runner_help_test.go` | `validateHelpOutput` | **verify** | Builds and runs real binaries via `handleSingleModule`, through the modified core/help code |
+| `internal/runner/testdata/golden/*.golden` | all | N/A | `--create`/`--sync`/`--to-func`/`--to-string` meta-command help; static literals in `runner.go`, unreachable from `commandNode` rendering |
+| `internal/runner/runner.go` | 3906 | N/A | `printMultiModuleHelp` only fires when `len(moduleGroups) > 1` |
+| `docs/archive/**` | many | N/A | Not by an "archive convention" — no such rule is written anywhere in this repo (revision 1 asserted one; it exists only in a self-citing chain of three plans). The empirical fact: `git log ac98256..HEAD -- docs/archive/` returns **zero commits** since the 2026-03-08 archiving. Nothing has ever been retro-edited |
+| `docs/plans/2026-07-23-issue-26-dep-fanout-cap.md` | 33, 918 | N/A — cite, don't edit | Names this exact CLI fan-out as deferred out-of-scope for #26. Load-bearing prior art |
+| `specs/001-parallel-output/contracts/api.md` | 119 | **propose, do not fold** | "still executes targets concurrently", now incomplete. Grounds for deferring: `specs/001-parallel-output/` has had **exactly one commit touch it, ever**. (Revision 1 called it "closed"; `spec.md:5` self-reports `Status: Draft`, so that label was wrong even though the disposition is right.) For Joe's yes/no |
+| false positives, verified by inspection | `internal/core/{command,execute,registry,result,override,target}.go`, `internal/help/builder.go`, `test/{constraints,hierarchy_fuzz,overrides,shell}_properties_test.go`, `projects/portable-targets/**`, `session-learning-prompt.md`, `.claude/skills/**`, `.claude/commands/**`, `specs/001-parallel-output/**` (other files), `docs/plans/**` (others), `README.md:293`, `CLAUDE.md:40`, `docs/specs/tests.md:9` | N/A | Each is a different sense of "default" / "one target" / "at once" / "concurrent", or historical record. Enumerated rather than summarised, so a reviewer can tell a classified hit from an unrun grep |
 
-**Zero-hit surfaces, so absence is distinguishable from not-searched:** no C4 or architecture
-diagram directory exists; no `CHANGELOG.md`; no `.traced/config.toml` (traced state lives solely
-in `docs/specs/state.toml`); `internal/core/doc.go` has no package comment; `examples/*` contain
-no single-target `Main()` example and no `--parallel` prose.
-
-### Tests that pin rendered help
-
-No test anywhere does an exact-match assertion on a full default-root `Usage:` line. The closest
-are substring assertions that reach the changed path:
-
-- `test/validation_properties_test.go:12-65` (`TestProperty_UsageLine`, 3 subtests) — single
-  target, `--help`, asserts on positional-arg tokens. Reaches the path; survived the prototype.
-- `test/hierarchy_properties_test.go:416-431` (`HelpInDefaultModeShowsTargetHelp`) — same path,
-  description substring. Survived the prototype.
-- `internal/core/binary_mode_propagation_test.go` — `AllowDefault: true` with flag-visibility
-  assertions. Survived the prototype.
-
-That gap is itself a finding: the usage line for a default root is currently untested for exact
-shape. Unit 4 closes it.
+**Zero-hit surfaces** (searched, genuinely absent — so absence is distinguishable from
+not-searched): no C4 or architecture-diagram directory; no `CHANGELOG.md`; no `.traced/config.toml`
+(traced state lives solely in `docs/specs/state.toml`); no package comment in
+`internal/core/doc.go`; no single-target `Main()` example and no `--parallel` prose under
+`examples/`.
 
 ## Units
 
-Each unit is RED → GREEN → REFACTOR, with a design-fit review after the refactor phase. Tests go
-in `test/` (blackbox `package targ_test`) unless noted. New subtests are inserted in the existing
-alphabetical position within their `t.Run` block.
+Each unit is RED → GREEN → REFACTOR, with a design-fit review after the refactor phase. Blackbox
+tests go in `test/` (`package targ_test`); new subtests are inserted in their block's existing
+alphabetical position.
 
-### Unit 1 — Defect A, serial default path
+Assert on `result.Output`, never `errors.As`, after `targ.Execute` — this dispatch layer collapses
+every propagated error into a bare `ExitError{Code: 1}` across ~16 call sites, so `errors.As` is
+structurally impossible to pass. Pre-existing, deliberate convention.
 
-**RED.** In `test/execution_properties_test.go`, add subtests asserting, via `targ.Execute` with a
-single registered target:
+### Unit 1 — serial collapse
 
-- `["app", "marker"]` succeeds and the target ran (`Execute` returns no error; the target's
-  side-effect counter is 1)
-- `["app", "bogus"]` fails and `result.Output` names `bogus`
-- a single root **group**: `["app", "grp", "s1"]` runs `s1`
+**RED.** Single registered target: `["app","marker"]` runs it; `["app","bogus"]` fails naming
+`bogus` **and the target does not run**; sole group root `["app","grp","s1"]` runs `s1`. Confirm
+each fails first with `unknown command`.
 
-Assert on `result.Output` content, never `errors.As` — `run_env.go`'s dispatch layer collapses
-every propagated error into a bare `ExitError{Code: 1}` across ~16 call sites, so `errors.As`
-after `targ.Execute()` is structurally impossible to pass. This is pre-existing, deliberate
-convention.
-
-Run the tests and confirm they fail with `unknown command: marker` / `unknown command: grp`.
-
-**GREEN.** Add `stripDefaultRootName` and rewire `executeDefault` as designed above.
+**GREEN.** Prepend in `runWithEnvInternal`; `explicit: !e.hasDefault` in `executeMultiRoot`;
+delete `executeDefault`.
 
 **REFACTOR + gate B.**
 
-### Unit 2 — Defect A, parallel default path
+### Unit 2 — parallel collapse
 
-**RED.** Add a subtest: single registered target, `["app", "--parallel", "marker"]` succeeds and
-the target ran. Confirm it fails first with `[marker] Error: unknown command: marker`.
+**RED.** `["app","--parallel","marker"]` runs the target. `["app","--parallel","bogus"]` **fails**
+— on both a sole plain root and a sole group root; the group case is the pre-existing silent-pass
+bug. A single target whose function returns a distinctive error puts **that** text in
+`result.Output` under `-p`, not `unknown command`.
 
-Also assert the corrected claim from Correction 1: with a single target whose function returns a
-distinctive error, `["app", "--parallel", "marker"]` puts **that** error text in `result.Output`,
-not `unknown command`.
+**GREEN.** `parallelUnit`, `resolveUnits`, `runUnitsParallel` + `startUnits` /
+`collectUnitResults` / `printUnitResults`; delete `executeDefaultParallel`; add the `runtime`
+import; **delete both `//nolint:cyclop,funlen` directives (`run_env.go:280` and `:492`) and add
+none.**
 
-**GREEN.** Route `executeDefaultParallel` through `stripDefaultRootName` per unit.
+**REFACTOR + gate B.** Gate B checks the result reads as one fan-out written that way from the
+start.
 
-**REFACTOR + gate B.**
+### Unit 3 — the concurrency cap
 
-### Unit 3 — Defect B, bounded fan-out on both paths
-
-**RED.** One upper-bound test per path — the multi-root path has none today.
-
-Shape, mirroring `ParallelDepsRespectConcurrencyCap` (`:586`) and honouring the no-flaky-tests
-rule: each target increments an atomic in-flight counter, CAS-updates a peak, then blocks on a
-gate channel that a watcher closes once the peak reaches the expected cap; assert
+**RED.** One upper-bound test per mode (default and multi-root); the multi-root path has none
+today. Each target increments an atomic in-flight counter and CAS-updates a peak, then blocks on a
+gate a watcher closes once the peak reaches the expected cap; assert
 `peak <= max(2, GOMAXPROCS/2)`. No wall-clock assertions. Each subtest gets its own fixtures and
-its own counters — no shared mutable state across parallel subtests.
+counters. Use `n = 2*cap + 2` so the pre-fix margin is wide.
 
-Use `n = 2*cap + 2` targets so the pre-fix violation margin is wide.
+**Observe the RED, do not assume it.** An upper-bound assertion can pass by scheduling luck. Run
+it against the uncapped tree and confirm it fails; re-run until RED is observed; widen `n` if it
+is not reliably observable. The kill-switch measurement (peak returns to 8/8 on five runs of each
+fixture with the semaphore deleted) says the margin is real.
 
-**This test's RED must be observed, not assumed.** An upper-bound assertion is observational: it
-can pass by scheduling luck against unfixed code. Run it against the unfixed tree and confirm it
-actually fails; if it does not fail on the first run, re-run until RED is observed, and if RED is
-not reliably observable, widen `n` until it is. Record the observed pre-fix peak in the commit
-message. A cap test that cannot be made to fail without the semaphore is not testing the
-semaphore.
+**GREEN.** The semaphore and `ctx.Err()` skip ship with Unit 2; this unit adds their tests.
 
-The measured pre-fix peaks (8 vs a cap of 5, both paths, real binaries) say the margin is real.
+**REFACTOR + gate B.**
 
-**GREEN.** Introduce `parallelUnit`, `resolveMultiRootUnits`, `runUnitsParallel`, `unitResult`,
-`runUnit`, `collectUnitResults`, `reportUnitResults`; rewrite both parallel entry points as
-resolver + call. Add the `runtime` import. **Delete both `//nolint:cyclop,funlen` directives and
-add none** — lint returns `0 issues` without them.
+### Unit 4 — help advertises both forms
 
-**REFACTOR + gate B.** Gate B specifically checks that the result reads as one fan-out written
-that way from the start, not two loops with a shared tail bolted on.
-
-### Unit 4 — Defect C, help
-
-**RED.** Two kinds of test:
-
-- `internal/core` (whitebox, `package core_test`, via `PrintCommandHelpForTest`): a node with
-  `IsDefaultRoot` true renders `[name]` in the usage line; false renders `name`. This closes the
-  exact-shape gap the enumeration found.
-- `test/` (blackbox): with one registered target, `["app", "--help"]` output contains both the
-  bracketed usage line and both examples; **and** `["app", "marker", "--help"]` output contains
-  the same. Both paths, because only one of them was fixed by the first design attempt.
-- with two registered targets, `["app", "marker", "--help"]` output does **not** contain
-  `[marker]`.
+**RED.**
+- whitebox (`internal/core`, via `PrintCommandHelpForTest`): `IsDefaultRoot` true renders
+  `[name]`, false renders `name`. Closes the exact-shape gap — no existing test asserts the full
+  default-root usage line.
+- blackbox: one registered target, **both** `["app","--help"]` and `["app","marker","--help"]`
+  contain the bracketed usage line and both examples.
+- two registered targets: `["app","marker","--help"]` does **not** contain `[marker]`.
+- `IsDefaultRoot` does not leak: reuse one `*targ.Target` across two `Execute` calls, sole-root
+  then not.
 
 **GREEN.** `commandNode.IsDefaultRoot`; set it in `runWithEnvInternal`; bracket in
-`printCommandHelp`; `TargetHelpOpts.DefaultRoot`; `withBareInvocation` + `basicUsageTitle` in
-`internal/help`.
+`printCommandHelp`; `TargetHelpOpts.DefaultRoot`; bare-example prepend in `WriteTargetHelp`;
+extract `targetHelpExamples` to keep `WriteTargetHelp` under `cyclop`.
 
 **REFACTOR + gate B.**
 
-### Unit 5 — the queued-unit cancellation skip
+### Unit 5 — queued-unit cancellation skip
 
-The skip-check ships as part of Unit 3 (it is one of the two statements transplanted from
-`runGroupParallel`, and shipping the semaphore without it would let a cancelled run start fresh
-work).
-
-Its *test* is separated here because its determinism is unproven. Investigate whether a
-deterministic assertion exists: with cap `c` and `n > c` units where unit 0 fails immediately, the
-queued units should return `ctx.Err()` and classify `CANCELLED` without running their bodies. If a
-deterministic discriminator can be built (assert that fewer than `n` bodies executed *and* that at
-least one result classified `CANCELLED`), write it. **If it cannot be made deterministic, do not
-ship a non-discriminating test** — say so in the unit's report and record it as a known gap rather
-than adding a test that passes whether or not the guard exists. No existing test asserts the
-`CANCELLED` classification for this path on either the dep-group or CLI side.
+The skip ships with Unit 2 (omitting it would let a cancelled run start fresh work). Its *test*
+is separated because determinism is unproven. Investigate whether a deterministic discriminator
+exists: with cap `c` and `n > c` units where unit 0 fails immediately, assert fewer than `n`
+bodies ran **and** at least one result classified `CANCELLED`. **If it cannot be made
+deterministic, do not ship a non-discriminating test** — record it as a known gap in the unit's
+report. No existing test asserts `CANCELLED` on either the dep-group or CLI side.
 
 ### Unit 6 — docs
 
-Apply every **update** row from the disposition table. Regenerate the README §Example Help Output
-addition from real binary output rather than hand-writing it.
+Re-run the enumeration greps first and confirm every hit is dispositioned. Then, by file:
+
+1. `README.md` — :319 default-target rule; :708 the cap bound; :474-493 regenerate the help
+   example from a real binary's output.
+2. `docs/specs/use-cases.md` UC-1; `requirements.md` REQ-3 and DES-5; `architecture.md` ARCH-3;
+   `tests.md` T-3 (two bullets). No `state.toml` edit.
+3. Doc comments: `types.go` `AllowDefault`; `override.go` `Parallel`; `target.go` `parallelCap`;
+   `targ.go` `Execute`/`ExecuteRegistered`/`Main`/`Register`.
+4. Run the **verify, no edit expected** rows and record what was checked.
 
 ## Verification
 
-- `targ check-full` must report **8/8**. Sequence it **after** the commit, or expect PASS on all
-  legs *except* `check-uncommitted` — that leg fails by design on a dirty tree, so a pre-commit
-  "expect green" gate is unsatisfiable as written.
-- If `lint-full` fails, run `golangci-lint cache clean` and re-run before treating it as real.
-- Re-run the four real-binary fixtures and confirm the peak-concurrency table's "after" column.
-- Per-function coverage threshold is 80%. Every new function (`stripDefaultRootName`,
-  `resolveMultiRootUnits`, `runUnitsParallel`, `runUnit`, `collectUnitResults`,
-  `reportUnitResults`, `withBareInvocation`) needs coverage from the units above, not as cleanup.
-  Read the uncovered lines rather than accepting the percentage — an uncovered error branch in a
-  function whose siblings propagate is a defect, not a gap.
-- `targ reorder-decls` for declaration ordering.
+- `targ check-full` must report **8/8**. Sequence it **after** the commit, or expect PASS on every
+  leg *except* `check-uncommitted`, which fails by design on a dirty tree.
+- **Lint with the project's config**: `targ lint-full`, or
+  `golangci-lint run -c dev/golangci-lint.toml ./...`. A bare `golangci-lint run ./...` uses a
+  weaker default set and is not a valid measurement — this repo has no root config.
+- If `lint-full` fails, `golangci-lint cache clean` and re-run before treating it as real.
+- Re-run the four fixtures and confirm the before/after table.
+- Per-function coverage is 80%. Every new function needs coverage from the Units' own tests, not
+  as cleanup — measured on the prototype, the design snippets alone leave `stripDefaultRootName`,
+  `resolveUnits` and the help helper under the bar until the Unit tests are written. Read the
+  uncovered lines rather than accepting the percentage.
+- `targ reorder-decls` — both touched files needed reordering in the prototype.
 
 ### Watch item
 
 `test/execution_properties_test.go:1584` (`CollectAllErrorsPreservesDeclarationOrder`) enforces a
-cross-goroutine ordering assumption with `time.Sleep(50ms)` inside `dep1` while `dep2` fails
-instantly. It is the one sleep-based ordering-critical assertion in the parallel-execution tests.
-This cycle adds concurrency-heavy tests to the same gate path, which is exactly the load change
-that has starved it before. If it fails during `check-full` while passing solo, that is the cause
-— fix by causality if it comes to that, never by lengthening the sleep.
+cross-goroutine ordering assumption with `time.Sleep(50ms)` while `dep2` fails instantly. It is
+the one sleep-based ordering-critical assertion in the parallel tests, and this cycle adds
+concurrency-heavy tests to the same gate path — the load change that has starved it before. If it
+fails under `check-full` while passing solo, that is the cause. Fix by causality, never by
+lengthening the sleep.
 
 ## Out of scope
 
-- `handleNoArgs`' **execution** path (`:753`). It is a second `hasDefault`-gated branch, but it
-  only runs when there are no args at all, so it passes `nil` and has nothing to strip. Its help
-  path *is* in scope (Unit 4). Deliberately excluded, not overlooked.
-- `handleGlobalHelp`'s multi-root branch.
+- `handleNoArgs`' execution path. It runs only when there are no args, passes `nil`, and has
+  nothing to strip. Its *help* path is in scope (Unit 4). Deliberately excluded.
 - `target.go`'s `runGroupParallel`/`runGroupParallelAll`.
-- `<binary> <sub> --help` on a single-root-group module rendering the *group's* help instead of
-  the subcommand's. Verified pre-existing at `2473fce` (baseline binary reproduces it), unchanged
-  by this work.
-- Unifying the two unknown-command output formats.
+- **`<binary> <sub> --help` on a sole group root renders the group's help, not the subcommand's.**
+  Verified pre-existing at `2473fce`; the collapse does not repair it. Raised with Joe during
+  planning; not resolved there because the redirect superseded the question. **To be filed as a
+  separate issue at close** — not silently dropped.
 - `specs/001-parallel-output/contracts/api.md:119` — proposed above for Joe's call.
+- Removing the default-target feature (measured: 102 broken subtests plus a public API break; Joe
+  chose the collapse instead).
 
-## Acceptance (from #40, with Correction 1 applied)
+## Acceptance
 
 - [ ] A module registering exactly one target runs via `targ`, `targ <name>`, and `targ -p <name>`
-- [ ] `targ <bogus>` on that module still fails, naming `bogus`
-- [ ] `targ -p <name>` on a failing target prints that target's own error (today it prints the
-      spurious `unknown command`; the error was never swallowed)
+- [ ] `targ <bogus>` on that module still fails, naming `bogus`, without running the target
+- [ ] `targ -p <bogus>` fails on both a sole plain root and a sole group root
+- [ ] `targ -p <name>` on a failing target prints that target's own error
 - [ ] Every invocation form `targ --help` advertises for a default root is executable, and both
       working forms are advertised
-- [ ] Both parallel paths bound concurrent starts to `parallelCap(n, GOMAXPROCS)`, with a
-      queued-unit skip on cancellation; one upper-bound test per path
+- [ ] Both parallel modes bound concurrent starts to `parallelCap(n, GOMAXPROCS)`, with a
+      queued-unit skip on cancellation; one upper-bound test per mode
 - [ ] `ParallelFlagRunsTargetsInParallel` and `ParallelFlagWithSingleRootGroup` stay green,
       untouched
+- [ ] `executeDefault` and `executeDefaultParallel` no longer exist; both `//nolint:cyclop,funlen`
+      directives are gone and no new ones added
 - [ ] `targ check-full` 8/8
 - [ ] Default-target behaviour documented in the README and carried into `docs/specs/`
