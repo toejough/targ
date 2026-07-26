@@ -1797,6 +1797,10 @@ func printCommandHelp(w io.Writer, node *commandNode, opts RunOptions) {
 		return
 	}
 
+	if opts.HasDefault {
+		usageParts[0] = "[" + usageParts[0] + "]"
+	}
+
 	usageParts = append([]string{opts.BinaryName, "[targ flags...]"}, usageParts...)
 
 	flagItems, err := collectFlagHelp(node)
@@ -1816,6 +1820,7 @@ func printCommandHelp(w io.Writer, node *commandNode, opts RunOptions) {
 		Subcommands:   collectHelpSubcommands(node),
 		ExecutionInfo: buildExecInfo(executionInfoLines(node)),
 		Examples:      convertExamples(opts.Examples),
+		DefaultRoot:   opts.HasDefault,
 		MoreInfoText:  resolveMoreInfoText(opts),
 		Filter: help.TargFlagFilter{
 			IsRoot:            false,

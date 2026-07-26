@@ -430,6 +430,46 @@ func TestProperty_Hierarchy(t *testing.T) {
 		g.Expect(result.Output).To(ContainSubstring("file"))
 	})
 
+	// Issue #40 Unit 4: a default root's --help must advertise BOTH working
+	// invocations (bare, and by name) via both help paths - `targ --help`
+	// (handleNoArgs -> HelpOnly interception) and `targ <name> --help`
+	// (handleGlobalHelp) - since only the latter used to know about hasDefault.
+	t.Run("DefaultRootAdvertisesBothWorkingForms", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		target := targ.Targ(func() {}).Name("marker")
+
+		bareResult, err := targ.Execute([]string{"app", "--help"}, target)
+		g.Expect(err).NotTo(HaveOccurred())
+
+		namedResult, err := targ.Execute([]string{"app", "marker", "--help"}, target)
+		g.Expect(err).NotTo(HaveOccurred())
+
+		for _, output := range []string{bareResult.Output, namedResult.Output} {
+			g.Expect(output).To(ContainSubstring("[targ flags...] [marker]"))
+			g.Expect(output).To(ContainSubstring("Basic usage:\n    app"))
+			g.Expect(output).To(ContainSubstring("By name:\n    app marker"))
+		}
+	})
+
+	t.Run("DefaultRootBracketDoesNotLeakAcrossExecuteCalls", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		target := targ.Targ(func() {}).Name("marker")
+
+		soleRootResult, err := targ.Execute([]string{"app", "marker", "--help"}, target)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(soleRootResult.Output).To(ContainSubstring("[marker]"))
+
+		other := targ.Targ(func() {}).Name("other")
+
+		multiRootResult, err := targ.Execute([]string{"app", "marker", "--help"}, target, other)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(multiRootResult.Output).NotTo(ContainSubstring("[marker]"))
+	})
+
 	t.Run("HelpWithUnknownCommandShowsGlobalHelp", func(t *testing.T) {
 		t.Parallel()
 		g := NewWithT(t)

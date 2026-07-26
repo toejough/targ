@@ -39,6 +39,7 @@ type RunOptions struct {
 	DisableTimeout    bool
 	DisableCompletion bool
 	HelpOnly          bool // Internal: set when --help is detected, skips execution
+	HasDefault        bool // Internal: set when the sole root is reachable bare; drives default-root help rendering
 
 	// Context is an optional context for controlling execution.
 	// If nil, a background context is used. For testing watch functionality,

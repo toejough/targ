@@ -132,6 +132,41 @@ func TestPrintCommandHelp_BasicFuncTarget(t *testing.T) {
 	g.Expect(output).To(ContainSubstring("Build the project"))
 }
 
+func TestPrintCommandHelp_DefaultRootBracketsUsageLine(t *testing.T) {
+	t.Parallel()
+
+	t.Run("DefaultRootRendersBracketedName", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		node := &core.CommandNodeForTest{Name: "marker"}
+
+		var buf bytes.Buffer
+		core.PrintCommandHelpForTest(
+			&buf,
+			node,
+			core.RunOptions{BinaryName: "bin", Getwd: os.Getwd, HasDefault: true},
+		)
+
+		output := buf.String()
+		g.Expect(output).To(ContainSubstring("[targ flags...] [marker]"))
+	})
+
+	t.Run("NonDefaultRootRendersBareName", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		node := &core.CommandNodeForTest{Name: "marker"}
+
+		var buf bytes.Buffer
+		core.PrintCommandHelpForTest(&buf, node, core.RunOptions{BinaryName: "bin", Getwd: os.Getwd})
+
+		output := buf.String()
+		g.Expect(output).To(ContainSubstring("[targ flags...] marker"))
+		g.Expect(output).NotTo(ContainSubstring("[marker]"))
+	})
+}
+
 func TestPrintCommandHelp_StringTarget(t *testing.T) {
 	t.Parallel()
 	g := NewWithT(t)

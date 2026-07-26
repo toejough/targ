@@ -838,6 +838,63 @@ func TestProperty_Execution(t *testing.T) {
 		g.Expect(err).NotTo(HaveOccurred())
 	})
 
+	// Issue #40 Unit 5: startUnits skips a queued unit once the run is
+	// canceled by a sibling's failure (the guard shipped with Unit 2; this
+	// pins it). Determinism argument: every unit's body races to claim the
+	// "trigger" role via startedCount==1 - whichever unit gets it fails once
+	// released, all others block on the real derived ctx until canceled.
+	// With n = capBound+2, two units are queued behind the full semaphore.
+	// The FIRST queued unit's fate is a genuine race against the trigger's
+	// own (uncoordinated) semaphore release. The SECOND queued unit's is
+	// not: every slot release it could possibly consume - whether from a
+	// ctx.Done()-waiter or from a queued unit that itself only completes
+	// after observing ctx.Done() - happens only after cancellation, by the
+	// Go memory model's channel-release-then-later-acquire guarantee. So at
+	// least one unit is provably skipped before ever reaching its Func
+	// whenever the guard is in place, and provably not skipped without it.
+	t.Run("ParallelFlagSkipsQueuedUnitOnCancellation", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		capBound := max(2, runtime.GOMAXPROCS(0)/2)
+		n := capBound + 2
+
+		var (
+			startedCount atomic.Int32
+			bodyRuns     atomic.Int32
+		)
+
+		triggerGate := make(chan struct{})
+
+		roots := make([]any, 0, n)
+		for i := range n {
+			roots = append(roots, targ.Targ(func(ctx context.Context) error {
+				return firstUnitTriggersCancellation(ctx, &startedCount, &bodyRuns, triggerGate)
+			}).Name(fmt.Sprintf("q%d", i)))
+		}
+
+		type executeOutcome struct {
+			result targ.ExecuteResult
+			err    error
+		}
+
+		outcomeCh := make(chan executeOutcome, 1)
+
+		go func() {
+			result, err := targ.Execute(namedArgs(n, "q"), roots...)
+			outcomeCh <- executeOutcome{result: result, err: err}
+		}()
+
+		g.Eventually(startedCount.Load).Should(Equal(int32(capBound)))
+		close(triggerGate)
+
+		outcome := <-outcomeCh
+		g.Expect(outcome.err).To(HaveOccurred())
+		g.Expect(int(bodyRuns.Load())).To(BeNumerically("<", n),
+			"at least one queued unit's Func must never run once the run is canceled")
+		g.Expect(outcome.result.Output).To(ContainSubstring("CANCELLED"))
+	})
+
 	t.Run("ParallelFlagSurfacesTargetsOwnError", func(t *testing.T) {
 		t.Parallel()
 		g := NewWithT(t)
@@ -1935,6 +1992,30 @@ func casPeakTrack(inFlight, peak *atomic.Int32, gate <-chan struct{}) {
 
 	<-gate
 	inFlight.Add(-1)
+}
+
+// firstUnitTriggersCancellation is the shared unit body for
+// ParallelFlagSkipsQueuedUnitOnCancellation: whichever unit's Func is
+// invoked first claims the trigger role (blocks on triggerGate, then
+// fails); every other unit that runs waits for the real derived context to
+// be canceled and returns its error. bodyRuns is incremented unconditionally
+// on entry, so a unit that startUnits skips via its ctx.Err() guard - never
+// reaching this function at all - never counts toward it.
+func firstUnitTriggersCancellation(
+	ctx context.Context,
+	startedCount, bodyRuns *atomic.Int32,
+	triggerGate <-chan struct{},
+) error {
+	bodyRuns.Add(1)
+
+	if startedCount.Add(1) == 1 {
+		<-triggerGate
+		return errors.New("triggering failure")
+	}
+
+	<-ctx.Done()
+
+	return ctx.Err()
 }
 
 // namedArgs builds a `["app", "--parallel", prefix+"0", ..., prefix+"(n-1)"]`

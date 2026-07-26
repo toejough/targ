@@ -1022,6 +1022,7 @@ func runWithEnvInternal(exec *runExecutor, env RunEnv, opts RunOptions, targets 
 	}
 
 	exec.hasDefault = len(exec.roots) == 1 && opts.AllowDefault
+	exec.opts.HasDefault = exec.hasDefault
 
 	if len(exec.args) < minArgsWithCommand {
 		return exec.handleNoArgs()
