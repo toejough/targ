@@ -225,6 +225,53 @@ func TestProperty_ReplaceTargetCacheKey(t *testing.T) {
 		g.Expect(err).NotTo(HaveOccurred())
 		g.Expect(key2).NotTo(Equal(key1), "sensitivity: any content edit changes the key")
 	})
+
+	t.Run("AddingFileToReplaceTargetChangesKey", func(t *testing.T) {
+		t.Parallel()
+		g := NewGomegaWithT(t)
+
+		dep := t.TempDir()
+		writeTestFile(g, dep, "go.mod", "module example.com/dep\n\ngo 1.25\n")
+		writeTestFile(g, dep, "dep.go", "package dep\n")
+
+		consumer := t.TempDir()
+		writeTestFile(g, consumer, "go.mod",
+			"module example.com/consumer\n\ngo 1.25\n\nreplace example.com/dep => "+dep+"\n")
+
+		before, err := runner.ExportModuleCacheKey("example.com/consumer", consumer, []byte("bootstrap"))
+		g.Expect(err).NotTo(HaveOccurred())
+
+		writeTestFile(g, dep, "extra.go", "package dep\n\nconst Extra = true\n")
+
+		after, err := runner.ExportModuleCacheKey("example.com/consumer", consumer, []byte("bootstrap"))
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(after).NotTo(Equal(before),
+			"adding a file to a replace target must invalidate the cached binary")
+	})
+
+	t.Run("RemovingFileFromReplaceTargetChangesKey", func(t *testing.T) {
+		t.Parallel()
+		g := NewGomegaWithT(t)
+
+		dep := t.TempDir()
+		writeTestFile(g, dep, "go.mod", "module example.com/dep\n\ngo 1.25\n")
+		writeTestFile(g, dep, "dep.go", "package dep\n")
+		writeTestFile(g, dep, "extra.go", "package dep\n\nconst Extra = true\n")
+
+		consumer := t.TempDir()
+		writeTestFile(g, consumer, "go.mod",
+			"module example.com/consumer\n\ngo 1.25\n\nreplace example.com/dep => "+dep+"\n")
+
+		before, err := runner.ExportModuleCacheKey("example.com/consumer", consumer, []byte("bootstrap"))
+		g.Expect(err).NotTo(HaveOccurred())
+
+		g.Expect(os.Remove(filepath.Join(dep, "extra.go"))).To(Succeed())
+
+		after, err := runner.ExportModuleCacheKey("example.com/consumer", consumer, []byte("bootstrap"))
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(after).NotTo(Equal(before),
+			"removing a file from a replace target must invalidate the cached binary")
+	})
 }
 
 func TestReplaceDirFiles_CollectsFilesystemReplaceTargets(t *testing.T) {
