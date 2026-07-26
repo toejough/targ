@@ -2685,6 +2685,16 @@ func collectReplaceDirFiles(moduleRoot string) ([]discover.TaggedFile, error) {
 	var files []discover.TaggedFile
 
 	for _, dir := range dirs {
+		// Module-cache targets are immutable by construction, so walking them
+		// detects a change that cannot happen. The dependency's version is
+		// already fingerprinted via the synthetic go.mod that writeIsolatedGoMod
+		// emits and collectModuleFiles hashes, so skipping loses no coverage.
+		modCache, envErr := goEnv("GOMODCACHE")
+		if envErr == nil && modCache != "" &&
+			strings.HasPrefix(dir, modCache+string(filepath.Separator)) {
+			continue
+		}
+
 		_, statErr := os.Stat(dir)
 		if statErr != nil {
 			// Hash the absence so the key still changes when the dir appears.

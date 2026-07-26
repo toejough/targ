@@ -364,6 +364,29 @@ func TestReplaceDirFiles_FollowsSymlinkedTargetThroughGoMod(t *testing.T) {
 		"a symlinked replace target must be hashed under the path go.mod names, not its physical location")
 }
 
+func TestReplaceDirFiles_SkipsModuleCacheTargets(t *testing.T) {
+	g := NewWithT(t)
+
+	// Release mode points the replace directive at targ's own directory inside
+	// GOMODCACHE, which Go verifies by hash and never mutates in place — so
+	// walking it detects a change that cannot happen. Not parallel: t.Setenv.
+	modCache := t.TempDir()
+	t.Setenv("GOMODCACHE", modCache)
+
+	dep := filepath.Join(modCache, "example.com", "dep@v1.0.0")
+	g.Expect(os.MkdirAll(dep, 0o755)).To(Succeed())
+	g.Expect(os.WriteFile(filepath.Join(dep, "a.go"), []byte("package dep\n"), 0o600)).To(Succeed())
+
+	consumer := t.TempDir()
+	g.Expect(os.WriteFile(filepath.Join(consumer, "go.mod"),
+		[]byte("module consumer\n\ngo 1.25.5\n\nreplace example.com/dep => "+dep+"\n"), 0o600)).To(Succeed())
+
+	files, err := runner.ExportCollectReplaceDirFiles(consumer)
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(files).To(BeEmpty(),
+		"module-cache targets are immutable; hashing them costs a full walk per invocation and buys nothing")
+}
+
 // pathsOf maps tagged files to their paths.
 func pathsOf(files []discover.TaggedFile) []string {
 	paths := make([]string, 0, len(files))
