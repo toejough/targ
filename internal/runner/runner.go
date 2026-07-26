@@ -2684,14 +2684,20 @@ func collectReplaceDirFiles(moduleRoot string) ([]discover.TaggedFile, error) {
 
 	var files []discover.TaggedFile
 
+	// Resolved once rather than per directory: the module cache location cannot
+	// change mid-loop, and goEnv shells out to `go env`. An error leaves this
+	// empty, which disables the skip below and falls through to a full walk.
+	modCache, envErr := goEnv("GOMODCACHE")
+	if envErr != nil {
+		modCache = ""
+	}
+
 	for _, dir := range dirs {
 		// Module-cache targets are immutable by construction, so walking them
 		// detects a change that cannot happen. The dependency's version is
 		// already fingerprinted via the synthetic go.mod that writeIsolatedGoMod
 		// emits and collectModuleFiles hashes, so skipping loses no coverage.
-		modCache, envErr := goEnv("GOMODCACHE")
-		if envErr == nil && modCache != "" &&
-			strings.HasPrefix(dir, modCache+string(filepath.Separator)) {
+		if modCache != "" && strings.HasPrefix(dir, modCache+string(filepath.Separator)) {
 			continue
 		}
 

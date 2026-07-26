@@ -70,8 +70,8 @@ func TestModuleFiles_FollowsNestedSymlinkedDirectory(t *testing.T) {
 	outside := filepath.Join(root, "outside")
 	g.Expect(os.MkdirAll(filepath.Join(target, "direct"), 0o755)).To(Succeed())
 	g.Expect(os.MkdirAll(outside, 0o755)).To(Succeed())
-	g.Expect(os.WriteFile(filepath.Join(target, "direct", "a.go"), []byte("package a\n"), 0o600)).To(Succeed())
-	g.Expect(os.WriteFile(filepath.Join(outside, "b.go"), []byte("package b\n"), 0o600)).To(Succeed())
+	writeTestFile(g, filepath.Join(target, "direct"), "a.go", "package a\n")
+	writeTestFile(g, outside, "b.go", "package b\n")
 	g.Expect(os.Symlink(outside, filepath.Join(target, "linked"))).To(Succeed())
 
 	files, err := runner.ExportCollectModuleFiles(target)
@@ -91,7 +91,7 @@ func TestModuleFiles_FollowsSymlinkedReplaceTarget(t *testing.T) {
 	root := t.TempDir()
 	realDir := filepath.Join(root, "real")
 	g.Expect(os.MkdirAll(filepath.Join(realDir, "pkg"), 0o755)).To(Succeed())
-	g.Expect(os.WriteFile(filepath.Join(realDir, "pkg", "a.go"), []byte("package pkg\n"), 0o600)).To(Succeed())
+	writeTestFile(g, filepath.Join(realDir, "pkg"), "a.go", "package pkg\n")
 
 	link := filepath.Join(root, "link")
 	g.Expect(os.Symlink(realDir, link)).To(Succeed())
@@ -111,7 +111,7 @@ func TestModuleFiles_TerminatesOnSymlinkCycle(t *testing.T) {
 	root := t.TempDir()
 	selfLoop := filepath.Join(root, "self")
 	g.Expect(os.MkdirAll(selfLoop, 0o755)).To(Succeed())
-	g.Expect(os.WriteFile(filepath.Join(selfLoop, "a.go"), []byte("package a\n"), 0o600)).To(Succeed())
+	writeTestFile(g, selfLoop, "a.go", "package a\n")
 	g.Expect(os.Symlink(selfLoop, filepath.Join(selfLoop, "loop"))).To(Succeed())
 
 	deep := filepath.Join(root, "deep", "nested")
@@ -131,7 +131,7 @@ func TestModuleFiles_TerminatesOnSymlinkCycle(t *testing.T) {
 	// implementation when a fixture holds only directories and loops — a Gate A
 	// reviewer hit exactly that with an earlier draft of this test.
 	for _, dir := range []string{selfLoop, deep, mutualX} {
-		g.Expect(os.WriteFile(filepath.Join(dir, "found.go"), []byte("package p\n"), 0o600)).To(Succeed())
+		writeTestFile(g, dir, "found.go", "package p\n")
 	}
 
 	// Assert a BOUNDED FILE COUNT, not mere presence. Removing the visited set
@@ -390,14 +390,13 @@ func TestReplaceDirFiles_FollowsSymlinkedTargetThroughGoMod(t *testing.T) {
 	root := t.TempDir()
 	realDir := filepath.Join(root, "real")
 	g.Expect(os.MkdirAll(realDir, 0o755)).To(Succeed())
-	g.Expect(os.WriteFile(filepath.Join(realDir, "dep.go"), []byte("package dep\n"), 0o600)).To(Succeed())
+	writeTestFile(g, realDir, "dep.go", "package dep\n")
 
 	link := filepath.Join(root, "link")
 	g.Expect(os.Symlink(realDir, link)).To(Succeed())
 
 	consumer := t.TempDir()
-	g.Expect(os.WriteFile(filepath.Join(consumer, "go.mod"),
-		[]byte("module consumer\n\ngo 1.25.5\n\nreplace example.com/dep => "+link+"\n"), 0o600)).To(Succeed())
+	writeTestFile(g, consumer, "go.mod", "module consumer\n\ngo 1.25.5\n\nreplace example.com/dep => "+link+"\n")
 
 	files, err := runner.ExportCollectReplaceDirFiles(consumer)
 	g.Expect(err).NotTo(HaveOccurred())
@@ -422,11 +421,10 @@ func TestReplaceDirFiles_SkipsModuleCacheTargets(t *testing.T) {
 
 	dep := filepath.Join(modCache, "example.com", "dep@v1.0.0")
 	g.Expect(os.MkdirAll(dep, 0o755)).To(Succeed())
-	g.Expect(os.WriteFile(filepath.Join(dep, "a.go"), []byte("package dep\n"), 0o600)).To(Succeed())
+	writeTestFile(g, dep, "a.go", "package dep\n")
 
 	consumer := t.TempDir()
-	g.Expect(os.WriteFile(filepath.Join(consumer, "go.mod"),
-		[]byte("module consumer\n\ngo 1.25.5\n\nreplace example.com/dep => "+dep+"\n"), 0o600)).To(Succeed())
+	writeTestFile(g, consumer, "go.mod", "module consumer\n\ngo 1.25.5\n\nreplace example.com/dep => "+dep+"\n")
 
 	files, err := runner.ExportCollectReplaceDirFiles(consumer)
 	g.Expect(err).NotTo(HaveOccurred())
