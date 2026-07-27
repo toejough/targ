@@ -3063,9 +3063,11 @@ func durationToGoCode(s string) (string, error) {
 //
 // When importRoot's go.mod already requires the module, the go get is pinned to that
 // exact version: it is a no-op on a consistent module and at most repairs a missing
-// go.sum entry. Only genuine first-time integration -- no require line at all -- adds
-// one, and that is announced, because the normal build path runs under -mod=readonly
-// and cannot add it itself. Failures are reported rather than discarded.
+// go.sum entry. Absent a version-pinned require line -- first-time integration, but
+// equally an unreadable or unparseable go.mod, or a module reached only through a
+// replace directive -- the get runs unversioned and adds one, and that is announced,
+// because the normal build path runs under -mod=readonly and cannot add it itself.
+// Failures are reported rather than discarded.
 func ensureTargDependency(dep TargDependency, importRoot string, errOut io.Writer) {
 	arg := dep.ModulePath
 
@@ -3073,7 +3075,7 @@ func ensureTargDependency(dep TargDependency, importRoot string, errOut io.Write
 	if pinned != "" {
 		arg += "@" + pinned
 	} else {
-		fmt.Fprintf(errOut, "targ: %s is not required by %s; adding it with 'go get %s'\n",
+		_, _ = fmt.Fprintf(errOut, "targ: %s is not required by %s; adding it with 'go get %s'\n",
 			dep.ModulePath, filepath.Join(importRoot, goModFile), dep.ModulePath)
 	}
 
@@ -3087,7 +3089,7 @@ func ensureTargDependency(dep TargDependency, importRoot string, errOut io.Write
 
 	err := getCmd.Run()
 	if err != nil {
-		fmt.Fprintf(errOut, "targ: go get %s failed: %v\n%s", arg, err, output.String())
+		_, _ = fmt.Fprintf(errOut, "targ: go get %s failed: %v\n%s", arg, err, output.String())
 	}
 }
 
@@ -3877,8 +3879,11 @@ func parseSingleValueArg(remaining []string, i int, flagName string) (string, in
 }
 
 // pinnedModuleVersion returns the version modulePath is required at in the go.mod
-// under moduleRoot. It returns "" when the module is not required there (genuine
-// first-time integration) or when go.mod cannot be read or parsed.
+// under moduleRoot. It returns "" whenever no version-pinned require line is found:
+// the module is not required there, go.mod cannot be read or parsed, or the module
+// appears only as a replace target. Callers cannot distinguish those cases, and by
+// design need not -- a consuming module's require line is the only source of truth
+// for the pin, so anything else is "unpinned".
 func pinnedModuleVersion(moduleRoot, modulePath string) string {
 	//nolint:gosec // build tool reads the consuming module's go.mod by design
 	data, err := os.ReadFile(filepath.Join(moduleRoot, goModFile))
