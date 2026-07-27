@@ -51,8 +51,10 @@ Items derived from: L4 implementation (existing test suite)
 - Property: with exactly one registered target, `targ <name>` runs the target
 - Property: a name-shaped first positional binds as the command name, not as data
 - Property: top-level `-p` fan-out never exceeds parallelCap(n, GOMAXPROCS)
+- Property: an unresolvable token runs nothing — not the target, not its deps — in serial chains, under `-p`, and for shell-command targets
+- Property: the chain resolve pass does not double-bind a variadic positional
 
-**Tests:** `TestProperty_Execution`, `TestProperty_Invariant`, `TestProperty_Overrides`, `FuzzBackoff_ArbitraryParameters`, `FuzzBuilderChain_ArbitraryOrder`, `FuzzCache_ArbitraryPatterns`, `FuzzDeps_ArbitraryDependencies`, `FuzzDescription_ArbitraryStrings`
+**Tests:** `TestProperty_Execution/ResolveOnlyRunsNeitherTargetNorDeps`, `TestProperty_Execution/UnresolvableChainTokenRunsNothing`, `TestProperty_Execution/CallerSuppliedResolveOnlyStaysASinglePass`, `TestProperty_Execution/HelpPrintsOnceWhenTheChainIsWalkedTwice`, `TestProperty_Execution/ChainPrePassBindsVariadicPositionalOnce`, `TestProperty_Execution/ParallelUnresolvableArgRunsNoSiblingUnit`, `TestProperty_ShellCommandDeps/UnknownBareArgRunsNeitherDepNorShellCommand`, `TestProperty_ShellCommandDeps/ResolveOnlyStillRejectsUnknownBareArg`, `TestProperty_ShellCommandDeps/ResolveOnlyRunsNeitherShellCommandNorDeps`
 **Traces to L4:** IMPL-5 (Command Parsing and Execution)
 
 ## T-4: Target registry and deregistration

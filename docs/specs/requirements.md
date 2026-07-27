@@ -20,6 +20,8 @@ Struct fields tagged with `targ:"..."` become CLI arguments. Tags specify: flag/
 
 Targets execute their function with parsed arguments. Built-in runtime flags (`--times`, `--timeout`, `--watch`, `--cache`, `--parallel`, `--retry`, `--backoff`, `--dep-mode`) modify execution behavior. Overrides are extracted before target-specific argument parsing. When exactly one target is registered, it becomes the default: invocable with no command name, by name, or under `-p`. Command-name resolution happens before positional-argument parsing, so a first positional argument equal to the target's own name is consumed as the command rather than bound as data.
 
+An invocation that targ will reject runs nothing: every token in a command chain, and every `-p` unit, is resolved to a target before the first dependency or command executes. This holds for shell-command targets and function targets alike.
+
 **Induced from:** ARCH-3, ARCH-15
 **Traces to:** UC-1
 
