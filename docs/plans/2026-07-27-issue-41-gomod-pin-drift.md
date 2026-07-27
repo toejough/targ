@@ -1017,11 +1017,17 @@ func goGetCmd(dir, arg string) *exec.Cmd {
 
 ```bash
 cd /Users/joe/repos/personal/targ
-grep -c 'nolint:gosec' internal/runner/runner.go
-grep -n 'nolint:gosec' internal/runner/runner.go | grep -i 'go get'
+grep -n -A2 'nolint:gosec' internal/runner/runner.go | grep -c '"go", "get"'
 ```
 
-Expected: exactly one `go get`-related suppression, inside `goGetCmd`.
+Expected: `2` before this task, `1` after — the one inside `goGetCmd`.
+
+Match on the **exec line**, not the suppression's comment text. Grepping
+`nolint:gosec | grep -i 'go get'` does NOT work: `fetchPackage`'s comment reads
+`// G204: packagePath is from parsed Go source imports` and contains no "go get",
+so that form returns 1 *before* the change too, and would read as already-done.
+(Verified against `ed359e7`.) A file-wide `grep -c 'nolint:gosec'` is also invalid
+here — Task 1 added an unrelated `os.ReadFile` suppression, moving the baseline.
 
 - [ ] **Step 5: Verify `--sync` still behaves**
 
