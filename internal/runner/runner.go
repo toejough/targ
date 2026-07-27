@@ -2254,7 +2254,7 @@ func buildAndQueryBinary(
 
 	defer func() { _ = cleanupTemp() }()
 
-	ensureTargDependency(dep, ctx.importRoot)
+	ensureTargDependency(dep, ctx.importRoot, errOut)
 
 	err = runGoBuild(ctx, binaryPath, tempFile, errOut)
 	if err != nil {
@@ -3058,14 +3058,37 @@ func durationToGoCode(s string) (string, error) {
 	}
 }
 
-// ensureTargDependency runs go get to ensure targ dependency is available.
-func ensureTargDependency(dep TargDependency, importRoot string) {
+// ensureTargDependency makes the targ module resolvable for the build in importRoot
+// without ever changing which version that module pins.
+//
+// When importRoot's go.mod already requires the module, the go get is pinned to that
+// exact version: it is a no-op on a consistent module and at most repairs a missing
+// go.sum entry. Only genuine first-time integration -- no require line at all -- adds
+// one, and that is announced, because the normal build path runs under -mod=readonly
+// and cannot add it itself. Failures are reported rather than discarded.
+func ensureTargDependency(dep TargDependency, importRoot string, errOut io.Writer) {
+	arg := dep.ModulePath
+
+	pinned := pinnedModuleVersion(importRoot, dep.ModulePath)
+	if pinned != "" {
+		arg += "@" + pinned
+	} else {
+		fmt.Fprintf(errOut, "targ: %s is not required by %s; adding it with 'go get %s'\n",
+			dep.ModulePath, filepath.Join(importRoot, goModFile), dep.ModulePath)
+	}
+
+	var output bytes.Buffer
+
 	//nolint:gosec // build tool runs go get by design
-	getCmd := exec.CommandContext(context.Background(), "go", "get", dep.ModulePath)
+	getCmd := exec.CommandContext(context.Background(), "go", "get", arg)
 	getCmd.Dir = importRoot
-	getCmd.Stdout = io.Discard
-	getCmd.Stderr = io.Discard
-	_ = getCmd.Run()
+	getCmd.Stdout = &output
+	getCmd.Stderr = &output
+
+	err := getCmd.Run()
+	if err != nil {
+		fmt.Fprintf(errOut, "targ: go get %s failed: %v\n%s", arg, err, output.String())
+	}
 }
 
 // ensureTargImport ensures "github.com/toejough/targ" is in the import block.
