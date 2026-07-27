@@ -27,6 +27,10 @@ alternatives.
 - **Gate is `targ check-full`.** Baseline measured **green, PASS 9/9** at `55c6e48`, tree clean
   after. Never use `check-for-fail` (stops at first error, causes whack-a-mole). Never use bare
   `go test` as final validation — it misses lint, coverage thresholds, and declaration ordering.
+- **Every task runs its gate AFTER its commit.** `check-full` includes a `check-uncommitted` leg,
+  so 9/9 is unreachable while a task's own changes sit in the working tree — a pre-commit run
+  reports `PASS:8 FAIL:1` on correct work and reads as a failure that is not one. If the
+  post-commit gate finds a real failure, fix it and amend; these commits are local and unpushed.
 - **Lint is measured by `targ lint-full`.** A task's verification step runs the gates this section
   declares — `go build && go vet && go test` is never a proxy for the configured golangci-lint run.
 - **errcheck is enabled repo-wide.** Every `fmt.Fprint*` to an errOut/stderr writer in this repo
@@ -56,7 +60,7 @@ alternatives.
 | File | Responsibility | Change |
 | --- | --- | --- |
 | `internal/core/types.go` | `RunOptions` definition | Add one `ResolveOnly` field |
-| `internal/core/command.go` | Per-target-kind execution and its early returns | Honor `ResolveOnly` at three existing seams; honor `explicit` in the shell path; fresh instance in resolve mode |
+| `internal/core/command.go` | Per-target-kind execution and its early returns | Honor `ResolveOnly` at the function and deps-only seams, plus a separate one in the shell path below its validation; honor `explicit` in the shell path |
 | `internal/core/run_env.go` | Dispatch — serial chain and parallel fan-out | Two-pass chain walk; upfront unit resolution; delete the post-hoc check |
 | `test/shell_properties_test.go` | Shell-target behavior | Task 1 regression test |
 | `test/execution_properties_test.go` | Execution and dispatch behavior | Tasks 2, 3, 4 regression tests |
@@ -154,7 +158,7 @@ func executeShellCommand(
 ) ([]string, error) {
 ```
 
-Then, immediately after the existing unknown-flag check (currently lines 1046-1050) and **before**
+Then, immediately after the existing unknown-flag check (currently lines 1047-1050) and **before**
 the `runNodeDeps` call, insert:
 
 ```go
@@ -182,15 +186,7 @@ Temporarily revert only the `if !explicit` block (leave the signature change in 
 Expected: the new subtest FAILS. If it still passes, the assertion is not discriminating and must
 be strengthened before proceeding. Restore the block afterward.
 
-- [ ] **Step 6: Run the full gate**
-
-Run: `targ check-full`
-
-Expected: PASS 9/9. `unparam` may now observe that `explicit` has a single caller passing a
-non-constant value — it does, from `command.go:168`, so no finding is expected. If lint reports a
-phantom failure citing a path that does not exist, run `golangci-lint cache clean` and re-run.
-
-- [ ] **Step 7: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add internal/core/command.go test/shell_properties_test.go
@@ -213,6 +209,24 @@ Refs #42
 AI-Used: [claude]
 EOF
 ```
+
+- [ ] **Step 7: Run the full gate, after the commit**
+
+Run: `targ check-full`
+
+Expected: PASS 9/9.
+
+The gate runs **after** the commit, not before: `check-full` includes a `check-uncommitted` leg,
+so 9/9 is unreachable while this task's own changes sit in the working tree — a pre-commit run
+reports `PASS:8 FAIL:1` on correct work, which reads as a failure and is not one. Every task in
+this plan orders its gate this way.
+
+Two notes on this specific gate run. `unparam` may now observe `explicit` on `executeShellCommand`
+— it has a single caller passing a non-constant value, from `command.go:168`, so no finding is
+expected. And if lint reports a phantom failure citing a path that does not exist, run
+`golangci-lint cache clean` and re-run before treating it as real.
+
+If the gate finds a real failure, fix it and amend; the commit is local and unpushed.
 
 ---
 
@@ -272,11 +286,12 @@ In `internal/core/types.go`, inside `RunOptions`, add the field directly after `
 	HasDefault        bool // Internal: set when the sole root is reachable bare; drives default-root help rendering
 ```
 
-- [ ] **Step 4: Honor it at the three existing seams**
+- [ ] **Step 4: Honor it at the seams — two shared, one separate**
 
-All three are existing `if opts.HelpOnly` early returns. Change each to also fire on
-`ResolveOnly`. Do **not** touch the help printing at `command.go:157-161` — that stays
-`HelpOnly`-only, and it is the entire difference between the two modes.
+Two of the existing `if opts.HelpOnly` early returns simply gain `ResolveOnly`. The shell path
+does **not**; it gets its own return in a different position, for the reason spelled out below.
+Do **not** touch the help printing at `command.go:157-161` — that stays `HelpOnly`-only, and it is
+the entire difference between the two modes.
 
 In `executeDepsOnlyTarget` (currently `command.go:895-897`):
 
@@ -296,19 +311,41 @@ In `executeFunctionWithParents` (currently `command.go:943-946`):
 	}
 ```
 
-In `executeShellCommand` (currently `command.go:1037-1039`):
+**`executeShellCommand` is the exception — do NOT add `ResolveOnly` to its `HelpOnly` return.**
+That return sits at `command.go:1037`, which is *above* Task 1's explicit check at `:1047`. Adding
+`ResolveOnly` there would make the resolve pass hand `bogus` straight back as a leftover without
+ever applying the explicit rule, and Task 3's chain walk would then report it as an unresolvable
+*command* — `Unknown command: bogus` plus a usage dump — instead of the `unknown command: bogus`
+that Task 1 established and that Task 1's own test asserts. That is a measured regression, not a
+hypothetical; a Gate A reviewer produced it by following the earlier version of this step.
+
+Leave `:1037` exactly as it is:
 
 ```go
-	if opts.HelpOnly || opts.ResolveOnly {
+	if opts.HelpOnly {
 		return parsed.remaining, nil
 	}
 ```
 
-- [ ] **Step 5: Run the test and verify it passes**
+and add a **separate** early return lower down, immediately after Task 1's explicit check and
+**before** the `runNodeDeps` call:
+
+```go
+	// Resolve mode validates but does not execute, so this sits below the
+	// unknown-flag and explicit checks rather than beside the HelpOnly return.
+	if opts.ResolveOnly {
+		return parsed.remaining, nil
+	}
+```
+
+- [ ] **Step 5: Run the tests and verify they pass**
 
 Run: `targ test`
 
-Expected: PASS.
+Expected: PASS, including Task 1's
+`TestProperty_ShellCommandDeps/UnknownBareArgRunsNeitherDepNorShellCommand`. If that test now
+fails with `Unknown command: bogus` instead of `unknown command: bogus`, the `ResolveOnly` return
+was placed at `:1037` instead of below the explicit check — re-read this step.
 
 - [ ] **Step 6: Verify declaration ordering**
 
@@ -317,13 +354,7 @@ Run: `targ reorder-decls-check`
 Expected: PASS. If it reports a move, run `targ reorder-decls` and include the result in this
 task's commit rather than leaving it for a later task to trip over.
 
-- [ ] **Step 7: Run the full gate**
-
-Run: `targ check-full`
-
-Expected: PASS 9/9.
-
-- [ ] **Step 8: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add internal/core/types.go internal/core/command.go test/execution_properties_test.go
@@ -335,10 +366,16 @@ without executing, at every target kind - function, shell, deps-only, and
 group. The only thing keeping it from being a general resolve pass is that
 it also prints help.
 
-ResolveOnly reuses the same three early-return seams and skips the
-printing, giving one primitive: given a node and args, what is left over,
-without running anything. The chain pre-pass and the parallel unit
-resolution both build on it.
+ResolveOnly reuses those seams and skips the printing, giving one
+primitive: given a node and args, what is left over, without running
+anything. The chain pre-pass and the parallel unit resolution both build
+on it.
+
+The shell path takes its own return placed below the unknown-flag and
+explicit checks rather than beside the HelpOnly one, so resolve mode still
+validates. Sharing that seam would return a bad arg as a leftover before
+the explicit rule ran, and the chain walk would then misreport it as an
+unknown command rather than an unknown argument.
 
 Refs #42
 
@@ -346,13 +383,24 @@ AI-Used: [claude]
 EOF
 ```
 
+- [ ] **Step 8: Run the full gate, after the commit**
+
+Run: `targ check-full`
+
+Expected: PASS 9/9.
+
+This runs **after** the commit deliberately. `check-full` includes a `check-uncommitted` leg, so
+9/9 is unreachable while this task's own changes are still in the working tree — running it before
+the commit yields `PASS:8 FAIL:1` on correct work. If the gate finds a real failure here, fix it
+and amend; the commit is local and unpushed.
+
 ---
 
 ## Task 3: resolve the whole serial chain before running any of it
 
 **Files:**
 - Modify: `internal/core/run_env.go:251-273` (`executeGlobPattern`), `internal/core/run_env.go:279-331`
-  (`executeRoots`), `internal/core/command.go` `executeFunctionWithParents` (fresh instance)
+  (`executeRoots`)
 - Test: `test/execution_properties_test.go`, inside `TestProperty_Execution`
 
 **Interfaces:**
@@ -360,14 +408,25 @@ EOF
 - Produces: `(*runExecutor).walkRoots(resolveOnly bool) error`;
   `(*runExecutor).executeGlobPattern(name string, opts RunOptions) error`.
 
-**Why the fresh instance is in this task:** `nodeInstance` (`command.go:1408-1418`) returns the
-**shared** `node.Value` when the node has an addressable value, and slice binding appends
-(`parse.go:221`, `parse.go:872`). Nothing double-parses today. This task introduces the first
-double-parse, so without the guard a variadic positional or repeated flag would silently double.
+**The trap in this task.** Walking the chain twice means every mode flag on `RunOptions` is now
+seen twice. Two things break if the split is naive, and a Gate A reviewer produced both by
+implementing an earlier version of this step:
 
-- [ ] **Step 1: Write the two failing tests**
+- A caller who sets `RunOptions{ResolveOnly: true}` wants **one** non-executing pass. A split that
+  unconditionally does resolve-then-execute silently promotes that caller's request into a real
+  run, and Task 2's own test (`ResolveOnlyRunsNeitherTargetNorDeps`) fails with `targetRan == true`.
+- `HelpOnly` survives unchanged into both passes, so everything gated on it — help printing and
+  traversal — fires once per pass. Three pre-existing tests that have nothing to do with this issue
+  (`TestProperty_Hierarchy/DefaultModeSoleGroupRootHelpOnRootNamePrintsOnce`,
+  `DefaultModeSoleGroupRootHelpDescendsToNamedSubcommand`, `DefaultRootAdvertisesBothWorkingForms`)
+  go red, counting doubled output.
 
-Add both subtests inside `TestProperty_Execution` in `test/execution_properties_test.go`:
+Both are the same defect: the two-pass walk has no notion of "the caller already asked for a single
+non-executing pass." Step 4 handles it with one up-front check.
+
+- [ ] **Step 1: Write the failing tests**
+
+Add these three subtests inside `TestProperty_Execution` in `test/execution_properties_test.go`:
 
 ```go
 	// Issue #42: on a multi-target module `targ gen bogus` used to run gen and
@@ -387,10 +446,50 @@ Add both subtests inside `TestProperty_Execution` in `test/execution_properties_
 		g.Expect(result.Output).To(ContainSubstring("Unknown command: bogus"))
 	})
 
-	// Issue #42: the resolve pass parses the same args the execute pass will,
-	// and slice binding appends (parse.go:221, :872) into a node instance that
-	// nodeInstance shares when it is addressable. Resolve must use a throwaway.
-	t.Run("ChainPrePassDoesNotDoubleBindVariadicPositional", func(t *testing.T) {
+	// Issue #42: the chain is walked twice, so anything gated on a mode flag
+	// must not fire once per pass. A caller-supplied ResolveOnly means ONE
+	// non-executing pass, not resolve-then-execute.
+	t.Run("CallerSuppliedResolveOnlyStaysASinglePass", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		ran := false
+		target := targ.Targ(func() { ran = true }).Name("cmd")
+
+		_, err := targ.ExecuteWithOptions(
+			[]string{"app", "cmd"},
+			targ.RunOptions{ResolveOnly: true, AllowDefault: true},
+			target,
+		)
+
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(ran).To(BeFalse())
+	})
+
+	// Issue #42: same hazard on the help path - HelpOnly survives into both
+	// passes, so help would render twice.
+	t.Run("HelpPrintsOnceWhenTheChainIsWalkedTwice", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		target := targ.Targ(func() {}).Name("cmd")
+
+		result, err := targ.Execute([]string{"app", "cmd", "--help"}, target)
+
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(strings.Count(result.Output, "Usage:")).To(Equal(1))
+	})
+```
+
+`strings` is already imported in this file.
+
+Also add this subtest — it is a plain regression assertion, not a guard's teeth-check. See the note
+under Step 5 for why the distinction matters here.
+
+```go
+	// Issue #42: the resolve pass parses the same args the execute pass will.
+	// Pin that a variadic positional is still bound exactly once.
+	t.Run("ChainPrePassBindsVariadicPositionalOnce", func(t *testing.T) {
 		t.Parallel()
 		g := NewWithT(t)
 
@@ -409,8 +508,8 @@ Add this type at package level in the same file, alphabetically among the other 
 types (declaration ordering is enforced):
 
 ```go
-// CollectArgs has a variadic positional, used to prove the resolve pass does
-// not leave bound values behind for the execute pass to append to.
+// CollectArgs has a variadic positional, used to pin that the resolve pass and
+// the execute pass together bind it exactly once.
 type CollectArgs struct {
 	Files []string `targ:"positional"`
 }
@@ -420,10 +519,18 @@ type CollectArgs struct {
 
 Run: `targ test`
 
-Expected: `UnresolvableChainTokenRunsNothing` FAILS with `genRan` true.
-`ChainPrePassDoesNotDoubleBindVariadicPositional` PASSES at this point — nothing double-parses
-yet. That is expected and correct: it is a guard test that must go red in Step 4 and green again
-in Step 5. Record its Step-2 result so the Step-4 transition is verifiable.
+Expected, and check each individually rather than reading the summary count:
+
+| subtest | expected at this step | why |
+| --- | --- | --- |
+| `UnresolvableChainTokenRunsNothing` | **FAIL**, `genRan` true | the chain still resolves lazily |
+| `CallerSuppliedResolveOnlyStaysASinglePass` | PASS | single-pass walk today, so a caller's `ResolveOnly` is already honored |
+| `HelpPrintsOnceWhenTheChainIsWalkedTwice` | PASS | single-pass walk today, so help renders once |
+| `ChainPrePassBindsVariadicPositionalOnce` | PASS | nothing double-parses today |
+
+Only the first is the red step. The other three are regression assertions that must stay green
+through Steps 3-4 — they pin behavior this task is at risk of breaking, and they are the reason
+Step 5 checks them explicitly rather than trusting a green summary line.
 
 - [ ] **Step 3: Thread `opts` through `executeGlobPattern`**
 
@@ -458,15 +565,27 @@ func (e *runExecutor) executeGlobPattern(name string, opts RunOptions) error {
 }
 ```
 
-- [ ] **Step 4: Split `executeRoots` into a two-pass walk**
+- [ ] **Step 4: Split `executeRoots` into a two-pass walk, with the single-pass guard**
 
 Replace `executeRoots` with these two functions. Insert `walkRoots` alphabetically among the
-`runExecutor` methods — `targ reorder-decls` will place it if you get it wrong, but check.
+`runExecutor` methods; Step 6 verifies the placement with `targ reorder-decls-check`.
+
+The `HelpOnly || ResolveOnly` check is not an optimization. It is what keeps the three regression
+assertions from Step 1 green — without it, a caller-supplied `ResolveOnly` gets promoted to a real
+run and every `HelpOnly`-gated print fires twice.
 
 ```go
 func (e *runExecutor) executeRoots() error {
 	if e.opts.Overrides.Parallel {
 		return e.runUnitsParallel()
+	}
+
+	// A caller that already asked for a single non-executing pass gets exactly
+	// that. Promoting it to resolve-then-execute would run the target under a
+	// caller-supplied ResolveOnly, and would fire every HelpOnly-gated print
+	// once per pass.
+	if e.opts.HelpOnly || e.opts.ResolveOnly {
+		return e.walkRoots(e.opts.ResolveOnly)
 	}
 
 	// Resolve the whole chain before running any of it: a target must not fire
@@ -540,54 +659,44 @@ func (e *runExecutor) walkRoots(resolveOnly bool) error {
 }
 ```
 
-- [ ] **Step 5: Run the tests — confirm the guard test now goes RED**
+- [ ] **Step 5: Run the tests — all four, checked individually**
 
 Run: `targ test`
 
-Expected: `UnresolvableChainTokenRunsNothing` now PASSES.
-`ChainPrePassDoesNotDoubleBindVariadicPositional` now **FAILS**, with `got` equal to
-`["x", "y", "x", "y"]`.
+Expected: all four subtests from Step 1 PASS, and the whole suite green. Confirm these three by
+name, because they are the ones this task can silently break and a summary line will not tell you:
 
-That transition is the point of the guard test: it proves the double-bind hazard is real in this
-tree rather than theoretical. If it does **not** fail here, stop and find out why before adding
-the guard — a guard whose hazard cannot be demonstrated is untested no matter what the suite says.
-
-- [ ] **Step 6: Add the fresh-instance guard**
-
-In `internal/core/command.go`, in `executeFunctionWithParents`, replace the opening
-`inst := nodeInstance(node)` with:
-
-```go
-	// Create instance for current node if it has a Type (struct arg). In
-	// resolve mode the parse result is discarded, so bind into a throwaway:
-	// nodeInstance shares node.Value when it is addressable, and slice binding
-	// appends (parse.go:221, :872), so reusing it would double a variadic
-	// positional across the resolve and execute passes.
-	inst := nodeInstance(node)
-	if opts.ResolveOnly && node != nil && node.Type != nil {
-		inst = reflect.New(node.Type).Elem()
-	}
+```
+targ test 2>&1 | grep -E "CallerSuppliedResolveOnlyStaysASinglePass|HelpPrintsOnceWhenTheChainIsWalkedTwice|ChainPrePassBindsVariadicPositionalOnce"
 ```
 
-`reflect` is already imported in this file.
+Also confirm the three pre-existing help tests named in "The trap in this task" are still green:
 
-- [ ] **Step 7: Run the tests and verify both pass**
+```
+targ test 2>&1 | grep -E "DefaultModeSoleGroupRootHelpOnRootNamePrintsOnce|DefaultModeSoleGroupRootHelpDescendsToNamedSubcommand|DefaultRootAdvertisesBothWorkingForms"
+```
 
-Run: `targ test`
+**On `ChainPrePassBindsVariadicPositionalOnce`:** an earlier version of this plan called it a guard
+test and predicted it would go red here, justifying a fresh-instance guard in
+`executeFunctionWithParents`. That prediction was executed and proved false. `commandNode.Value`
+(declared `command.go:112`) is never assigned anywhere in this tree, production or test, so
+`nodeHasAddressableValue` is always false and `nodeInstance` always returns a fresh
+`reflect.New(node.Type).Elem()`. There is no shared instance to double-bind. The guard was dropped
+as unreachable code — it also tripped `cyclop` at complexity 11 against a max of 10. The test stays
+as a cheap regression assertion; it is not evidence of a hazard, and it should not be used to argue
+for one.
 
-Expected: PASS — both new subtests green, whole suite green.
+- [ ] **Step 6: Verify declaration ordering**
 
-- [ ] **Step 8: Verify ordering and run the full gate**
+Run: `targ reorder-decls-check`
 
-Run: `targ reorder-decls-check` then `targ check-full`
+Expected: PASS. If it reports a move, run `targ reorder-decls` and include the result in this
+task's commit.
 
-Expected: both PASS; `check-full` 9/9. Fix any ordering move here rather than leaving it for a
-later task.
-
-- [ ] **Step 9: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
-git add internal/core/run_env.go internal/core/command.go test/execution_properties_test.go
+git add internal/core/run_env.go test/execution_properties_test.go
 git commit -F - <<'EOF'
 feat(core): resolve the whole serial chain before running any of it
 
@@ -597,18 +706,27 @@ loop now runs twice over the same chain: once in ResolveOnly mode, which
 parses every target's args and collects leftovers without executing, and
 then for real only if the entire chain resolved.
 
+Walking twice means every mode flag is seen twice, so executeRoots checks
+for a caller-supplied HelpOnly or ResolveOnly first and does a single pass
+in that case. Without it a caller asking for one non-executing pass would
+get a real run, and every HelpOnly-gated print would fire once per pass.
+Three regression tests pin those two cases and the variadic binding.
+
 executeGlobPattern takes opts so resolve mode reaches glob-expanded
-targets. executeFunctionWithParents binds into a throwaway instance in
-resolve mode: nodeInstance shares node.Value when it is addressable and
-slice binding appends, so the two passes would otherwise double a variadic
-positional. A regression test pins that, and was confirmed to fail against
-the two-pass walk before the guard was added.
+targets.
 
 Refs #42
 
 AI-Used: [claude]
 EOF
 ```
+
+- [ ] **Step 8: Run the full gate, after the commit**
+
+Run: `targ check-full`
+
+Expected: PASS 9/9. The gate runs after the commit for the reason given in Task 1 Step 7 —
+`check-uncommitted` cannot pass while this task's changes are uncommitted.
 
 ---
 
@@ -632,32 +750,34 @@ the capital-`U` `Unknown command:` form the multi-root branch of `resolveUnits` 
 
 Add this subtest inside `TestProperty_Execution` in `test/execution_properties_test.go`:
 
+**Pick the case carefully.** The obvious test — a sole shell target under `targ -p bogus` — does
+NOT go red here, because Task 1 already made `executeShellCommand` reject the arg. It rejects
+inside the unit's goroutine rather than before the fan-out, but with only one unit there is
+nothing else to protect, so no assertion can see the difference. A Gate A reviewer confirmed that
+version passes before any Task 4 code lands.
+
+What this task actually changes is that rejection moves **ahead of** the fan-out, which is only
+observable when a *sibling* unit would otherwise run. A sole group root supplies that: `sub`
+resolves to a runnable default-mode unit, `bogus` does not, and today `sub` runs anyway.
+
+Add this subtest inside `TestProperty_Execution` in `test/execution_properties_test.go`:
+
 ```go
-	// Issue #42: -p on a sole shell target had the same defect as the serial
-	// path, via a third route - resolveUnits deferred the verdict to a
-	// post-hoc check that only fired after the unit had already run.
-	t.Run("ParallelUnknownBareArgRunsNoShellCommand", func(t *testing.T) {
+	// Issue #42: resolveUnits deferred the default-mode verdict to a post-hoc
+	// check inside the goroutine, so a sibling unit ran before the bad one was
+	// rejected. One unresolvable arg must stop the whole fan-out.
+	t.Run("ParallelUnresolvableArgRunsNoSiblingUnit", func(t *testing.T) {
 		t.Parallel()
 		g := NewWithT(t)
 
-		shellRan := false
+		subRan := false
+		sub := targ.Targ(func() { subRan = true }).Name("sub")
+		grp := targ.Group("grp", sub)
 
-		mockRunner := func(_ context.Context, _ string) error {
-			shellRan = true
-
-			return nil
-		}
-
-		main := targ.Targ("echo hello").Name("main")
-
-		result, err := targ.ExecuteWithOptions(
-			[]string{"app", "--parallel", "bogus"},
-			targ.RunOptions{ShellRunner: mockRunner, AllowDefault: true},
-			main,
-		)
+		result, err := targ.Execute([]string{"app", "--parallel", "sub", "bogus"}, grp)
 
 		g.Expect(err).To(HaveOccurred())
-		g.Expect(shellRan).To(BeFalse())
+		g.Expect(subRan).To(BeFalse())
 		g.Expect(result.Output).To(ContainSubstring("unknown command: bogus"))
 	})
 ```
@@ -666,13 +786,8 @@ Add this subtest inside `TestProperty_Execution` in `test/execution_properties_t
 
 Run: `targ test`
 
-Expected: FAIL with `shellRan` true.
-
-Note: Task 1 made `executeShellCommand` error on this input, but in the parallel path that error
-is raised **inside the unit's goroutine**, after the fan-out has begun. This test fails on
-`shellRan` only if the shell command still runs; if Task 1 already made `shellRan` false, the
-remaining value of this task is moving the rejection ahead of the fan-out. Record which assertion
-actually failed — it determines whether Step 3 is a behavior fix or a structural one.
+Expected: FAIL with `subRan` true — `sub` ran even though the invocation was rejected. If it fails
+on the output substring instead, note which, because that changes what Step 3 has to fix.
 
 - [ ] **Step 3: Resolve default-mode units upfront**
 
@@ -709,8 +824,10 @@ In `internal/core/run_env.go`, replace the `if e.hasDefault { ... }` branch insi
 ```
 
 Note the print verb: `%v` on an error value built by `fmt.Errorf`. `%w` is an `Errorf` verb and
-does not belong in a `Printf`. The wording it produces — `Error: unknown command: <arg>` — is what
-the two pinned tests require.
+does not belong in a `Printf`. The wording it produces — `Error: unknown command: <arg>` — is
+required by `ParallelFlagBogusFailsOnGroupRoot` and `ParallelFlagBogusFailsOnPlainRoot`, which
+assert the lowercase form; see this task's "Output text constraint" above. Do not substitute the
+capital-`U` `Unknown command:` message the multi-root branch of `resolveUnits` uses.
 
 `fmt` stays imported in `run_env.go`: Step 4 deletes its use at `:730`, but this step adds a new
 one.
@@ -740,17 +857,22 @@ those tests to match new output.
 
 - [ ] **Step 6: Verify the post-hoc check is actually gone**
 
-Run: `grep -n "len(next) == len(unit.args)" internal/core/run_env.go`
+Do NOT grep for `len(next) == len(unit.args)` — Step 3's own new code contains that same
+expression, so the grep returns a hit no matter what and can never establish the deletion. Match
+the deleted comment instead, which is unique to the code being removed:
+
+Run: `grep -n "named no real subcommand of the sole root" internal/core/run_env.go`
 
 Expected: no output.
 
-- [ ] **Step 7: Run the full gate**
+Then confirm the surviving occurrence is the new one, inside `resolveUnits` and not inside
+`startUnits`:
 
-Run: `targ check-full`
+Run: `grep -n "len(next) == len(unit.args)" internal/core/run_env.go`
 
-Expected: PASS 9/9.
+Expected: exactly one hit, and its line number falls inside `resolveUnits`.
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add internal/core/run_env.go test/execution_properties_test.go
@@ -769,11 +891,22 @@ rejection keeps the lowercase `unknown command: <arg>` wording that
 ParallelFlagBogusFailsOnGroupRoot and ParallelFlagBogusFailsOnPlainRoot
 pin.
 
+The regression test uses a sole group root with a runnable sibling unit,
+because a sole shell target cannot show the difference: Task 1 already
+rejects that arg, just inside the goroutine instead of before the fan-out,
+and with one unit there is nothing else to protect.
+
 Refs #42
 
 AI-Used: [claude]
 EOF
 ```
+
+- [ ] **Step 8: Run the full gate, after the commit**
+
+Run: `targ check-full`
+
+Expected: PASS 9/9. After the commit, for the reason given in Task 1 Step 7.
 
 ---
 
@@ -847,8 +980,10 @@ In `docs/specs/tests.md`, in the T-3 property list (section starts line 32), add
 and add these test names to T-3's **Tests:** line:
 `TestProperty_Execution/ResolveOnlyRunsNeitherTargetNorDeps`,
 `TestProperty_Execution/UnresolvableChainTokenRunsNothing`,
-`TestProperty_Execution/ChainPrePassDoesNotDoubleBindVariadicPositional`,
-`TestProperty_Execution/ParallelUnknownBareArgRunsNoShellCommand`,
+`TestProperty_Execution/ChainPrePassBindsVariadicPositionalOnce`,
+`TestProperty_Execution/CallerSuppliedResolveOnlyStaysASinglePass`,
+`TestProperty_Execution/HelpPrintsOnceWhenTheChainIsWalkedTwice`,
+`TestProperty_Execution/ParallelUnresolvableArgRunsNoSiblingUnit`,
 `TestProperty_ShellCommandDeps/UnknownBareArgRunsNeitherDepNorShellCommand`.
 
 - [ ] **Step 4: Update the README Default Target section**
@@ -872,13 +1007,7 @@ grep -rn "runs the command and then\|then errors\|after the side effects" README
 Expected: no output. If a hit appears, that file was missed by the disposition table and needs a
 disposition of its own.
 
-- [ ] **Step 6: Run the full gate**
-
-Run: `targ check-full`
-
-Expected: PASS 9/9, tree clean.
-
-- [ ] **Step 7: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add docs/specs/architecture.md docs/specs/requirements.md docs/specs/tests.md README.md
@@ -890,7 +1019,7 @@ resolution as they were before #42, including a deferred verdict that no
 longer exists. REQ-3 gained the user-visible invariant the change
 establishes: an invocation targ will reject runs nothing.
 
-T-3 lists the five new tests. The README states the guarantee where the
+T-3 lists the new tests. The README states the guarantee where the
 default-target contract already lives.
 
 Refs #42
@@ -898,6 +1027,12 @@ Refs #42
 AI-Used: [claude]
 EOF
 ```
+
+- [ ] **Step 7: Run the full gate, after the commit**
+
+Run: `targ check-full`
+
+Expected: PASS 9/9, tree clean. After the commit, for the reason given in Task 1 Step 7.
 
 ---
 
@@ -908,13 +1043,20 @@ EOF
 - [ ] `targ gen bogus` on a sole shell target: same
 - [ ] `targ gen bogus` on a two-target module: exit 1, `Unknown command: bogus`, `gen` did not run
 - [ ] `targ gen other` on a two-target module: exit 0, both ran — chaining unchanged
-- [ ] `targ -p bogus` on a sole shell target: exit 1, command did not run
+- [ ] `targ -p sub bogus` on a sole group root: exit 1, `sub` did not run
+- [ ] A caller-supplied `RunOptions{ResolveOnly: true}` stays one non-executing pass
+- [ ] `targ cmd --help` renders its usage block exactly once, not once per chain pass
 - [ ] `ParallelFlagBogusFailsOnGroupRoot`, `ParallelFlagBogusFailsOnPlainRoot`,
-      `ParallelFlagSurfacesTargetsOwnError`, and `MultipleTargetsRunSequentially` stay green,
-      untouched
-- [ ] A variadic positional receives its args once, not doubled
-- [ ] `grep -n "len(next) == len(unit.args)" internal/core/run_env.go` returns nothing
-- [ ] `targ check-full` PASS 9/9, tree clean
+      `ParallelFlagSurfacesTargetsOwnError`, `MultipleTargetsRunSequentially`,
+      `DefaultModeSoleGroupRootHelpOnRootNamePrintsOnce`,
+      `DefaultModeSoleGroupRootHelpDescendsToNamedSubcommand`, and
+      `DefaultRootAdvertisesBothWorkingForms` stay green, untouched
+- [ ] A variadic positional receives its args once
+- [ ] `grep -n "named no real subcommand of the sole root" internal/core/run_env.go` returns
+      nothing, and `len(next) == len(unit.args)` survives only inside `resolveUnits`
+- [ ] No fresh-instance guard was added to `executeFunctionWithParents` — the hazard it was
+      written for does not exist, because `commandNode.Value` is never assigned
+- [ ] `targ check-full` PASS 9/9, tree clean, run after each task's commit
 - [ ] Spec sync landed in ARCH-3, REQ-3, T-3, and the README
 
 ## Out of scope
