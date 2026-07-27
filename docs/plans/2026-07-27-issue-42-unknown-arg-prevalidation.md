@@ -481,7 +481,19 @@ Add these three subtests inside `TestProperty_Execution` in `test/execution_prop
 	})
 ```
 
-`strings` is already imported in this file.
+**`strings` is NOT imported in this file** — verified against `test/execution_properties_test.go:8-22`,
+whose import block is `context`, `errors`, `fmt`, `runtime`, `sync`, `sync/atomic`, `testing`,
+`time`, then the gomega dot-import, `rapid`, and `targ`. Add `strings` to the first group, in
+alphabetical position between `runtime` and `sync`:
+
+```go
+	"runtime"
+	"strings"
+	"sync"
+```
+
+Without it the whole file fails to compile with `undefined: strings`, and Step 2's per-test table
+cannot be observed at all because nothing builds.
 
 Also add this subtest — it is a plain regression assertion, not a guard's teeth-check. See the note
 under Step 5 for why the distinction matters here.
@@ -663,18 +675,31 @@ func (e *runExecutor) walkRoots(resolveOnly bool) error {
 
 Run: `targ test`
 
-Expected: all four subtests from Step 1 PASS, and the whole suite green. Confirm these three by
-name, because they are the ones this task can silently break and a summary line will not tell you:
+Expected: all four subtests from Step 1 PASS, and the whole suite green.
+
+Then confirm six tests **by name** — the three new regression assertions and the three pre-existing
+help tests from "The trap in this task". These are the ones this task can silently break, and a
+green summary line will not tell you they ran.
+
+Do NOT try to do this by grepping `targ test` output. `targ test` runs
+`go test -timeout=2m -race -coverprofile=... ./...` with **no `-v`** (`dev/targets.go:2172-2180`),
+and Go prints subtest names only on failure unless `-v` is set — so a grep for passing names
+returns empty whether they passed or never ran, which looks identical. Run the verbose form
+directly:
 
 ```
-targ test 2>&1 | grep -E "CallerSuppliedResolveOnlyStaysASinglePass|HelpPrintsOnceWhenTheChainIsWalkedTwice|ChainPrePassBindsVariadicPositionalOnce"
+go test ./test/ -race -v \
+  -run 'TestProperty_Execution/(CallerSuppliedResolveOnlyStaysASinglePass|HelpPrintsOnceWhenTheChainIsWalkedTwice|ChainPrePassBindsVariadicPositionalOnce)'
+
+go test ./test/ -race -v \
+  -run 'TestProperty_Hierarchy/(DefaultModeSoleGroupRootHelpOnRootNamePrintsOnce|DefaultModeSoleGroupRootHelpDescendsToNamedSubcommand|DefaultRootAdvertisesBothWorkingForms)'
 ```
 
-Also confirm the three pre-existing help tests named in "The trap in this task" are still green:
+Expected: six `--- PASS:` lines, one per named subtest. A name that produces no line did not run —
+check the pattern before concluding anything.
 
-```
-targ test 2>&1 | grep -E "DefaultModeSoleGroupRootHelpOnRootNamePrintsOnce|DefaultModeSoleGroupRootHelpDescendsToNamedSubcommand|DefaultRootAdvertisesBothWorkingForms"
-```
+This is the one place in this plan where bare `go test` is the right tool: it is a targeted
+per-name observation, not the task's gate. The gate is still `targ check-full` at Step 8.
 
 **On `ChainPrePassBindsVariadicPositionalOnce`:** an earlier version of this plan called it a guard
 test and predicted it would go red here, justifying a fresh-instance guard in
@@ -782,12 +807,29 @@ Add this subtest inside `TestProperty_Execution` in `test/execution_properties_t
 	})
 ```
 
-- [ ] **Step 2: Run the test and verify it fails**
+- [ ] **Step 2: Run the test and verify it fails — with a repeat count**
 
-Run: `targ test`
+**This red step is not deterministic, and a single run can silently skip the verification.** Before
+Task 4's fix, `-p sub bogus` dispatches `sub` and `bogus` as two independent concurrent units, and
+whether `sub`'s goroutine finishes before `bogus`'s post-hoc rejection cancels the run is a real
+race in the pre-fix code. Measured at Gate A: **24 failures in 30 runs (80%)**. A lone `targ test`
+has roughly a one-in-five chance of passing and looking like the bug is absent.
 
-Expected: FAIL with `subRan` true — `sub` ran even though the invocation was rejected. If it fails
-on the output substring instead, note which, because that changes what Step 3 has to fix.
+So run it repeatedly:
+
+```
+go test ./test/ -race -count=20 -v \
+  -run 'TestProperty_Execution/ParallelUnresolvableArgRunsNoSiblingUnit'
+```
+
+Expected: **most runs FAIL** with `subRan` true — `sub` ran even though the invocation was
+rejected. A handful of passes among them is the race, not evidence the defect is absent; the red
+step is satisfied as long as it fails at least once. If all 20 pass, stop — that would contradict
+the Gate A measurement and the premise needs rechecking.
+
+After Step 3-4, the same command is expected to be **20/20 PASS**: `resolveUnits` validates
+sequentially and short-circuits before any goroutine starts, so the fix removes the race rather
+than merely satisfying the assertion. That determinism is itself part of what this task delivers.
 
 - [ ] **Step 3: Resolve default-mode units upfront**
 
@@ -855,6 +897,16 @@ Expected: PASS, including the two pre-existing tests named in the output-text co
 If either of those two fails, the message shape is wrong — re-read the constraint; do not edit
 those tests to match new output.
 
+Then re-run Step 2's repeat command and confirm it is now deterministic:
+
+```
+go test ./test/ -race -count=20 -v \
+  -run 'TestProperty_Execution/ParallelUnresolvableArgRunsNoSiblingUnit'
+```
+
+Expected: 20/20 PASS. Anything less means resolution is still happening after a goroutine has
+started.
+
 - [ ] **Step 6: Verify the post-hoc check is actually gone**
 
 Do NOT grep for `len(next) == len(unit.args)` — Step 3's own new code contains that same
@@ -895,6 +947,11 @@ The regression test uses a sole group root with a runnable sibling unit,
 because a sole shell target cannot show the difference: Task 1 already
 rejects that arg, just inside the goroutine instead of before the fan-out,
 and with one unit there is nothing else to protect.
+
+This also removes a race rather than only relocating a check. Before,
+whether the sibling finished before the rejection cancelled the run was
+timing-dependent - measured 24 failures in 30 runs. resolveUnits validates
+sequentially before any goroutine starts, so the same case is now 20/20.
 
 Refs #42
 
@@ -1043,7 +1100,8 @@ Expected: PASS 9/9, tree clean. After the commit, for the reason given in Task 1
 - [ ] `targ gen bogus` on a sole shell target: same
 - [ ] `targ gen bogus` on a two-target module: exit 1, `Unknown command: bogus`, `gen` did not run
 - [ ] `targ gen other` on a two-target module: exit 0, both ran — chaining unchanged
-- [ ] `targ -p sub bogus` on a sole group root: exit 1, `sub` did not run
+- [ ] `targ -p sub bogus` on a sole group root: exit 1, `sub` did not run — and deterministically
+      so, 20/20 under `-count=20 -race`, where the pre-fix code failed only 24/30
 - [ ] A caller-supplied `RunOptions{ResolveOnly: true}` stays one non-executing pass
 - [ ] `targ cmd --help` renders its usage block exactly once, not once per chain pass
 - [ ] `ParallelFlagBogusFailsOnGroupRoot`, `ParallelFlagBogusFailsOnPlainRoot`,
