@@ -1974,6 +1974,29 @@ func TestProperty_Execution(t *testing.T) {
 		g.Expect(err).To(HaveOccurred())
 		g.Expect(dep2Result).To(Receive(MatchError(context.Canceled)))
 	})
+
+	// Issue #42: ResolveOnly parses args and returns leftovers without running
+	// anything - the primitive the chain pre-pass is built on.
+	t.Run("ResolveOnlyRunsNeitherTargetNorDeps", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		depRan := false
+		dep := targ.Targ(func() { depRan = true }).Name("dep")
+
+		targetRan := false
+		target := targ.Targ(func() { targetRan = true }).Name("cmd").Deps(dep)
+
+		_, err := targ.ExecuteWithOptions(
+			[]string{"app", "cmd"},
+			targ.RunOptions{ResolveOnly: true, AllowDefault: true},
+			target,
+		)
+
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(targetRan).To(BeFalse())
+		g.Expect(depRan).To(BeFalse())
+	})
 }
 
 // casPeakTrack increments inFlight, CAS-updates peak to the new in-flight

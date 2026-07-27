@@ -892,8 +892,8 @@ func executeDepsOnlyTarget(
 	node *commandNode,
 	opts RunOptions,
 ) ([]string, error) {
-	// Skip execution in help-only mode
-	if opts.HelpOnly {
+	// Skip execution in help-only and resolve-only mode
+	if opts.HelpOnly || opts.ResolveOnly {
 		return args, nil
 	}
 
@@ -940,8 +940,8 @@ func executeFunctionWithParents(
 	if err != nil {
 		return nil, err
 	}
-	// In help-only mode, skip validation and execution
-	if opts.HelpOnly {
+	// In help-only and resolve-only mode, skip validation and execution
+	if opts.HelpOnly || opts.ResolveOnly {
 		return result.remaining, nil
 	}
 
@@ -1054,6 +1054,12 @@ func executeShellCommand(
 	// candidate the dispatcher will try as the next command.
 	if !explicit && len(parsed.remaining) > 0 {
 		return nil, fmt.Errorf("%w: %s", errUnknownCommand, parsed.remaining[0])
+	}
+
+	// Resolve mode validates but does not execute, so this sits below the
+	// unknown-flag and explicit checks rather than beside the HelpOnly return.
+	if opts.ResolveOnly {
+		return parsed.remaining, nil
 	}
 
 	err = runNodeDeps(ctx, node, opts.Overrides)

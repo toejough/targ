@@ -39,6 +39,7 @@ type RunOptions struct {
 	DisableTimeout    bool
 	DisableCompletion bool
 	HelpOnly          bool // Internal: set when --help is detected, skips execution
+	ResolveOnly       bool // Internal: resolve args to targets without running them
 	HasDefault        bool // Internal: set when the sole root is reachable bare; drives default-root help rendering
 
 	// Context is an optional context for controlling execution.
