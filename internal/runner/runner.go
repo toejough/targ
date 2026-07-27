@@ -434,36 +434,6 @@ func CreateGroupMemberPatch(content, groupVarName, newMember string) *ContentPat
 	}
 }
 
-// EnsureFallbackModuleRoot creates a fallback module root for isolated builds.
-func EnsureFallbackModuleRoot(startDir, modulePath string, dep TargDependency) (string, error) {
-	hash := sha256.Sum256([]byte(startDir))
-
-	root := filepath.Join(projectCacheDir(startDir), "mod", hex.EncodeToString(hash[:8]))
-
-	//nolint:gosec,mnd // standard cache directory permissions
-	err := os.MkdirAll(root, 0o755)
-	if err != nil {
-		return "", fmt.Errorf("creating fallback module directory: %w", err)
-	}
-
-	err = linkModuleRoot(startDir, root)
-	if err != nil {
-		return "", err
-	}
-
-	err = writeFallbackGoMod(root, modulePath, dep)
-	if err != nil {
-		return "", err
-	}
-
-	err = touchFile(filepath.Join(root, goSumFile))
-	if err != nil {
-		return "", err
-	}
-
-	return root, nil
-}
-
 // ExtractTargFlags extracts targ-specific flags from args.
 // Returns the flags and remaining args to pass to the binary.
 //
@@ -2528,16 +2498,6 @@ func buildTargetExpression(opts CreateOptions) (string, error) {
 	return expr.String(), nil
 }
 
-// cleanupStaleModSymlinks removes stale go.mod/go.sum symlinks from before the fix.
-func cleanupStaleModSymlinks(root string) {
-	for _, name := range []string{goModFile, goSumFile} {
-		dst := filepath.Join(root, name)
-		if symlinkExists(dst) {
-			_ = os.Remove(dst)
-		}
-	}
-}
-
 // collectCacheInputs assembles the cache-key inputs for a module build: the
 // tagged files plus the module's own files and any filesystem replace-target
 // files, so every bootstrap path shares one invalidation contract.
@@ -3809,50 +3769,6 @@ func isTargTargCall(call *ast.CallExpr) bool {
 	return ident.Name == "targ" && sel.Sel.Name == "Targ"
 }
 
-// linkModuleEntry creates a symlink for a single directory entry if needed.
-func linkModuleEntry(startDir, root string, entry os.DirEntry) error {
-	name := entry.Name()
-	// Skip .git and module files - we'll create our own go.mod/go.sum
-	if name == ".git" || name == goModFile || name == goSumFile {
-		return nil
-	}
-
-	src := filepath.Join(startDir, name)
-	dst := filepath.Join(root, name)
-
-	if symlinkExists(dst) {
-		return nil
-	}
-
-	// Remove non-symlink file/dir if it exists
-	_ = os.RemoveAll(dst)
-
-	err := os.Symlink(src, dst)
-	if err != nil {
-		return fmt.Errorf("creating symlink %s -> %s: %w", dst, src, err)
-	}
-
-	return nil
-}
-
-func linkModuleRoot(startDir, root string) error {
-	entries, err := os.ReadDir(startDir)
-	if err != nil {
-		return fmt.Errorf("reading start directory: %w", err)
-	}
-
-	for _, entry := range entries {
-		err := linkModuleEntry(startDir, root, entry)
-		if err != nil {
-			return err
-		}
-	}
-
-	cleanupStaleModSymlinks(root)
-
-	return nil
-}
-
 func looksLikeModulePath(path string) bool {
 	if path == "" {
 		return false
@@ -4273,16 +4189,6 @@ func stripBuildTag(content string) string {
 	return strings.TrimSuffix(result.String(), "\n")
 }
 
-// symlinkExists returns true if dst is an existing symlink.
-func symlinkExists(dst string) bool {
-	info, err := os.Lstat(dst)
-	if err != nil || info == nil {
-		return false
-	}
-
-	return info.Mode()&os.ModeSymlink != 0
-}
-
 // targCacheDir returns the centralized cache directory for targ following XDG spec.
 // Uses $XDG_CACHE_HOME/targ or ~/.cache/targ as fallback.
 func targCacheDir() string {
@@ -4342,15 +4248,6 @@ func targetNameToFuncName(name string) string {
 	}
 
 	return strings.Join(parts, "")
-}
-
-func touchFile(path string) error {
-	err := os.WriteFile(path, []byte{}, filePermissionsForCode)
-	if err != nil {
-		return fmt.Errorf("touching file %s: %w", path, err)
-	}
-
-	return nil
 }
 
 // tryCachedBinary checks if a cached binary exists and queries its commands.
@@ -4444,36 +4341,6 @@ func writeCommandList(w io.Writer, allCmds []cmdEntry) {
 			_, _ = fmt.Fprintf(w, "%s%s\n", indent, line)
 		}
 	}
-}
-
-func writeFallbackGoMod(root, modulePath string, dep TargDependency) error {
-	modPath := filepath.Join(root, goModFile)
-
-	if dep.ModulePath == "" {
-		dep.ModulePath = defaultTargModulePath
-	}
-
-	lines := []string{
-		"module " + modulePath,
-		"",
-		"go 1.21",
-	}
-	if dep.Version != "" {
-		lines = append(lines, "", fmt.Sprintf("require %s %s", dep.ModulePath, dep.Version))
-	}
-
-	if dep.ReplaceDir != "" {
-		lines = append(lines, "", fmt.Sprintf("replace %s => %s", dep.ModulePath, dep.ReplaceDir))
-	}
-
-	content := strings.Join(lines, "\n") + "\n"
-
-	err := os.WriteFile(modPath, []byte(content), filePermissionsForCode)
-	if err != nil {
-		return fmt.Errorf("writing go.mod: %w", err)
-	}
-
-	return nil
 }
 
 // writeFormattedFile writes an AST back to a file with proper formatting.
