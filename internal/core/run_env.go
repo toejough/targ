@@ -505,6 +505,35 @@ func (e *runExecutor) printCompletion(shell string) error {
 	return nil
 }
 
+// resolveUnitDefault resolves a unit against the default root and appends it to
+// units if successful, or returns an error (either a genuine resolve error or
+// unknown-command error).
+func (e *runExecutor) resolveUnitDefault(units *[]parallelUnit, unit *parallelUnit, arg string) error {
+	// Resolve before the fan-out rather than after: a unit that
+	// consumes none of its args names no real subcommand of the sole
+	// root, and nothing should run for an invocation that will fail.
+	resolveOpts := e.opts
+	resolveOpts.ResolveOnly = true
+
+	next, resolveErr := unit.node.executeWithParents(
+		e.ctx, unit.args, nil, map[string]bool{}, unit.explicit, resolveOpts)
+	if resolveErr != nil {
+		e.env.Printf("Error: %v\n", resolveErr)
+
+		return ExitError{Code: 1}
+	}
+
+	if len(next) == len(unit.args) {
+		e.env.Printf("Error: %v\n", fmt.Errorf("%w: %s", errUnknownCommand, arg))
+
+		return ExitError{Code: 1}
+	}
+
+	*units = append(*units, *unit)
+
+	return nil
+}
+
 // resolveUnits maps each non-flag arg in e.rest to a parallelUnit: glob
 // expansion first, then an explicit root match, then - in default mode only
 // - a subcommand name to run against the sole root. An arg matching none of
@@ -544,21 +573,10 @@ func (e *runExecutor) resolveUnits() ([]parallelUnit, error) {
 				explicit: false,
 			}
 
-			// Resolve before the fan-out rather than after: a unit that
-			// consumes none of its args names no real subcommand of the sole
-			// root, and nothing should run for an invocation that will fail.
-			resolveOpts := e.opts
-			resolveOpts.ResolveOnly = true
-
-			next, resolveErr := unit.node.executeWithParents(
-				e.ctx, unit.args, nil, map[string]bool{}, unit.explicit, resolveOpts)
-			if resolveErr != nil || len(next) == len(unit.args) {
-				e.env.Printf("Error: %v\n", fmt.Errorf("%w: %s", errUnknownCommand, arg))
-
-				return nil, ExitError{Code: 1}
+			err := e.resolveUnitDefault(&units, &unit, arg)
+			if err != nil {
+				return nil, err
 			}
-
-			units = append(units, unit)
 
 			continue
 		}
