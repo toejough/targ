@@ -389,7 +389,8 @@ Expected: PASS, 7 subtests.
 A passing table test proves nothing unless a wrong implementation fails it. Temporarily change the
 `for` loop body to `return ""` (i.e. never find a require). Re-run.
 
-Expected: FAIL on all four cases that expect a non-empty version. Restore the loop, re-run, confirm
+Expected: FAIL on the three cases that expect a non-empty version (the other four expect `""` and
+still pass, which is why the probe must be read case-by-case, not as a pass/fail count). Restore the loop, re-run, confirm
 PASS. Do not skip this — the coverage gate excludes this file, so this probe is the only thing
 standing between a real test and a decorative one.
 
