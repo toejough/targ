@@ -707,7 +707,15 @@ This means you can define shared targets in `~/dev/targs.go` and they'll be avai
 
 Each ancestor with targ files is built as its own module group. Ancestors with a `go.mod` use normal module build; ancestors without one get an isolated build (synthetic `go.mod`).
 
-Building a module group never changes the version your `go.mod` pins targ at — targ reads the version you already require and builds against exactly that. When there is no version-pinned require for it to read (first-time integration, most commonly), targ adds one and says so on stderr, because the build itself runs under `-mod=readonly` and cannot add it. To move the pin, run `go get github.com/toejough/targ@<version>` yourself.
+Building a module group never changes the version your `go.mod` pins targ at: targ reads the version you already require and builds against exactly that. To move a pin, run `go get github.com/toejough/targ@<version>` yourself — targ will not do it for you. (`--sync` is the one command that updates a module version on purpose; see [Remote Targets](#remote-targets).)
+
+The exception is a `go.mod` with no targ version to read at all — usually first-time integration. There targ *does* add the require line, because the build runs read-only and cannot add it itself, and it tells you so:
+
+```
+targ: github.com/toejough/targ is not required by /path/to/go.mod; adding it with 'go get github.com/toejough/targ'
+```
+
+That message is expected, not an error. The require line is in your `go.mod` afterwards, and later builds are silent.
 
 ### Command Superseding
 
