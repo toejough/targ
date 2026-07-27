@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -20,6 +21,12 @@ import (
 
 	"github.com/toejough/targ"
 )
+
+// CollectArgs has a variadic positional, used to pin that the resolve pass and
+// the execute pass together bind it exactly once.
+type CollectArgs struct {
+	Files []string `targ:"positional"`
+}
 
 // TagOptionsArgs is a struct with a TagOptions method that dynamically overrides tag options.
 type TagOptionsArgs struct {
@@ -1996,6 +2003,73 @@ func TestProperty_Execution(t *testing.T) {
 		g.Expect(err).NotTo(HaveOccurred())
 		g.Expect(targetRan).To(BeFalse())
 		g.Expect(depRan).To(BeFalse())
+	})
+
+	// Issue #42: on a multi-target module `targ gen bogus` used to run gen and
+	// only then reject bogus. The whole chain resolves before any of it runs.
+	t.Run("UnresolvableChainTokenRunsNothing", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		genRan := false
+		gen := targ.Targ(func() { genRan = true }).Name("gen")
+		other := targ.Targ(func() {}).Name("other")
+
+		result, err := targ.Execute([]string{"app", "gen", "bogus"}, gen, other)
+
+		g.Expect(err).To(HaveOccurred())
+		g.Expect(genRan).To(BeFalse())
+		g.Expect(result.Output).To(ContainSubstring("Unknown command: bogus"))
+	})
+
+	// Issue #42: the chain is walked twice, so anything gated on a mode flag
+	// must not fire once per pass. A caller-supplied ResolveOnly means ONE
+	// non-executing pass, not resolve-then-execute.
+	t.Run("CallerSuppliedResolveOnlyStaysASinglePass", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		ran := false
+		target := targ.Targ(func() { ran = true }).Name("cmd")
+
+		_, err := targ.ExecuteWithOptions(
+			[]string{"app", "cmd"},
+			targ.RunOptions{ResolveOnly: true, AllowDefault: true},
+			target,
+		)
+
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(ran).To(BeFalse())
+	})
+
+	// Issue #42: same hazard on the help path - HelpOnly survives into both
+	// passes, so help would render twice.
+	t.Run("HelpPrintsOnceWhenTheChainIsWalkedTwice", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		target := targ.Targ(func() {}).Name("cmd")
+
+		result, err := targ.Execute([]string{"app", "cmd", "--help"}, target)
+
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(strings.Count(result.Output, "Usage:")).To(Equal(1))
+	})
+
+	// Issue #42: the resolve pass parses the same args the execute pass will.
+	// Pin that a variadic positional is still bound exactly once.
+	t.Run("ChainPrePassBindsVariadicPositionalOnce", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		var got []string
+
+		collect := targ.Targ(func(a CollectArgs) { got = a.Files }).Name("collect")
+
+		_, err := targ.Execute([]string{"app", "collect", "x", "y"}, collect)
+
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(got).To(Equal([]string{"x", "y"}))
 	})
 }
 

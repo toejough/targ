@@ -248,7 +248,7 @@ func (e *runExecutor) detectCompletionShell() string {
 }
 
 // executeGlobPattern handles execution of glob-matched targets.
-func (e *runExecutor) executeGlobPattern(name string) error {
+func (e *runExecutor) executeGlobPattern(name string, opts RunOptions) error {
 	matches := e.findMatchingRootsGlob(name)
 	if len(matches) == 0 {
 		e.env.Printf("No targets match pattern: %s\n", name)
@@ -262,7 +262,7 @@ func (e *runExecutor) executeGlobPattern(name string) error {
 			nil,
 			map[string]bool{},
 			true,
-			e.opts,
+			opts,
 		)
 		if err != nil {
 			e.env.Printf("Error: %v\n", err)
@@ -273,64 +273,27 @@ func (e *runExecutor) executeGlobPattern(name string) error {
 	return nil
 }
 
-// executeRoots is the serial dispatch path shared by default and multi-root
-// mode. A default root reaches it already named, so every arg list here starts
-// with a root name to match and strip.
 func (e *runExecutor) executeRoots() error {
 	if e.opts.Overrides.Parallel {
 		return e.runUnitsParallel()
 	}
 
-	remaining := e.rest
-
-	for len(remaining) > 0 {
-		if remaining[0] == "^" {
-			remaining = remaining[1:]
-			continue
-		}
-
-		name := remaining[0]
-
-		if isGlobPattern(name) {
-			err := e.executeGlobPattern(name)
-			if err != nil {
-				return err
-			}
-
-			remaining = remaining[1:]
-
-			continue
-		}
-
-		matched := e.findMatchingRoot(name)
-		if matched == nil {
-			e.env.Printf("Unknown command: %s\n", name)
-			printUsage(e.env.Stdout(), e.roots, e.opts)
-
-			return ExitError{Code: 1}
-		}
-
-		next, err := matched.executeWithParents(
-			e.ctx,
-			remaining[1:],
-			nil,
-			map[string]bool{},
-			!e.hasDefault,
-			e.opts,
-		)
-		if err != nil {
-			var re reportedError
-			if !errors.As(err, &re) {
-				e.env.Printf("Error: %v\n", err)
-			}
-
-			return ExitError{Code: 1}
-		}
-
-		remaining = next
+	// A caller that already asked for a single non-executing pass gets exactly
+	// that. Promoting it to resolve-then-execute would run the target under a
+	// caller-supplied ResolveOnly, and would fire every HelpOnly-gated print
+	// once per pass.
+	if e.opts.HelpOnly || e.opts.ResolveOnly {
+		return e.walkRoots(e.opts.ResolveOnly)
 	}
 
-	return nil
+	// Resolve the whole chain before running any of it: a target must not fire
+	// its deps or its command for an invocation that is going to be rejected.
+	err := e.walkRoots(true)
+	if err != nil {
+		return err
+	}
+
+	return e.walkRoots(false)
 }
 
 // extractHelpFlag checks for --help and enters help-only mode.
@@ -733,6 +696,66 @@ func (e *runExecutor) startUnits(
 			resultCh <- unitResultMsg{index: idx, err: err, duration: time.Since(start)}
 		}(i, unit)
 	}
+}
+
+// walkRoots runs the chain once. With resolveOnly set, every target parses its
+// args and hands back its leftovers without executing, so an unresolvable
+// token is reported before the first target runs.
+func (e *runExecutor) walkRoots(resolveOnly bool) error {
+	opts := e.opts
+	opts.ResolveOnly = resolveOnly
+
+	remaining := e.rest
+
+	for len(remaining) > 0 {
+		if remaining[0] == "^" {
+			remaining = remaining[1:]
+
+			continue
+		}
+
+		name := remaining[0]
+
+		if isGlobPattern(name) {
+			err := e.executeGlobPattern(name, opts)
+			if err != nil {
+				return err
+			}
+
+			remaining = remaining[1:]
+
+			continue
+		}
+
+		matched := e.findMatchingRoot(name)
+		if matched == nil {
+			e.env.Printf("Unknown command: %s\n", name)
+			printUsage(e.env.Stdout(), e.roots, e.opts)
+
+			return ExitError{Code: 1}
+		}
+
+		next, err := matched.executeWithParents(
+			e.ctx,
+			remaining[1:],
+			nil,
+			map[string]bool{},
+			!e.hasDefault,
+			opts,
+		)
+		if err != nil {
+			var re reportedError
+			if !errors.As(err, &re) {
+				e.env.Printf("Error: %v\n", err)
+			}
+
+			return ExitError{Code: 1}
+		}
+
+		remaining = next
+	}
+
+	return nil
 }
 
 // unitResultMsg carries one parallelUnit's outcome back from its goroutine
