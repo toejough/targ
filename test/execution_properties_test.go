@@ -2112,6 +2112,8 @@ func TestProperty_Execution(t *testing.T) {
 		result, err := targ.Execute([]string{"app", "--parallel", "sub", "--help"}, grp)
 
 		g.Expect(err).NotTo(HaveOccurred())
+		// Expect 2 usage blocks (one for group root, one for subcommand), each rendered exactly once
+		// despite the pre-pass. This matches merge-base behavior.
 		g.Expect(strings.Count(result.Output, "Usage:")).To(Equal(2))
 	})
 

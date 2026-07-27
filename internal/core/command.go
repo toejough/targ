@@ -2283,7 +2283,9 @@ func validateTagOptionsSignature(method reflect.Value) error {
 // parallel Printer when one is active, so it cannot race with the printer's
 // own background goroutine. Unlike Print/Printf it writes text verbatim with
 // no per-line "[name] " prefix, for callers (like a rendered help block) that
-// need their output to match the serial, non-prefixed form exactly.
+// need their output to match the serial, non-prefixed form exactly. It falls
+// back to opts.Stdout instead of outputFromContext(ctx) to preserve help's
+// existing output destination and avoid breaking Result.Output capture.
 func writeParallelSafe(ctx context.Context, opts RunOptions, text string) {
 	if info, ok := GetExecInfo(ctx); ok && info.Parallel && info.Printer != nil {
 		info.Printer.Send(text)
