@@ -702,6 +702,24 @@ func TestProperty_Execution(t *testing.T) {
 		g.Expect(ran).To(BeFalse())
 	})
 
+	// Issue #42: resolveUnits deferred the default-mode verdict to a post-hoc
+	// check inside the goroutine, so a sibling unit ran before the bad one was
+	// rejected. One unresolvable arg must stop the whole fan-out.
+	t.Run("ParallelUnresolvableArgRunsNoSiblingUnit", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		subRan := false
+		sub := targ.Targ(func() { subRan = true }).Name("sub")
+		grp := targ.Group("grp", sub)
+
+		result, err := targ.Execute([]string{"app", "--parallel", "sub", "bogus"}, grp)
+
+		g.Expect(err).To(HaveOccurred())
+		g.Expect(subRan).To(BeFalse())
+		g.Expect(result.Output).To(ContainSubstring("unknown command: bogus"))
+	})
+
 	// Issue #40 Unit 3: the top-level -p fan-out must be bounded the same
 	// way a parallel dep group is (#26): min(n, max(2, GOMAXPROCS/2)). Each
 	// unit CAS-updates a shared peak and blocks on a gate that the test

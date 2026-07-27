@@ -537,12 +537,28 @@ func (e *runExecutor) resolveUnits() ([]parallelUnit, error) {
 		}
 
 		if e.hasDefault {
-			units = append(units, parallelUnit{
+			unit := parallelUnit{
 				node:     e.roots[0],
 				name:     arg,
 				args:     []string{arg},
 				explicit: false,
-			})
+			}
+
+			// Resolve before the fan-out rather than after: a unit that
+			// consumes none of its args names no real subcommand of the sole
+			// root, and nothing should run for an invocation that will fail.
+			resolveOpts := e.opts
+			resolveOpts.ResolveOnly = true
+
+			next, resolveErr := unit.node.executeWithParents(
+				e.ctx, unit.args, nil, map[string]bool{}, unit.explicit, resolveOpts)
+			if resolveErr != nil || len(next) == len(unit.args) {
+				e.env.Printf("Error: %v\n", fmt.Errorf("%w: %s", errUnknownCommand, arg))
+
+				return nil, ExitError{Code: 1}
+			}
+
+			units = append(units, unit)
 
 			continue
 		}
@@ -685,13 +701,8 @@ func (e *runExecutor) startUnits(
 
 			start := time.Now()
 
-			next, err := unit.node.executeWithParents(
+			_, err := unit.node.executeWithParents(
 				tctx, unit.args, nil, map[string]bool{}, unit.explicit, e.opts)
-			// Only default-mode units carry args; one that consumed none of
-			// them named no real subcommand of the sole root.
-			if err == nil && len(unit.args) > 0 && len(next) == len(unit.args) {
-				err = fmt.Errorf("%w: %s", errUnknownCommand, unit.args[0])
-			}
 
 			resultCh <- unitResultMsg{index: idx, err: err, duration: time.Since(start)}
 		}(i, unit)
