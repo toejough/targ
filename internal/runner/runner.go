@@ -3853,6 +3853,30 @@ func parseSingleValueArg(remaining []string, i int, flagName string) (string, in
 	return remaining[i], i + 1, nil
 }
 
+// pinnedModuleVersion returns the version modulePath is required at in the go.mod
+// under moduleRoot. It returns "" when the module is not required there (genuine
+// first-time integration) or when go.mod cannot be read or parsed.
+func pinnedModuleVersion(moduleRoot, modulePath string) string {
+	//nolint:gosec // build tool reads the consuming module's go.mod by design
+	data, err := os.ReadFile(filepath.Join(moduleRoot, goModFile))
+	if err != nil {
+		return ""
+	}
+
+	parsed, err := modfile.Parse(goModFile, data, nil)
+	if err != nil {
+		return ""
+	}
+
+	for _, req := range parsed.Require {
+		if req.Mod.Path == modulePath {
+			return req.Mod.Version
+		}
+	}
+
+	return ""
+}
+
 // prepareBuildContext determines build roots and handles fallback module setup.
 // For pseudo-modules (targ.local), returns a cleanup function for the isolated build dir.
 func prepareBuildContext(

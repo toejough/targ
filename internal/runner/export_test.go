@@ -99,6 +99,11 @@ func ExportModuleCacheKey(modulePath, importRoot string, bootstrap []byte) (stri
 	return computeModuleCacheKey(moduleTargets{ModulePath: modulePath}, importRoot, bootstrap)
 }
 
+// ExportPinnedModuleVersion wraps pinnedModuleVersion for testing.
+func ExportPinnedModuleVersion(moduleRoot, modulePath string) string {
+	return pinnedModuleVersion(moduleRoot, modulePath)
+}
+
 // ExportPrepareBootstrap wraps (*targRunner).prepareBootstrap for testing,
 // returning the cache key computed for a single-module/isolated build.
 func ExportPrepareBootstrap(startDir, importRoot, modulePath string) (string, error) {
