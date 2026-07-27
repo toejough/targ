@@ -275,6 +275,38 @@ func TestProperty_ShellCommandDeps(t *testing.T) {
 		g.Expect(err).To(HaveOccurred())
 		g.Expect(shellRan).To(BeFalse())
 	})
+
+	// Issue #42: a bare unknown arg must be rejected before the dep chain and
+	// the shell command run. executeShellCommand received `explicit` and threw
+	// it away, so the whole invocation happened and only then errored.
+	t.Run("UnknownBareArgRunsNeitherDepNorShellCommand", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		depRan := false
+		dep := targ.Targ(func() { depRan = true }).Name("dep")
+
+		shellRan := false
+
+		mockRunner := func(_ context.Context, _ string) error {
+			shellRan = true
+
+			return nil
+		}
+
+		main := targ.Targ("echo hello").Name("main").Deps(dep)
+
+		result, err := targ.ExecuteWithOptions(
+			[]string{"app", "bogus"},
+			targ.RunOptions{ShellRunner: mockRunner, AllowDefault: true},
+			main,
+		)
+
+		g.Expect(err).To(HaveOccurred())
+		g.Expect(shellRan).To(BeFalse())
+		g.Expect(depRan).To(BeFalse())
+		g.Expect(result.Output).To(ContainSubstring("unknown command: bogus"))
+	})
 }
 
 func TestProperty_ShellCommandErrors(t *testing.T) {

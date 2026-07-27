@@ -1024,7 +1024,7 @@ func executeShellCommand(
 	node *commandNode,
 	_ []commandInstance, // parents - not used for shell commands
 	_ map[string]bool, // visited - not used for shell commands
-	_ bool, // explicit - not used for shell commands
+	explicit bool,
 	opts RunOptions,
 ) ([]string, error) {
 	parsed := parseShellCommandArgs(args, node.ShellVars)
@@ -1047,6 +1047,13 @@ func executeShellCommand(
 	err = checkUnknownFlags(parsed.remaining)
 	if err != nil {
 		return nil, err
+	}
+
+	// Mirror trySubcommandOrUnknown (parse.go:150-154): in default mode an
+	// unresolvable leftover is an error; in multi-root mode it is a chaining
+	// candidate the dispatcher will try as the next command.
+	if !explicit && len(parsed.remaining) > 0 {
+		return nil, fmt.Errorf("%w: %s", errUnknownCommand, parsed.remaining[0])
 	}
 
 	err = runNodeDeps(ctx, node, opts.Overrides)
