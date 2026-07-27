@@ -307,6 +307,67 @@ func TestProperty_ShellCommandDeps(t *testing.T) {
 		g.Expect(depRan).To(BeFalse())
 		g.Expect(result.Output).To(ContainSubstring("unknown command: bogus"))
 	})
+
+	// Issue #42: the shell path's ResolveOnly return sits BELOW the explicit
+	// check, not beside the HelpOnly one, so resolve mode still validates.
+	// Merging it into the HelpOnly return at command.go:1036 would hand the
+	// bad arg back as a chaining candidate and the dispatcher would misreport
+	// it as an unknown COMMAND. This test is what catches that.
+	t.Run("ResolveOnlyStillRejectsUnknownBareArg", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		shellRan := false
+
+		mockRunner := func(_ context.Context, _ string) error {
+			shellRan = true
+
+			return nil
+		}
+
+		main := targ.Targ("echo hello").Name("main")
+
+		result, err := targ.ExecuteWithOptions(
+			[]string{"app", "bogus"},
+			targ.RunOptions{ShellRunner: mockRunner, AllowDefault: true, ResolveOnly: true},
+			main,
+		)
+
+		g.Expect(err).To(HaveOccurred())
+		g.Expect(shellRan).To(BeFalse())
+		g.Expect(result.Output).To(ContainSubstring("unknown command: bogus"))
+		g.Expect(result.Output).NotTo(ContainSubstring("Unknown command: bogus"))
+	})
+
+	// Issue #42: the positive half of the same seam - when the args DO
+	// resolve, resolve mode runs neither the shell command nor its deps.
+	t.Run("ResolveOnlyRunsNeitherShellCommandNorDeps", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		depRan := false
+		dep := targ.Targ(func() { depRan = true }).Name("dep")
+
+		shellRan := false
+
+		mockRunner := func(_ context.Context, _ string) error {
+			shellRan = true
+
+			return nil
+		}
+
+		main := targ.Targ("echo hello").Name("main").Deps(dep)
+
+		_, err := targ.ExecuteWithOptions(
+			[]string{"app", "main"},
+			targ.RunOptions{ShellRunner: mockRunner, AllowDefault: true, ResolveOnly: true},
+			main,
+		)
+
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(shellRan).To(BeFalse())
+		g.Expect(depRan).To(BeFalse())
+	})
 }
 
 func TestProperty_ShellCommandErrors(t *testing.T) {
