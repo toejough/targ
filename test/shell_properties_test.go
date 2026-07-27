@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 
 	. "github.com/onsi/gomega"
@@ -367,6 +368,31 @@ func TestProperty_ShellCommandDeps(t *testing.T) {
 		g.Expect(err).NotTo(HaveOccurred())
 		g.Expect(shellRan).To(BeFalse())
 		g.Expect(depRan).To(BeFalse())
+	})
+
+	// I1 (final review): with DisableHelp true, extractHelpFlag never strips
+	// --help, so the token survives all the way to executeShellCommand's own
+	// parsed.helpRequested branch - which sits above BOTH the HelpOnly and
+	// ResolveOnly guards. The serial two-pass walk calls it once per pass
+	// unless the print itself is gated on !ResolveOnly.
+	t.Run("ShellHelpPrintsOnceWithDisableHelp", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		mockRunner := func(_ context.Context, _ string) error {
+			return nil
+		}
+
+		main := targ.Targ("echo hello").Name("main")
+
+		result, err := targ.ExecuteWithOptions(
+			[]string{"app", "main", "--help"},
+			targ.RunOptions{DisableHelp: true, ShellRunner: mockRunner, AllowDefault: true},
+			main,
+		)
+
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(strings.Count(result.Output, "Usage:")).To(Equal(1))
 	})
 }
 

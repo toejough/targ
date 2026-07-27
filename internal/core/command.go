@@ -155,9 +155,12 @@ func (n *commandNode) executeWithParents(
 	opts RunOptions,
 ) ([]string, error) {
 	if opts.HelpOnly {
-		w := opts.Stdout
-		printCommandHelp(w, n, opts)
-		_, _ = fmt.Fprintln(w)
+		var buf strings.Builder
+
+		printCommandHelp(&buf, n, opts)
+		_, _ = fmt.Fprintln(&buf)
+
+		writeParallelSafe(ctx, opts, buf.String())
 	}
 
 	if n.Func.IsValid() {
@@ -1030,7 +1033,7 @@ func executeShellCommand(
 	parsed := parseShellCommandArgs(args, node.ShellVars)
 
 	if parsed.helpRequested {
-		printCommandHelp(opts.Stdout, node, opts)
+		printShellHelpUnlessResolving(ctx, opts, node)
 		return nil, nil
 	}
 
@@ -1849,6 +1852,20 @@ func printCommandHelp(w io.Writer, node *commandNode, opts RunOptions) {
 	})
 }
 
+// printShellHelpUnlessResolving renders a shell target's help text unless the
+// call is part of a resolve-only pass, which must not print (the chain is
+// walked twice: once to resolve, once to execute).
+func printShellHelpUnlessResolving(ctx context.Context, opts RunOptions, node *commandNode) {
+	if opts.ResolveOnly {
+		return
+	}
+
+	var buf strings.Builder
+
+	printCommandHelp(&buf, node, opts)
+	writeParallelSafe(ctx, opts, buf.String())
+}
+
 func printUsage(w io.Writer, nodes []*commandNode, opts RunOptions) {
 	// Convert node groups to help.CommandGroup
 	groups := groupNodesBySource(nodes, opts)
@@ -2260,6 +2277,20 @@ func validateTagOptionsSignature(method reflect.Value) error {
 	}
 
 	return nil
+}
+
+// writeParallelSafe writes text to opts.Stdout directly, or through ctx's
+// parallel Printer when one is active, so it cannot race with the printer's
+// own background goroutine. Unlike Print/Printf it writes text verbatim with
+// no per-line "[name] " prefix, for callers (like a rendered help block) that
+// need their output to match the serial, non-prefixed form exactly.
+func writeParallelSafe(ctx context.Context, opts RunOptions, text string) {
+	if info, ok := GetExecInfo(ctx); ok && info.Parallel && info.Printer != nil {
+		info.Printer.Send(text)
+		return
+	}
+
+	_, _ = fmt.Fprint(opts.Stdout, text)
 }
 
 // writeWrappedUsage writes a usage line with wrapping at word boundaries.

@@ -720,6 +720,30 @@ func TestProperty_Execution(t *testing.T) {
 		g.Expect(result.Output).To(ContainSubstring("unknown command: bogus"))
 	})
 
+	// I3 (final review): a genuine resolve-time validation failure (not
+	// merely an unknown command) is reported before the fan-out, bypassing
+	// the per-unit printer entirely - no unit prefix, no PASS/FAIL tally.
+	// Regression test for the resolveErr != nil branch at
+	// run_env.go:520-524, which had zero coverage.
+	t.Run("ParallelResolveErrorBypassesUnitPrinter", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		type Args struct {
+			Name string `targ:"positional,required"`
+		}
+
+		needy := targ.Targ(func(_ Args) {}).Name("needy")
+		grp := targ.Group("grp", needy)
+
+		result, err := targ.Execute([]string{"app", "--parallel", "needy"}, grp)
+
+		g.Expect(err).To(HaveOccurred())
+		g.Expect(result.Output).To(ContainSubstring("Error: missing required positional: Name"))
+		g.Expect(result.Output).NotTo(ContainSubstring("PASS:"))
+		g.Expect(result.Output).NotTo(ContainSubstring("FAIL:"))
+	})
+
 	// Issue #40 Unit 3: the top-level -p fan-out must be bounded the same
 	// way a parallel dep group is (#26): min(n, max(2, GOMAXPROCS/2)). Each
 	// unit CAS-updates a shared peak and blocks on a gate that the test
@@ -2072,6 +2096,23 @@ func TestProperty_Execution(t *testing.T) {
 
 		g.Expect(err).NotTo(HaveOccurred())
 		g.Expect(strings.Count(result.Output, "Usage:")).To(Equal(1))
+	})
+
+	// Issue #42: -p sibling of HelpPrintsOnceWhenTheChainIsWalkedTwice. The
+	// parallel path resolves units via a pre-pass before startUnits runs
+	// them; that pre-pass must not inherit a caller-set HelpOnly or it
+	// prints help once for itself and once again for the real run.
+	t.Run("ParallelHelpPrintsOnceDespiteThePrePass", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		sub := targ.Targ(func() {}).Name("sub")
+		grp := targ.Group("grp", sub)
+
+		result, err := targ.Execute([]string{"app", "--parallel", "sub", "--help"}, grp)
+
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(strings.Count(result.Output, "Usage:")).To(Equal(2))
 	})
 
 	// Issue #42: the resolve pass parses the same args the execute pass will.

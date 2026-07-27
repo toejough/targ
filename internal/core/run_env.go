@@ -273,6 +273,9 @@ func (e *runExecutor) executeGlobPattern(name string, opts RunOptions) error {
 	return nil
 }
 
+// executeRoots is the serial dispatch path shared by default and multi-root
+// mode: it walks the chain once to resolve every token before executing, then
+// walks it again to run it.
 func (e *runExecutor) executeRoots() error {
 	if e.opts.Overrides.Parallel {
 		return e.runUnitsParallel()
@@ -514,6 +517,11 @@ func (e *runExecutor) resolveUnitDefault(units *[]parallelUnit, unit *parallelUn
 	// root, and nothing should run for an invocation that will fail.
 	resolveOpts := e.opts
 	resolveOpts.ResolveOnly = true
+	// The pre-pass must not print: it exists only to decide whether the
+	// unit resolves, so clear any caller-set HelpOnly here. The real run
+	// below (via startUnits) still carries the caller's HelpOnly and
+	// renders help exactly once.
+	resolveOpts.HelpOnly = false
 
 	next, resolveErr := unit.node.executeWithParents(
 		e.ctx, unit.args, nil, map[string]bool{}, unit.explicit, resolveOpts)
@@ -729,7 +737,9 @@ func (e *runExecutor) startUnits(
 
 // walkRoots runs the chain once. With resolveOnly set, every target parses its
 // args and hands back its leftovers without executing, so an unresolvable
-// token is reported before the first target runs.
+// token is reported before the first target runs. A default root reaches it
+// already named, so every arg list here starts with a root name to match and
+// strip.
 func (e *runExecutor) walkRoots(resolveOnly bool) error {
 	opts := e.opts
 	opts.ResolveOnly = resolveOnly
@@ -759,7 +769,7 @@ func (e *runExecutor) walkRoots(resolveOnly bool) error {
 		matched := e.findMatchingRoot(name)
 		if matched == nil {
 			e.env.Printf("Unknown command: %s\n", name)
-			printUsage(e.env.Stdout(), e.roots, e.opts)
+			printUsage(e.env.Stdout(), e.roots, opts)
 
 			return ExitError{Code: 1}
 		}
