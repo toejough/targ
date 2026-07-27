@@ -62,6 +62,10 @@ pushed targ commit, including docs-only ones, re-arms the write for every expose
   measurement.
 - **`//nolint` count must go down, not up.** Today there are two `//nolint:gosec` directives on
   `go get` execs (`runner.go:3063` and `runner.go:3255`). After Task 4 there is one.
+- **Commit trailer `AI-Used: [claude]`; `Refs #41` only — never a closing keyword**, and never one
+  beside an issue number even when *discussing* one. A quoted `Closes #37` in a docs commit body
+  auto-closed that issue at push time. Issue #41 is closed deliberately at the end, not by a commit
+  body.
 - No new package-level mutable state.
 - No timing-dependent assertions. Parallel subtests get their own fixtures.
 - Declaration order is alphabetical within type/var/func groups. `targ reorder-decls` fixes it.
@@ -180,7 +184,15 @@ grep -rn "go:build integration" --include='*.go' .
 **Files:**
 - Modify: `internal/runner/runner.go` (insert between `parseSingleValueArg`, ends `:3854`, and the
   doc comment of `prepareBuildContext`, `:3856`)
+- Modify: `internal/runner/export_test.go` (add the `ExportPinnedModuleVersion` shim)
 - Test: `internal/runner/runner_gomod_test.go` (create)
+
+**Test-package convention — follow it, do not invent one.** `internal/runner` has 6 test files in
+`package runner_test` and exactly one, `export_test.go`, in `package runner`. `export_test.go`
+contains **zero** `TestXxx` functions: it is purely a shim exposing `ExportXxx` wrappers over
+unexported internals. Every real test in this package, without exception, lives in
+`package runner_test` and reaches internals through that shim. New tests follow that pattern —
+a `TestXxx` in `package runner` would compile fine but would be the first of its kind here.
 
 **Interfaces:**
 - Consumes: nothing from earlier tasks. `goModFile` is an existing package constant;
@@ -192,19 +204,32 @@ grep -rn "go:build integration" --include='*.go' .
 **Why alphabetical placement matters:** `pa` < `pi` < `pr`. Put it anywhere else and
 `targ reorder-decls-check` fails `check-full`.
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1: Add the export shim**
 
-Create `internal/runner/runner_gomod_test.go`. Package is `runner` (white-box — the function is
-unexported). Confirm the existing convention first: `grep -h '^package' internal/runner/*_test.go`.
-If the existing unexported-symbol tests use `package runner`, match them.
+In `internal/runner/export_test.go`, between `ExportModuleCacheKey` (`:98`) and
+`ExportPrepareBootstrap` (`:104`) — `…M` < `…Pi` < `…Pr`:
 
 ```go
-package runner
+// ExportPinnedModuleVersion wraps pinnedModuleVersion for testing.
+func ExportPinnedModuleVersion(moduleRoot, modulePath string) string {
+	return pinnedModuleVersion(moduleRoot, modulePath)
+}
+```
+
+- [ ] **Step 2: Write the failing test**
+
+Create `internal/runner/runner_gomod_test.go` in `package runner_test`, reaching the unexported
+function through the shim:
+
+```go
+package runner_test
 
 import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/toejough/targ/internal/runner"
 )
 
 func TestPinnedModuleVersion(t *testing.T) {
@@ -299,26 +324,27 @@ require github.com/toejough/targ v0.9.0 // indirect
 				}
 			}
 
-			got := pinnedModuleVersion(dir, target)
+			got := runner.ExportPinnedModuleVersion(dir, target)
 			if got != tc.want {
-				t.Errorf("pinnedModuleVersion(%q, %q) = %q, want %q", dir, target, got, tc.want)
+				t.Errorf("ExportPinnedModuleVersion(%q, %q) = %q, want %q", dir, target, got, tc.want)
 			}
 		})
 	}
 }
 ```
 
-- [ ] **Step 2: Run the test and verify it fails**
+- [ ] **Step 3: Run the test and verify it fails**
 
 ```bash
 cd /Users/joe/repos/personal/targ
 go test ./internal/runner/ -run TestPinnedModuleVersion
 ```
 
-Expected: **compilation failure**, `undefined: pinnedModuleVersion`. That is the RED step. If it
-compiles, the function already exists — stop and re-read the tree.
+Expected: **compilation failure**, `undefined: pinnedModuleVersion`, reported against
+`export_test.go` — the shim from Step 1 references a function that does not exist yet. That is the
+RED step. If it compiles, the function already exists — stop and re-read the tree.
 
-- [ ] **Step 3: Write the minimal implementation**
+- [ ] **Step 4: Write the minimal implementation**
 
 Insert into `internal/runner/runner.go` immediately after `parseSingleValueArg` (which ends at
 `:3854`) and before the `// prepareBuildContext determines build roots...` comment at `:3856`:
@@ -349,7 +375,7 @@ func pinnedModuleVersion(moduleRoot, modulePath string) string {
 }
 ```
 
-- [ ] **Step 4: Run the test and verify it passes**
+- [ ] **Step 5: Run the test and verify it passes**
 
 ```bash
 cd /Users/joe/repos/personal/targ
@@ -358,7 +384,7 @@ go test ./internal/runner/ -run TestPinnedModuleVersion -v
 
 Expected: PASS, 7 subtests.
 
-- [ ] **Step 5: Prove the test discriminates**
+- [ ] **Step 6: Prove the test discriminates**
 
 A passing table test proves nothing unless a wrong implementation fails it. Temporarily change the
 `for` loop body to `return ""` (i.e. never find a require). Re-run.
@@ -367,7 +393,7 @@ Expected: FAIL on all four cases that expect a non-empty version. Restore the lo
 PASS. Do not skip this — the coverage gate excludes this file, so this probe is the only thing
 standing between a real test and a decorative one.
 
-- [ ] **Step 6: Verify declaration ordering**
+- [ ] **Step 7: Verify declaration ordering**
 
 ```bash
 cd /Users/joe/repos/personal/targ
@@ -377,12 +403,16 @@ targ reorder-decls-check
 Expected: pass. If it reports a move, the insertion point was wrong — fix the placement rather than
 accepting the auto-move, so the diff stays minimal.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
 cd /Users/joe/repos/personal/targ
-git add internal/runner/runner.go internal/runner/runner_gomod_test.go
-git commit -m "feat(runner): read the version a consumer's go.mod pins targ at"
+git add internal/runner/runner.go internal/runner/export_test.go internal/runner/runner_gomod_test.go
+git commit -m "feat(runner): read the version a consumer's go.mod pins targ at
+
+Refs #41
+
+AI-Used: [claude]"
 ```
 
 ---
@@ -493,7 +523,9 @@ on an inconsistent one, never an upgrade. Genuine first-time integration still
 adds the require line, because the build runs under -mod=readonly and cannot,
 but it now says so on stderr. Failures are reported instead of dropped.
 
-Refs #41"
+Refs #41
+
+AI-Used: [claude]"
 ```
 
 ---
@@ -502,7 +534,12 @@ Refs #41"
 
 **Files:**
 - Create: `internal/runner/runner_gomod_integration_test.go`
+- Modify: `internal/runner/export_test.go` (add the `ExportEnsureTargDependency` shim)
 - Modify: `dev/targets.go` (`init()` deps + `targ.Register` list, and the exported `var` block)
+
+**Same test-package convention as Task 1:** the test lives in `package runner_test` and reaches
+`ensureTargDependency` through an `ExportXxx` shim. `TargDependency` is already exported
+(`runner.go:130`), so only the function needs wrapping.
 
 **Interfaces:**
 - Consumes: `ensureTargDependency(dep TargDependency, importRoot string, errOut io.Writer)` from
@@ -525,22 +562,43 @@ This test calls `ensureTargDependency` directly with a **stand-in module path**,
 move the pin?) from targ's own publication state, and it is what makes the `file://` proxy possible
 with no network.
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1: Add the export shim**
+
+In `internal/runner/export_test.go`, between `ExportCollectSortedCommands` (`:45`) and
+`ExportFindCommandBinary` (`:78`) — `…C` < `…E` < `…F`:
+
+```go
+// ExportEnsureTargDependency wraps ensureTargDependency for testing.
+func ExportEnsureTargDependency(dep TargDependency, importRoot string, errOut io.Writer) {
+	ensureTargDependency(dep, importRoot, errOut)
+}
+```
+
+`io` is already imported in `export_test.go`.
+
+Note this shim lives in a file with no build tag, so it compiles into every build of the test
+package — that is fine and is why `ensureTargDependency` must already have its Task 2 signature
+before this task starts.
+
+- [ ] **Step 2: Write the failing test**
 
 Create `internal/runner/runner_gomod_integration_test.go`:
 
 ```go
 //go:build integration
 
-package runner
+package runner_test
 
 import (
+	"archive/zip"
 	"bytes"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/toejough/targ/internal/runner"
 )
 
 // standInModule is a throwaway module path served only by the local file:// proxy.
@@ -563,7 +621,7 @@ func TestIntegrationEnsureTargDependencyKeepsThePin(t *testing.T) {
 
 		var errOut bytes.Buffer
 
-		ensureTargDependency(TargDependency{ModulePath: standInModule}, root, &errOut)
+		runner.ExportEnsureTargDependency(runner.TargDependency{ModulePath: standInModule}, root, &errOut)
 
 		after, err := os.ReadFile(filepath.Join(root, "go.mod"))
 		if err != nil {
@@ -584,7 +642,7 @@ func TestIntegrationEnsureTargDependencyKeepsThePin(t *testing.T) {
 
 		var errOut bytes.Buffer
 
-		ensureTargDependency(TargDependency{ModulePath: standInModule}, root, &errOut)
+		runner.ExportEnsureTargDependency(runner.TargDependency{ModulePath: standInModule}, root, &errOut)
 
 		if !strings.Contains(errOut.String(), "is not required by") {
 			t.Errorf("expected an announcement on stderr, got: %q", errOut.String())
@@ -728,9 +786,9 @@ func writeModuleZip(t *testing.T, path, version, goMod string) {
 }
 ```
 
-Add `"archive/zip"` to the file's import block.
+`"archive/zip"` is already in the import block shown in Step 1 for this reason.
 
-- [ ] **Step 2: Run it and verify it fails against the CURRENT code**
+- [ ] **Step 3: Run it and verify it fails against the CURRENT code**
 
 This is the step that makes the whole task worth doing. Stash Task 2's fix and run the test against
 the broken implementation:
@@ -750,7 +808,7 @@ Restore with `git stash apply <the SHA you captured>`, then drop that entry by r
 tag. Never bare `git stash pop` — the stash stack is shared with other worktrees and other
 sessions.
 
-- [ ] **Step 3: Run it against the FIXED code**
+- [ ] **Step 4: Run it against the FIXED code**
 
 ```bash
 cd /Users/joe/repos/personal/targ
@@ -759,21 +817,36 @@ go test -tags=integration -run 'TestIntegration' ./internal/runner/ -count=1 -v
 
 Expected: PASS, both subtests.
 
-- [ ] **Step 4: Add the `TestIntegration` target to `dev/targets.go`**
+- [ ] **Step 5: Add the `TestIntegration` target to `dev/targets.go`**
 
-Three edits, all alphabetical. In the exported `var` block, between `Test` and `TestForFail`:
+Three edits. Two are order-gated; derive their slots by comparing strings, not by name
+relatedness — `TestForFail` < `TestIntegration` < `Tidy`, because the shared prefix `Test` is
+followed by `F`(70) < `I`(73), and `Te` < `Ti`. Confirm before editing:
+
+```bash
+cd /Users/joe/repos/personal/targ
+python3 -c "print(sorted(['Test','TestForFail','TestIntegration','Tidy']))"
+```
+
+In the exported `var` block, between **`TestForFail`** and **`Tidy`**:
 
 ```go
 	TestIntegration      = targ.Targ(testIntegration).Description("Run integration tests")
 ```
 
-In `targ.Register(...)`, between `Test` and `TestForFail`:
+In `targ.Register(...)`, after `TestForFail`:
 
 ```go
 		TestIntegration,
 ```
 
-And the function, in alphabetical position between `test` and `testForFail`:
+That list is **not** order-gated — `go-reorder` reorders top-level declarations via the AST, not
+arguments inside a call expression in `init()`'s body. (The existing list is already not strictly
+sorted: `CheckUncommitted` follows `CheckThinAPI`, and `Watch, Status` is inverted at the end.)
+Match the surrounding style; nothing will fail if you don't.
+
+And the function, between **`testForFail`** and **`tidy`** — same byte-order reasoning as the var
+block:
 
 ```go
 func testIntegration(ctx context.Context) error {
@@ -797,7 +870,7 @@ func testIntegration(ctx context.Context) error {
 }
 ```
 
-- [ ] **Step 5: Wire it into the check legs**
+- [ ] **Step 6: Wire it into the check legs**
 
 In `dev/targets.go`'s `init()`, add `TestIntegration` to both aggregate gates. A tagged test with no
 leg never runs; a leg no gate calls is the same failure one level up.
@@ -809,7 +882,18 @@ leg never runs; a leg no gate calls is the same failure one level up.
 +	CheckFull.Deps(CheckCoverageForFail, CheckUncommitted, ReorderDeclsCheck, LintFast, LintFull, Deadcode, CheckThinAPI, CheckNilsForFail, TestIntegration, targ.DepModeParallel, targ.CollectAllErrors)
 ```
 
-- [ ] **Step 6: Run the new leg through targ itself**
+- [ ] **Step 7: Verify declaration ordering in this task, not a later one**
+
+```bash
+cd /Users/joe/repos/personal/targ
+targ reorder-decls-check
+```
+
+Expected: pass. This task edits two order-gated lists, so it checks them itself — deferring the
+check to Task 7 would surface the failure against an already-committed file. If it reports a move,
+the slot was wrong; fix the placement rather than accepting the auto-move.
+
+- [ ] **Step 8: Run the new leg through targ itself**
 
 ```bash
 cd /Users/joe/repos/personal/targ
@@ -819,7 +903,7 @@ targ --no-binary-cache test-integration
 Expected: the leg appears in `targ --help`, runs, and passes. `--no-binary-cache` is required —
 `dev/targets.go` just changed, and a stale bootstrap binary would run the old target list.
 
-- [ ] **Step 7: Confirm the leg did not dirty the tree**
+- [ ] **Step 9: Confirm the leg did not dirty the tree**
 
 ```bash
 cd /Users/joe/repos/personal/targ
@@ -829,11 +913,11 @@ git status --porcelain
 Expected: only the files this task edits. If `go.mod`/`go.sum` appear, the test escaped its temp
 env — that is this very bug, reproduced by its own test. Fix the env redirection before continuing.
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 10: Commit**
 
 ```bash
 cd /Users/joe/repos/personal/targ
-git add internal/runner/runner_gomod_integration_test.go dev/targets.go
+git add internal/runner/runner_gomod_integration_test.go internal/runner/export_test.go dev/targets.go
 git commit -m "test(runner): guard the pin against a hermetic two-version proxy
 
 Adds the repo's first //go:build integration file, plus the leg that runs it.
@@ -844,7 +928,9 @@ The test serves a stand-in module at v1.0.0 and v1.1.0 from a file:// proxy and
 pins the fixture at v1.0.0, so an unversioned get visibly drifts. Verified RED
 against the pre-fix runner.
 
-Refs #41"
+Refs #41
+
+AI-Used: [claude]"
 ```
 
 ---
@@ -869,16 +955,16 @@ CWD, exactly today's behavior) and keeps streaming to `os.Stdout`/`os.Stderr`.
 
 - [ ] **Step 1: Add `goGetCmd`**
 
-Alphabetical placement: `goGetCmd` sorts between `generateTargetCode`-ish `g…` neighbours. Find the
-exact slot first:
+Alphabetical placement: between `goEnv` (`:3645`) and `groupByModule` (`:3660`) — `goE` < `goG` <
+`gr`. Confirm against the live file rather than trusting this line; neighbours move as the file
+does:
 
 ```bash
 cd /Users/joe/repos/personal/targ
 grep -n '^func g' internal/runner/runner.go
 ```
 
-Insert so the list stays sorted — `goGetCmd` goes after any `go…` name that sorts before it and
-before the next one. Then:
+Then:
 
 ```go
 // goGetCmd builds the `go get arg` command, rooted at dir. An empty dir means the
@@ -961,7 +1047,9 @@ remaining suppression; the callers keep their streams and error handling, which
 differ deliberately -- the bootstrap get is pinned and quiet, --sync is an
 unversioned upgrade that streams progress.
 
-Refs #41"
+Refs #41
+
+AI-Used: [claude]"
 ```
 
 ---
@@ -1015,7 +1103,9 @@ Zero references anywhere in the tree including tests. Exported from an internal
 package, so 'deadcode -test ./...' treats it as a plausible entry point and never
 flagged it.
 
-Refs #41"
+Refs #41
+
+AI-Used: [claude]"
 ```
 
 ---
@@ -1077,7 +1167,9 @@ cd /Users/joe/repos/personal/targ
 git add README.md CLAUDE.md
 git commit -m "docs: state that targ never moves a consumer's targ pin
 
-Refs #41"
+Refs #41
+
+AI-Used: [claude]"
 ```
 
 ---
