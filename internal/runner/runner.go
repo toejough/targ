@@ -3081,9 +3081,7 @@ func ensureTargDependency(dep TargDependency, importRoot string, errOut io.Write
 
 	var output bytes.Buffer
 
-	//nolint:gosec // build tool runs go get by design
-	getCmd := exec.CommandContext(context.Background(), "go", "get", arg)
-	getCmd.Dir = importRoot
+	getCmd := goGetCmd(importRoot, arg)
 	getCmd.Stdout = &output
 	getCmd.Stderr = &output
 
@@ -3277,8 +3275,10 @@ func extractStringTargCall(expr ast.Expr) (string, *ast.CallExpr) {
 
 // fetchPackage runs go get to fetch a package.
 func fetchPackage(packagePath string) error {
-	//nolint:gosec // G204: packagePath is from parsed Go source imports
-	cmd := exec.CommandContext(context.Background(), "go", "get", packagePath)
+	// dir is empty on purpose: --sync has always run in the process working
+	// directory, and its unversioned get is a deliberate upgrade (README:
+	// "Re-running --sync updates the module version"). Neither is changed here.
+	cmd := goGetCmd("", packagePath)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
@@ -3677,6 +3677,18 @@ func goEnv(key string) (string, error) {
 	}
 
 	return strings.TrimSpace(string(output)), nil
+}
+
+// goGetCmd builds the `go get arg` command, rooted at dir. An empty dir means the
+// process working directory. Callers own the streams and the error: the two sites
+// differ deliberately -- the bootstrap get is pinned and quiet, --sync is an
+// unversioned upgrade that streams its progress.
+func goGetCmd(dir, arg string) *exec.Cmd {
+	//nolint:gosec // build tool runs go get by design; arg is a module path
+	cmd := exec.CommandContext(context.Background(), "go", "get", arg)
+	cmd.Dir = dir
+
+	return cmd
 }
 
 // groupByModule groups packages by their module root.
