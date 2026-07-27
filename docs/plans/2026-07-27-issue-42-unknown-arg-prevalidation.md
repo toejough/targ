@@ -853,7 +853,13 @@ In `internal/core/run_env.go`, replace the `if e.hasDefault { ... }` branch insi
 
 			next, resolveErr := unit.node.executeWithParents(
 				e.ctx, unit.args, nil, map[string]bool{}, unit.explicit, resolveOpts)
-			if resolveErr != nil || len(next) == len(unit.args) {
+			if resolveErr != nil {
+				e.env.Printf("Error: %v\n", resolveErr)
+
+				return nil, ExitError{Code: 1}
+			}
+
+			if len(next) == len(unit.args) {
 				e.env.Printf("Error: %v\n", fmt.Errorf("%w: %s", errUnknownCommand, arg))
 
 				return nil, ExitError{Code: 1}
@@ -864,6 +870,16 @@ In `internal/core/run_env.go`, replace the `if e.hasDefault { ... }` branch insi
 			continue
 		}
 ```
+
+*(Amended after Gate B, with the repo owner's decision overriding the original plan text. The
+first draft of this step read `if resolveErr != nil || len(next) == len(unit.args)`, which threw
+away a real `resolveErr` and relabelled it as an unknown command. The post-hoc check this
+replaces did not do that — it read `if err == nil && ...`, so it only ADDED an unknown-command
+error when there was not already a real one, and a genuine parse or value-conversion failure
+surfaced verbatim. Splitting the condition restores that fidelity. Both pinned tests are
+unaffected: a sole function-target root makes `trySubcommandOrUnknown` return a wrapped
+`errUnknownCommand`, so the first branch prints byte-identical text, and a sole group root
+returns its args with no error and falls to the second branch.)*
 
 Note the print verb: `%v` on an error value built by `fmt.Errorf`. `%w` is an `Errorf` verb and
 does not belong in a `Printf`. The wording it produces — `Error: unknown command: <arg>` — is
