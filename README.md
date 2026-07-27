@@ -335,7 +335,7 @@ targ.Targ(build).Name("compile")
 
 Exactly one registered target becomes the default target: bare `targ`, `targ <name>`, and `targ -p <name>` all run it.
 
-An invocation targ rejects runs nothing. `targ bogus` reports the unknown command without running the default target or its dependencies, and the same holds for a shell-command target, for a chain like `targ build bogus`, and under `-p`.
+If targ rejects an invocation as unresolvable, nothing runs. `targ bogus` reports the unknown command without running the default target or its dependencies, and the same holds for a shell-command target, for a chain like `targ build bogus`, and under `-p`.
 
 The target's own name is still matched first, so watch out when a target's first positional argument happens to equal its own name — it's consumed as the command, not bound as data:
 
