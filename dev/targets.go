@@ -33,8 +33,8 @@ func init() {
 	Check.Deps(DeleteDeadcode, Fmt, Tidy, Modernize, CheckNils, CheckCoverage, ReorderDecls, Lint, CheckThinAPI)
 	CheckCoverage.Deps(Test)
 	CheckCoverageForFail.Deps(TestForFail)
-	CheckForFail.Deps(CheckCoverageForFail, CheckUncommitted, ReorderDeclsCheck, LintFast, LintForFail, Deadcode, CheckThinAPI, CheckNilsForFail, targ.DepModeParallel)
-	CheckFull.Deps(CheckCoverageForFail, CheckUncommitted, ReorderDeclsCheck, LintFast, LintFull, Deadcode, CheckThinAPI, CheckNilsForFail, targ.DepModeParallel, targ.CollectAllErrors)
+	CheckForFail.Deps(CheckCoverageForFail, CheckUncommitted, ReorderDeclsCheck, LintFast, LintForFail, Deadcode, CheckThinAPI, CheckNilsForFail, TestIntegration, targ.DepModeParallel)
+	CheckFull.Deps(CheckCoverageForFail, CheckUncommitted, ReorderDeclsCheck, LintFast, LintFull, Deadcode, CheckThinAPI, CheckNilsForFail, TestIntegration, targ.DepModeParallel, targ.CollectAllErrors)
 	CheckNils.Deps(CheckNilsFix, CheckNilsForFail)
 	Mutate.Deps(CheckForFail)
 	Test.Deps(Generate)
@@ -70,6 +70,7 @@ func init() {
 		ReorderDeclsCheck,
 		Test,
 		TestForFail,
+		TestIntegration,
 		Tidy,
 		TodoCheck,
 		Watch, Status,
@@ -108,6 +109,7 @@ var (
 	Status               = targ.Targ("git status").Name("status")
 	Test                 = targ.Targ(test).Description("Run unit tests")
 	TestForFail          = targ.Targ(testForFail).Description("Run tests (fail-fast)")
+	TestIntegration      = targ.Targ(testIntegration).Description("Run integration tests")
 	Tidy                 = targ.Targ(tidy).Description("Tidy go.mod")
 	TodoCheck            = targ.Targ(todoCheck).Description("Check for TODOs")
 	Watch                = targ.Targ(watch).Description("Watch and re-run checks")
@@ -2229,6 +2231,26 @@ func testForFail(ctx context.Context) error {
 		"-coverpkg=./,./internal/...",
 		"./...",
 		"-failfast",
+	)
+}
+
+func testIntegration(ctx context.Context) error {
+	targ.Print(ctx, "Running integration tests...\n")
+
+	// No -coverprofile: CheckCoverageForFail reads coverage.out in the same parallel
+	// dep group, and a second writer would race it.
+	//
+	// -run TestIntegration keeps the leg repo-wide without duplicating the unit suite:
+	// every package compiles, only integration tests execute.
+	return targ.RunContext(ctx,
+		"go",
+		"test",
+		"-tags=integration",
+		"-buildvcs=false",
+		"-timeout=10m",
+		"-count=1",
+		"-run", "TestIntegration",
+		"./...",
 	)
 }
 

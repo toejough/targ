@@ -74,6 +74,11 @@ func ExportCollectSortedCommands(registry []ExportModuleRegistry) []ExportCmdEnt
 	return out
 }
 
+// ExportEnsureTargDependency wraps ensureTargDependency for testing.
+func ExportEnsureTargDependency(dep TargDependency, importRoot string, errOut io.Writer) {
+	ensureTargDependency(dep, importRoot, errOut)
+}
+
 // ExportFindCommandBinary wraps findCommandBinary for testing.
 func ExportFindCommandBinary(registry []ExportModuleRegistry, cmdName string) (string, bool) {
 	internal := make([]moduleRegistry, len(registry))
