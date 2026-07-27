@@ -707,6 +707,8 @@ This means you can define shared targets in `~/dev/targs.go` and they'll be avai
 
 Each ancestor with targ files is built as its own module group. Ancestors with a `go.mod` use normal module build; ancestors without one get an isolated build (synthetic `go.mod`).
 
+Building a module group never changes the version your `go.mod` pins targ at — targ reads the version you already require and builds against exactly that. When there is no version-pinned require for it to read (first-time integration, most commonly), targ adds one and says so on stderr, because the build itself runs under `-mod=readonly` and cannot add it. To move the pin, run `go get github.com/toejough/targ@<version>` yourself.
+
 ### Command Superseding
 
 When the same command name exists at multiple levels, the most-local version wins for dispatch. Help output shows all versions with annotations:
