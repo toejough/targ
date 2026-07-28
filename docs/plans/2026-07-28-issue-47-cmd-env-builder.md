@@ -25,10 +25,30 @@ and the reason each was rejected.
 
 ## Global Constraints
 
-- **Gate is `targ check-full`.** Baseline measured **green, PASS 9/9** at `376dad6`, tree clean
-  after (verified 2026-07-28). Never use `check-for-fail` (stops at first error, causes
+- **Gate is `targ check-full`.** Never use `check-for-fail` (stops at first error, causes
   whack-a-mole). Never use bare `go test` as final validation — it misses lint, coverage
   thresholds, and declaration ordering.
+- **Baseline, measured 2026-07-28 at `376dad6`** (the branch point) by running the real gate:
+
+  ```text
+    PASS      check-coverage-for-fail  (20.598s)
+    PASS      check-uncommitted        (13ms)
+    PASS      reorder-decls-check      (2.241s)
+    PASS      lint-fast                (1.395s)
+    PASS      lint-full                (2.966s)
+    PASS      deadcode                 (3.647s)
+    PASS      check-thin-api           (2ms)
+    PASS      check-nils-for-fail      (18.619s)
+    PASS      test-integration         (3.768s)
+
+  PASS:9
+  All checks passed!
+  ```
+
+  `git status` clean after. Every task's gate is measured against this.
+- **Commit per task; never push.** Joe's disposition, 2026-07-28: local commits on
+  `issue-47-cmd-env-builder` are authorized as each task completes. **Nothing is pushed, merged, or
+  rebased onto `main` without asking him first.** This overrides any skill default that would push.
 - **Run every `targ` command from `/Users/joe/repos/personal/targ`.** The harness resets shell cwd
   between calls, and a targ run in the wrong checkout can drift `go.mod`. Use an explicit `cd` or
   an absolute path every time.
@@ -113,7 +133,7 @@ Enumeration grep run 2026-07-28 over `README.md`, `docs/specs/`, `docs/archive/`
 | `docs/specs/tests.md:314` | UPDATE | Given/When/Then names `RunContextWithIO`; signature changes |
 | `docs/specs/tests.md:332` | KEEP | IMPL-19 coverage note stays accurate |
 | `docs/archive/requirements.md:514`, `docs/archive/issues.md:174`, `docs/archive/architecture.md:498,500,783` | N/A | Historical archive, and these refer to a long-superseded `targ.Run()` *entry-point* concept, not the shell helper |
-| `CLAUDE.md` | KEEP | States no run-helper invariant |
+| `CLAUDE.md` | KEEP | Does not reference the run helpers at all — nothing to go stale |
 
 ---
 
@@ -127,8 +147,12 @@ caller uses it yet — every existing call site passes `nil` and must keep behav
   (`RunContextWithIO`)
 - Modify (callers, `nil` only): `internal/core/target.go:615`, `internal/core/target.go:629`,
   `internal/core/target.go:1104`, `internal/core/command.go:2045`, `internal/core/git.go:205`,
-  `targ.go:227`
+  `targ.go:227`, **`internal/sh/sh_test.go:45`, `internal/sh/sh_test.go:69`**
 - Test: `internal/sh/sh_test.go`
+
+The two `sh_test.go` call sites are inside `TestProperty_ForegroundProcessGroup` and use the
+current 4-arg signature. They are easy to miss because that file is also where the new test goes —
+miss them and `go vet ./...` fails with `not enough arguments in call to internal.RunContextWithIO`.
 
 **Interfaces:**
 - Consumes: nothing from earlier tasks.
@@ -139,10 +163,9 @@ caller uses it yet — every existing call site passes `nil` and must keep behav
 Add to `internal/sh/sh_test.go`, in alphabetical position among the `TestProperty_*` functions:
 
 ```go
+// Deliberately NOT parallel at this level: t.Setenv panics when the test OR ANY
+// PARENT is parallel, and one subtest below needs it. Subtests opt in individually.
 func TestProperty_SubprocessEnvironment(t *testing.T) {
-	t.Parallel()
-
-	// No t.Parallel() in this subtest: t.Setenv panics if the test is parallel.
 	t.Run("NilEnvvInheritsParentEnvironment", func(t *testing.T) {
 		g := gomega.NewWithT(t)
 
@@ -186,8 +209,11 @@ func TestProperty_SubprocessEnvironment(t *testing.T) {
 }
 ```
 
-`t.Setenv` panics when the test has called `t.Parallel`, which is why that one subtest is serial
-while its siblings are parallel. Do not "fix" it by making the others serial too.
+**Why the outer function is not parallel.** `testing.(*T).checkParallel` walks the *entire parent
+chain*, not just the current test — a `t.Setenv` anywhere under a parallel ancestor panics with
+`testing: test using t.Setenv, t.Chdir, or cryptotest.SetGlobalRandom can not use t.Parallel`, and
+that panic takes down the whole package's test binary. Marking only the Setenv subtest serial is
+not enough. The two subtests that do not use `t.Setenv` still call `t.Parallel()` themselves.
 
 - [ ] **Step 2: Run test to verify it fails**
 
@@ -197,7 +223,18 @@ cd /Users/joe/repos/personal/targ && go test ./internal/sh/ -run TestProperty_Su
 
 Expected: FAIL — compilation error, `too many arguments in call to internal.OutputContext`.
 
-- [ ] **Step 3: Write minimal implementation**
+- [ ] **Step 3: Verify the call sites, then write the implementation**
+
+Confirm the working tree still matches this plan's line numbers before editing by line:
+
+```bash
+cd /Users/joe/repos/personal/targ && grep -rn "RunContextWithIO(\|internalsh.RunContextV(\|OutputContext(" \
+  internal/core/target.go internal/core/command.go internal/core/git.go targ.go internal/sh/sh_test.go
+```
+
+Expected: eight hits — `target.go:615`, `target.go:629`, `target.go:1104`, `command.go:2045`,
+`git.go:205`, `targ.go:227`, `sh_test.go:45`, `sh_test.go:69`. If the count or the line numbers
+differ, the tree has drifted: re-derive the list from the grep and edit those sites instead.
 
 In `internal/sh/context.go`, change the three signatures and assign `cmd.Env`:
 
@@ -260,6 +297,8 @@ Then update all six existing call sites to pass `nil` as the new final argument:
 - `internal/core/command.go:2045` → `internalsh.RunContextWithIO(ctx, nil, "sh", []string{"-c", substituted}, nil)`
 - `internal/core/git.go:205` → `internalsh.OutputContext(ctx, name, args, os.Stdin, nil)`
 - `targ.go:227` → `internalsh.OutputContext(ctx, name, args, os.Stdin, nil)`
+- `internal/sh/sh_test.go:45` → append `, nil` to the existing `RunContextWithIO` call
+- `internal/sh/sh_test.go:69` → append `, nil` to the existing `RunContextWithIO` call
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -334,9 +373,9 @@ func echoVar(name string) []string {
 	return []string{"-c", "printf %s \"$" + name + "\""}
 }
 
+// Deliberately NOT parallel at this level — NoOverrideInheritsEverything uses
+// t.Setenv, which panics under a parallel ancestor. Subtests opt in individually.
 func TestCmdEnv(t *testing.T) {
-	t.Parallel()
-
 	t.Run("DeclaredVariableIsVisibleToTheChild", func(t *testing.T) {
 		t.Parallel()
 		g := gomega.NewWithT(t)
@@ -408,8 +447,9 @@ func TestCmdRunV(t *testing.T) {
 func TestProperty_CmdEnvIsAdditive(t *testing.T) {
 	t.Parallel()
 
-	// *rapid.T is not a *testing.T and has no Context method — capture the
-	// context outside the property and close over it.
+	// rapid v1.2.0's *rapid.T does have Context(), but it is cancelled when the
+	// property function returns. Capture the test's context once instead, so every
+	// draw runs against the same lifetime.
 	ctx := t.Context()
 	wantPath := os.Getenv("PATH")
 
@@ -740,6 +780,11 @@ RunContext, RunContextV and OutputContext are now one-line delegations
 to the builder, so exactly one path constructs a ctx-aware subprocess.
 Signatures and behavior are unchanged.
 
+Characterization test run against the unrefactored code first:
+  go test ./internal/core/ -run TestConvergedHelpersInheritEnvironment
+  ok  github.com/toejough/targ/internal/core  <PASTE REAL TIMING>
+and again after the refactor, same result.
+
 Refs #47
 
 AI-Used: [claude]"
@@ -767,7 +812,8 @@ Expected: `PASS:9`.
 
 - [ ] **Step 1: Write the failing test**
 
-Append to `test/execution_properties_test.go`:
+Append to `test/execution_properties_test.go`. **That file dot-imports gomega** (`. "github.com/onsi/gomega"`, line 19), so use the bare identifiers `NewWithT`/`HaveOccurred`/`Equal` — the
+qualified `gomega.NewWithT` form does not resolve there and fails with `undefined: gomega`:
 
 ```go
 func TestProperty_CmdBuilderPublicAPI(t *testing.T) {
@@ -775,31 +821,34 @@ func TestProperty_CmdBuilderPublicAPI(t *testing.T) {
 
 	t.Run("EnvOverrideReachesTheChild", func(t *testing.T) {
 		t.Parallel()
-		g := gomega.NewWithT(t)
+		g := NewWithT(t)
 
 		out, err := targ.Cmd("sh", "-c", `printf %s "$TARG_PUBLIC_PROBE"`).
 			Env("TARG_PUBLIC_PROBE", "public").
 			Output(t.Context())
 
-		g.Expect(err).ToNot(gomega.HaveOccurred())
-		g.Expect(out).To(gomega.Equal("public"))
+		g.Expect(err).ToNot(HaveOccurred())
+		g.Expect(out).To(Equal("public"))
 	})
 
 	t.Run("InheritedEnvironmentSurvives", func(t *testing.T) {
 		t.Parallel()
-		g := gomega.NewWithT(t)
+		g := NewWithT(t)
 
 		out, err := targ.Cmd("sh", "-c", `printf %s "$PATH"`).
 			Env("TARG_PUBLIC_UNRELATED", "x").
 			Output(t.Context())
 
-		g.Expect(err).ToNot(gomega.HaveOccurred())
-		g.Expect(out).To(gomega.Equal(os.Getenv("PATH")))
+		g.Expect(err).ToNot(HaveOccurred())
+		g.Expect(out).To(Equal(os.Getenv("PATH")))
 	})
 }
 ```
 
 Add `"os"` to that file's imports if absent.
+
+Note the contrast with `internal/core/cmd_test.go`, which imports gomega qualified. Match whichever
+convention the file you are editing already uses; do not change a file's import style.
 
 - [ ] **Step 2: Run test to verify it fails**
 
@@ -807,7 +856,9 @@ Add `"os"` to that file's imports if absent.
 cd /Users/joe/repos/personal/targ && go test ./test/ -run TestProperty_CmdBuilderPublicAPI -v
 ```
 
-Expected: FAIL — compilation error, `undefined: targ.Cmd`.
+Expected: FAIL — compilation error, `undefined: targ.Cmd`. If instead you see
+`undefined: gomega`, the snippet was pasted with the qualified import form; fix that first, because
+that error persists after the feature exists and would mask the real red.
 
 - [ ] **Step 3: Write minimal implementation**
 
@@ -907,7 +958,14 @@ builder's terminals always take a context.
 
 - `docs/specs/architecture.md:56` — the sentence naming `RunContextWithIO()` and `OutputContext()`
   gains: "Both take an `envv []string`; `nil` inherits the parent environment."
-- `docs/specs/implementation.md:10` — add `Cmd()` to the Key exports list, alphabetically.
+- `docs/specs/implementation.md:10` — the Key exports list is **already stale**: it names `Run()`,
+  `RunContext()`, and `Output()` but omits their exported siblings `RunV()`, `RunContextV()`, and
+  `OutputContext()` (all present in `targ.go` at :276, :271, :226). Add `Cmd()` **and** the three
+  missing ones, so the line becomes:
+
+  ```markdown
+  **Key exports:** `Targ()`, `Main()`, `Register()`, `Execute()`, `Group()`, `Cmd()`, `Run()`, `RunV()`, `RunContext()`, `RunContextV()`, `Output()`, `OutputContext()`, `Match()`, `Watch()`, `Checksum()`, `Print()`, `Printf()`
+  ```
 - `docs/specs/implementation.md:157-158` — same `envv` note, and add `Cmd`/`Command` to the
   `internal/core` entry's key functions.
 - `docs/specs/tests.md:108` — add the property lines:
@@ -923,11 +981,20 @@ builder's terminals always take a context.
 
 - [ ] **Step 3: Verify no other doc references went stale**
 
+The criterion is a count plus an absence, not an eyeball pass over the hits:
+
 ```bash
-cd /Users/joe/repos/personal/targ && grep -rn "RunContextWithIO\|OutputContext" README.md docs/specs/ CLAUDE.md
+cd /Users/joe/repos/personal/targ
+# 1. No doc still describes the old 4-arg shell signature.
+grep -rn "RunContextWithIO()" README.md docs/specs/ CLAUDE.md | grep -v "envv"
+# 2. Every public run helper appears in the Key exports line.
+for fn in Cmd Run RunV RunContext RunContextV Output OutputContext; do
+  grep -q "\`$fn()\`" docs/specs/implementation.md || echo "MISSING from Key exports: $fn"
+done
 ```
 
-Expected: every hit is one of the lines updated above.
+Expected: command 1 prints nothing (every surviving mention of `RunContextWithIO` carries the
+`envv` note). Command 2 prints nothing. Any output is a stale doc — fix it before committing.
 
 - [ ] **Step 4: Commit**
 
@@ -950,6 +1017,21 @@ cd /Users/joe/repos/personal/targ && targ check-full
 Expected: `PASS:9`, tree clean.
 
 ---
+
+## Acceptance
+
+- [ ] `targ.Cmd("sh", "-c", "printf %s \"$V\"").Env("V", "set").Output(ctx)` returns `"set"`.
+- [ ] The same command with an unrelated `.Env` still sees the full inherited environment —
+      `$PATH` in the child equals `os.Getenv("PATH")` in the parent.
+- [ ] A `Command` with no `.Env` call produces `cmd.Env == nil`, so behavior is identical to
+      calling `targ.RunContext` directly. This is the convergence no-op.
+- [ ] Two `.Env` calls for one key: the later value wins.
+- [ ] 8 concurrent builders with distinct values each observe only their own, under
+      `-race -count=4` with zero `DATA RACE` reports.
+- [ ] `TestRunContextInParallelMode` and `TestRunContextVInParallelMode` still pass after Task 3 —
+      the convergence preserved parallel-printer routing.
+- [ ] `go vet ./...` is clean, including `internal/sh/sh_test.go`'s two migrated call sites.
+- [ ] `targ check-full` reports `PASS:9`, tree clean, after Task 5.
 
 ## Out of scope
 
