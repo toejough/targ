@@ -49,6 +49,10 @@ var (
 // ChangeSet holds the files that changed between watch polls.
 type ChangeSet = internalfile.ChangeSet
 
+// Command is a subprocess invocation with per-invocation environment overrides.
+// Build one with Cmd.
+type Command = core.Command
+
 // DepGroup is the exported view of a dependency group.
 type DepGroup = core.DepGroup
 
@@ -113,6 +117,18 @@ func Checksum(inputs []string, dest string) (bool, error) {
 	return internalfile.Checksum(inputs, dest, func(patterns []string) ([]string, error) {
 		return Match(patterns...)
 	}, nil)
+}
+
+// Cmd creates a Command for the named program with the given arguments.
+// Set per-invocation environment variables with Env, then run it with
+// Run, RunV, or Output. Declared variables are added to the inherited
+// environment rather than replacing it.
+//
+//	err := targ.Cmd("golangci-lint", "run").
+//	    Env("GOLANGCI_LINT_CACHE", dir).
+//	    Run(ctx)
+func Cmd(name string, args ...string) *Command {
+	return core.Cmd(name, args...)
 }
 
 // DeregisterFrom removes all targets registered by the named package.

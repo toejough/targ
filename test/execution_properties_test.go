@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"runtime"
 	"strings"
 	"sync"
@@ -75,6 +76,45 @@ func TestParallelFailureReportsError(t *testing.T) {
 
 	g.Expect(err).To(HaveOccurred())
 	g.Expect(result.Output).To(ContainSubstring("failure"))
+}
+
+func TestProperty_CmdBuilderPublicAPI(t *testing.T) {
+	t.Parallel()
+
+	t.Run("EnvOverrideReachesTheChild", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		out, err := targ.Cmd("sh", "-c", `printf %s "$TARG_PUBLIC_PROBE"`).
+			Env("TARG_PUBLIC_PROBE", "public").
+			Output(t.Context())
+
+		g.Expect(err).ToNot(HaveOccurred())
+		g.Expect(out).To(Equal("public"))
+	})
+
+	t.Run("InheritedEnvironmentSurvives", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		out, err := targ.Cmd("sh", "-c", `printf %s "$PATH"`).
+			Env("TARG_PUBLIC_UNRELATED", "x").
+			Output(t.Context())
+
+		g.Expect(err).ToNot(HaveOccurred())
+		g.Expect(out).To(Equal(os.Getenv("PATH")))
+	})
+
+	t.Run("RunStreamsAndCarriesEnv", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+
+		err := targ.Cmd("sh", "-c", `test "$TARG_PUBLIC_RUN" = ok`).
+			Env("TARG_PUBLIC_RUN", "ok").
+			Run(t.Context())
+
+		g.Expect(err).ToNot(HaveOccurred())
+	})
 }
 
 func TestProperty_Execution(t *testing.T) {
