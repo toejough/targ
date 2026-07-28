@@ -3,7 +3,6 @@ package targ
 
 import (
 	"context"
-	"os"
 
 	"github.com/toejough/targ/internal/core"
 	internalfile "github.com/toejough/targ/internal/file"
@@ -224,7 +223,7 @@ func Output(name string, args ...string) (string, error) {
 // OutputContext executes a command and returns combined output, with context support.
 // When ctx is cancelled, the process and all its children are killed.
 func OutputContext(ctx context.Context, name string, args ...string) (string, error) {
-	return internalsh.OutputContext(ctx, name, args, os.Stdin, nil)
+	return core.OutputContext(ctx, name, args...)
 }
 
 // PrependBuiltinExamples adds built-in examples before custom examples.

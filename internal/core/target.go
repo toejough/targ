@@ -610,29 +610,13 @@ func (t *Target) shouldContinueLoop(ctx context.Context, state *repetitionState)
 // RunContext executes a command with context support, routing output through
 // the parallel printer when running in parallel mode.
 func RunContext(ctx context.Context, name string, args ...string) error {
-	env, pw := parallelShellEnv(ctx)
-
-	err := internalsh.RunContextWithIO(ctx, env, name, args, nil)
-
-	if pw != nil {
-		pw.Flush()
-	}
-
-	return err
+	return Cmd(name, args...).Run(ctx)
 }
 
 // RunContextV executes a command, prints it first, with context support.
 // Routes output through the parallel printer when in parallel mode.
 func RunContextV(ctx context.Context, name string, args ...string) error {
-	env, pw := parallelShellEnv(ctx)
-
-	err := internalsh.RunContextV(ctx, env, name, args, nil)
-
-	if pw != nil {
-		pw.Flush()
-	}
-
-	return err
+	return Cmd(name, args...).RunV(ctx)
 }
 
 // Targ creates a Target from a function or shell command string.

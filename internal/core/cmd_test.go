@@ -88,6 +88,42 @@ func TestCmdRunV(t *testing.T) {
 	g.Expect(err).ToNot(gomega.HaveOccurred())
 }
 
+// TestConvergedHelpersInheritEnvironment pins the invariant that Task 3's
+// convergence must preserve: the ctx-aware helpers inherit the parent's
+// environment. Every subtest is serial because all three use t.Setenv.
+func TestConvergedHelpersInheritEnvironment(t *testing.T) {
+	t.Run("RunContextInheritsParentEnvironment", func(t *testing.T) {
+		g := gomega.NewWithT(t)
+
+		t.Setenv("TARG_CONVERGE_RUN", "inherited")
+
+		err := core.RunContext(t.Context(), "sh", "-c", `test "$TARG_CONVERGE_RUN" = inherited`)
+
+		g.Expect(err).ToNot(gomega.HaveOccurred())
+	})
+
+	t.Run("RunContextVInheritsParentEnvironment", func(t *testing.T) {
+		g := gomega.NewWithT(t)
+
+		t.Setenv("TARG_CONVERGE_RUNV", "inherited")
+
+		err := core.RunContextV(t.Context(), "sh", "-c", `test "$TARG_CONVERGE_RUNV" = inherited`)
+
+		g.Expect(err).ToNot(gomega.HaveOccurred())
+	})
+
+	t.Run("OutputContextInheritsParentEnvironment", func(t *testing.T) {
+		g := gomega.NewWithT(t)
+
+		t.Setenv("TARG_CONVERGE_OUT", "inherited")
+
+		out, err := core.OutputContext(t.Context(), "sh", echoVar("TARG_CONVERGE_OUT")...)
+
+		g.Expect(err).ToNot(gomega.HaveOccurred())
+		g.Expect(out).To(gomega.Equal("inherited"))
+	})
+}
+
 func TestOutputContext(t *testing.T) {
 	t.Parallel()
 	g := gomega.NewWithT(t)
