@@ -859,3 +859,34 @@ rm -rf ~/.cache/targ/       # clear all cached binaries
 ```
 
 `--no-cache` still works as a deprecated alias for `--no-binary-cache` and prints a warning.
+
+## Specifications
+
+targ's behavior is specified in `openspec/specs/`, organized by domain — one
+capability directory per bounded context, derived from the code's own seams.
+Specs are managed with [OpenSpec](https://github.com/Fission-AI/OpenSpec):
+`/opsx:propose` → `/opsx:apply` → `/opsx:archive`, and validated with
+`openspec validate --all --strict`.
+
+`old-docs/` holds the project's legacy documentation while it migrates. It is
+authoritative **only** where its claims have been verified against the code. The
+migration rule is:
+
+1. Find a claim in `old-docs/` that is wrong.
+2. Delete the wrong content from `old-docs/` — do not edit it in place.
+3. Write its corrected form as an OpenSpec spec under the bounded context it
+   belongs to.
+4. Delete any `old-docs/` file that empties.
+
+Proven incorrectness is the only trigger for writing a spec about code you are not
+otherwise changing — specs written speculatively go stale, which is the failure this
+rule exists to prevent. A document that is merely *silent* about a feature is not
+wrong: note the gap, but do not convert it, because "this area lacks a spec" is not
+a defect in the document. When `old-docs/` content falls below 20% of total spec
+content, the remainder is converted in one push; when the directory empties it is
+deleted, along with every reference to it.
+
+This section is the canonical statement of the standard. `CLAUDE.md` and
+`old-docs/README.md` summarise it and point here; `openspec/config.yaml`'s
+`context:` block restates it in full because it is injected into AI agent prompts,
+where a cross-reference would be useless — change the two together.
