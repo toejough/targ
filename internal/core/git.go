@@ -11,8 +11,6 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
-
-	internalsh "github.com/toejough/targ/internal/sh"
 )
 
 // CommandRunner executes a command and returns its combined output.
@@ -200,9 +198,9 @@ var (
 	errUncommittedChanges = errors.New("uncommitted changes found")
 )
 
-// defaultCommandRunner wraps internalsh.OutputContext.
+// defaultCommandRunner wraps OutputContext.
 func defaultCommandRunner(ctx context.Context, name string, args ...string) (string, error) {
-	return internalsh.OutputContext(ctx, name, args, os.Stdin, nil)
+	return OutputContext(ctx, name, args...)
 }
 
 // gitDirConfigPath resolves a worktree's .git pointer file to the config path in

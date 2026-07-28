@@ -10,8 +10,9 @@ import (
 // Command is a subprocess invocation with optional per-invocation environment
 // overrides. Build one with Cmd, then run it with Run, RunV, or Output.
 //
-// Every terminal takes a context, so a Command always routes through the
-// parallel printer when its target is running in parallel mode.
+// Run and RunV take a context and route through the parallel printer when the
+// target is running in parallel mode. Output captures into a buffer instead, so
+// it never reaches the printer in either mode.
 type Command struct {
 	args []string
 	env  []string
@@ -35,29 +36,13 @@ func (c *Command) Output(ctx context.Context) (string, error) {
 // Run executes the command, streaming stdout/stderr.
 // In parallel mode, output is routed through the parallel printer.
 func (c *Command) Run(ctx context.Context) error {
-	env, pw := parallelShellEnv(ctx)
-
-	err := internalsh.RunContextWithIO(ctx, env, c.name, c.args, c.environ())
-
-	if pw != nil {
-		pw.Flush()
-	}
-
-	return err
+	return c.stream(ctx, internalsh.RunContextWithIO)
 }
 
 // RunV executes the command, printing it first.
 // In parallel mode, output is routed through the parallel printer.
 func (c *Command) RunV(ctx context.Context) error {
-	env, pw := parallelShellEnv(ctx)
-
-	err := internalsh.RunContextV(ctx, env, c.name, c.args, c.environ())
-
-	if pw != nil {
-		pw.Flush()
-	}
-
-	return err
+	return c.stream(ctx, internalsh.RunContextV)
 }
 
 // environ returns the child's environment. It returns nil when no overrides are
@@ -74,6 +59,20 @@ func (c *Command) environ() []string {
 	return append(os.Environ(), c.env...)
 }
 
+// stream is the shared body of Run and RunV: pick up the parallel printer's
+// ShellEnv when one exists, execute, then flush what the printer buffered.
+func (c *Command) stream(ctx context.Context, run shellRunner) error {
+	env, pw := parallelShellEnv(ctx)
+
+	err := run(ctx, env, c.name, c.args, c.environ())
+
+	if pw != nil {
+		pw.Flush()
+	}
+
+	return err
+}
+
 // Cmd creates a Command for the named program with the given arguments.
 //
 //	Cmd("golangci-lint", "run").Env("GOLANGCI_LINT_CACHE", dir).Run(ctx)
@@ -85,3 +84,7 @@ func Cmd(name string, args ...string) *Command {
 func OutputContext(ctx context.Context, name string, args ...string) (string, error) {
 	return Cmd(name, args...).Output(ctx)
 }
+
+// shellRunner is the shape shared by internal/sh's two ctx-aware streaming
+// runners, so Run and RunV can share one body.
+type shellRunner func(context.Context, *internalsh.ShellEnv, string, []string, []string) error

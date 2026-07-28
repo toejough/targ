@@ -70,11 +70,31 @@ func TestCmdInheritsWhenNoOverrideDeclared(t *testing.T) {
 	g.Expect(out).To(gomega.Equal("inherited"))
 }
 
+// TestCmdRun asserts through the command's own exit status that the declared
+// variable actually reached the child. A body of "exit 0" would pass even if
+// Run dropped environ() entirely, which is the regression worth catching:
+// Run and RunV are the terminals RunContext/RunContextV delegate to, so they
+// carry every shell target and every parallel dep run.
 func TestCmdRun(t *testing.T) {
 	t.Parallel()
 	g := gomega.NewWithT(t)
 
-	err := core.Cmd("sh", "-c", "exit 0").Env("TARG_CMD_RUN", "1").Run(t.Context())
+	err := core.Cmd("sh", "-c", `test "$TARG_CMD_RUN" = declared`).
+		Env("TARG_CMD_RUN", "declared").
+		Run(t.Context())
+
+	g.Expect(err).ToNot(gomega.HaveOccurred())
+}
+
+// TestCmdRunInheritsAndOverrides pins that Run's environment is additive, not a
+// replacement — PATH must survive alongside a declared override.
+func TestCmdRunInheritsAndOverrides(t *testing.T) {
+	t.Parallel()
+	g := gomega.NewWithT(t)
+
+	err := core.Cmd("sh", "-c", `test -n "$PATH" && test "$TARG_CMD_RUN_BOTH" = x`).
+		Env("TARG_CMD_RUN_BOTH", "x").
+		Run(t.Context())
 
 	g.Expect(err).ToNot(gomega.HaveOccurred())
 }
@@ -83,7 +103,9 @@ func TestCmdRunV(t *testing.T) {
 	t.Parallel()
 	g := gomega.NewWithT(t)
 
-	err := core.Cmd("sh", "-c", "exit 0").Env("TARG_CMD_RUNV", "1").RunV(t.Context())
+	err := core.Cmd("sh", "-c", `test "$TARG_CMD_RUNV" = declared`).
+		Env("TARG_CMD_RUNV", "declared").
+		RunV(t.Context())
 
 	g.Expect(err).ToNot(gomega.HaveOccurred())
 }
@@ -188,9 +210,13 @@ func TestProperty_CmdEnvIsPerInvocation(t *testing.T) {
 			out, err := core.Cmd("sh", echoVar("TARG_CMD_CONCURRENT")...).
 				Env("TARG_CMD_CONCURRENT", want).
 				Output(ctx)
-			if err == nil {
-				results[i] = out
+			if err != nil {
+				results[i] = "error: " + err.Error()
+
+				return
 			}
+
+			results[i] = out
 		})
 	}
 

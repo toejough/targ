@@ -1083,14 +1083,7 @@ func runGroupSerialAll(ctx context.Context, targets []*Target) error {
 // The command is run via the user's shell (sh -c on Unix).
 // In parallel mode, stdout/stderr are routed through a PrefixWriter.
 func runShellCommand(ctx context.Context, cmd string) error {
-	env, pw := parallelShellEnv(ctx)
-
-	err := internalsh.RunContextWithIO(ctx, env, "sh", []string{"-c", cmd}, nil)
-
-	if pw != nil {
-		pw.Flush()
-	}
-
+	err := Cmd("sh", "-c", cmd).Run(ctx)
 	if err != nil {
 		return fmt.Errorf("shell command failed: %w", err)
 	}
