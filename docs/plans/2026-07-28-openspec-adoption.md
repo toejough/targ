@@ -1,159 +1,128 @@
-# OpenSpec Adoption Implementation Plan
+# OpenSpec Adoption Implementation Plan — revision 2
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Retire three abandoned spec frameworks from the targ repo, verify-and-correct the one live spec tree, move the surviving documentation into `openspec/archive/` as background context, and initialize OpenSpec with a `config.yaml` `context:` block that points every future agent at that archive — leaving only `README.md`, `CLAUDE.md`, the `.claude/` harness, and `openspec/` as the repo's non-code surface.
+**Goal:** Retire three abandoned spec frameworks, consolidate every surviving document into a single shrinking `old-docs/` directory, and stand up OpenSpec as the destination the documentation migrates *into* — replacing old content with OpenSpec specs wherever an audit proves the old content wrong, organized by domain-driven bounded context.
 
-**Architecture:** OpenSpec is adopted *empty*, per its own brownfield doctrine. `openspec/specs/` starts with no capability specs and accretes one `/opsx:propose → apply → archive` cycle at a time. Existing documentation is neither ported nor back-filled: it is triaged (delete what is dead, correct what is merely drifted), then relocated verbatim under `openspec/archive/` in two tiers — `specs/` for the accuracy-verified traced tree, `historical/` for superseded first-generation docs. The single supported lever for surfacing that archive to AI agents is the free-text `context:` string in `openspec/config.yaml`, which OpenSpec injects into every artifact prompt as an `<context>` block.
+**Architecture:** This cycle does **not** reach the final end state; it establishes the migration that gets there. `old-docs/` holds every surviving document and is the source of truth *only where it is provably correct*. Where the audit finds a claim wrong, that content is deleted from `old-docs/` and its corrected form is written as an OpenSpec spec under the bounded context it belongs to. `old-docs/` therefore shrinks monotonically: files that empty are deleted, and when the directory empties it is deleted along with every reference to it — at which point the repo holds only `README.md`, `CLAUDE.md`, the `.claude/` harness, and `openspec/`. A ratio gate (below) triggers a final conversion push before the tail drags on.
 
-**Tech Stack:** OpenSpec 1.6.0 (`@fission-ai/openspec`, installed at `/opt/homebrew/bin/openspec`); Go 1.25.5; `targ` as the build/test/lint runner.
+**Tech Stack:** OpenSpec 1.6.0 (`@fission-ai/openspec`, at `/opt/homebrew/bin/openspec`); Go 1.25.5; `targ` as build/test/lint runner.
 
 ## Global Constraints
 
-- **Do not port and do not back-fill.** OpenSpec's `docs/existing-projects.md` states: *"You do not document your whole codebase to start"* and *"Resist the urge to back-fill everything. Writing specs for code you aren't changing feels productive and usually isn't. Those specs go stale, because nothing forces them to track reality."* No task in this plan may create a file under `openspec/specs/`.
-- **Archived docs are moved verbatim.** Content correction happens in Task 1 and Task 2, *before* the move. Task 4 moves bytes and re-derives *pointers only* — never re-words claims.
-- **User-ratified scope decisions** (asked and answered 2026-07-28):
-  - `openspec/specs/` starts **empty**; no backfill this cycle or as a follow-up.
-  - Delete: `docs/plans/`, `specs/001-parallel-output/`, `projects/portable-targets/`, `.specify/` + `.claude/commands/speckit.*`, `.claude/skills/specification-layers/`.
-  - Archive location: **`openspec/archive/`**.
-- **Author's dissent, recorded and resolved:** the author initially recommended back-filling specs from code, on the precedent of engram and pi-vim-mode. OpenSpec's own documentation refutes that recommendation; the user's "start empty" choice is the doctrinally correct one and is implemented wholeheartedly. No task revisits it.
-- **Measured baseline (2026-07-28, `git ls-files`):** 213 tracked files total. `docs/` 37 (`plans/` 25, `specs/` 6, `archive/` 6); `specs/` 9; `projects/` 5; `.specify/` 12; `.claude/commands/speckit.*` 9; `.claude/skills/specification-layers/` 2; root strays 3.
-- **Verified environment facts** (probed 2026-07-28 in a throwaway git repo, not this one):
-  - `openspec init --tools claude .` writes exactly `openspec/config.yaml`, the empty dirs `openspec/{specs,changes,changes/archive}`, plus 6 `.claude/commands/opsx/*.md` and 6 `.claude/skills/openspec-*/SKILL.md`.
-  - An unmanaged `openspec/archive/` containing markdown is **inert**: `openspec validate --all --strict` exits 0 with "No items found to validate"; `openspec list --specs/--changes` unaffected; `openspec doctor` reports "OpenSpec root: ok".
-  - Empty directories are not committed by git, so `openspec/specs/` and `openspec/changes/archive/` require `.gitkeep` files.
-- **No pre-existing failures accepted.** `targ check-full` must be green before this cycle is declared done (repo CLAUDE.md rule).
+- **The migration standard (this is the deliverable, not just the mechanics).** Documented in `README.md` and in `openspec/config.yaml`'s `context:`:
+  1. `old-docs/` is legacy documentation. It is authoritative *only* for claims verified correct against the code.
+  2. When a claim in `old-docs/` is found incorrect, the fix is **not** to edit it in place. Delete the incorrect content from `old-docs/` and write its corrected form as an OpenSpec spec.
+  3. OpenSpec specs are organized by **domain / bounded context** — one capability directory per bounded context, derived from the code's own seams, not from the old documents' chapter structure.
+  4. When `old-docs/` content falls below **20%** of total spec content, convert the remainder in one final push.
+  5. A file that empties is deleted. When `old-docs/` empties, delete the directory and every reference to it.
+- **No bulk port, no blanket backfill.** OpenSpec's `docs/existing-projects.md`: *"You do not document your whole codebase to start"*; *"Resist the urge to back-fill everything."* A spec is written here only where the audit **proves an old claim wrong** — provable incorrectness is the trigger, never "this area lacks a spec". Accurate old content stays in `old-docs/` until rule 4 fires.
+- **User-ratified scope** (asked and answered 2026-07-28):
+  - Delete outright: `docs/plans/`, `specs/001-parallel-output/`, `projects/portable-targets/`, `.specify/` + `.claude/commands/speckit.*`, `.claude/skills/specification-layers/`.
+  - Everything else surviving — including `state.toml`, `updates.jsonl`, `session-learning-prompt.md` — is moved to `old-docs/` and audited on the same terms as the rest.
+  - Legacy docs live in **`old-docs/`** (this supersedes an earlier `openspec/archive/` answer).
+- **Author's dissent, recorded and resolved:** the author first recommended bulk backfill, which OpenSpec's own documentation refutes; the user then designed this incorrectness-triggered migration instead. It is implemented wholeheartedly. No task revisits it.
+- **Counts are re-derived, never copied from this plan.** A baseline taken before this plan was committed is already off by one in `docs/`, `docs/plans/`, and the total, because the plan file is itself tracked under `docs/plans/`. Every task that acts on a file set re-derives it mechanically against the live tree at execution time.
+- **Verified environment facts** (probed 2026-07-28 in throwaway repos, and independently re-verified by a second agent):
+  - `openspec init --tools claude .` writes exactly `openspec/config.yaml`, empty `openspec/{specs,changes,changes/archive}`, 6 `.claude/commands/opsx/*.md`, 6 `.claude/skills/openspec-*/SKILL.md`.
+  - **`openspec validate` is NOT a valid pre-init failure check** — with no `openspec/` root it exits **0**, silently treating cwd as an implicit root and reporting zero items. Use **`openspec doctor`**, which exits 1 with "No OpenSpec root found from the current directory."
+  - An unmanaged sibling directory of markdown is inert to `validate`/`doctor`/`list`.
+  - Empty directories are not committed by git — `openspec/specs/` and `openspec/changes/archive/` need `.gitkeep`.
+  - `gh` is authenticated and `origin` is `git@github.com:toejough/targ.git`; 7 issues open.
+  - No `.go` file, `go:generate`, `go:embed`, or `dev/` target references any path this plan moves or deletes — verified by grep. A build break here would be surprising and must be root-caused, not worked around.
+- **Commits:** Conventional Commits, and every commit ends with the trailer `AI-Used: [claude]` — never `Co-Authored-By`.
+- **No pre-existing failures accepted.** `targ check-full` must be green before this cycle is done.
 
 ---
 
 ## File Structure
 
-**Created:**
-- `openspec/config.yaml` — schema selection + the `context:` block (the only OpenSpec-supported pointer to external docs)
-- `openspec/specs/.gitkeep`, `openspec/changes/archive/.gitkeep` — make the empty accretion points survive a clone
-- `openspec/archive/README.md` — states what the archive is, its two tiers, and that it is background, not the spec of record
-- `openspec/archive/specs/` — relocated `docs/specs/` (5 md + `state.toml`), accuracy-verified in Task 1
-- `openspec/archive/historical/` — relocated superseded docs, kept verbatim
-- `.claude/commands/opsx/*.md` (6), `.claude/skills/openspec-*/SKILL.md` (6) — written by `openspec init`
+**Created:** `openspec/config.yaml`; `openspec/specs/.gitkeep`; `openspec/changes/archive/.gitkeep`; `openspec/specs/<bounded-context>/spec.md` (one per context where the audit found incorrectness); `old-docs/README.md`; `.claude/commands/opsx/*.md` (6) and `.claude/skills/openspec-*/SKILL.md` (6), both written by `openspec init`.
 
-**Modified:**
-- `CLAUDE.md` — remove the spec-kit generated header (stale: claims `src/`/`tests/` layout, "Last updated: 2026-02-19", a `001-parallel-output` changelog, and an empty `## Commands` stub); keep the hand-maintained rules
-- `docs/specs/*.md` — corrected in place in Task 1, before relocation
+**Moved into `old-docs/`:** `docs/specs/*` (6), `docs/archive/*` (6), `state.toml`, `updates.jsonl`, `session-learning-prompt.md`.
 
-**Deleted:**
-- `docs/plans/` (25), `specs/` (9), `projects/` (5), `.specify/` (12), `.claude/commands/speckit.*` (9), `.claude/skills/specification-layers/` (2), `state.toml`, `updates.jsonl`
-- Whichever of `docs/archive/tasks.md`, `docs/archive/issues.md` Task 2 finds fully resolved
+**Modified:** `CLAUDE.md` (stale generated header only — see Task 6's exact non-contiguous ranges); `README.md` (gains the migration standard).
+
+**Deleted:** `docs/plans/`, `specs/`, `projects/`, `.specify/`, `.claude/commands/speckit.*`, `.claude/skills/specification-layers/`, and any `old-docs/` file the audit empties.
 
 ---
 
-### Task 1: Verify and correct the live traced spec tree
+### Task 1: Retire the three abandoned frameworks
 
-`docs/specs/` is the repo's only live specification record — 6 UC, 18 REQ, 7 DES, 16 ARCH, 25 T, 20 IMPL, last edited 2026-07-28. It is the tier of the archive that must be *true*, because `config.yaml`'s `context:` will point future agents at it. This task is the "update anything only partially stale to match reality" half of the ask.
+Doing this first shrinks the surface every later task has to reason about, and it is the one fully-ratified, dependency-free deletion.
 
-**Files:**
-- Modify: `docs/specs/use-cases.md`, `docs/specs/requirements.md`, `docs/specs/architecture.md`, `docs/specs/tests.md`, `docs/specs/implementation.md`, `docs/specs/state.toml`
+**Files:** Delete `docs/plans/`, `specs/`, `projects/`, `.specify/`, `.claude/commands/speckit.*.md`, `.claude/skills/specification-layers/`
 
-**Interfaces:**
-- Consumes: nothing (first task)
-- Produces: a corrected `docs/specs/` tree that Task 4 relocates verbatim, and an audit report listing every claim checked and every correction made
-
-- [ ] **Step 1: Write the failing check — an accuracy audit with a recorded verdict**
-
-The "test" for a doc is a decision procedure with a measurable outcome. Dispatch **five parallel auditors**, one per spec file, each charged to verify every claim in its file against the code at `HEAD` and return a structured verdict:
-
-```
-For each numbered item (UC-n / REQ-n / DES-n / ARCH-n / T-n / IMPL-n) in <file>:
-  - Quote the claim.
-  - Name the code/test that satisfies it (file:line) or state NOT FOUND.
-  - Verdict: ACCURATE | DRIFTED (claim is stale, state the true behavior) | ORPHANED (names code that no longer exists)
-Also: does the file omit anything that shipped? Derive the expected set from the
-code (git log since the file's last edit), do not grep for the file's own terms —
-an omission cannot be found by searching for what is not written.
-Return: a table of every item + a count of ACCURATE / DRIFTED / ORPHANED.
-```
-
-- [ ] **Step 2: Run it and confirm it finds something**
-
-Expected: at least one DRIFTED or ORPHANED item, OR an explicit all-ACCURATE verdict with per-item evidence. A known-stale seed to confirm the audit is live: `docs/specs/state.toml` `[cursor].next_action` reads `"Re-entry #3 complete"` while four `[tree.*]` history strings describe a Re-entry #4 — the cursor is one re-entry behind. An audit that reports zero findings *and* misses this is not trustworthy; re-run it.
-
-- [ ] **Step 3: Apply the corrections**
-
-Fix every DRIFTED and ORPHANED item to state the true behavior. Add entries for anything that shipped and is missing. Correct `state.toml`'s `[cursor].next_action` to reflect the true latest re-entry. Do **not** restructure, renumber, or re-word accurate items.
-
-- [ ] **Step 4: Re-run the audit to verify**
-
-Expected: zero DRIFTED, zero ORPHANED, and the omission check clean.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add docs/specs/
-git commit -m "docs(specs): correct the spec tree against the code before archiving"
-```
-
----
-
-### Task 2: Triage the two disposable first-generation docs against reality
-
-`docs/archive/tasks.md` (1106 lines, a mostly-`pending` task ledger) and `docs/archive/issues.md` (228 lines, 21 `ISSUE-0xx` entries under Active/Completed/Blocked) are candidates for outright deletion — but only if nothing in them is live. The repo now tracks work in GitHub issues. Deleting a still-open bug would be a real loss; keeping a fully-resolved ledger is dead weight.
-
-**Files:**
-- Delete or keep: `docs/archive/tasks.md`, `docs/archive/issues.md`
-
-**Interfaces:**
-- Consumes: nothing
-- Produces: a delete/keep verdict per file, with evidence, consumed by Task 4 (which relocates whatever survives) and Task 5 (which deletes the rest)
-
-- [ ] **Step 1: Write the failing check — enumerate every open item**
-
-```bash
-cd /Users/joe/repos/personal/targ
-grep -nE '^\s*[-*]?\s*(ISSUE-[0-9]+|TASK-[0-9]+)' docs/archive/issues.md docs/archive/tasks.md | head -60
-gh issue list --state open --limit 100 --json number,title
-```
-
-- [ ] **Step 2: Run it and record the counts**
-
-Expected: a concrete list of `Active`/`Blocked`/`pending` entries and the current open GitHub issues. Write both counts down — they are the evidence for the verdict.
-
-- [ ] **Step 3: Resolve each open entry to one of three states**
-
-For every `Active`/`Blocked`/`pending` entry, determine by reading the code at `HEAD`:
-- **shipped** — the behavior exists; the entry is dead
-- **tracked** — a corresponding open GitHub issue exists; the entry is redundant
-- **live and untracked** — neither; this entry is real work nobody is holding
-
-- [ ] **Step 4: Apply the verdict**
-
-- If a file has **zero** live-and-untracked entries → delete it in Task 5.
-- If it has **any** → keep the file, relocate it to `openspec/archive/historical/` in Task 4, and report the live entries to the user at close-out. Do **not** silently file new issues for them; deferral needs an explicit check-in.
-
-- [ ] **Step 5: Commit the verdict record**
-
-No commit if both files are deleted (Task 5 handles it). If either survives, no content change is made here either — this task produces only a verdict. Record it in the close-out report.
-
----
-
-### Task 3: Initialize OpenSpec and write the context block
-
-**Files:**
-- Create: `openspec/config.yaml` (via `openspec init`, then edited), `openspec/specs/.gitkeep`, `openspec/changes/archive/.gitkeep`
-- Create (by the tool): `.claude/commands/opsx/*.md` (6), `.claude/skills/openspec-*/SKILL.md` (6)
-
-**Interfaces:**
-- Consumes: nothing
-- Produces: `openspec/` root that Task 4 populates under `archive/`, and the `context:` string that is this cycle's primary deliverable
+**Interfaces:** Consumes nothing. Produces a tree where `docs/` holds only `specs/` and `archive/`.
 
 - [ ] **Step 1: Write the failing check**
 
 ```bash
 cd /Users/joe/repos/personal/targ
-openspec validate --all --strict; echo "exit=$?"
+git ls-files -- specs projects .specify '.claude/commands/speckit.*' '.claude/skills/specification-layers' | wc -l
 ```
 
 - [ ] **Step 2: Run it to verify it fails**
 
-Expected: FAIL — no `openspec/` root exists yet. (Confirm the error names a missing OpenSpec root, not something else.)
+Expected: a non-zero count (37 at the time of writing: 9 + 5 + 12 + 9 + 2). Re-derive rather than trusting that number.
+
+- [ ] **Step 3: Delete, re-deriving the set from the live tree**
+
+```bash
+cd /Users/joe/repos/personal/targ
+git rm -r --quiet specs projects .specify .claude/skills/specification-layers
+git ls-files -z -- '.claude/commands/speckit.*' | xargs -0 git rm --quiet
+git rm -r --quiet docs/plans
+```
+
+`docs/plans/` includes this plan file. That is intended — the plan is already committed to git history, which retains it.
+
+- [ ] **Step 4: Run the check to verify it passes**
+
+```bash
+cd /Users/joe/repos/personal/targ
+git ls-files -- specs projects .specify '.claude/commands/speckit.*' '.claude/skills/specification-layers' docs/plans | wc -l
+```
+
+Expected: `0`.
+
+- [ ] **Step 5: Commit**
+
+```bash
+cd /Users/joe/repos/personal/targ
+git commit -q -F - <<'EOF'
+chore: retire spec-kit, specification-layers, and the plan archive
+
+Three spec frameworks accumulated in this repo and only one was ever
+live. Removes spec-kit's scaffolding, templates and nine slash commands;
+the specification-layers skill; the abandoned 001-parallel-output and
+portable-targets doc sets; and the dated plan archive. All retained in
+git history.
+
+AI-Used: [claude]
+EOF
+```
+
+---
+
+### Task 2: Initialize OpenSpec and write the migration standard into its context
+
+**Files:** Create `openspec/config.yaml` (via `openspec init`, then edited), `openspec/specs/.gitkeep`, `openspec/changes/archive/.gitkeep`. Tool-created: `.claude/commands/opsx/*.md`, `.claude/skills/openspec-*/SKILL.md`.
+
+**Interfaces:** Consumes nothing. Produces the `openspec/` root and the `context:` string that every later `/opsx:` invocation receives.
+
+- [ ] **Step 1: Write the failing check**
+
+```bash
+cd /Users/joe/repos/personal/targ
+openspec doctor; echo "exit=$?"
+```
+
+Use `doctor`, not `validate` — `validate` exits 0 with no root and would give a false green.
+
+- [ ] **Step 2: Run it to verify it fails**
+
+Expected: `exit=1`, message "No OpenSpec root found from the current directory."
 
 - [ ] **Step 3: Initialize and configure**
 
@@ -164,7 +133,7 @@ mkdir -p openspec/specs openspec/changes/archive
 touch openspec/specs/.gitkeep openspec/changes/archive/.gitkeep
 ```
 
-Then replace the commented-out stub in `openspec/config.yaml` with a real `context:` block. It must (a) describe targ, (b) name `openspec/archive/` and both its tiers explicitly, (c) state that the archive is background — *not* the spec of record, (d) name the build commands, (e) disambiguate `openspec/archive/` from OpenSpec's own `openspec/changes/archive/`. Write it as:
+Replace the commented-out stub in `openspec/config.yaml` with:
 
 ```yaml
 schema: spec-driven
@@ -172,211 +141,261 @@ schema: spec-driven
 context: |
   targ: a Go build system and CLI-from-functions library (Go 1.25.5). Public API at
   the repo root (targ.go), implementation under internal/, CLI binary at cmd/targ,
-  build targets in dev/. Design principle: "No Surprises" — conflicts error rather
-  than resolving silently.
+  build targets in dev/, examples in examples/. Design principle: "No Surprises" —
+  conflicts error rather than resolving silently.
 
-  Build, test, and lint run through targ itself, never through go test directly:
-  `targ test`, `targ check-full` (the full gate: lint, per-function 80% coverage,
-  declaration ordering, dead code, integration tests). `targ check-full` must be
+  Build, test and lint run through targ itself, never `go test` directly:
+  `targ test`, `targ check-full` (lint, per-function 80% coverage, declaration
+  ordering, dead code, integration tests), `targ reorder-decls`. check-full must be
   green before any change is done; pre-existing failures are not accepted.
 
   Conventions: no new package-level mutable state (use dependency injection);
-  declarations ordered types-then-vars-then-funcs, alphabetical within each group
-  (`targ reorder-decls`); no flaky tests (assert on error types, never elapsed
-  time); no IO mocking (tag genuine IO tests `//go:build integration` and name them
-  `TestIntegration...`); property-based tests via rapid, assertions via gomega.
+  declarations ordered types-then-vars-then-funcs, alphabetical within each group;
+  no flaky tests (assert on error types, never elapsed time); no IO mocking (tag
+  genuine IO tests `//go:build integration`, name them `TestIntegration...`);
+  property-based tests via rapid, assertions via gomega.
 
-  Background documentation lives in openspec/archive/ and is NOT the spec of record
-  — openspec/specs/ is, and it starts empty and accretes from archived changes.
-  Treat the archive as source material for exploration when proposing a change:
-    - openspec/archive/specs/ — a traced four-layer record (use cases → requirements
-      and design → architecture → tests → implementation), verified against the code
-      on 2026-07-28. The most reliable description of current behavior.
-    - openspec/archive/historical/ — superseded first-generation design, architecture
-      and requirements docs, kept verbatim as history. Older than the code; verify any
-      claim from here against the source before relying on it.
-  Note openspec/archive/ (legacy documentation) is distinct from
-  openspec/changes/archive/ (OpenSpec's own completed-change store).
+  DOCUMENTATION MIGRATION — in progress. This repo is moving from legacy docs to
+  OpenSpec specs, incrementally:
+    - old-docs/ holds the legacy documentation. It is the source of truth ONLY for
+      claims verified correct against the code. Anything there may be wrong; check
+      the source before relying on it.
+    - openspec/specs/ is the destination and is authoritative wherever it exists.
+    - When a claim in old-docs/ is found INCORRECT, do not edit it in place: delete
+      the incorrect content from old-docs/ and write its corrected form as an
+      OpenSpec spec. Proven incorrectness is the only trigger for writing a spec
+      about code you are not otherwise changing.
+    - Specs are organized by domain / bounded context — one capability directory per
+      bounded context, derived from the code's own seams.
+    - When old-docs/ content falls below 20% of total spec content, convert the
+      remainder in one final push. A file that empties is deleted; when old-docs/
+      empties, delete the directory and every reference to it.
+  Note old-docs/ is unrelated to openspec/changes/archive/, which is OpenSpec's own
+  store of completed changes.
 ```
 
 - [ ] **Step 4: Run the check to verify it passes**
 
 ```bash
 cd /Users/joe/repos/personal/targ
+openspec doctor; echo "exit=$?"
 openspec validate --all --strict; echo "exit=$?"
-openspec doctor
 ```
 
-Expected: `exit=0` with "No items found to validate" (correct — `specs/` is intentionally empty), and `doctor` reporting `OpenSpec root: ok`.
+Expected: `doctor` reports "OpenSpec root: ok", `exit=0`; `validate` reports "No items found to validate", `exit=0` — an empty spec tree is intended at this point.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add openspec .claude/commands/opsx .claude/skills/openspec-*
-git commit -m "feat(openspec): initialize OpenSpec with targ's project context"
+cd /Users/joe/repos/personal/targ
+git add openspec .claude/commands/opsx .claude/skills
+git commit -q -F - <<'EOF'
+feat(openspec): initialize OpenSpec with targ's context and migration standard
+
+openspec/specs/ starts empty by design. The context: block carries targ's
+stack and conventions plus the old-docs -> openspec migration rule, so
+every /opsx: invocation receives it.
+
+AI-Used: [claude]
+EOF
 ```
 
 ---
 
-### Task 4: Relocate the surviving documentation into `openspec/archive/`
+### Task 3: Consolidate every surviving document into `old-docs/`
 
-**Files:**
-- Create: `openspec/archive/README.md`
-- Move: `docs/specs/*` → `openspec/archive/specs/`; `docs/archive/{architecture,design,requirements,research-gomod-tree-traversal}.md` + any survivor from Task 2 + `session-learning-prompt.md` → `openspec/archive/historical/`
+**Files:** Create `old-docs/README.md`. Move `docs/specs/*` (6), `docs/archive/*` (6), `state.toml`, `updates.jsonl`, `session-learning-prompt.md` into `old-docs/`.
 
-**Interfaces:**
-- Consumes: Task 1's corrected `docs/specs/`; Task 2's delete/keep verdict; Task 3's `openspec/` root
-- Produces: the archive tree that `config.yaml`'s `context:` block already names
+**Interfaces:** Consumes Task 1 (the deletions are done, so what remains is exactly what moves). Produces the `old-docs/` tree that Task 4 audits.
 
 - [ ] **Step 1: Write the failing check**
 
 ```bash
 cd /Users/joe/repos/personal/targ
-test -d openspec/archive/specs && test -d openspec/archive/historical; echo "exit=$?"
+test -d old-docs; echo "exit=$?"
 ```
 
 - [ ] **Step 2: Run it to verify it fails**
 
-Expected: `exit=1` — neither directory exists.
+Expected: `exit=1`.
 
-- [ ] **Step 3: Move with `git mv` (preserves history), then write the archive README**
+- [ ] **Step 3: Move, preserving history**
+
+Two basename collisions exist across the sources — `architecture.md` and `requirements.md` each appear in both `docs/specs/` and `docs/archive/` (verified: these two are the *only* collisions). Keep the two provenances in subdirectories so neither clobbers the other and the audit can tell them apart:
 
 ```bash
 cd /Users/joe/repos/personal/targ
-mkdir -p openspec/archive/specs openspec/archive/historical
-git mv docs/specs/use-cases.md      openspec/archive/specs/
-git mv docs/specs/requirements.md   openspec/archive/specs/
-git mv docs/specs/architecture.md   openspec/archive/specs/
-git mv docs/specs/tests.md          openspec/archive/specs/
-git mv docs/specs/implementation.md openspec/archive/specs/
-git mv docs/specs/state.toml        openspec/archive/specs/
-git mv docs/archive/architecture.md                openspec/archive/historical/
-git mv docs/archive/design.md                      openspec/archive/historical/
-git mv docs/archive/requirements.md                openspec/archive/historical/
-git mv docs/archive/research-gomod-tree-traversal.md openspec/archive/historical/
-git mv session-learning-prompt.md                  openspec/archive/historical/
-# plus, only if Task 2 kept them:
-# git mv docs/archive/tasks.md  openspec/archive/historical/
-# git mv docs/archive/issues.md openspec/archive/historical/
+mkdir -p old-docs/traced old-docs/first-gen
+git mv docs/specs/use-cases.md      old-docs/traced/
+git mv docs/specs/requirements.md   old-docs/traced/
+git mv docs/specs/architecture.md   old-docs/traced/
+git mv docs/specs/tests.md          old-docs/traced/
+git mv docs/specs/implementation.md old-docs/traced/
+git mv docs/specs/state.toml        old-docs/traced/
+git mv docs/archive/architecture.md                  old-docs/first-gen/
+git mv docs/archive/design.md                        old-docs/first-gen/
+git mv docs/archive/requirements.md                  old-docs/first-gen/
+git mv docs/archive/tasks.md                         old-docs/first-gen/
+git mv docs/archive/issues.md                        old-docs/first-gen/
+git mv docs/archive/research-gomod-tree-traversal.md old-docs/first-gen/
+git mv session-learning-prompt.md old-docs/
+git mv state.toml                 old-docs/
+git mv updates.jsonl              old-docs/
+rmdir docs/specs docs/archive docs 2>/dev/null || true
 ```
 
-Name collision check before moving: `docs/specs/architecture.md` and `docs/archive/architecture.md` share a basename but land in *different* tiers (`specs/` vs `historical/`), so no clobber. Likewise `requirements.md`. Verify with `ls openspec/archive/specs openspec/archive/historical` after the moves — six files and five (or seven) files respectively.
-
-Then write `openspec/archive/README.md`:
+Write `old-docs/README.md`:
 
 ```markdown
-# Archive
+# old-docs
 
-Background documentation for targ, kept as source material for exploration when
-proposing a change. **This is not the spec of record.** `openspec/specs/` is —
-it starts empty and accretes as changes are archived.
+Legacy documentation, migrating into `openspec/specs/`. **Authoritative only where
+verified correct against the code** — anything here may be stale; check the source
+before relying on it.
 
-## `specs/` — traced four-layer record
+- `traced/` — a four-layer traced record (use cases → requirements/design →
+  architecture → tests → implementation; `state.toml` holds the item rosters and
+  layer topology). The most recently maintained of the two sets.
+- `first-gen/` — the original architecture, design, requirements, task and issue
+  docs, plus a research note on `go.mod` tree traversal. Older; predates much of
+  the code it describes.
+- `session-learning-prompt.md`, `state.toml`, `updates.jsonl` — process artifacts
+  from earlier workflow runs.
 
-A use-cases → requirements/design → architecture → tests → implementation tree
-(`state.toml` holds the item rosters and layer topology). Every claim was verified
-against the code on 2026-07-28. This is the most reliable description of targ's
-current behavior outside the source itself.
+## How this directory shrinks
 
-## `historical/` — superseded first-generation docs
+When a claim here is found incorrect, it is **not** edited in place. The incorrect
+content is deleted from this directory and its corrected form is written as an
+OpenSpec spec under the bounded context it belongs to. A file that empties is
+deleted; when this directory empties, it is deleted along with every reference to
+it. When what remains here falls below 20% of total spec content, the remainder is
+converted in one push.
 
-The original architecture, design, and requirements docs, plus a research note on
-`go.mod` tree traversal and a one-off session-learning prompt. Kept verbatim as
-history. These predate the code they describe — verify any claim here against the
-source before relying on it.
-
-Not to be confused with `openspec/changes/archive/`, which is OpenSpec's own store
-of completed changes.
+Unrelated to `openspec/changes/archive/`, which is OpenSpec's own store of
+completed changes.
 ```
 
-- [ ] **Step 4: Re-derive cross-references, then run the check**
+- [ ] **Step 4: Re-derive broken pointers, then run the check**
 
-"Keep verbatim" is only safe for content whose references are self-contained. Sweep the moved files for pointers that the move broke — relative paths, `docs/` prefixes, and locality words (`above`, `below`, `this directory`) — and re-derive each against its new location. Claims stay verbatim; only pointers change.
+Moved content keeps its claims verbatim; only its *pointers* are re-derived. Sweep for paths the move or Task 1 invalidated:
 
 ```bash
 cd /Users/joe/repos/personal/targ
-grep -rnE 'docs/(specs|plans|archive)|specs/001|projects/portable|\.specify' openspec/archive/ || echo "no stale path refs"
-test -d openspec/archive/specs && test -d openspec/archive/historical; echo "exit=$?"
+grep -rnE 'docs/(specs|plans|archive)|specs/001|projects/portable|\.specify' old-docs/ || echo "no stale path refs"
+test -d old-docs && test ! -d docs; echo "exit=$?"
+```
+
+Expected: `exit=0`, and either "no stale path refs" or a short list, each then fixed. One hit is known: `old-docs/session-learning-prompt.md:27` cites `docs/plans/2026-02-21-help-source-attribution.md`, deleted in Task 1 — replace the path with a note naming the file as available in git history, and leave the surrounding lesson intact.
+
+- [ ] **Step 5: Commit**
+
+```bash
+cd /Users/joe/repos/personal/targ
+git add -A old-docs docs session-learning-prompt.md state.toml updates.jsonl
+git commit -q -F - <<'EOF'
+docs: consolidate surviving documentation into old-docs/
+
+One shrinking directory, split by provenance: traced/ (the four-layer
+record) and first-gen/ (the original docs), plus the loose process
+artifacts. Claims move verbatim; only pointers broken by the move or by
+the framework deletions are re-derived.
+
+AI-Used: [claude]
+EOF
+```
+
+---
+
+### Task 4: Audit `old-docs/`, and replace what is wrong with OpenSpec specs
+
+This is the cycle's substantive work. It is the only task that writes to `openspec/specs/`, and it may write there **only** for content the audit proves incorrect.
+
+**Files:** Modify/delete files under `old-docs/`. Create `openspec/specs/<bounded-context>/spec.md`.
+
+**Interfaces:** Consumes Task 2's `openspec/` root and Task 3's `old-docs/` tree. Produces the initial spec set and a shrunken `old-docs/`.
+
+- [ ] **Step 1: Derive the bounded contexts from the code, before auditing anything**
+
+Specs are organized by the code's own seams, not by the old documents' chapters. Dispatch one agent to read `targ.go`, `cmd/targ/`, and each `internal/*` package and propose the bounded-context set, returning for each: a kebab-case id, a one-line responsibility, and the packages/files that constitute it. Require that every `internal/` package land in exactly one context.
+
+Record the result in the plan's execution notes. Every spec written in Step 4 uses an id from this set.
+
+- [ ] **Step 2: Write the failing check — the audit, with a recorded verdict**
+
+The "test" for a document is a decision procedure with a measurable outcome. Dispatch parallel auditors, one per `old-docs/` file, each returning a **markdown table with exactly these columns** so five agents produce comparable output:
+
+| Item | Claim (quoted) | Code location (`file:line`) or NOT FOUND | Verdict | True behavior |
+|---|---|---|---|---|
+
+`Verdict` is exactly one of `CORRECT`, `INCORRECT`, `ORPHANED` (names code that no longer exists). For `INCORRECT`/`ORPHANED`, `True behavior` quotes the actual code or test at `file:line`; prose only where the behavior is genuinely diffuse. Below the table: `CORRECT: n / INCORRECT: n / ORPHANED: n`, and the bounded-context id each incorrect item belongs to.
+
+For files with no numbered items (`state.toml`, `updates.jsonl`, `session-learning-prompt.md`, `README`-ish prose), the unit of audit is the individual claim or record, not a numbered id.
+
+Omission check, per file: an omission cannot be found by grepping the file for its own terms. Derive the expected set from the *code*: run `git log --oneline --since=<the file's last-edit date>`, read each commit's diff summary, and list any exported API, behavior, or subsystem added since that the file does not mention. Report those as `INCORRECT` (incomplete) with the commit that introduced them.
+
+- [ ] **Step 3: Run the audit and confirm it is live**
+
+Expected: a verdict table per file with at least one `INCORRECT` or `ORPHANED`, or an explicit all-`CORRECT` verdict carrying per-item evidence. A known-stale seed proves the audit is not rubber-stamping: `old-docs/traced/state.toml`'s `[cursor].next_action` reads "Re-entry #3 complete" while four `[tree.*]` history strings describe a Re-entry #4. An audit reporting zero findings *and* missing this is not trustworthy — re-run it.
+
+- [ ] **Step 4: Replace incorrectness with specs**
+
+For each bounded context that has ≥1 `INCORRECT`/`ORPHANED` item, write `openspec/specs/<context>/spec.md` in OpenSpec's **main-spec** format — not the delta format:
+
+```markdown
+# <Context> Specification
+
+## Purpose
+
+<≥50 characters. What this bounded context is responsible for, and where its
+behavior lives in the code.>
+
+## Requirements
+
+### Requirement: <name>
+<Statement. MUST contain SHALL or MUST.>
+
+#### Scenario: <name>
+- **WHEN** <condition>
+- **THEN** <expected outcome>
+```
+
+Format constraints, enforced by `openspec validate`: `## Purpose` and `## Requirements` are both required; every requirement contains SHALL or MUST; every requirement has ≥1 scenario; scenarios use **exactly four** hashes — three hashes or bullets fail silently. Do not use `## ADDED Requirements` (that is the delta format, for `openspec/changes/`).
+
+Each requirement states the **corrected** behavior, verified at `file:line`. Then delete the superseded content from its `old-docs/` file. Delete any file that empties.
+
+- [ ] **Step 5: Verify, measure the ratio, and commit**
+
+```bash
+cd /Users/joe/repos/personal/targ
 openspec validate --all --strict; echo "exit=$?"
+OLD=$(find old-docs -name '*.md' -o -name '*.toml' -o -name '*.jsonl' 2>/dev/null | xargs wc -l 2>/dev/null | tail -1 | awk '{print $1}')
+NEW=$(find openspec/specs -name 'spec.md' 2>/dev/null | xargs wc -l 2>/dev/null | tail -1 | awk '{print $1}')
+echo "old-docs=$OLD openspec=$NEW ratio=$(awk -v o="${OLD:-0}" -v n="${NEW:-0}" 'BEGIN{t=o+n; print (t?o/t:1)}')"
 ```
 
-Expected: "no stale path refs" (or a short list, each then fixed), `exit=0` twice.
-
-Known hit to resolve: `session-learning-prompt.md:27` cites `docs/plans/2026-02-21-help-source-attribution.md`, which Task 5 deletes. Replace the path with a note that the plan is available in git history, naming the file. Do not delete the surrounding lesson.
-
-- [ ] **Step 5: Commit**
+Expected: `exit=0` and every written spec listed as passing. Record the ratio — if it is already below `0.20`, the final conversion push (Global Constraint 4) is due now; report that to the user rather than starting it unasked.
 
 ```bash
-git add -A openspec/archive docs session-learning-prompt.md
-git commit -m "docs: relocate surviving documentation into openspec/archive"
+cd /Users/joe/repos/personal/targ
+git add -A old-docs openspec
+git commit -q -F - <<'EOF'
+docs(openspec): replace audited-incorrect legacy content with specs
+
+Audits every old-docs file against the code. Content verified correct
+stays put; content proven wrong is deleted there and rewritten as an
+OpenSpec spec under its bounded context. Emptied files removed.
+
+AI-Used: [claude]
+EOF
 ```
 
 ---
 
-### Task 5: Delete the retired frameworks
+### Task 5: De-stale CLAUDE.md
 
-**Files:**
-- Delete: `docs/` (whatever remains), `specs/`, `projects/`, `.specify/`, `.claude/commands/speckit.*.md`, `.claude/skills/specification-layers/`, `state.toml`, `updates.jsonl`, and this plan file
+**Files:** Modify `CLAUDE.md`.
 
-**Interfaces:**
-- Consumes: Task 4 (everything worth keeping has already moved out)
-- Produces: the end state the ask specifies
-
-- [ ] **Step 1: Write the failing check — the end-state assertion**
-
-```bash
-cd /Users/joe/repos/personal/targ
-git ls-files | grep -vE '\.go$' | grep -vE 'testdata|\.golden$|override\.sum$' | sort
-```
-
-- [ ] **Step 2: Run it to verify it fails**
-
-Expected: still lists `docs/plans/*`, `specs/*`, `projects/*`, `.specify/*`, `.claude/commands/speckit.*`, `.claude/skills/specification-layers/*`, `state.toml`, `updates.jsonl`.
-
-- [ ] **Step 3: Re-derive the deletion set against the live tree, then delete**
-
-Do not delete from the counts in this plan — the cycle's own moves have changed them. Re-derive mechanically at execution time:
-
-```bash
-cd /Users/joe/repos/personal/targ
-git rm -r --quiet docs specs projects .specify .claude/skills/specification-layers
-git rm --quiet .claude/commands/speckit.analyze.md .claude/commands/speckit.checklist.md \
-  .claude/commands/speckit.clarify.md .claude/commands/speckit.constitution.md \
-  .claude/commands/speckit.implement.md .claude/commands/speckit.plan.md \
-  .claude/commands/speckit.specify.md .claude/commands/speckit.tasks.md \
-  .claude/commands/speckit.taskstoissues.md
-git rm --quiet state.toml updates.jsonl
-```
-
-`git rm -r docs` also removes this plan file — that is intended. The plan is committed in Task 0 (below) so git history retains it.
-
-- [ ] **Step 4: Run the end-state check to verify it passes**
-
-```bash
-cd /Users/joe/repos/personal/targ
-git ls-files | grep -vE '\.go$' | grep -vE 'testdata|\.golden$|override\.sum$' | sort
-```
-
-Expected exactly: `.gitignore`, `.claude/commands/opsx/*` (6), `.claude/skills/openspec-*/SKILL.md` (6), `CLAUDE.md`, `README.md`, `assets/targ.png`, `dev/golangci-{fast,fmt,lint,todos}.toml`, `go.mod`, `go.sum`, `openspec/config.yaml`, `openspec/specs/.gitkeep`, `openspec/changes/archive/.gitkeep`, `openspec/archive/README.md`, `openspec/archive/specs/*` (6), `openspec/archive/historical/*` (5 or 7).
-
-No `docs/`, `specs/`, `projects/`, `.specify/`, `speckit`, or `specification-layers` entry may remain.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git commit -m "chore: retire spec-kit, specification-layers, and the plan archive"
-```
-
----
-
-### Task 6: De-stale CLAUDE.md
-
-**Files:**
-- Modify: `CLAUDE.md:1-32` (the spec-kit generated header)
-
-**Interfaces:**
-- Consumes: Task 3's `openspec/` (CLAUDE.md should name it), Task 5's deletions (the generator is gone)
-- Produces: a CLAUDE.md whose every line is true
+**Interfaces:** Consumes Tasks 1–3 (the generator is gone; `openspec/` and `old-docs/` exist to name).
 
 - [ ] **Step 1: Write the failing check**
 
@@ -387,11 +406,15 @@ grep -nE 'src/|tests/|Last updated: 2026-02-19|001-parallel-output|Add commands 
 
 - [ ] **Step 2: Run it to verify it fails**
 
-Expected: 6+ hits. Every one is false — targ has no `src/` or `tests/` directory (`ls` confirms `internal/`, `cmd/`, `dev/`), `## Commands` is an empty stub reading `# Add commands for Go 1.25.5`, and `001-parallel-output` names a spec-kit feature dir deleted in Task 5. The generator that wrote this header (`.specify/scripts/bash/update-agent-context.sh`) is also gone, so nothing will re-impose it.
+Expected: exactly 6 hits, at lines 3, 7, 12, 13, 18, 31. Each is false — targ has no `src/` or `tests/` directory (it has `internal/`, `cmd/`, `dev/`, `examples/`), `## Commands` is an empty stub, and `001-parallel-output` names a directory Task 1 deleted. The generator that wrote this header (`.specify/scripts/bash/update-agent-context.sh`) is also gone, so nothing re-imposes it.
 
-- [ ] **Step 3: Replace the generated header**
+- [ ] **Step 3: Replace only the generated ranges**
 
-Delete lines 1–32 (through `## Recent Changes` and its bullet) and the now-pointless `<!-- MANUAL ADDITIONS START/END -->` markers, since there is no longer a generator to protect the block from. Replace the header with an accurate one:
+**The stale material is non-contiguous.** Delete lines **1–18** (title through the empty `## Commands` stub) and lines **29–32** (`## Recent Changes` and its bullet). **Lines 20–27 — the `## Code Style` block — are hand-written project rules and MUST be preserved verbatim**, exactly as the Testing Rules block is. Deleting a contiguous 1–32 would destroy four real engineering rules; do not do that.
+
+Also drop the now-purposeless `<!-- MANUAL ADDITIONS START -->` / `<!-- MANUAL ADDITIONS END -->` markers, since no generator remains to protect the block from.
+
+The replacement header, which goes above the preserved `## Code Style` block:
 
 ```markdown
 # targ Development Guidelines
@@ -403,55 +426,134 @@ binary at `cmd/targ/`; build targets in `dev/`; examples in `examples/`.
 
 ## Specs
 
-`openspec/specs/` is the spec of record; it starts empty and accretes as changes
-are archived (`/opsx:propose` → `/opsx:apply` → `/opsx:archive`). Background
-documentation is in `openspec/archive/` — read it as source material, not as
-current truth. See `openspec/archive/README.md`.
+`openspec/specs/` is the spec of record, organized by bounded context. Legacy
+documentation lives in `old-docs/` and is authoritative only where verified
+correct against the code — when you find a claim there wrong, delete it and write
+the corrected form as an OpenSpec spec rather than editing it in place. See
+`README.md` for the full migration standard.
 
 ## Commands
 
-Build, test, and lint run through targ, never `go test` directly:
+Build, test and lint run through targ, never `go test` directly:
 `targ test`, `targ check-full`, `targ reorder-decls`.
 ```
-
-Keep the existing Code Style and Testing Rules blocks verbatim — they are hand-maintained and accurate.
 
 - [ ] **Step 4: Run the check to verify it passes**
 
 ```bash
 cd /Users/joe/repos/personal/targ
 grep -nE 'src/|tests/|Last updated: 2026-02-19|001-parallel-output|Add commands for Go|Auto-generated from all feature plans' CLAUDE.md || echo "clean"
+grep -c 'No new package-level mutable state' CLAUDE.md
+grep -c 'No flaky tests' CLAUDE.md
 ```
 
-Expected: `clean`.
+Expected: `clean`, then `1` and `1` — proving both hand-written blocks survived.
 
 - [ ] **Step 5: Commit**
 
 ```bash
+cd /Users/joe/repos/personal/targ
 git add CLAUDE.md
-git commit -m "docs: replace CLAUDE.md's stale generated header with the real layout"
+git commit -q -F - <<'EOF'
+docs: replace CLAUDE.md's stale generated header with the real layout
+
+The spec-kit header claimed a src//tests/ layout targ has never had, an
+empty Commands stub and a changelog for a deleted directory. The
+hand-written Code Style and Testing Rules blocks are preserved verbatim.
+
+AI-Used: [claude]
+EOF
 ```
 
 ---
 
-### Task 7: Verify the whole cycle
+### Task 6: Document the migration standard in README.md
 
-**Files:** none modified
+**Files:** Modify `README.md` (861 lines; currently a pure user manual with no development section).
 
-**Interfaces:**
-- Consumes: every prior task
-- Produces: the evidence that closes the cycle
+**Interfaces:** Consumes Tasks 2–4. Produces the user-facing statement of the standard.
+
+- [ ] **Step 1: Write the failing check**
+
+```bash
+cd /Users/joe/repos/personal/targ
+grep -nE 'old-docs|openspec' README.md || echo "absent"
+```
+
+- [ ] **Step 2: Run it to verify it fails**
+
+Expected: `absent`. README today describes only how to *use* targ; it says nothing about how the project's specs are organized, so a contributor has no way to learn the standard from it.
+
+- [ ] **Step 3: Append a Development section**
+
+Add at the end of README.md, as a new top-level section:
+
+```markdown
+## Specifications
+
+targ's behavior is specified in `openspec/specs/`, organized by domain — one
+capability directory per bounded context, derived from the code's own seams.
+Specs are managed with [OpenSpec](https://github.com/Fission-AI/OpenSpec):
+`/opsx:propose` → `/opsx:apply` → `/opsx:archive`, and validated with
+`openspec validate --all --strict`.
+
+`old-docs/` holds the project's legacy documentation while it migrates. It is
+authoritative **only** where its claims have been verified against the code. The
+migration rule is:
+
+1. Find a claim in `old-docs/` that is wrong.
+2. Delete the wrong content from `old-docs/` — do not edit it in place.
+3. Write its corrected form as an OpenSpec spec under the bounded context it
+   belongs to.
+4. Delete any `old-docs/` file that empties.
+
+Proven incorrectness is the only trigger for writing a spec about code you are not
+otherwise changing — specs written speculatively go stale. When `old-docs/` content
+falls below 20% of total spec content, the remainder is converted in one push; when
+the directory empties it is deleted, along with every reference to it.
+```
+
+- [ ] **Step 4: Run the check to verify it passes**
+
+```bash
+cd /Users/joe/repos/personal/targ
+grep -nE 'old-docs|openspec' README.md | head
+```
+
+Expected: several hits in the new section.
+
+- [ ] **Step 5: Commit**
+
+```bash
+cd /Users/joe/repos/personal/targ
+git add README.md
+git commit -q -F - <<'EOF'
+docs: state the openspec migration standard in the README
+
+README described only how to use targ. Adds the specification section:
+where specs live, how they are organized, and the rule that governs
+old-docs shrinking into openspec/specs.
+
+AI-Used: [claude]
+EOF
+```
+
+---
+
+### Task 7: Verify the cycle
+
+**Files:** none modified.
 
 - [ ] **Step 1: Run the OpenSpec gate**
 
 ```bash
 cd /Users/joe/repos/personal/targ
-openspec validate --all --strict; echo "exit=$?"
 openspec doctor
+openspec validate --all --strict; echo "exit=$?"
 openspec list --specs
 ```
 
-Expected: `exit=0`; `OpenSpec root: ok`; "No specs found." — an empty spec tree is the intended end state, not a failure.
+Expected: root ok; `exit=0`; every spec Task 4 wrote listed.
 
 - [ ] **Step 2: Run the repo gate**
 
@@ -460,35 +562,34 @@ cd /Users/joe/repos/personal/targ
 targ check-full
 ```
 
-Expected: green. This is a doc-only change, so any failure is either pre-existing (must still be fixed — the repo accepts no pre-existing failures) or caused by a deleted file the build referenced. Note the earlier grep proved no `.go` file references any deleted path, so a build break would be surprising and must be root-caused, not worked around.
+Expected: green. Any failure is either pre-existing (still must be fixed) or caused by a moved file — root-cause it, do not suppress it.
 
-- [ ] **Step 3: Verify from a clean clone that the empty dirs survived**
+- [ ] **Step 3: Verify the end state from a clean clone**
 
 ```bash
 cd "$(mktemp -d)" && git clone -q /Users/joe/repos/personal/targ t && cd t
 find openspec -type d | sort
+git ls-files | grep -vE '\.go$' | grep -vE 'testdata|\.golden$|override\.sum$' | sort
 ```
 
-Expected: `openspec`, `openspec/archive`, `openspec/archive/historical`, `openspec/archive/specs`, `openspec/changes`, `openspec/changes/archive`, `openspec/specs`. If `openspec/specs` or `openspec/changes/archive` is missing, the `.gitkeep` files were not committed — fix and re-verify.
+Expected directories: `openspec`, `openspec/changes`, `openspec/changes/archive`, `openspec/specs` (plus a directory per written spec). If `openspec/specs` or `openspec/changes/archive` is absent, the `.gitkeep` files were not committed — fix and re-verify.
 
-- [ ] **Step 4: Repair the vault pointers this cycle broke**
+Expected file listing: `.gitignore`; `.claude/commands/opsx/*` (6); `.claude/skills/openspec-*/SKILL.md` (6); `CLAUDE.md`; `README.md`; `assets/targ.png`; `dev/golangci-{fast,fmt,lint,todos}.toml`; `go.mod`; `go.sum`; `openspec/config.yaml`; `openspec/specs/.gitkeep`; `openspec/changes/archive/.gitkeep`; the written specs; `old-docs/**` (whatever the audit left). **No** `docs/`, `specs/`, `projects/`, `.specify/`, `speckit`, or `specification-layers` entry may remain.
 
-Two notes cite paths that no longer exist:
-- `374.2026-07-23.targ-gomod-research-doc-is-prior-work-for-cache-replace-changes` cites `docs/archive/research-gomod-tree-traversal.md` → now `openspec/archive/historical/research-gomod-tree-traversal.md`
-- `401.2026-07-23.targ-dep-execution-prior-art-and-code-map` cites `docs/plans/2026-02-13-dep-group-chaining.md`, `-design.md` (deleted; available in git history) and `docs/archive/architecture.md` → now `openspec/archive/historical/architecture.md`
+- [ ] **Step 4: Report the ratio and what remains**
 
-Amend both with `engram amend --target <note> --subject/--predicate/--object` so the pointers resolve.
-
-- [ ] **Step 5: No commit** — this task only verifies.
+State the `old-docs`-to-spec ratio from Task 4 Step 5, the list of specs written, and the `old-docs/` files still standing. This is a migration in progress, not a finished state — say so in the voice the evidence supports.
 
 ---
 
 ## Self-Review
 
-**Spec coverage:** "examine all existing specs/docs" → the inventory in Task 1/2 preamble plus the measured baseline. "delete anything entirely stale/unused" → Tasks 2 and 5. "update anything only partially stale to match reality" → Tasks 1 and 6. "don't port" → Global Constraints, enforced by "no task may create a file under `openspec/specs/`". "move all the updated docs to an archive directory" → Task 4. "set up the openspec config to point at those docs as context for future specs" → Task 3 Step 3. "only README/claude/agent files and the openspec docs left" → Task 5 Step 4's exact expected listing.
+**Ask coverage.** "examine all the existing specs/docs" → Task 4's audit covers every surviving file, and Task 1 disposes of the rest. "delete anything entirely stale/unused" → Task 1 (the ratified frameworks) and Task 4 Step 4 (content the audit proves wrong). "update anything only partially stale to match reality" → Task 4's replace-with-spec mechanism, Task 5 (CLAUDE.md), Task 6 (README). "don't port; move the docs to an archive directory" → Task 3. "set up the openspec config to point at those docs as context" → Task 2 Step 3. "use DDD domains/bounded contexts" → Task 4 Step 1 and every spec path. "<20% triggers a final conversion push" → Global Constraint 4, measured in Task 4 Step 5. "document this as the standard in the README and openspec config" → Tasks 6 and 2.
 
-**Placeholders:** none — every command is written out, and every count in this plan was measured against the tree on 2026-07-28 rather than recalled.
+**"Agent files."** No `AGENTS.md` exists and OpenSpec 1.6.0 does not generate one; the ask's "claude/agent files" is read as `CLAUDE.md` plus the `.claude/` command and skill surface. Stated here rather than left implicit.
 
-**Consistency:** the archive tiers are named `openspec/archive/specs/` and `openspec/archive/historical/` in Task 3's context block, Task 4's moves, Task 4's README, Task 5's expected listing, and Task 6's CLAUDE.md text — identically in all five.
+**End state.** This cycle deliberately does **not** reach "only README/CLAUDE/agent files and openspec docs." `old-docs/` survives by design and shrinks under the standard until it empties. Task 7 Step 4 reports how far along that is instead of claiming completion.
 
-**Known gap, stated rather than hidden:** the accuracy of `openspec/archive/specs/` rests on Task 1's audit, which is an LLM reading code. It is verification, not proof. The `context:` block therefore dates the claim ("verified against the code on 2026-07-28") instead of asserting it timelessly.
+**Gate A findings folded in.** Non-contiguous CLAUDE.md ranges with the Code Style block explicitly protected (was: a contiguous delete that destroyed it); `openspec doctor` as the pre-init failure check (was: `validate`, which exits 0 with no root); `AI-Used: [claude]` on every commit; no cross-task verdict handoff (the audit and its consequences are one task); no dangling task reference; counts re-derived rather than copied.
+
+**Known gap, stated rather than hidden.** The audit is an LLM reading code — verification, not proof. Every spec it produces cites `file:line`, and `old-docs/README.md` and the `context:` block both say the legacy material is authoritative only where verified, so nothing downstream treats an unaudited claim as settled.
