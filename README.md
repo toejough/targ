@@ -14,7 +14,7 @@ Build CLIs and run build targets with minimal configuration. Inspired by Mage, g
 | Define a target     | `var Build = targ.Targ(build)`                        |
 | Add flags/args      | Function with struct parameter + `targ:"..."` tags    |
 | Shell command target| `var Tidy = targ.Targ("go mod tidy")`                 |
-| Run shell commands  | `targ.Run("go", "build")` or `targ.RunContext(ctx, ...)`  |
+| Run shell commands  | `targ.Run("go", "build")`, `targ.RunContext(ctx, ...)`, or `targ.Cmd(...)` |
 | Skip unchanged work | `targ.Newer(inputs, outputs)` or `targ.Checksum(...)` |
 | Watch for changes   | `targ.Watch(ctx, patterns, opts, callback)`           |
 | Run deps first      | `.Deps(build, test)` on target                        |
@@ -427,6 +427,24 @@ err := targ.RunContext(ctx, "go", "test", "./...")
 err := targ.RunContextV(ctx, "golangci-lint", "run")
 out, err := targ.OutputContext(ctx, "go", "list", "./...")
 ```
+
+To set environment variables for a single command, build it with `targ.Cmd`:
+
+```go
+err := targ.Cmd("golangci-lint", "run").
+    Env("GOLANGCI_LINT_CACHE", cacheDir).
+    Run(ctx)
+
+out, err := targ.Cmd("go", "env", "GOMOD").Env("GOFLAGS", "-mod=mod").Output(ctx)
+```
+
+`Env` is repeatable and the last value declared for a key wins. Declared variables are **added to**
+the inherited environment rather than replacing it — the child still sees `PATH` and everything
+else the parent had.
+
+The builder's three terminals — `Run`, `RunV`, `Output` — all take a context, so a command built
+this way always routes its output through the parallel printer when its target is running under
+`DepModeParallel`.
 
 ### Git Helpers
 

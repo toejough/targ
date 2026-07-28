@@ -106,8 +106,10 @@ Items derived from: L4 implementation (existing test suite)
 - Property: shell command output is prefixed (single and multi-line)
 - Property: top-level parallel produces prefixed output
 - Property: RunContext/RunContextV route through printer in parallel mode
+- Property: Cmd env overrides are additive — declared pairs reach the child, un-overridden inherited variables survive
+- Property: Cmd env is per-invocation — concurrent builders do not observe each other
 
-**Tests:** `TestPrefixWriter`, `TestPrinter`, `TestPrint`, `TestParallelOutputDepLevel`, `TestParallelOutputShellCommand`, `TestParallelOutputTopLevel`, `TestRunContext`, `TestRunContextInParallelMode`, `TestRunContextV`, `TestRunContextVInParallelMode`
+**Tests:** `TestPrefixWriter`, `TestPrinter`, `TestPrint`, `TestParallelOutputDepLevel`, `TestParallelOutputShellCommand`, `TestParallelOutputTopLevel`, `TestRunContext`, `TestRunContextInParallelMode`, `TestRunContextV`, `TestRunContextVInParallelMode`, `TestCmdEnv`, `TestCmdInheritsWhenNoOverrideDeclared`, `TestCmdRun`, `TestCmdRunInheritsAndOverrides`, `TestCmdRunV`, `TestConvergedHelpersInheritEnvironment`, `TestOutputContext`, `TestProperty_CmdEnvIsAdditive`, `TestProperty_CmdEnvIsPerInvocation`, `TestProperty_CmdBuilderPublicAPI`, `TestProperty_SubprocessEnvironment`, `TestSubprocessEnvironmentInheritsParent`
 **Traces to L4:** IMPL-9 (Parallel Output)
 
 ## T-8: Shell completion
@@ -311,7 +313,7 @@ Items derived from: L4 implementation (existing test suite)
 
 ## T-25: Foreground process group for interactive commands
 
-**Given** a `ShellEnv` configuration, **When** commands are executed via `RunContextWithIO`, **Then** foreground commands (default) inherit the parent's process group for TTY access, while background commands (parallel mode) get isolated process groups for clean cancellation.
+**Given** a `ShellEnv` configuration, **When** commands are executed via `RunContextWithIO`, **Then** foreground commands (default) inherit the parent's process group for TTY access, while background commands (parallel mode) get isolated process groups for clean cancellation. **And** the child's environment is the `envv` argument, or the parent's own environment when `envv` is nil.
 
 - Property: `DefaultShellEnv()` sets `Foreground = true`
 - Property: parallel shell env sets `Foreground = false`

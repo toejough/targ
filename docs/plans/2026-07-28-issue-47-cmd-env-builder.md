@@ -985,8 +985,11 @@ The criterion is a count plus an absence, not an eyeball pass over the hits:
 
 ```bash
 cd /Users/joe/repos/personal/targ
-# 1. No doc still describes the old 4-arg shell signature.
-grep -rn "RunContextWithIO()" README.md docs/specs/ CLAUDE.md | grep -v "envv"
+# 1. No doc PROSE still describes the old 4-arg shell signature. Bare
+#    function-name lists ("Key exports:", "Key functions:") are excluded —
+#    they name functions without describing signatures, so they are not stale.
+grep -rn "RunContextWithIO()" README.md docs/specs/ CLAUDE.md \
+  | grep -v "envv" | grep -v "^\S*:[0-9]*:\*\*Key "
 # 2. Every public run helper appears in the Key exports line.
 for fn in Cmd Run RunV RunContext RunContextV Output OutputContext; do
   grep -q "\`$fn()\`" docs/specs/implementation.md || echo "MISSING from Key exports: $fn"

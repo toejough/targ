@@ -7,7 +7,7 @@ Items derived from: ground truth (existing codebase)
 **Package:** `targ` (root)
 **File:** `targ.go`
 **Purpose:** Thin re-export layer providing the public API surface. Type aliases, constant re-exports, and delegating functions to `internal/core`, `internal/file`, and `internal/sh`.
-**Key exports:** `Targ()`, `Main()`, `Register()`, `Execute()`, `Group()`, `Run()`, `RunContext()`, `Output()`, `Match()`, `Watch()`, `Checksum()`, `Print()`, `Printf()`
+**Key exports:** `Targ()`, `Main()`, `Register()`, `Execute()`, `Group()`, `Cmd()`, `Run()`, `RunV()`, `RunContext()`, `RunContextV()`, `Output()`, `OutputContext()`, `Match()`, `Watch()`, `Checksum()`, `Print()`, `Printf()`
 **Traces to:** ARCH-14
 
 ## IMPL-2: CLI Entry Point
@@ -154,8 +154,8 @@ Items derived from: ground truth (existing codebase)
 
 **Package:** `internal/sh`
 **Files:** `sh.go`, `context.go`, `cleanup.go`, `context_unix.go`, `context_windows.go`, `cleanup_unix.go`, `cleanup_windows.go`
-**Purpose:** Command execution abstraction — `Run()`, `RunV()`, `Output()` for basic execution. Context-aware variants (`RunContextWithIO()`, `OutputContext()`) with process group management for cancellation. `ShellEnv.Foreground` controls process group behavior: when true (default for real OS stdio), child inherits parent's foreground process group for interactive TTY access; when false (parallel execution with redirected IO), child gets its own process group via `Setpgid` for clean cancellation of process trees. `CleanupManager` for SIGINT/SIGTERM handling — kills all spawned child processes. Platform-specific process group and kill implementations (Unix vs Windows).
-**Key functions:** `Run()`, `RunV()`, `Output()`, `RunContextWithIO()`, `OutputContext()`, `EnableCleanup()`, `KillProcessGroup()`
+**Purpose:** Command execution abstraction — `Run()`, `RunV()`, `Output()` for basic execution. Context-aware variants (`RunContextWithIO()`, `RunContextV()`, `OutputContext()`) with process group management for cancellation. Each takes an `envv []string` setting the child's environment; `nil` inherits the parent's, which is what every caller that declares no environment passes. `ShellEnv.Foreground` controls process group behavior: when true (default for real OS stdio), child inherits parent's foreground process group for interactive TTY access; when false (parallel execution with redirected IO), child gets its own process group via `Setpgid` for clean cancellation of process trees. `CleanupManager` for SIGINT/SIGTERM handling — kills all spawned child processes. Platform-specific process group and kill implementations (Unix vs Windows).
+**Key functions:** `Run()`, `RunV()`, `Output()`, `RunContextWithIO()`, `RunContextV()`, `OutputContext()`, `EnableCleanup()`, `KillProcessGroup()`
 **Key types:** `CleanupManager`, `ShellEnv`, `SafeBuffer`
 **Traces to:** ARCH-8
 
