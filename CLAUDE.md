@@ -1,21 +1,29 @@
 # targ Development Guidelines
 
-Auto-generated from all feature plans. Last updated: 2026-02-19
-
-## Active Technologies
-
-- Go 1.25.5 + gomega (assertions), rapid (property-based testing), lipgloss (ANSI styling, existing) (001-parallel-output)
-
 ## Project Structure
 
-```text
-src/
-tests/
-```
+Public API at the repo root (`targ.go`); implementation under `internal/`; CLI
+binary at `cmd/targ/`; build targets in `dev/`; examples in `examples/`.
+
+## Specs
+
+`openspec/specs/` is the spec of record, organized by bounded context. Legacy
+documentation lives in `old-docs/` and is authoritative only where verified
+correct against the code — when you find a claim there wrong, delete it and write
+the corrected form as an OpenSpec spec rather than editing it in place. A document
+that merely *omits* something is not wrong and is not converted. `README.md`'s
+Specifications section is the canonical statement of the migration standard.
+
+If you change that standard, change `openspec/config.yaml`'s `context:` block in
+the same commit. It restates the standard in full — deliberately, because it is
+injected into AI agent prompts where a cross-reference to README would be useless —
+so it is the one copy that cannot be replaced by a pointer, and the one that drifts
+silently if you forget it.
 
 ## Commands
 
-# Add commands for Go 1.25.5
+Build, test and lint run through targ, never `go test` directly:
+`targ test`, `targ check-full`, `targ reorder-decls`.
 
 ## Code Style
 
@@ -26,12 +34,6 @@ Go 1.25.5: Follow standard conventions
 - **Declaration ordering matters.** `go-reorder` enforces ordering: types, then vars, then funcs — alphabetical within each group. When adding new functions or test functions, insert them in alphabetical order, not "near related code." Run `targ reorder-decls` to auto-fix.
 - **Fix all instances, not just the first.** When fixing a bug pattern (e.g., old API usage), grep the entire codebase for all occurrences before committing. One instance means there may be more.
 
-## Recent Changes
-
-- 001-parallel-output: Added Go 1.25.5 + gomega (assertions), rapid (property-based testing), lipgloss (ANSI styling, existing)
-
-<!-- MANUAL ADDITIONS START -->
-
 ## Testing Rules
 
 - **No flaky tests.** Tests must not depend on wall-clock timing, system load, or scheduling. If a test needs to verify timeout/cancellation behavior, assert on error types (e.g., `context.DeadlineExceeded`) rather than elapsed time.
@@ -40,5 +42,3 @@ Go 1.25.5: Follow standard conventions
 - **Always run `check-full` before declaring done.** Use `targ check-full`. This reports ALL failures at once (lint, coverage, ordering, dead code, nil checks, integration tests). Do NOT use `check-for-fail` (stops at first error, causes whack-a-mole). Do NOT use bare `go test` as final validation — it misses lint, coverage thresholds, and declaration ordering. One gotcha when a run does fail: a stale `golangci-lint` result cache produces phantom `lint-full` failures citing paths that no longer exist, so run `golangci-lint cache clean` and re-run before treating one as real.
 - **Coverage is per-function (80% threshold).** Every exported function must have ≥80% test coverage individually. Adding a new exported function without tests will fail `check-full` even if package-level coverage is fine. Write tests for every new function as part of the TDD cycle, not as a cleanup step.
 - **TDD red step is mandatory.** Write the test, run it, confirm it FAILS with the expected error (compilation error or assertion failure). Do NOT write test + implementation together. The red step proves the test actually tests something.
-
-<!-- MANUAL ADDITIONS END -->
