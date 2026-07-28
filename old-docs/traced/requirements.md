@@ -4,14 +4,14 @@ Items induced from: L2 architecture items (bottom-up)
 
 ## REQ-1: Define targets from functions or shell strings
 
-A target can be created from a Go function (with optional struct parameter for CLI args) or a shell command string. Both forms produce the same `Target` type with the same builder methods. Shell strings run in the user's shell with variable interpolation as CLI flags.
+A target can be created from a Go function (with optional struct parameter for CLI args) or a shell command string. Both forms produce the same `Target` type with the same builder methods. Which shell interprets a shell-string target — superseded, see `openspec/specs/process-execution/spec.md`. Variable interpolation as CLI flags applies either way.
 
 **Induced from:** ARCH-1, ARCH-2, ARCH-3
 **Traces to:** UC-1, UC-2
 
 ## REQ-2: Struct tags define CLI arguments
 
-Struct fields tagged with `targ:"..."` become CLI arguments. Tags specify: flag/positional kind, name override, short alias, description, default value, enum constraints, environment variable fallback, required status. Supports bool, int, float64, string, slices, maps, embedded structs, and `Interleaved[T]` for order-preserving repeated flags. `TagOptions` interface allows runtime override.
+Struct fields tagged with `targ:"..."` become CLI arguments. Tags specify: flag/positional kind, name override, short alias, description, default value, enum constraints, environment variable fallback, required status. Supports bool, int, float64, string, slices, maps, embedded structs, and `Interleaved[T]` for order-preserving repeated flags. How `TagOptions` overrides are resolved — superseded, see `openspec/specs/argument-binding/spec.md`.
 
 **Induced from:** ARCH-2
 **Traces to:** UC-1, UC-2
@@ -20,14 +20,14 @@ Struct fields tagged with `targ:"..."` become CLI arguments. Tags specify: flag/
 
 Targets execute their function with parsed arguments. Built-in runtime flags (`--times`, `--timeout`, `--watch`, `--cache`, `--parallel`, `--retry`, `--backoff`, `--dep-mode`) modify execution behavior. Overrides are extracted before target-specific argument parsing. When exactly one target is registered, it becomes the default: invocable with no command name, by name, or under `-p`. Command-name resolution happens before positional-argument parsing, so a first positional argument equal to the target's own name is consumed as the command rather than bound as data.
 
-Targ resolves every token in a command chain, and every `-p` unit, to a target before the first dependency or command executes, so an invocation rejected as unresolvable runs nothing — for shell-command targets and function targets alike. Argument *resolution* is what the pre-pass covers; per-target validation of required flags and of environment and default values still happens when that target runs.
+Targ resolves every token in a command chain, and every `-p` unit, to a target before the first dependency or command executes, so an invocation rejected as unresolvable runs nothing — for shell-command targets and function targets alike. Argument *resolution* is what the pre-pass covers; whether per-target validation is deferred past the pre-pass differs between function and shell targets — superseded, see `openspec/specs/execution-engine/spec.md`.
 
 **Induced from:** ARCH-3, ARCH-15
 **Traces to:** UC-1
 
 ## REQ-4: Configuration conflict detection
 
-When both compile-time target configuration and CLI flags specify the same setting, execution errors rather than silently choosing one. `targ.Disabled` sentinel explicitly opts a setting into CLI flag control.
+When both compile-time target configuration and CLI flags specify the same setting, execution errors rather than silently choosing one. `targ.Disabled` sentinel explicitly opts a setting into CLI flag control. Which settings this conflict check covers, and whether it extends to args-struct field name collisions — superseded, see `openspec/specs/execution-engine/spec.md`.
 
 **Induced from:** ARCH-15, ARCH-3
 **Traces to:** UC-1
@@ -62,7 +62,7 @@ When targets run in parallel, each output line is prefixed with the target name.
 
 ## REQ-9: External commands are context-cancellable
 
-Shell commands run via `Run()`/`Output()` with optional context support. Context cancellation kills the entire process tree (platform-specific: Unix process groups, Windows job objects). SIGINT/SIGTERM cleanup kills all spawned child processes.
+Shell commands run via `Run()`/`Output()` with optional context support. Context cancellation kills spawned processes; the platform-specific mechanism and scope (single process vs. process tree) — superseded, see `openspec/specs/process-execution/spec.md`. SIGINT/SIGTERM cleanup kills all spawned child processes.
 
 **Induced from:** ARCH-8
 **Traces to:** UC-1
@@ -97,7 +97,7 @@ The `targ` CLI discovers `//go:build targ` files by walking both downward (CWD n
 
 ## REQ-14: Source location shown in help
 
-Help output includes the source file:line where a target is defined. Derived from runtime caller information.
+Help output includes source attribution for a target. Exactly what value is shown and whether a line number ever appears — superseded, see `openspec/specs/help-rendering/spec.md`. Derived from runtime caller information.
 
 **Induced from:** ARCH-13
 **Traces to:** UC-3

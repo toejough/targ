@@ -4,7 +4,7 @@ How targ implements the requirements.
 
 ## Overview
 
-A target has four configurable aspects (**Anatomy**), and targ provides eight operations on targets.
+A target has four configurable aspects (**Anatomy**), and targ provides six operations on targets (Modify and Delete were removed from the CLI surface — see the matrix below).
 
 ### Target Anatomy
 
@@ -43,7 +43,7 @@ Cross-cutting concerns that apply to all operations.
 | Direct call sites   | Unaffected          | Remain valid                      |
 | Behavior            | Unaffected          | Only imported targets affected    |
 
-Create with `--deps` validates that referenced targets exist.
+Create with `--deps` validation scope — superseded, see `openspec/specs/build-provisioning/spec.md`.
 Sync errors on naming conflicts with existing hierarchy.
 
 **Reversible** - All operations reversible through the command surface:
@@ -63,18 +63,15 @@ Flags on `targ` itself (must appear before target path):
 | --parallel        | -p    | Run multiple targets in parallel     |
 | --completion      |       | Print shell completion script        |
 | --source          | -s    | Specify source (local or remote)     |
-| --create          | -c    | Scaffold new target from command     |
+| --create          |       | Scaffold new target from command     |
 | --to-func         |       | Convert string target to function    |
 | --to-string       |       | Convert function target to string    |
 | --sync            |       | Import targets from remote repo      |
 | --no-binary-cache |       | Disable targ binary caching          |
 
-`--source` infers local vs remote from format:
-- `./path` or `/path` → local file
-- `github.com/...` → remote
+Whether `--source` accepts a remote module path — superseded, see `openspec/specs/build-provisioning/spec.md`.
 
-`--to-func` expands a string target to a full function with args struct.
-`--to-string` errors if the function does more than a basic `targ.Shell()` call.
+What `--to-func` generates, and what `--to-string` requires to accept a function — superseded, see `openspec/specs/build-provisioning/spec.md` (`targ.Shell()` does not exist).
 
 `--help` is universal (works on any target or group).
 
@@ -234,7 +231,7 @@ How the target runs. Defined by the Target Builder.
 
 ```go
 targ.Targ(fn)                     // wrap a function
-targ.Targ("cmd $arg ...")         // shell command (runs in calling shell)
+targ.Targ("cmd $arg ...")         // shell command (which shell interprets it: see process-execution spec)
 
     .Deps(targets...)             // dependencies (serial by default)
     .Deps(targets..., targ.DepModeParallel)  // parallel deps
@@ -250,19 +247,9 @@ targ.Targ("cmd $arg ...")         // shell command (runs in calling shell)
     .Description(s)               // help text
 ```
 
-`.Deps()` accepts raw functions and `*Target`. Pass `targ.DepModeParallel` as the last argument for parallel execution. Chain `.Deps()` calls to create mixed serial/parallel dependency groups.
+What `.Deps()` accepts and how it handles an unsupported argument type — superseded, see `openspec/specs/target-model/spec.md`. Pass `targ.DepModeParallel` as the last argument for parallel execution. Chain `.Deps()` calls to create mixed serial/parallel dependency groups.
 
-Shell command strings run in the calling shell (bash, fish, zsh, etc.) so aliases and functions work.
-
-For function targets that need to shell out:
-
-```go
-func Deploy(ctx context.Context, args DeployArgs) error {
-    return targ.Shell(ctx, "kubectl apply -n $namespace -f $file", args)
-}
-```
-
-`targ.Shell(ctx, cmd, args)` substitutes `$var` from struct fields and runs in the calling shell.
+Which shell interprets a shell command string — superseded, see `openspec/specs/process-execution/spec.md`.
 
 ### Discovery
 
@@ -302,7 +289,6 @@ Users can override execution settings via CLI flags:
 targ build --watch "**/*.go" "**/*.mod"
 targ build --cache "**/*.go" "go.sum"
 targ build --timeout 5m
-targ build --no-cache
 targ build --deps lint test
 targ build --deps lint test --dep-mode parallel
 targ build --times 3
@@ -329,7 +315,7 @@ targ build --deps lint test -- deploy     # deps: lint, test; then run build, de
 **Ownership model**:
 
 - **targ manages by default**: `--watch`, `--cache`, `--timeout`, `--deps`, `--dep-mode`, `--times`, `--while`, `--retry`, `--backoff` are reserved flags
-- **Conflict = error**: If your args struct defines a field that conflicts with a targ-managed flag, targ errors
+- **Args-struct field collision with a targ-managed flag**: superseded, see `openspec/specs/execution-engine/spec.md`
 - **Single source of truth**: `--deps` errors if target has `.Deps()` configured; dependencies must be defined in exactly one place (code or CLI, not both)
 - **targ.Disabled = you take over**: Disable targ's management, define the flag yourself, use targ APIs
 
@@ -365,7 +351,7 @@ Where the target appears in the CLI namespace. Defined by Group membership.
 func Group(name string, members ...any) *Group
 ```
 
-Members can be raw functions, `*Target`, or nested `*Group`.
+What member types `Group()` accepts and how it handles an unsupported one — superseded, see `openspec/specs/target-model/spec.md`.
 
 ```go
 var Lint = targ.Group("lint", lintFast, lintFull)
@@ -402,22 +388,21 @@ targ dev build test          # dev/build, dev/test
 targ dev lint fast full      # dev/lint/fast, dev/lint/full
 targ dev build -- prod deploy # dev/build, then prod/deploy
 targ dev lint *              # all targets under dev/lint
-targ dev **                  # all targets under dev, recursively
+targ dev **                  # whether this recurses into nested groups: see execution-engine spec
 targ ** test                 # all targets named "test" anywhere
 ```
 
 **Traversal rules**:
 - Words traverse into groups until reaching a target
-- After hitting a target, the next word continues from the current group level
-- `--` resets to root (use for top-level targets after nested ones)
+- What happens to leftover words after a target, and what `--` does to chain resolution — superseded, see `openspec/specs/execution-engine/spec.md`
 - `*` matches any single level
-- `**` matches any depth (fish-style)
+- Whether `**` recurses below an already-entered group — superseded, see `openspec/specs/execution-engine/spec.md`
 
 **Examples**:
 ```
 targ dev build lint          # dev/build, dev/lint (both under dev/)
 targ dev lint fast full      # dev/lint/fast, dev/lint/full (both under dev/lint/)
-targ dev build -- issue start # dev/build, then issue/start (-- resets to root)
+targ dev build -- issue start # dev/build, then issue/start (what -- does here: see execution-engine spec)
 ```
 
 ### Why explicit names?
@@ -471,15 +456,17 @@ How targ finds and builds sources (applies to both local and remote):
 
 **Explicit specification**:
 ```
-targ --source ./dev/targs.go build   # local
-targ --source github.com/foo/bar build # remote
+targ --source ./dev/targs.go build   # local path (must exist on disk)
 targ -s ./dev/targs.go build         # short form
 ```
 
-**Default local discovery**:
-1. Recursive search down from cwd
-2. Stop at first level containing a targ file (`//go:build targ`)
-3. Multiple targ files at same level → error (user must `--file` or cd to resolve)
+Whether `--source` accepts a remote module path — superseded, see `openspec/specs/build-provisioning/spec.md`. No `--file` flag exists.
+
+**Default discovery** (walks both directions from cwd, no `--source` needed):
+1. Check cwd itself (non-recursive)
+2. Walk cwd/`dev/` recursively, if it exists
+3. Walk upward through ancestor directories (stopping before the filesystem root), checking each ancestor and its `dev/` subtree
+4. Multiple targ directories found at different levels are **aggregated** (each built as its own module group; most-local wins on a name collision) — this is not an error
 
 **Module resolution**:
 1. Search up from targ file toward repo root
@@ -494,10 +481,11 @@ To convert targ targets to a standalone CLI binary:
 
 1. Remove `//go:build targ`
 2. Change `package dev` to `package main`
-3. Rename `func init()` to `func main()`
-4. Change `targ.Register()` to `targ.Run()`
+3. Keep `func init() { targ.Register(...) }` and add `func main() { targ.ExecuteRegistered() }`
 
-`targ.Run()` both registers targets and executes based on CLI args, making it the binary's entry point.
+Or, more simply, skip the registry entirely and call `targ.Main(targets...)` from `main()`, which registers and executes in one call.
+
+`targ.Run(name string, args ...string) error` is unrelated to this transition — it is a subprocess helper (alongside `RunV()`/`Output()`), not a registration or entry-point API.
 
 ---
 
@@ -533,7 +521,7 @@ targ dev deploy --help
 
 deploy - Deploy to environment
 
-Source: dev/deploy.go:42
+Source: dev/deploy.go
 
 Arguments:
   --env       (required)  Target environment
@@ -543,8 +531,11 @@ Arguments:
 Execution:
   Deps: build, lint-full
   Cache: **/*.go
-  Retry: 3 (backoff: 1s × 2)
+  Retry: yes (backoff: 1s × 2.0)
+  Times: 3
 ```
+
+(Exactly what `Source:` shows, and how `Retry`/`Times` render — superseded, see `openspec/specs/help-rendering/spec.md`.)
 
 ---
 
@@ -591,7 +582,7 @@ targ -p build test         # parallel (short form)
 
 **Cache**:
 - Persistent across invocations (file-based checksums)
-- `--no-cache` bypasses
+- No CLI flag exists to bypass a target's file-checksum cache today; `--no-cache` is a deprecated hidden alias for `--no-binary-cache` (the Go build cache) and is unrelated to target result caching
 
 ## Hierarchy
 
@@ -704,9 +695,9 @@ targ --sync github.com/foo/bar
 ```
 
 **Behavior**:
-- **No targ file exists**: Create one with import and register all exported targets/groups
-- **Targ file exists, no import**: Add import, register exported targets/groups
-- **Targ file exists, has import**: Update module version (`go get -u` style)
+- **No targ file exists**: Create one, then add a blank import plus a `targ.DeregisterFrom(pkg)` call in `init()` — nothing is auto-registered; targets from a synced package are deregistered by default and must be opted back in explicitly
+- **Targ file exists, no import for this package yet**: Add the blank import and `DeregisterFrom` call
+- **Targ file exists, this package already synced**: errors rather than updating or removing anything — exact behavior superseded, see `openspec/specs/build-provisioning/spec.md`
 
 **Generated code**:
 ```go
@@ -714,14 +705,14 @@ targ --sync github.com/foo/bar
 
 package main
 
-import "github.com/foo/bar"
+import _ "github.com/foo/bar"
 
 func init() {
-    targ.Register(bar.Build, bar.Test, bar.Deploy)
+    _ = targ.DeregisterFrom("github.com/foo/bar")
+    // Remove the DeregisterFrom line to use all targets,
+    // or selectively re-register: targ.Register(bar.Build)
 }
 ```
-
-**Imports**: Any exported targets (`*Target`), groups (`*Group`), or functions.
 
 **Naming conflicts**: Error clearly if any imported names would conflict with existing hierarchy.
 
@@ -738,7 +729,7 @@ Verified 2026-01-30.
 | --parallel/-p | ✅ | `internal/core/override.go` |
 | --completion | ✅ | `internal/core/completion.go` |
 | --source/-s | ✅ | `internal/runner/runner.go` |
-| --create/-c | ✅ | `internal/runner/runner.go` |
+| --create | ✅ | `internal/runner/runner.go` (short flag: see build-provisioning spec) |
 | --to-func | ✅ | `internal/runner/runner.go` |
 | --to-string | ✅ | `internal/runner/runner.go` |
 | --sync | ✅ | `internal/runner/runner.go` |
@@ -771,7 +762,6 @@ Verified 2026-01-30.
 | `.Name()` | ✅ | `internal/core/target.go` |
 | `.Description()` | ✅ | `internal/core/target.go` |
 | `targ.Disabled` | ✅ | `internal/core/target.go` |
-| `targ.Shell()` | ✅ | `internal/core/shell.go` |
 | `targ.WatchAndRun()` | N/A | Use `file.Watch()` directly |
 
 ## Hierarchy
@@ -780,7 +770,7 @@ Verified 2026-01-30.
 | ------- | ------ | ----- |
 | `targ.Group()` | ✅ | Namespace nodes |
 | `targ.Register()` | ✅ | Registration API |
-| `targ.Run()` | ✅ | CLI binary entry point |
+| `targ.Main()` / `targ.ExecuteRegistered()` | ✅ | CLI binary entry point (`targ.Run()` is a separate subprocess helper, unrelated) |
 | Path traversal | ✅ | Stack-based |
 
 ## Inspect (--help output)

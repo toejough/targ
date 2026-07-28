@@ -11,7 +11,7 @@ The `Target` struct is the core data type. Created via `Targ(fn)` or `Targ("shel
 
 ## ARCH-2: Struct-Tag CLI Parsing
 
-Struct fields with `targ:"..."` tags define CLI arguments. Supported tag keys: `flag`, `positional`, `name`, `short`, `desc`, `env`, `default`, `enum`, `required`, `placeholder`. Function parameter struct is reflected at runtime to build the argument parser. CamelCase field names convert to kebab-case flag names. Supports: bool/int/float64/string flags, slice flags (repeated), map flags (key=value), embedded structs, `Interleaved[T]` for order-preserving repeated flags, `TextUnmarshaler` types. `TagOptions` interface allows runtime override of tag values.
+Struct fields with `targ:"..."` tags define CLI arguments. Supported tag keys: `flag`, `positional`, `name`, `short`, `desc`, `env`, `default`, `enum`, `required`, `placeholder`. Function parameter struct is reflected at runtime to build the argument parser. CamelCase field names convert to kebab-case flag names. Supports: bool/int/float64/string flags, slice flags (repeated), map flags (key=value), embedded structs, `Interleaved[T]` for order-preserving repeated flags, `TextUnmarshaler` types. How `TagOptions` overrides are resolved — superseded, see `openspec/specs/argument-binding/spec.md`.
 
 **Induced from:** IMPL-5, IMPL-17, T-2, T-14
 **Traces to:** REQ-1, REQ-2
@@ -53,7 +53,7 @@ When targets run in parallel, each target's output is prefixed with its name. `P
 
 ## ARCH-8: Shell Execution
 
-`Run()`, `RunV()`, `Output()` execute external commands. Context-aware variants (`RunContextWithIO()`, `RunContextV()`, `OutputContext()`) support cancellation via process group kill and take an `envv []string` for the child's environment; `nil` inherits the parent's. `ShellEnv` configures stdout/stderr/stdin routing and a `Foreground` flag: when true (default for real OS stdio), the child inherits the parent's foreground process group so interactive programs (e.g., `less`, `claude`) can read/write the terminal; when false (parallel execution with redirected IO), the child gets its own process group via `Setpgid` for clean cancellation of process trees. `CleanupManager` registers spawned processes and kills them on SIGINT/SIGTERM. Platform-specific: Unix uses process groups, Windows uses job objects. `SafeBuffer` provides thread-safe output capture. Above these, `internal/core`'s `Command` builder (`Cmd()`) is the single construction path for a context-aware subprocess: `Env()` declares per-invocation environment overrides, added to the inherited environment rather than replacing it, and the terminals `Run()`, `RunV()` and `Output()` each call the matching shell function with the built environment. A `Command` with no `Env()` call passes a nil environment, which is what keeps it behaviourally identical to calling the shell function directly.
+`Run()`, `RunV()`, `Output()` execute external commands. Context-aware variants (`RunContextWithIO()`, `RunContextV()`, `OutputContext()`) support cancellation via process group kill and take an `envv []string` for the child's environment; `nil` inherits the parent's. `ShellEnv` configures stdout/stderr/stdin routing and a `Foreground` flag: when true (default for real OS stdio), the child inherits the parent's foreground process group so interactive programs (e.g., `less`, `claude`) can read/write the terminal; when false (parallel execution with redirected IO), the child gets its own process group via `Setpgid` for clean cancellation of process trees. `CleanupManager` registers spawned processes and kills them on SIGINT/SIGTERM. Platform-specific cancellation mechanics (Unix vs. Windows), and whether `Cmd()` is the only construction path for a context-aware subprocess — superseded, see `openspec/specs/process-execution/spec.md`. `SafeBuffer` provides thread-safe output capture. Above these, `internal/core`'s `Command` builder (`Cmd()`): `Env()` declares per-invocation environment overrides, added to the inherited environment rather than replacing it, and the terminals `Run()`, `RunV()` and `Output()` each call the matching shell function with the built environment. A `Command` with no `Env()` call passes a nil environment, which is what keeps it behaviourally identical to calling the shell function directly.
 
 **Induced from:** IMPL-19, T-3 (indirect), T-25
 **Traces to:** REQ-9
@@ -88,7 +88,7 @@ Fluent `ContentBuilder` API composes help output in sections: description, usage
 
 ## ARCH-13: Git and Source Integration
 
-`CheckCleanWorkTree()` verifies no uncommitted changes (used as target precondition). `DetectRepoURL()` parses `.git/config` for origin URL, normalizes various formats (SSH, HTTPS, .git suffix). Source location detection uses `runtime.Caller()` to find target definition file:line for help output.
+`CheckCleanWorkTree()` verifies no uncommitted changes (used as target precondition). `DetectRepoURL()` parses `.git/config` for origin URL, normalizes various formats (SSH, HTTPS, .git suffix). Source location detection uses `runtime.Caller()` to find the target definition's source file for help output; what is and isn't shown from that (e.g. whether a line number appears) — superseded, see `openspec/specs/help-rendering/spec.md`.
 
 **Induced from:** IMPL-11, IMPL-12, T-9, T-10
 **Traces to:** REQ-14, REQ-15

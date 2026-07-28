@@ -8,7 +8,7 @@ Items induced from: L2 requirements and design items (bottom-up)
 **Starting state:** A Go project with build automation needs
 **End state:** Developer runs `targ <command>` and targets execute with the specified configuration
 **Key interactions:** Define targets via functions or shell strings, configure with builder methods (deps, cache, watch, timeout, retry), run from CLI. If a project has just one target, the developer can skip naming it — bare `targ`, `targ <name>`, and `targ -p <name>` all reach it
-**Constraints:** Configuration conflicts between compile-time config and CLI flags produce errors rather than silent precedence (No Surprises principle)
+**Constraints:** Configuration conflicts between compile-time config and CLI flags produce errors rather than silent precedence (No Surprises principle); exact scope of this check — superseded, see `openspec/specs/execution-engine/spec.md`
 
 **Traces to:** REQ-1, REQ-2, REQ-3, REQ-4, REQ-9, REQ-10, DES-2, DES-3, DES-5
 
@@ -26,7 +26,7 @@ Items induced from: L2 requirements and design items (bottom-up)
 **Actor:** Developer using targ-built CLI
 **Starting state:** A targ application exists (build tool or standalone binary)
 **End state:** Developer understands available commands, flags, and usage
-**Key interactions:** `--help` shows formatted help with flags/positionals/subcommands/examples/source, `--completion` generates shell completion scripts (bash/zsh/fish), source file:line shown in help. When the same command name exists at multiple discovery levels, help shows the closest version as primary and marks higher-level duplicates as superseded. The primary version notes what it supersedes.
+**Key interactions:** `--help` shows formatted help with flags/positionals/subcommands/examples/source; exactly what the source attribution contains — superseded, see `openspec/specs/help-rendering/spec.md`. `--completion` generates shell completion scripts (bash/zsh/fish). When the same command name exists at multiple discovery levels, help shows the closest version as primary and marks higher-level duplicates as superseded. The primary version notes what it supersedes.
 **Constraints:** Superseding is display-only in help — dispatch always uses the closest version. Superseding annotations appear only in multi-module help (build tool mode).
 
 **Traces to:** REQ-11, REQ-12, REQ-14, REQ-15, REQ-18

@@ -15,7 +15,7 @@ When targ discovers target files across multiple directories (especially parent/
 The main entry point is `runner.Run()` -> `targRunner.run()` (lines 855-1852 of `internal/runner/runner.go`).
 
 The flow is:
-1. **Discover packages**: `discoverPackages()` uses `discover.Discover()` which walks DOWN from `startDir`, finding `.go` files with `//go:build targ` tags
+1. **Discover packages**: Superseded — see `old-docs/traced/implementation.md` IMPL-13.
 2. **Group by module**: `groupByModule()` calls `FindModuleForPath()` on each package's first file, walking UP the directory tree to find the nearest `go.mod`
 3. **Branch based on module count**:
    - **Multi-module** (>1 distinct `go.mod`): `handleMultiModule()` builds a separate binary per module
@@ -50,22 +50,9 @@ func FindModuleForPath(path string) (string, string, bool, error) {
 
 Key behavior: It finds the **nearest** `go.mod` above the target file. If none exists anywhere up to `/`, returns `found=false`.
 
-### 1.3 groupByModule (lines 3308-3353)
+### 1.3 groupByModule
 
-Groups discovered packages by their module root. Packages without a module are grouped under `startDir` with module path `"targ.local"`:
-
-```go
-func groupByModule(infos []discover.PackageInfo, startDir string) ([]moduleTargets, error) {
-    for _, info := range infos {
-        modRoot, modPath, found, err := FindModuleForPath(info.Files[0].Path)
-        if !found {
-            modRoot = startDir
-            modPath = targLocalModule  // "targ.local"
-        }
-        // group by modRoot
-    }
-}
-```
+Superseded — see `old-docs/traced/implementation.md` IMPL-18.
 
 ### 1.4 Single Module Build (handleSingleModule, lines 1588-1635)
 
@@ -110,15 +97,9 @@ When NO `go.mod` is found for targets:
 3. Runs `go build -tags targ -mod=mod ...` with `Dir` set to the temp dir
 4. The `-mod=mod` flag is critical: allows Go to modify go.mod/go.sum during build
 
-### 1.6 Fallback Module (EnsureFallbackModuleRoot, lines 423-451)
+### 1.6 Fallback Module
 
-Used in multi-module mode when a package has no `go.mod` (`modulePath == "targ.local"`):
-1. Creates a persistent cache directory at `<projectCacheDir>/mod/<hash>`
-2. Symlinks all entries from `startDir` into the cache dir (EXCEPT `.git`, `go.mod`, `go.sum`)
-3. Writes its own `go.mod` with the `targ.local` module path
-4. Creates an empty `go.sum`
-
-The symlink approach (via `linkModuleRoot`, lines 3457-3473) means Go sees the source files as part of the fallback module, but the `go.mod` is independent from any project `go.mod`.
+Superseded — see `old-docs/traced/implementation.md` IMPL-18 and `old-docs/traced/architecture.md` ARCH-12.
 
 ### 1.7 resolveTargDependency (lines 3723-3745)
 
@@ -208,25 +189,25 @@ Running `targ claude` from `~/repos/myproject/src/` should:
 2. Compile it successfully
 3. Execute the `claude` command
 
-### 3.2 Current Gaps
+### 3.2 Gaps at the time of writing (2026-03-06) — since resolved
 
-1. **Discovery only walks DOWN**: `discover.Discover()` uses `findTaggedDirs()` which starts at `startDir` and walks into subdirectories. It never walks UP to parent/ancestor directories.
+1. Superseded — see `old-docs/traced/implementation.md` IMPL-13.
 
-2. **Module mismatch**: Even if discovery walked up, `~/dev/targs.go` has no `go.mod` (or has a different one than `~/repos/myproject/go.mod`). The target file from `~` and any target files in `~/repos/myproject/` would belong to different modules (or one would have no module).
+2. **Module mismatch**: Even with upward discovery, `~/dev/targs.go` has no `go.mod` (or has a different one than `~/repos/myproject/go.mod`). The target file from `~` and any target files in `~/repos/myproject/` belong to different modules (or one has no module) — handled today via §1.3's per-package pseudo-module-root grouping.
 
 3. **Import path computation**: `bootstrapBuilder.computeImportPath()` computes import paths as `modulePath + "/" + relPath`. If the target file is ABOVE the module root, `filepath.Rel()` returns a `../` path, which is not a valid Go import path.
 
-### 3.3 What Happens Today
+### 3.3 What this predicted, and what actually happened
 
-If you add upward discovery, `groupByModule()` would:
-- Find `~/repos/myproject/go.mod` for local targets
-- Find NO `go.mod` for `~/dev/targs.go` (or a different one)
+With upward discovery (since shipped), `groupByModule()`:
+- Finds `~/repos/myproject/go.mod` for local targets
+- Finds NO `go.mod` for `~/dev/targs.go` (or a different one)
 - Result: multi-module mode with 2 groups
 
-The multi-module path would then:
-- Build `~/repos/myproject/` targets normally
-- Try to build `~/dev/targs.go` via the fallback module (isolated build)
-- This SHOULD work but hasn't been tested for this scenario
+The multi-module path then:
+- Builds `~/repos/myproject/` targets normally
+- Builds `~/dev/targs.go` via the isolated build path (§1.5) — not the symlink-based
+  "fallback module" this document originally proposed (§1.6), which was removed
 
 ---
 
@@ -401,27 +382,29 @@ GOFLAGS=-mod=mod go run ./bootstrap.go
 
 ### 6.1 Extend Multi-Module Build (Solution 5.1)
 
-The multi-module build path is already implemented and handles the core challenge: targets from different modules are built into separate binaries and commands are aggregated. The main work needed is:
-
-1. **Add upward discovery**: Modify `discover.Discover()` to also walk UP from `startDir` (not just down). The engram memory (`targ-bidirectional-tree-search.toml`) confirms this is the desired direction.
-
-2. **Handle "no module" ancestors gracefully**: When ancestor targets have no `go.mod`, they'll be grouped under `"targ.local"` and built via the fallback module path. This already works.
-
-3. **Cache the fallback module persistently**: The `EnsureFallbackModuleRoot()` function already creates a persistent cache at `<projectCacheDir>/mod/<hash>`. For ancestor directories, the hash would be based on the ancestor path, ensuring stable caching.
+Superseded — see `old-docs/traced/implementation.md` IMPL-18 and `old-docs/traced/architecture.md` ARCH-12.
 
 ### 6.2 Key Considerations
 
 **Discovery direction**: Walk UP first (to find ancestor targets), then DOWN (to find descendant targets). This ensures ancestor commands are always available.
 
-**Module grouping**: The existing `groupByModule()` already handles mixed-module discovery correctly. Ancestor targets with their own `go.mod` get their own binary. Ancestor targets without `go.mod` use the fallback module.
+**Module grouping**: `groupByModule()` handles mixed-module discovery correctly (current
+signature and fallback behavior: §1.3). Ancestor targets with their own `go.mod` get their
+own binary. Ancestor targets without `go.mod` use the isolated-build path (§1.5), not a
+"fallback module" — that symlink-based mechanism was removed (§1.6).
 
 **Cache stability**: Each distinct module root gets its own binary cache. The cache key includes `go.mod` content, so changes to dependencies invalidate correctly.
 
-**Import path edge case**: For ancestor targets without a `go.mod`, the fallback module approach symlinks the ancestor directory. The `computeImportPath()` function uses `filepath.Rel()` from the module root, which works because the symlinks make the files appear to be within the fallback module root.
+**Import path edge case**: For ancestor targets without a `go.mod`, the isolated-build path
+*copies* the ancestor's targ-tagged files into a temp directory (build tags stripped) rather
+than symlinking them, then writes a synthetic `go.mod` there (§1.5). `computeImportPath()`
+resolves against that temp directory's module root, so the file-copy approach sidesteps the
+`filepath.Rel()` `../`-path problem this section originally worried a symlink approach would
+hit.
 
 ### 6.3 What Could Go Wrong
 
-1. **Symlink depth**: If the ancestor directory has deep directory trees, symlinking everything could be slow or hit filesystem limits. Mitigation: only symlink directories that contain targ-tagged files.
+1. ~~**Symlink depth**~~ — moot; the isolated-build path copies files instead of symlinking (§1.5), so this specific risk doesn't apply. `createIsolatedBuildDir` only copies each discovered package's targ-tagged files (not the whole ancestor directory tree), which limits the cost.
 
 2. **Name collisions**: Two target files in different ancestor directories defining the same command name. Mitigation: the multi-module aggregation already handles command collisions (last one wins, or error).
 
@@ -442,9 +425,7 @@ All code analyzed is in `/Users/joe/repos/personal/targ/internal/runner/runner.g
 - `handleMultiModule`: lines 1542-1575
 - `createIsolatedBuildDir`: lines 2630-2696
 - `writeIsolatedGoMod`: lines 4034-4076
-- `writeFallbackGoMod`: lines 3986-4014
-- `EnsureFallbackModuleRoot`: lines 423-451
-- `linkModuleRoot`: lines 3457-3473
+- `EnsureFallbackModuleRoot`, `linkModuleRoot`, `writeFallbackGoMod`: Superseded — see `old-docs/traced/implementation.md` IMPL-18 and `old-docs/traced/architecture.md` ARCH-12.
 - `resolveTargDependency`: lines 3723-3745
 - `prepareBuildContext`: lines 3512-3534
 - `executeBuild`: lines 1363-1390

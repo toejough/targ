@@ -30,14 +30,7 @@ Short flags use single letters: `-h`, `-p`, `-s`.
 
 **Traces to:** REQ-019, REQ-020, REQ-060
 
-Commands are displayed with their source file location:
-```
-  Source: dev/targets.go
-  check    Run all checks & fixes
-  lint     Lint codebase
-```
-
-This helps users understand where targets are defined.
+Superseded — see `openspec/specs/help-rendering/spec.md` for what `Source:` displays.
 
 ### DES-004: Path Stack Syntax
 
@@ -45,12 +38,12 @@ This helps users understand where targets are defined.
 
 Path traversal uses a stack-based syntax:
 - Words traverse into groups until reaching a target
-- After hitting a target, next word continues from current group level
-- `--` resets to root for accessing top-level targets after nested ones
+- What happens to leftover words after a target, and what `--` does — superseded, see
+  `openspec/specs/execution-engine/spec.md`
 
 ```
 targ dev build test     # dev/build, dev/test
-targ dev build -- prod  # dev/build, then prod (at root)
+targ dev build -- prod  # dev/build, then prod (see execution-engine spec for what -- does)
 ```
 
 ## Output Formatting
@@ -151,7 +144,7 @@ The Rich styling approach uses ANSI color codes for terminal output:
 - **Section Headers** (Usage:, Description:, Flags:, etc.): Bold white (`\x1b[1m`)
 - **Flag Names** (--timeout, -h): Cyan (`\x1b[36m`)
 - **Placeholders** (<duration>, <command>): Yellow (`\x1b[33m`)
-- **Subsection Headers** (Global Flags:, Command Flags:): Bold (`\x1b[1m`)
+- **Subsection Headers** (e.g. `Global:`, `Root only:` — see help-rendering spec for the actual header names): Bold (`\x1b[1m`)
 - **Examples**: Plain text (no styling)
 - **Format Names** (in Formats section): Yellow (`\x1b[33m`)
 - **Reset**: (`\x1b[0m`) after each styled element
@@ -164,7 +157,7 @@ The Rich styling approach uses ANSI color codes for terminal output:
 Terminal output uses monospace fonts with the following hierarchy:
 
 - **Section Headers**: Bold, title case with colon (e.g., "Usage:", "Flags:")
-- **Subsection Headers**: Bold, title case with colon (e.g., "Global Flags:", "Command Flags:")
+- **Subsection Headers**: Bold, title case with colon (actual header names: see help-rendering spec)
 - **Body Text**: Regular weight, sentence case
 - **Code Elements**: Inline, styled per DES-012 (flags in cyan, placeholders in yellow)
 - **Indentation**: 2 spaces for section content, 4 spaces for nested content
@@ -187,15 +180,7 @@ Horizontal spacing:
 ### DES-015: Section Structure
 **Traces to:** REQ-007
 
-All help pages follow this canonical section order:
-
-1. **Description** (first line, no header)
-2. **Usage**
-3. **Positionals** (if applicable)
-4. **Flags** (with Global/Command subsections)
-5. **Formats** (if applicable)
-6. **Subcommands** (if applicable)
-7. **Examples**
+The actual canonical section order — superseded, see `openspec/specs/help-rendering/spec.md`.
 
 Sections are omitted if empty (REQ-019, REQ-020, REQ-021).
 
@@ -238,11 +223,8 @@ Sections are omitted if empty (REQ-019, REQ-020, REQ-021).
 - Trailing: Colon
 - Line break: After header
 
-**Variants:**
-- Global Flags:
-- Command Flags:
-
-**Ordering rule:** Global Flags must always appear before Command Flags when both exist.
+Actual subsection variants, their nesting, and their ordering — superseded, see
+`openspec/specs/help-rendering/spec.md`.
 
 ### DES-018: Flag Entry Component
 **Traces to:** REQ-007, REQ-008
@@ -273,17 +255,8 @@ Sections are omitted if empty (REQ-019, REQ-020, REQ-021).
 ### DES-019: Usage Line Component
 **Traces to:** REQ-007
 
-**Structure:**
-```
-Usage: targ <COMMAND_CONTEXT> [<CYAN>flags</CYAN>...]
-```
-
-**Properties:**
-- Prefix: "Usage: targ "
-- Command context: Command-specific (e.g., "--create [group...] <name>")
-- Flag placeholders: Cyan colored
-- Angle brackets: Yellow for required args
-- Square brackets: Plain text for optional args
+**Structure:** superseded, see `openspec/specs/help-rendering/spec.md` for whether `Usage:`
+is a standalone header or an inline prefix.
 
 **Variants:**
 - Root-only flags: `targ <FLAG> [args...]`
@@ -314,46 +287,14 @@ Usage: targ <COMMAND_CONTEXT> [<CYAN>flags</CYAN>...]
 ### DES-021: Positionals Entry Component
 **Traces to:** REQ-007, REQ-008
 
-**Structure:**
-```
-  <NAME>    <DESCRIPTION>
-```
-
-**Properties:**
-- Indentation: 2 spaces
-- Name: Plain text (lowercase or kebab-case)
-- Description: Plain text, aligned with padding
-- Required vs optional: Indicated in description or usage line
-
-**Example:**
-```
-Positionals:
-  group            Optional group path components (e.g. "dev lint")
-  name             Target name in kebab-case (e.g. "test", "check-all")
-  shell-command    Shell command to execute (always last argument)
-```
+Structure, and whether a free-text description renders — superseded, see
+`openspec/specs/help-rendering/spec.md`.
 
 ### DES-022: Format Entry Component
 **Traces to:** REQ-007
 
-**Structure:**
-```
-  <YELLOW><FORMAT_NAME></YELLOW>    <DESCRIPTION>
-```
-
-**Properties:**
-- Indentation: 2 spaces
-- Format name: Yellow colored
-- Description: Plain text, aligned with padding
-- Only show formats relevant to current command (REQ-008, REQ-027)
-
-**Example:**
-```
-Formats:
-  json       Output as JSON
-  yaml       Output as YAML
-  plain      Plain text output (default)
-```
+Whether this section documents CLI value-placeholder syntax or output formats, and its
+rendered structure — superseded, see `openspec/specs/help-rendering/spec.md`.
 
 ### DES-023: Subcommands Entry Component
 **Traces to:** REQ-007, REQ-012
@@ -376,40 +317,70 @@ Formats:
 ### DES-024: Root Help Screen
 **Traces to:** REQ-007
 
-**Command:** `targ --help` or `targ help`
+**Command:** `targ --help` (as the build-tool CLI, `internal/runner`'s `printMultiModuleHelp` —
+this is what real `targ` users see; it does not go through the `internal/help` ContentBuilder
+used for `--create --help` and target-level help)
 
-**Structure:**
+**Structure (live, this repo):**
 ```
-targ is a task runner for Go projects.
+targ is a build-tool runner that discovers tagged commands and executes them.
 
-Usage: targ [flags...] [command] [args...]
+Usage: targ [FLAGS...] COMMAND [COMMAND_ARGS...]
 
-Global Flags:
-  --help, -h              Show help
-  --source <dir>          Use targ files from specified directory
-  --timeout <duration>    Set execution timeout
-  --parallel, -p          Run multiple targets concurrently
-  --times <n>             Run the command n times
-  --retry                 Continue on failure
-  --backoff <spec>        Exponential backoff (duration,multiplier)
-  --watch <pattern>       Re-run on file changes (repeatable)
-  --cache <pattern>       Skip if files unchanged (repeatable)
-  --while <command>       Run while shell command succeeds
-  --dep-mode <mode>       Dependency mode: serial or parallel
-  --no-binary-cache       Disable binary caching
+Commands:
+    check                     Run all checks & fixes
+    ...
+    watch                     Watch and re-run checks
 
-Command Flags:
-  --create                Create a new target
-  --sync <package>        Sync targets from a remote package
-  --to-func <target>      Convert string target to function
-  --to-string <target>    Convert function target to string
-  --completion <shell>    Generate shell completion script
+Flags:
+    --completion                 Generate shell completion script
+    --help, -h                   Show help
+    --source, -s                 Use targ files from specified directory
+    --timeout                    Set execution timeout
+    --parallel, -p                Run multiple targets concurrently
+    ...
+    --create                     Create a new target
+    --sync                       Sync targets from a remote package
+    --to-func                    Convert string target to function
+    --to-string                  Convert function target to string
+
+More info: https://github.com/toejough/targ#readme
+```
+
+Differences from the structure this doc originally specified: the description text and
+usage-line shape are both different; flags render as one flat list (no Global/Command
+split — `--source` sits among the general flags rather than under a distinct "Root only"
+grouping); there is no `Formats:` section and no `Examples:` section here (unlike
+`--create --help` and target-level help); Commands are grouped by source only when the
+project is actually multi-module.
+
+A **second, structurally different** root-help renderer exists for library-mode standalone
+binaries (`targ.Main(targets...)`, via `internal/help.WriteRootHelp`). Live-verified from a
+throwaway binary registering two targets:
+```
+Usage:
+  myapp [flags...] [<command>...]
+
+Flags:
+  --help, -h                  Show help
+  --completion {bash|zsh|fish}  Generate shell completion script
+
+Commands:
+
+  Source: main.go
+  build
+  test
 
 Examples:
-  targ test
-  targ --timeout 30s test
-  targ --parallel test lint
+  Run a command:
+    myapp build
 ```
+Binary mode hides targ-only flags (only `--help`/`--completion` show), Commands render
+under a `Source:` sub-header, and only 1 auto-generated example appears here (2 is what a
+synthetic `WriteRootHelp` unit test with `TargFlagFilter{IsRoot: true}` — a different,
+non-binary-mode configuration — produces). Which renderer and which flag-visibility mode
+apply depends on how the binary was built and invoked, not on the flag typed — this doc
+did not distinguish any of this.
 
 **Node ID:** N/A (text output only, no .pen file)
 
@@ -502,36 +473,54 @@ Examples:
 
 **Node ID:** N/A (text output only, no .pen file)
 
-### DES-029: Target Execution Help (Future)
+### DES-029: Target Execution Help
+
 **Traces to:** REQ-007, REQ-053, REQ-061
 
-**Command:** `targ help <target>` or `targ <target> --help`
+**Command:** `targ <target> --help`
 
-**Structure:**
+This ships — the "(Future)" framing was stale — and additionally renders `Source:`,
+`Formats:`, `Execution:` (when the target has deps/cache/watch/retry configured), and a
+`More info:` trailer that this entry originally didn't account for.
+
+**Structure (live, `targ status --help` in this repo):**
 ```
-<TARGET_DESCRIPTION>
+Source: github.com/toejough/targ/dev
 
-Usage: targ [flags...] <target-name> [args...]
+Usage:
+  targ [targ flags...] status
 
-Global Flags:
-  --help, -h              Show help
-  --timeout <duration>    Set execution timeout
-  --parallel, -p          Run multiple targets concurrently
-  --times <n>             Run the command n times
-  --retry                 Continue on failure
-  --backoff <spec>        Exponential backoff (duration,multiplier)
-  --watch <pattern>       Re-run on file changes (repeatable)
-  --cache <pattern>       Skip if files unchanged (repeatable)
-  --while <command>       Run while shell command succeeds
-  --dep-mode <mode>       Dependency mode: serial or parallel
+Global flags:
+  Global:
+    --help, -h                Show help
+    --timeout <duration>      Set execution timeout
+    --parallel, -p            Run multiple targets concurrently
+    --times <n>                Run the command n times
+    --retry                   Continue on failure
+    --backoff <duration,mult> Exponential backoff
+    --watch <glob>             Re-run on file changes (repeatable)
+    --cache <glob>             Skip if files unchanged (repeatable)
+    --while <cmd>              Run while shell command succeeds
+    --dep-mode {serial|parallel}  Dependency mode
+
+Formats:
+  <duration>  time value like 30s, 5m, 1h
+  <duration,mult>  duration and multiplier like 1s,2.0
+  <glob>  glob pattern like **/*.go, src/**
 
 Examples:
-  targ <target-name>
-  targ --timeout 30s <target-name>
+  Basic usage:
+    targ status
+
+More info:
+  https://github.com/toejough/targ
 ```
 
-**Sections present:** Description, Usage, Global Flags, Examples
-**Sections omitted:** Command Flags (targets don't have command-specific flags), Positionals (handled in usage line), Formats (targets don't output structured data)
+**Sections present here:** Source, Usage, Global flags (nested `Global:`/`Root only:`
+subsections), Formats, Examples, More info. An `Execution:` section (Deps/Cache/Retry/etc.,
+see `first-gen/architecture.md` ARCH-007) additionally renders for targets that configure it.
+**Sections omitted here:** command-specific Flags (this target takes no args), Positionals
+(none for this target), Subcommands (leaf target).
 
 **Node ID:** N/A (text output only, no .pen file)
 
@@ -559,7 +548,7 @@ type Def struct {
 **Rendering logic:**
 1. `GlobalFlags()` returns all flags with `RootOnly == false`
 2. `RootOnlyFlags()` returns all flags with `RootOnly == true`
-3. Help renderer uses these functions to populate Global Flags and Command Flags subsections
+3. Help renderer uses these functions to populate flag sections — actual section/subsection names: see `openspec/specs/help-rendering/spec.md`
 4. `TakesValue` determines whether to show `<placeholder>` after flag name
 5. `Desc` provides description text
 
@@ -596,60 +585,26 @@ func validateHelpOutput(g Gomega, output string, spec helpSpec) {
 ### DES-032: Help Rendering Architecture
 **Traces to:** REQ-007
 
-**Design decision:** Structured help builder (future implementation):
-
-```go
-type HelpBuilder struct {
-    description  string
-    usage        string
-    positionals  []PositionalArg
-    globalFlags  []flags.Def // Auto-populated from flags.GlobalFlags()
-    cmdFlags     []flags.Def // Auto-populated from context
-    formats      []Format     // Optional
-    subcommands  []Subcommand // Optional
-    examples     []string
-}
-
-func (h *HelpBuilder) Render() string {
-    // Enforces canonical section order
-    // Applies Rich styling
-    // Omits empty sections
-}
-```
-
-**Benefits:**
-- Impossible to render sections out of order (compile-time enforcement)
-- Automatic flag population from registry (prevents drift)
-- Styling applied consistently (single rendering implementation)
-- Easy to use (declarative API)
-
-**Migration path:** Refactor `PrintCreateHelp`, `PrintSyncHelp`, etc. to use `HelpBuilder`.
+~~**Design decision:** Structured help builder (future implementation), with compile-time
+enforcement of section ordering.~~ **Removed — shipped differently.** The actual
+implementation is `internal/help.ContentBuilder`; section order is enforced at runtime
+inside `Render()`, not at compile time. See `openspec/specs/help-rendering/spec.md`.
 
 ## Design Rules
 
 ### DR-001: Section Order Invariant
 **Traces to:** REQ-007
 
-**Rule:** All help pages MUST render sections in this exact order:
+The actual section order — superseded, see `openspec/specs/help-rendering/spec.md` (see also DES-015).
 
-1. Description (no header)
-2. Usage:
-3. Positionals: (if present)
-4. Flags: (with subsections)
-5. Formats: (if present)
-6. Subcommands: (if present)
-7. Examples:
-
-**Enforcement:** Property tests validate section index ordering. `HelpBuilder` enforces at compile time.
+**Enforcement:** Property tests validate section index ordering. `ContentBuilder.Render()` enforces this order in code, not via a compile-time type-state guarantee.
 
 ### DR-002: Flag Subsection Order
 **Traces to:** REQ-007
 
-**Rule:** When both Global Flags and Command Flags exist, Global Flags MUST appear first.
+Superseded — see `openspec/specs/help-rendering/spec.md` for the actual flag section/subsection structure and ordering.
 
 **Rationale:** Users need to understand global context before command-specific options.
-
-**Enforcement:** `HelpBuilder.Render()` always emits Global Flags before Command Flags.
 
 ### DR-003: Section Omission
 **Traces to:** REQ-007
@@ -658,7 +613,7 @@ func (h *HelpBuilder) Render() string {
 
 **Enforcement:**
 - No Positionals header if no positional args
-- No Command Flags subsection if only global flags exist (REQ-019)
+- No command-specific `Flags:` section if the command has no command-specific flags (REQ-019)
 - No Formats section if command doesn't use formats (REQ-020)
 - No Subcommands section if command has no subcommands (REQ-021)
 
@@ -680,7 +635,7 @@ func (h *HelpBuilder) Render() string {
 
 **Standard terms:**
 - "Flags" (not "Options")
-- "Global Flags" / "Command Flags" (not "Common Flags" / "Specific Flags")
+- Actual section/subsection header names — superseded, see `openspec/specs/help-rendering/spec.md`
 - "Usage:" (not "Syntax:")
 - "Examples:" (not "Example Usage:")
 - "Positionals:" (not "Arguments:")
@@ -716,44 +671,12 @@ func (h *HelpBuilder) Render() string {
 
 ## Implementation Notes
 
-### Current State Assessment
-
-The existing help functions (`PrintCreateHelp`, `PrintSyncHelp`, `PrintToFuncHelp`, `PrintToStringHelp`) already follow the correct structural pattern:
-- Description first (no header)
-- Blank line
-- Usage section
-- Positionals section (where applicable)
-- Flags section (where applicable)
-- Examples section
-
-**Gap:** Styling is not applied. All text is plain; no ANSI color codes are used.
-
-### Next Steps for Implementation
-
-1. **Add styling to existing help functions** (Quick win):
-   - Wrap section headers in bold: `\x1b[1m` + text + `:\x1b[0m`
-   - Wrap flag names in cyan: `\x1b[36m--flag\x1b[0m`
-   - Wrap placeholders in yellow: `\x1b[33m<placeholder>\x1b[0m`
-
-2. **Implement HelpBuilder** (Structural improvement):
-   - Create `internal/help` package
-   - Implement `HelpBuilder` struct with declarative API
-   - Migrate existing help functions to use `HelpBuilder`
-   - Ensures compile-time enforcement of section ordering
-
-3. **Add Global vs Command Flags subsections** (Architectural change):
-   - Modify help functions to query `flags.GlobalFlags()` and `flags.RootOnlyFlags()`
-   - Render "Global Flags:" and "Command Flags:" subsections
-   - Applies to root help and any command with both flag types
-
-4. **Implement Formats section** (Future work):
-   - Add Formats section to commands with output (e.g., `targ list`, `targ describe`)
-   - Populate from format registry (similar to flags registry)
-
-5. **Add comprehensive help validation tests** (Quality assurance):
-   - Extend `validateHelpOutput` to check for ANSI codes
-   - Add property tests for Rich styling consistency
-   - Validate color code pairing (every `\x1b[Xm` has matching `\x1b[0m`)
+**Removed 2026-07-28.** This section was a pre-implementation "next steps" plan (styling,
+a `HelpBuilder` type, Global/Command Flags subsections, a Formats section, validation
+tests) written before any of it existed. All of it has since shipped, none of it as
+described here (see DES-032, DR-002, DR-005). It carried no historical decision-rationale
+worth preserving as a plan — it's superseded in full by
+`openspec/specs/help-rendering/spec.md` and the current `internal/help` implementation.
 
 ## Open Questions
 
@@ -765,7 +688,7 @@ This design specification defines a complete visual and structural design for ta
 
 1. **Consistency:** All help pages follow the same structure and styling
 2. **Discoverability:** Predictable section ordering helps users find information
-3. **Enforcement:** Compile-time guarantees prevent inconsistencies
+3. **Enforcement:** Section ordering is enforced in code (runtime), not via compile-time guarantees — see DES-032
 4. **Maintainability:** Single source of truth (flags registry) prevents drift
 5. **Usability:** Self-contained help pages with clear visual hierarchy
 

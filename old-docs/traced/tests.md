@@ -78,7 +78,7 @@ Items derived from: L4 implementation (existing test suite)
 - Property: pattern matches multiple targets and subcommands
 - Fuzz: caret reset chains, glob patterns, group names, nested groups, mixed roots
 
-**Tests:** `TestProperty_Hierarchy`, `FuzzCaretReset_ArbitraryChains`, `FuzzGlob_ArbitraryPatterns`, `FuzzGroupName_ValidPatterns`, `FuzzGroups_ArbitraryNesting`, `FuzzMixedRoots_ArbitraryMix`
+**Tests:** `TestProperty_Hierarchy`, `FuzzCaretReset_ArbitraryChains`, `FuzzGlob_ArbitraryPatterns`, `FuzzGroupName_ValidPatterns`, `FuzzGroups_ArbitraryNesting`, `FuzzMixedRoots_TargetsAndGroups`
 **Traces to L4:** IMPL-7 (Target Groups), IMPL-5 (Command Parsing and Execution)
 
 ## T-6: Result classification and reporting
@@ -280,7 +280,7 @@ Items derived from: L4 implementation (existing test suite)
 - Property: ancestor targets and local targets coexist (multi-module aggregation)
 - Property: conflict between ancestor and local target names produces `ConflictError`
 
-**Tests:** Integration-verified via existing multi-module build path (T-15 runner properties) and end-to-end usability gate. Discovery layer (T-21) feeds ancestor targets into the existing `groupByModule()` → `handleMultiModule()` path which is already tested.
+**Tests:** No dedicated automated test exists for this path — `groupByModule()` and `handleMultiModule()` appear in no `_test.go` file repo-wide. T-15's runner property tests exercise `--create`/`--sync` codegen, not ancestor module grouping or build. The end-to-end usability gate manually exercised a single-ancestor scenario once during UC-6 adoption, but that is not automated regression coverage. This is a known coverage gap, not integration-verified behavior.
 **Traces to L2:** ARCH-12 (Build Tool Runner)
 **Traces to L2:** REQ-16
 
@@ -329,6 +329,6 @@ Items derived from: L4 implementation (existing test suite)
 
 - **IMPL-1 (Root Public API):** No direct tests — tested indirectly through integration tests in `test/`. Thin re-export layer, expected.
 - **IMPL-2 (CLI Entry Point):** No tests — `main()` is excluded from coverage per CLAUDE.md. Expected.
-- **IMPL-3 (Build Targets):** No unit tests for dev targets themselves — they are consumers of targ, tested via mutation testing (T-20).
+- **IMPL-3 (Build Targets):** No unit tests for dev targets themselves — they are consumers of targ. Mutation testing (T-20) does not cover them either: `dev/mutation_test.go:16` sets `ooze.IgnoreSourceFiles("^dev/.*|^cmd/.*")`, explicitly excluding `dev/` from mutation analysis.
 - **IMPL-14 (File Utilities):** No dedicated test file found. Match/Checksum/Watch tested indirectly through integration tests.
 - **IMPL-19 (Shell Execution):** Foreground/background distinction covered by T-25. Run/Output/RunContext also tested indirectly through other packages.

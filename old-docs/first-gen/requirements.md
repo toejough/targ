@@ -144,7 +144,7 @@ Run until predicate is true.
 
 ### REQ-019: Simple Definition
 
-Simplest possible definition (write a function, it's discovered).
+Superseded — see `openspec/specs/build-provisioning/spec.md`.
 
 **Category:** Organization
 
@@ -200,13 +200,13 @@ User-facing and internal representations convert losslessly.
 
 ### REQ-029: Path Continuation
 
-Path traversal continues from current group after hitting a target.
+Superseded — see `openspec/specs/execution-engine/spec.md`.
 
 **Category:** Addressing
 
 ### REQ-030: Root Reset
 
-`--` resets path to root for accessing top-level targets after nested ones.
+Superseded — see `openspec/specs/execution-engine/spec.md` (see also REQ-029).
 
 **Category:** Addressing
 
@@ -240,7 +240,7 @@ Track which targets came from which source.
 
 ### REQ-035: Remote Sync
 
-Sync/update when remote definitions change (add, modify, remove).
+Superseded — see `openspec/specs/build-provisioning/spec.md`.
 
 **Category:** Sources
 
@@ -404,13 +404,13 @@ Add targets from a remote repository.
 
 ### REQ-057: Update Remote
 
-Update targets when remote changes.
+Superseded — see `openspec/specs/build-provisioning/spec.md`.
 
 **Category:** Sync
 
 ### REQ-058: Remove Stale
 
-Remove targets no longer in remote (if originally from that source).
+Superseded — see `openspec/specs/build-provisioning/spec.md`.
 
 **Category:** Sync
 
@@ -510,11 +510,11 @@ Verified 2026-01-30.
 
 | Requirement | Status | Notes |
 | ----------- | ------ | ----- |
-| REQ-019–022 Organization | ✅ | `targ.Group()`, discovery |
-| REQ-023 CLI binary | ✅ | `targ.Run()` entry point |
+| REQ-019–022 Organization | ⚠️ | `targ.Group()`, discovery — see REQ-019 (superseded, build-provisioning spec) |
+| REQ-023 CLI binary | ✅ | `targ.Main()` / `targ.ExecuteRegistered()` entry point (`targ.Run()` is an unrelated subprocess helper) |
 | REQ-024–025 Addressing | ✅ | Stack-based traversal |
 | REQ-027–028 Representations | ✅ | Lossless conversion |
-| REQ-029–030 Path traversal | ✅ | Implemented |
+| REQ-029–030 Path traversal | ⚠️ | Not implemented as originally stated — see REQ-029, REQ-030 |
 | REQ-031 Name collisions | ✅ | Error at registration |
 
 ### Operations
@@ -527,8 +527,8 @@ Verified 2026-01-30.
 | REQ-047–049 Invoke programmatic | ✅ | `target.Run(ctx)` |
 | REQ-050–052 Transform | ✅ | Users edit source (by design) |
 | REQ-053–055 Manage Dependencies | ✅ | Users edit source (by design) |
-| REQ-056–058 Sync | ✅ | `--sync` |
-| REQ-059 Inspect: Where | ✅ | `Source: path:line` in `--help` |
+| REQ-056–058 Sync | ⚠️ | REQ-056 (`--sync`) ✅; REQ-057–058 (update/remove) superseded, see REQ-057, REQ-058 |
+| REQ-059 Inspect: Where | ✅ | `Source: path` in `--help` (details superseded, see help-rendering spec) |
 | REQ-060 Inspect: Tree | ✅ | Group shows hierarchy |
 | REQ-061 Inspect: Deps | ✅ | `Execution:` section in `--help` |
 | REQ-062–063 Shell Integration | ✅ | `--completion` for bash/zsh/fish |

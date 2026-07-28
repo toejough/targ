@@ -37,8 +37,8 @@ Items derived from: ground truth (existing codebase)
 
 **Package:** `internal/core`
 **Files:** `command.go`, `cmd.go`, `run_env.go`, `execute.go`, `override.go`, `parse.go`
-**Purpose:** CLI argument parsing, command resolution, target execution with runtime overrides (`--times`, `--timeout`, `--watch`, `--cache`, `--parallel`, `--retry`, `--backoff`, `--dep-mode`). Conflict detection between compile-time config and CLI flags. `Execute()` and `ExecuteWithOptions()` for programmatic/test usage. `RunEnv` interface for testable I/O. `Main()` for standalone binaries. `cmd.go` holds the `Command` builder (`Cmd()`), the single construction path for a context-aware subprocess: `RunContext()`, `RunContextV()` and `OutputContext()` all delegate to it.
-**Key functions:** `Execute()`, `ExecuteWithOptions()`, `Main()`, `ExecuteRegistered()`, `RunWithEnv()`, `ExtractOverrides()`, `Cmd()`, `RunContext()`, `RunContextV()`, `OutputContext()`
+**Purpose:** CLI argument parsing, command resolution, target execution with runtime overrides (`--times`, `--timeout`, `--watch`, `--cache`, `--parallel`, `--retry`, `--backoff`, `--dep-mode`). Conflict detection between compile-time config and CLI flags — scope of that detection superseded, see `openspec/specs/execution-engine/spec.md`. `Execute()` and `ExecuteWithOptions()` for programmatic/test usage. `RunEnv` interface for testable I/O. `MainWithSkip()` for standalone binaries (the public `targ.Main()` wraps it). `cmd.go` holds the `Command` builder (`Cmd()`); `RunContext()`, `RunContextV()` and `OutputContext()` all delegate to it — whether it's the only construction path for a context-aware subprocess is superseded, see `openspec/specs/process-execution/spec.md`.
+**Key functions:** `Execute()`, `ExecuteWithOptions()`, `MainWithSkip()`, `ExecuteRegistered()`, `RunWithEnv()`, `ExtractOverrides()`, `Cmd()`, `RunContext()`, `RunContextV()`, `OutputContext()`
 **Traces to:** ARCH-2, ARCH-3, ARCH-15
 
 ## IMPL-6: Target Registry
@@ -93,7 +93,7 @@ Items derived from: ground truth (existing codebase)
 
 **Package:** `internal/core`
 **File:** `source.go`
-**Purpose:** Runtime caller detection to determine source file locations for targets. Used to show "Source: dev/targets.go:42" in help output.
+**Purpose:** Runtime caller detection to determine source file locations for targets. What's shown from that in help output — superseded, see `openspec/specs/help-rendering/spec.md`.
 **Traces to:** ARCH-13
 
 ## IMPL-13: Target Discovery
