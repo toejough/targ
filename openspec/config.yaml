@@ -1,0 +1,40 @@
+schema: spec-driven
+
+context: |
+  targ: a Go build system and CLI-from-functions library (Go 1.25.5). Public API at
+  the repo root (targ.go), implementation under internal/, CLI binary at cmd/targ,
+  build targets in dev/, examples in examples/. Design principle: "No Surprises" —
+  conflicts error rather than resolving silently.
+
+  Build, test and lint run through targ itself, never `go test` directly:
+  `targ test`, `targ check-full` (lint, per-function 80% coverage, declaration
+  ordering, dead code, integration tests), `targ reorder-decls`. check-full must be
+  green before any change is done; pre-existing failures are not accepted.
+
+  Conventions: no new package-level mutable state (use dependency injection);
+  declarations ordered types-then-vars-then-funcs, alphabetical within each group;
+  no flaky tests (assert on error types, never elapsed time); no IO mocking (tag
+  genuine IO tests `//go:build integration`, name them `TestIntegration...`);
+  property-based tests via rapid, assertions via gomega.
+
+  DOCUMENTATION MIGRATION — in progress. This repo is moving from legacy docs to
+  OpenSpec specs, incrementally:
+    - old-docs/ holds the legacy documentation. It is the source of truth ONLY for
+      claims verified correct against the code. Anything there may be wrong; check
+      the source before relying on it.
+    - openspec/specs/ is the destination and is authoritative wherever it exists.
+    - When a claim in old-docs/ is found INCORRECT, do not edit it in place: delete
+      the incorrect content from old-docs/ and write its corrected form as an
+      OpenSpec spec. Proven incorrectness is the only trigger for writing a spec
+      about code you are not otherwise changing.
+    - A document that is merely SILENT about something that shipped is incomplete,
+      not incorrect. Note the gap; do not convert it. Writing a spec because an area
+      is undocumented is backfill, and backfilled specs go stale — that is the whole
+      reason this migration is incremental rather than a bulk conversion.
+    - Specs are organized by domain / bounded context — one capability directory per
+      bounded context, derived from the code's own seams.
+    - When old-docs/ content falls below 20% of total spec content, convert the
+      remainder in one final push. A file that empties is deleted; when old-docs/
+      empties, delete the directory and every reference to it.
+  Note old-docs/ is unrelated to openspec/changes/archive/, which is OpenSpec's own
+  store of completed changes.
