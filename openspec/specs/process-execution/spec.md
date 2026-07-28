@@ -5,8 +5,11 @@
 This bounded context covers spawning external programs and shell commands, streaming or
 capturing their output, and cleaning up child processes on cancellation. Its behavior lives
 in `internal/sh/*` (the context-aware, platform-specific execution primitives), the `Command`
-builder `Cmd()` in `internal/core/cmd.go`, and the shell-execution call sites in
-`internal/core/target.go`, `internal/core/command.go`, and `internal/core/override.go`.
+builder `Cmd()` in `internal/core/cmd.go`, the shell-execution call sites in
+`internal/core/target.go`, `internal/core/command.go`, and `internal/core/override.go`, and the
+clean-work-tree check (`CheckCleanWorkTree` / `CheckCleanWorkTreeWith`) in
+`internal/core/git.go`, together with its `targ.go` re-export. The rest of that file
+(`DetectRepoURL*` and its helpers) belongs to help-rendering, not this context.
 
 ## Requirements
 
@@ -94,3 +97,47 @@ rather than being interpreted by that shell.
 - **WHEN** targ generates a shell-completion script
 - **THEN** it reads `$SHELL` via `detectCompletionShell` to choose the completion script
   format, and this is the only place `$SHELL` affects targ's behavior
+
+### Requirement: The clean-work-tree check is a public precondition backed by a git subprocess
+targ MUST export `CheckCleanWorkTree(ctx context.Context) error` from the package root
+(`targ.go`), delegating to `core.CheckCleanWorkTree` (`internal/core/git.go:23`). Consumers
+SHALL be able to use it as a target precondition without importing anything under
+`internal/`, and its signature MUST stay a valid target-function shape so that
+`targ.Targ(targ.CheckCleanWorkTree)` builds a runnable target usable in a `Deps(...)` chain.
+
+The check SHALL determine the verdict by spawning `git diff HEAD --stat` through the
+context-aware output primitive (`core.OutputContext` → `Cmd().Output` → `internal/sh`), not by
+reading the filesystem or the git index directly. Empty (or whitespace-only) output MUST yield
+`nil`; any other output MUST yield an error naming `uncommitted changes found` and carrying the
+diff stat. Because `git diff HEAD` does not report them, untracked files MUST NOT count as
+uncommitted changes.
+
+A failure to run the subprocess MUST be reported as a distinct, wrapped `git diff: <cause>`
+error that preserves the underlying cause, so a callable-git failure is never mistaken for a
+dirty tree.
+
+The runner-injecting variant `core.CheckCleanWorkTreeWith` (`internal/core/git.go:29`) SHALL
+NOT be re-exported: it exists as a test seam, and exporting it would pull `core.CommandRunner`
+into the public surface for no consumer-facing capability.
+
+#### Scenario: A consumer guards a target on a clean checkout
+- **WHEN** a consumer declares `targ.Targ(targ.CheckCleanWorkTree)` as a dependency of a
+  release target and the working tree has no staged or unstaged changes to tracked files
+- **THEN** the precondition returns `nil` and the dependent target proceeds
+
+#### Scenario: The working tree has staged or unstaged changes
+- **WHEN** `targ.CheckCleanWorkTree` runs in a checkout where `git diff HEAD --stat` reports
+  any change to a tracked file
+- **THEN** it returns an error containing `uncommitted changes found` followed by the diff
+  stat, and the dependent target does not run
+
+#### Scenario: Only untracked files are present
+- **WHEN** `targ.CheckCleanWorkTree` runs in a checkout whose sole differences from `HEAD` are
+  untracked files
+- **THEN** it returns `nil`, because `git diff HEAD --stat` produces no output for them
+
+#### Scenario: The git subprocess cannot be started
+- **WHEN** the `git diff HEAD --stat` subprocess fails to start or run — for example because
+  the supplied context is already cancelled
+- **THEN** the returned error is wrapped as `git diff: <cause>` and still matches the
+  underlying cause (such as `context.Canceled`), rather than reporting a dirty tree

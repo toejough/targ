@@ -51,10 +51,17 @@ func TestProperty_CleanWorkTree(t *testing.T) {
 		g.Expect(err.Error()).To(ContainSubstring("uncommitted"))
 	})
 
-	t.Run("UntrackedFilesReturnsError", func(t *testing.T) {
+	t.Run("NonEmptyDiffOutputReturnsError", func(t *testing.T) {
 		t.Parallel()
 		g := NewWithT(t)
 
+		// This is not `git diff HEAD --stat` porcelain — that command never emits
+		// `??` lines, so it is not exercising an "untracked files" scenario. It
+		// pins the general rule: any non-empty output from the runner is treated
+		// as uncommitted changes, regardless of its shape. Real untracked-file
+		// behavior (git diff HEAD --stat producing no output for them) is
+		// verified against the real git binary by
+		// TestIntegrationCheckCleanWorkTreeIgnoresUntrackedFiles.
 		runner := func(_ context.Context, _ string, _ ...string) (string, error) {
 			return "?? new.go", nil
 		}
