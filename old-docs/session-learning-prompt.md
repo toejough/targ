@@ -24,7 +24,7 @@ These are things the user explicitly corrected or reinforced. Each one is a sign
 
 8. **"No pre-existing failures accepted"** — If `check-for-fail` catches something, it must be fixed — even if it wasn't introduced in the current session. The LLM has tried to excuse failures as "pre-existing." The rule: every run must be green.
 
-9. **"Plans must be followed task-by-task with TDD"** — Implementation plans (like `docs/plans/2026-02-21-help-source-attribution.md`) specify exact TDD steps: write failing test, verify it fails, write implementation, verify it passes, run full suite. The LLM sometimes skips the "verify it fails" step or writes tests and implementation together.
+9. **"Plans must be followed task-by-task with TDD"** — Implementation plans (see git history: `2026-02-21-help-source-attribution.md`) specify exact TDD steps: write failing test, verify it fails, write implementation, verify it passes, run full suite. The LLM sometimes skips the "verify it fails" step or writes tests and implementation together.
 
 ## Evidence: Test & Build Failures
 
