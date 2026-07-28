@@ -224,7 +224,7 @@ func Output(name string, args ...string) (string, error) {
 // OutputContext executes a command and returns combined output, with context support.
 // When ctx is cancelled, the process and all its children are killed.
 func OutputContext(ctx context.Context, name string, args ...string) (string, error) {
-	return internalsh.OutputContext(ctx, name, args, os.Stdin)
+	return internalsh.OutputContext(ctx, name, args, os.Stdin, nil)
 }
 
 // PrependBuiltinExamples adds built-in examples before custom examples.

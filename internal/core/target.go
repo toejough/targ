@@ -612,7 +612,7 @@ func (t *Target) shouldContinueLoop(ctx context.Context, state *repetitionState)
 func RunContext(ctx context.Context, name string, args ...string) error {
 	env, pw := parallelShellEnv(ctx)
 
-	err := internalsh.RunContextWithIO(ctx, env, name, args)
+	err := internalsh.RunContextWithIO(ctx, env, name, args, nil)
 
 	if pw != nil {
 		pw.Flush()
@@ -626,7 +626,7 @@ func RunContext(ctx context.Context, name string, args ...string) error {
 func RunContextV(ctx context.Context, name string, args ...string) error {
 	env, pw := parallelShellEnv(ctx)
 
-	err := internalsh.RunContextV(ctx, env, name, args)
+	err := internalsh.RunContextV(ctx, env, name, args, nil)
 
 	if pw != nil {
 		pw.Flush()
@@ -1101,7 +1101,7 @@ func runGroupSerialAll(ctx context.Context, targets []*Target) error {
 func runShellCommand(ctx context.Context, cmd string) error {
 	env, pw := parallelShellEnv(ctx)
 
-	err := internalsh.RunContextWithIO(ctx, env, "sh", []string{"-c", cmd})
+	err := internalsh.RunContextWithIO(ctx, env, "sh", []string{"-c", cmd}, nil)
 
 	if pw != nil {
 		pw.Flush()

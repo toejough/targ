@@ -2042,7 +2042,7 @@ func runShellWithVars(
 	if runner != nil {
 		err = runner(ctx, substituted)
 	} else {
-		err = internalsh.RunContextWithIO(ctx, nil, "sh", []string{"-c", substituted})
+		err = internalsh.RunContextWithIO(ctx, nil, "sh", []string{"-c", substituted}, nil)
 	}
 
 	if err != nil {

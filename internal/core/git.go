@@ -202,7 +202,7 @@ var (
 
 // defaultCommandRunner wraps internalsh.OutputContext.
 func defaultCommandRunner(ctx context.Context, name string, args ...string) (string, error) {
-	return internalsh.OutputContext(ctx, name, args, os.Stdin)
+	return internalsh.OutputContext(ctx, name, args, os.Stdin, nil)
 }
 
 // gitDirConfigPath resolves a worktree's .git pointer file to the config path in

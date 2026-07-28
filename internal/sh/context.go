@@ -9,15 +9,18 @@ import (
 
 // OutputContext executes a command and returns combined output, with context support.
 // When ctx is cancelled, the process and all its children are killed.
+// envv sets the child's environment; nil inherits the parent's.
 func OutputContext(
 	ctx context.Context,
 	name string,
 	args []string,
 	stdin io.Reader,
+	envv []string,
 ) (string, error) {
 	//nolint:gosec // G204: targ is a build tool — running user-specified commands is its purpose
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Stdin = stdin
+	cmd.Env = envv
 
 	// Capture combined output
 	var buf SafeBuffer
@@ -50,18 +53,20 @@ func OutputContext(
 }
 
 // RunContextV runs a command with context support, printing it first.
-func RunContextV(ctx context.Context, env *ShellEnv, name string, args []string) error {
+// envv sets the child's environment; nil inherits the parent's.
+func RunContextV(ctx context.Context, env *ShellEnv, name string, args []string, envv []string) error {
 	if env == nil {
 		env = DefaultShellEnv()
 	}
 
 	_, _ = fmt.Fprintln(env.Stdout, "+", FormatCommand(name, args))
 
-	return RunContextWithIO(ctx, env, name, args)
+	return RunContextWithIO(ctx, env, name, args, envv)
 }
 
 // RunContextWithIO runs a command with context support and custom IO.
-func RunContextWithIO(ctx context.Context, env *ShellEnv, name string, args []string) error {
+// envv sets the child's environment; nil inherits the parent's.
+func RunContextWithIO(ctx context.Context, env *ShellEnv, name string, args []string, envv []string) error {
 	if env == nil {
 		env = DefaultShellEnv()
 	}
@@ -71,6 +76,7 @@ func RunContextWithIO(ctx context.Context, env *ShellEnv, name string, args []st
 	cmd.Stdout = env.Stdout
 	cmd.Stderr = env.Stderr
 	cmd.Stdin = env.Stdin
+	cmd.Env = envv
 
 	return runWithContext(ctx, cmd, env.Foreground)
 }

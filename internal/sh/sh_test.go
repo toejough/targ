@@ -42,7 +42,7 @@ func TestProperty_ForegroundProcessGroup(t *testing.T) {
 		env.Stdout = &buf
 
 		ctx := context.Background()
-		err = internal.RunContextWithIO(ctx, env, "sh", []string{"-c", "ps -o pgid= -p $$"})
+		err = internal.RunContextWithIO(ctx, env, "sh", []string{"-c", "ps -o pgid= -p $$"}, nil)
 		g.Expect(err).ToNot(gomega.HaveOccurred())
 
 		childPGID, err := strconv.Atoi(strings.TrimSpace(buf.String()))
@@ -66,7 +66,7 @@ func TestProperty_ForegroundProcessGroup(t *testing.T) {
 		env.Stdout = &buf
 
 		ctx := context.Background()
-		err = internal.RunContextWithIO(ctx, env, "sh", []string{"-c", "ps -o pgid= -p $$"})
+		err = internal.RunContextWithIO(ctx, env, "sh", []string{"-c", "ps -o pgid= -p $$"}, nil)
 		g.Expect(err).ToNot(gomega.HaveOccurred())
 
 		childPGID, err := strconv.Atoi(strings.TrimSpace(buf.String()))
@@ -74,4 +74,53 @@ func TestProperty_ForegroundProcessGroup(t *testing.T) {
 		g.Expect(childPGID).ToNot(gomega.Equal(parentPGID),
 			fmt.Sprintf("background child PGID %d should differ from parent PGID %d", childPGID, parentPGID))
 	})
+}
+
+func TestProperty_SubprocessEnvironment(t *testing.T) {
+	t.Parallel()
+
+	t.Run("EnvvOverridesAreVisibleToTheChild", func(t *testing.T) {
+		t.Parallel()
+		g := gomega.NewWithT(t)
+
+		envv := append(os.Environ(), "TARG_SH_OVERRIDE_PROBE=overridden")
+
+		out, err := internal.OutputContext(
+			t.Context(), "sh", []string{"-c", "printf %s \"$TARG_SH_OVERRIDE_PROBE\""}, nil, envv,
+		)
+
+		g.Expect(err).ToNot(gomega.HaveOccurred())
+		g.Expect(out).To(gomega.Equal("overridden"))
+	})
+
+	t.Run("EnvvDoesNotStripTheRestOfTheEnvironment", func(t *testing.T) {
+		t.Parallel()
+		g := gomega.NewWithT(t)
+
+		envv := append(os.Environ(), "TARG_SH_UNRELATED_PROBE=set")
+
+		out, err := internal.OutputContext(
+			t.Context(), "sh", []string{"-c", "printf %s \"$PATH\""}, nil, envv,
+		)
+
+		g.Expect(err).ToNot(gomega.HaveOccurred())
+		g.Expect(out).To(gomega.Equal(os.Getenv("PATH")))
+	})
+}
+
+// TestSubprocessEnvironmentInheritsParent stands alone rather than joining the
+// property above, because two rules collide: t.Setenv panics when the test or
+// any parent is parallel, while tparallel requires a test with parallel subtests
+// to be parallel itself. A serial top-level test with no subtests satisfies both.
+func TestSubprocessEnvironmentInheritsParent(t *testing.T) {
+	g := gomega.NewWithT(t)
+
+	t.Setenv("TARG_SH_INHERIT_PROBE", "inherited")
+
+	out, err := internal.OutputContext(
+		t.Context(), "sh", []string{"-c", "printf %s \"$TARG_SH_INHERIT_PROBE\""}, nil, nil,
+	)
+
+	g.Expect(err).ToNot(gomega.HaveOccurred())
+	g.Expect(out).To(gomega.Equal("inherited"))
 }
