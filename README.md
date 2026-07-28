@@ -438,13 +438,9 @@ err := targ.Cmd("golangci-lint", "run").
 out, err := targ.Cmd("go", "env", "GOMOD").Env("GOFLAGS", "-mod=mod").Output(ctx)
 ```
 
-`Env` is repeatable and the last value declared for a key wins. Declared variables are **added to**
-the inherited environment rather than replacing it — the child still sees `PATH` and everything
-else the parent had.
-
-The builder's three terminals — `Run`, `RunV`, `Output` — all take a context, so a command built
-this way always routes its output through the parallel printer when its target is running under
-`DepModeParallel`.
+`Env` is repeatable, the last value declared for a key wins, and declared variables are added to the
+inherited environment rather than replacing it — the child still sees `PATH`. In parallel mode
+`Run` and `RunV` prefix their output with the target name; `Output` captures to a string instead.
 
 ### Git Helpers
 
