@@ -16,7 +16,12 @@
   3. OpenSpec specs are organized by **domain / bounded context** — one capability directory per bounded context, derived from the code's own seams, not from the old documents' chapter structure.
   4. When `old-docs/` content falls below **20%** of total spec content, convert the remainder in one final push.
   5. A file that empties is deleted. When `old-docs/` empties, delete the directory and every reference to it.
-- **No bulk port, no blanket backfill.** OpenSpec's `docs/existing-projects.md`: *"You do not document your whole codebase to start"*; *"Resist the urge to back-fill everything."* A spec is written here only where the audit **proves an old claim wrong** — provable incorrectness is the trigger, never "this area lacks a spec". Accurate old content stays in `old-docs/` until rule 4 fires.
+- **No bulk port, no blanket backfill — and this bound is ENFORCED, not merely asserted.** OpenSpec's `docs/existing-projects.md`: *"You do not document your whole codebase to start"*; *"Resist the urge to back-fill everything."* A spec Requirement may be written **only** for an audit row whose verdict is `INCORRECT` or `ORPHANED`. Enforcement, all three mandatory:
+  1. The verdict vocabulary separates *wrong* from *missing*. A document that is silent about a shipped feature is `INCOMPLETE`, **not** `INCORRECT` — and `INCOMPLETE` does **not** authorize writing a spec. Silence-about-a-feature is "this area lacks a spec" wearing a different label, which is exactly what the doctrine forbids. `INCOMPLETE` rows are reported to the user, never converted.
+  2. The trigger is per-**Requirement**, not per-file. Opening a `spec.md` because one item in its context is wrong does not license documenting that context's `CORRECT` items while the file is open.
+  3. Task 4 Step 6 mechanically maps every written Requirement back to its audit row and fails if any Requirement has no `INCORRECT`/`ORPHANED` antecedent.
+  Accurate old content stays in `old-docs/` until rule 4 fires.
+- **Canonical source for the migration standard.** `README.md` is canonical; `old-docs/README.md` and `CLAUDE.md` state the rule briefly and point there. `openspec/config.yaml`'s `context:` block is the one deliberate full duplicate — it is injected into agent prompts where "see README.md" is useless, so it must stand alone. When the standard changes, change README.md and the `context:` block together.
 - **User-ratified scope** (asked and answered 2026-07-28):
   - Delete outright: `docs/plans/`, `specs/001-parallel-output/`, `projects/portable-targets/`, `.specify/` + `.claude/commands/speckit.*`, `.claude/skills/specification-layers/`.
   - Everything else surviving — including `state.toml`, `updates.jsonl`, `session-learning-prompt.md` — is moved to `old-docs/` and audited on the same terms as the rest.
@@ -165,6 +170,10 @@ context: |
       the incorrect content from old-docs/ and write its corrected form as an
       OpenSpec spec. Proven incorrectness is the only trigger for writing a spec
       about code you are not otherwise changing.
+    - A document that is merely SILENT about something that shipped is incomplete,
+      not incorrect. Note the gap; do not convert it. Writing a spec because an area
+      is undocumented is backfill, and backfilled specs go stale — that is the whole
+      reason this migration is incremental rather than a bulk conversion.
     - Specs are organized by domain / bounded context — one capability directory per
       bounded context, derived from the code's own seams.
     - When old-docs/ content falls below 20% of total spec content, convert the
@@ -271,6 +280,9 @@ deleted; when this directory empties, it is deleted along with every reference t
 it. When what remains here falls below 20% of total spec content, the remainder is
 converted in one push.
 
+`README.md`'s Specifications section is the canonical statement of this standard;
+the summary above is a convenience copy.
+
 Unrelated to `openspec/changes/archive/`, which is OpenSpec's own store of
 completed changes.
 ```
@@ -285,7 +297,7 @@ grep -rnE 'docs/(specs|plans|archive)|specs/001|projects/portable|\.specify' old
 test -d old-docs && test ! -d docs; echo "exit=$?"
 ```
 
-Expected: `exit=0`, and either "no stale path refs" or a short list, each then fixed. One hit is known: `old-docs/session-learning-prompt.md:27` cites `docs/plans/2026-02-21-help-source-attribution.md`, deleted in Task 1 — replace the path with a note naming the file as available in git history, and leave the surrounding lesson intact.
+Expected: `exit=0`. The grep prints exactly one hit before fixing — `old-docs/session-learning-prompt.md:27`, which cites `docs/plans/2026-02-21-help-source-attribution.md`, deleted in Task 1. Replace that path with a note naming the file as available in git history, and leave the surrounding lesson intact. Re-run the grep afterwards; it must then print "no stale path refs". Any *additional* hit is unexpected — fix it the same way and record it, since it means the enumeration behind this plan missed a reference.
 
 - [ ] **Step 5: Commit**
 
@@ -318,7 +330,7 @@ This is the cycle's substantive work. It is the only task that writes to `opensp
 
 Specs are organized by the code's own seams, not by the old documents' chapters. Dispatch one agent to read `targ.go`, `cmd/targ/`, and each `internal/*` package and propose the bounded-context set, returning for each: a kebab-case id, a one-line responsibility, and the packages/files that constitute it. Require that every `internal/` package land in exactly one context.
 
-Record the result in the plan's execution notes. Every spec written in Step 4 uses an id from this set.
+**Hold this list — you must paste it verbatim into every Step 2 auditor's prompt.** The auditors are fresh agents that never see this step; they cannot attribute a finding to a context whose id they were never given. Every spec written in Step 4 uses an id from this set.
 
 - [ ] **Step 2: Write the failing check — the audit, with a recorded verdict**
 
@@ -327,19 +339,37 @@ The "test" for a document is a decision procedure with a measurable outcome. Dis
 | Item | Claim (quoted) | Code location (`file:line`) or NOT FOUND | Verdict | True behavior |
 |---|---|---|---|---|
 
-`Verdict` is exactly one of `CORRECT`, `INCORRECT`, `ORPHANED` (names code that no longer exists). For `INCORRECT`/`ORPHANED`, `True behavior` quotes the actual code or test at `file:line`; prose only where the behavior is genuinely diffuse. Below the table: `CORRECT: n / INCORRECT: n / ORPHANED: n`, and the bounded-context id each incorrect item belongs to.
+`Verdict` is exactly one of four values, and the distinction between the middle two is load-bearing:
 
-For files with no numbered items (`state.toml`, `updates.jsonl`, `session-learning-prompt.md`, `README`-ish prose), the unit of audit is the individual claim or record, not a numbered id.
+| Verdict | Means | Triggers a spec? |
+|---|---|---|
+| `CORRECT` | the claim matches the code | no |
+| `INCORRECT` | the claim contradicts the code — it asserts something untrue | **yes** |
+| `ORPHANED` | names code that no longer exists | **yes** |
+| `INCOMPLETE` | the claim is true as far as it goes, but the document is silent about something that shipped | **no — report only** |
 
-Omission check, per file: an omission cannot be found by grepping the file for its own terms. Derive the expected set from the *code*: run `git log --oneline --since=<the file's last-edit date>`, read each commit's diff summary, and list any exported API, behavior, or subsystem added since that the file does not mention. Report those as `INCORRECT` (incomplete) with the commit that introduced them.
+`INCOMPLETE` exists specifically to keep omissions out of the spec-writing path. A document that simply never mentions a feature is not *wrong*; converting it would be backfill-because-undocumented, which Global Constraints forbids. There is no incorrectness to delete, so nothing is deleted and no Requirement is written — the row is collected and reported to the user at close-out.
+
+For `INCORRECT`/`ORPHANED`, `True behavior` quotes the actual code or test at `file:line`; prose only where the behavior is genuinely diffuse. Below the table: `CORRECT: n / INCORRECT: n / ORPHANED: n / INCOMPLETE: n`, and for each `INCORRECT`/`ORPHANED` row, the bounded-context id it belongs to (from the list pasted into your prompt).
+
+Unit of audit by file kind — do not force one shape onto all of them:
+- **Numbered spec items** (`old-docs/traced/*`, `old-docs/first-gen/{architecture,design,requirements}.md`): one row per `UC-n`/`REQ-n`/`DES-n`/`ARCH-n`/`T-n`/`IMPL-n`.
+- **Backlog ledgers** (`old-docs/first-gen/tasks.md`, `issues.md`): one row per `TASK-`/`ISSUE-` entry. A backlog entry is not a behavioral claim, so it verdicts differently: `CORRECT` = the entry accurately describes work still outstanding; `ORPHANED` = the work shipped or the code it names is gone; `INCORRECT` = it misdescribes the current behavior. Cross-check open entries against `gh issue list --state open --limit 100 --json number,title` and note any that no GitHub issue covers — those go in the close-out report, not into a spec.
+- **Process artifacts** (`old-docs/session-learning-prompt.md`, `state.toml`, `updates.jsonl`): one row per individual claim or record. These assert almost nothing about current behavior; expect mostly `ORPHANED`.
+
+Omission check, per file: an omission cannot be found by grepping the file for its own terms. Derive the expected set from the *code*: run `git log --oneline --since=<the file's last-edit date>`, read each commit's diff summary, and list any exported API, behavior, or subsystem added since that the file does not mention. Report those as `INCOMPLETE`, naming the commit that introduced them. **Do not report them as `INCORRECT`** — that misclassification is precisely the loophole this vocabulary exists to close.
 
 - [ ] **Step 3: Run the audit and confirm it is live**
 
-Expected: a verdict table per file with at least one `INCORRECT` or `ORPHANED`, or an explicit all-`CORRECT` verdict carrying per-item evidence. A known-stale seed proves the audit is not rubber-stamping: `old-docs/traced/state.toml`'s `[cursor].next_action` reads "Re-entry #3 complete" while four `[tree.*]` history strings describe a Re-entry #4. An audit reporting zero findings *and* missing this is not trustworthy — re-run it.
+Expected: one verdict table per `old-docs/` file, every row carrying a `file:line` in its third column (that citation **is** the per-item evidence — a row whose third column is blank or says only "verified" is not evidence and the table is incomplete), and a counts line whose four numbers sum to the table's row count.
+
+A known-stale seed proves the audit is not rubber-stamping: `old-docs/traced/state.toml`'s `[cursor].next_action` reads "Re-entry #3 complete" while four `[tree.*]` history strings describe a Re-entry #4. An audit reporting zero `INCORRECT`/`ORPHANED` findings *and* missing this is not trustworthy — re-run it.
 
 - [ ] **Step 4: Replace incorrectness with specs**
 
-For each bounded context that has ≥1 `INCORRECT`/`ORPHANED` item, write `openspec/specs/<context>/spec.md` in OpenSpec's **main-spec** format — not the delta format:
+For each bounded context that has ≥1 `INCORRECT`/`ORPHANED` item, write `openspec/specs/<context>/spec.md` in OpenSpec's **main-spec** format — not the delta format.
+
+**The per-Requirement bound, which Step 6 verifies mechanically:** write one Requirement per `INCORRECT`/`ORPHANED` audit row, and *nothing else*. Having the file open for a context that contains 3 wrong items and 17 correct ones does **not** license documenting the other 17 — those stay in `old-docs/` until the ratio gate fires. Do not write a Requirement for any `CORRECT` or `INCOMPLETE` row. If a context's wrong items feel like too thin a basis for a coherent spec, that is the expected shape of an incremental migration; write the thin spec and leave the rest.
 
 ```markdown
 # <Context> Specification
@@ -359,21 +389,49 @@ behavior lives in the code.>
 - **THEN** <expected outcome>
 ```
 
-Format constraints, enforced by `openspec validate`: `## Purpose` and `## Requirements` are both required; every requirement contains SHALL or MUST; every requirement has ≥1 scenario; scenarios use **exactly four** hashes — three hashes or bullets fail silently. Do not use `## ADDED Requirements` (that is the delta format, for `openspec/changes/`).
+Format constraints, each verified against the real binary:
 
-Each requirement states the **corrected** behavior, verified at `file:line`. Then delete the superseded content from its `old-docs/` file. Delete any file that empties.
+- `## Purpose` required — omitting it: `ERROR: Spec must have a Purpose section`.
+- `## Requirements` required — omitting it: `ERROR: Spec must have a Requirements section`. `## ADDED Requirements` does **not** satisfy it; that is the delta format, for `openspec/changes/` only.
+- Every Requirement contains `SHALL` or `MUST` — else `ERROR: Requirement "<name>" must contain SHALL or MUST`.
+- Every Requirement has ≥1 Scenario — else `ERROR: Requirement must have at least one scenario`.
+- Scenario headings must be level **4 through 6** (`####` to `######`). Level 3 (`###`) is not recognized as a scenario at all. Use `####`. Failures are **not** silent: `validate` prints an explicit ERROR plus a WARNING naming the required syntax.
+- `## Purpose` must be **≥50 characters** — shorter emits `WARNING: Purpose section is too brief`, which `--strict` promotes to exit 1. This is a real gate at Step 5, so write a substantive Purpose.
 
-- [ ] **Step 5: Verify, measure the ratio, and commit**
+Each Requirement states the **corrected** behavior, verified at `file:line`. Then delete the superseded content from its `old-docs/` file — only the content the Requirement replaces, nothing adjacent. Delete any file that empties.
+
+- [ ] **Step 5: Verify format and measure the ratio**
 
 ```bash
 cd /Users/joe/repos/personal/targ
 openspec validate --all --strict; echo "exit=$?"
-OLD=$(find old-docs -name '*.md' -o -name '*.toml' -o -name '*.jsonl' 2>/dev/null | xargs wc -l 2>/dev/null | tail -1 | awk '{print $1}')
-NEW=$(find openspec/specs -name 'spec.md' 2>/dev/null | xargs wc -l 2>/dev/null | tail -1 | awk '{print $1}')
-echo "old-docs=$OLD openspec=$NEW ratio=$(awk -v o="${OLD:-0}" -v n="${NEW:-0}" 'BEGIN{t=o+n; print (t?o/t:1)}')"
+OLD=$(find old-docs \( -name '*.md' -o -name '*.toml' -o -name '*.jsonl' \) -type f -print0 2>/dev/null | xargs -0 wc -l 2>/dev/null | tail -1 | awk '{print $1}')
+NEW=$(find openspec/specs -name 'spec.md' -type f -print0 2>/dev/null | xargs -0 wc -l 2>/dev/null | tail -1 | awk '{print $1}')
+echo "old-docs=${OLD:-0} openspec=${NEW:-0} ratio=$(awk -v o="${OLD:-0}" -v n="${NEW:-0}" 'BEGIN{t=o+n; printf "%.4f", (t?o/t:1)}')"
 ```
 
-Expected: `exit=0` and every written spec listed as passing. Record the ratio — if it is already below `0.20`, the final conversion push (Global Constraint 4) is due now; report that to the user rather than starting it unasked.
+The `\( ... \) -type f -print0 | xargs -0` form is required, not stylistic: the bare `find | xargs` version silently undercounts any filename containing a space (the error is swallowed by `2>/dev/null`, and the file contributes 0 lines). This number gates a user-facing decision, so a silent undercount would make the migration look further along than it is. Verified against fixtures covering spaces, a single file, zero old files, and zero of both.
+
+Expected: `exit=0` and every written spec listed as passing. Record the ratio. If it is already below `0.20`, the final conversion push (Global Constraint 4) is due — **report it, do not start it**; that is a fresh scope decision for the user.
+
+- [ ] **Step 6: Verify the no-backfill bound held**
+
+Format validation cannot see the bound that matters. Build the trace explicitly:
+
+For every `### Requirement:` heading in every `spec.md` written in Step 4, name the audit-table row it came from — file, item id, and verdict. Then assert:
+- every Requirement traces to exactly one row, and
+- that row's verdict is `INCORRECT` or `ORPHANED`.
+
+Any Requirement tracing to a `CORRECT` row, an `INCOMPLETE` row, or to no row at all is a **STOP**: delete that Requirement and restore the corresponding `old-docs/` content if it was removed. Record the trace table in the execution notes — Gate B will re-check it.
+
+```bash
+cd /Users/joe/repos/personal/targ
+grep -rc '^### Requirement:' openspec/specs/*/spec.md
+```
+
+Expected: the total Requirement count equals the number of `INCORRECT` + `ORPHANED` rows across all audit tables. A mismatch in either direction is a defect — more Requirements than rows means backfill crept in; fewer means a proven-wrong claim was left standing in `old-docs/`.
+
+- [ ] **Step 7: Commit**
 
 ```bash
 cd /Users/joe/repos/personal/targ
@@ -429,8 +487,9 @@ binary at `cmd/targ/`; build targets in `dev/`; examples in `examples/`.
 `openspec/specs/` is the spec of record, organized by bounded context. Legacy
 documentation lives in `old-docs/` and is authoritative only where verified
 correct against the code — when you find a claim there wrong, delete it and write
-the corrected form as an OpenSpec spec rather than editing it in place. See
-`README.md` for the full migration standard.
+the corrected form as an OpenSpec spec rather than editing it in place. A document
+that merely *omits* something is not wrong and is not converted. `README.md`'s
+Specifications section is the canonical statement of the migration standard.
 
 ## Commands
 
@@ -508,9 +567,17 @@ migration rule is:
 4. Delete any `old-docs/` file that empties.
 
 Proven incorrectness is the only trigger for writing a spec about code you are not
-otherwise changing — specs written speculatively go stale. When `old-docs/` content
-falls below 20% of total spec content, the remainder is converted in one push; when
-the directory empties it is deleted, along with every reference to it.
+otherwise changing — specs written speculatively go stale, which is the failure this
+rule exists to prevent. A document that is merely *silent* about a feature is not
+wrong: note the gap, but do not convert it, because "this area lacks a spec" is not
+a defect in the document. When `old-docs/` content falls below 20% of total spec
+content, the remainder is converted in one push; when the directory empties it is
+deleted, along with every reference to it.
+
+This section is the canonical statement of the standard. `CLAUDE.md` and
+`old-docs/README.md` summarise it and point here; `openspec/config.yaml`'s
+`context:` block restates it in full because it is injected into AI agent prompts,
+where a cross-reference would be useless — change the two together.
 ```
 
 - [ ] **Step 4: Run the check to verify it passes**
@@ -520,7 +587,7 @@ cd /Users/joe/repos/personal/targ
 grep -nE 'old-docs|openspec' README.md | head
 ```
 
-Expected: several hits in the new section.
+Expected: at least 4 hits, all within the new `## Specifications` section and none above it (README mentioned neither term before this task, so every hit must come from the added text).
 
 - [ ] **Step 5: Commit**
 
@@ -578,7 +645,19 @@ Expected file listing: `.gitignore`; `.claude/commands/opsx/*` (6); `.claude/ski
 
 - [ ] **Step 4: Report the ratio and what remains**
 
-State the `old-docs`-to-spec ratio from Task 4 Step 5, the list of specs written, and the `old-docs/` files still standing. This is a migration in progress, not a finished state — say so in the voice the evidence supports.
+Print exactly these lines, filled from measured values — not a prose summary, whose tone would vary by executor:
+
+```
+Ratio: <old-docs lines>:<spec lines> (<ratio to 4dp>)
+Specs written: <comma-separated spec.md paths, or "none">
+Requirements written: <n>  (INCORRECT+ORPHANED audit rows: <n>)
+INCOMPLETE rows reported, not converted: <n>
+Backlog entries with no open GitHub issue: <list, or "none">
+Old-docs files remaining: <list>
+Status: migration in progress
+```
+
+`Status:` is that literal string regardless of the ratio — this cycle does not finish the migration. If the ratio is below `0.2000`, add one further line: `Action: conversion push due (Global Constraint 4) — awaiting user decision`.
 
 ---
 
@@ -590,6 +669,6 @@ State the `old-docs`-to-spec ratio from Task 4 Step 5, the list of specs written
 
 **End state.** This cycle deliberately does **not** reach "only README/CLAUDE/agent files and openspec docs." `old-docs/` survives by design and shrinks under the standard until it empties. Task 7 Step 4 reports how far along that is instead of claiming completion.
 
-**Gate A findings folded in.** Non-contiguous CLAUDE.md ranges with the Code Style block explicitly protected (was: a contiguous delete that destroyed it); `openspec doctor` as the pre-init failure check (was: `validate`, which exits 0 with no root); `AI-Used: [claude]` on every commit; no cross-task verdict handoff (the audit and its consequences are one task); no dangling task reference; counts re-derived rather than copied.
+**Gate A findings folded in, both rounds.** Round 1: non-contiguous CLAUDE.md ranges with the Code Style block explicitly protected (was: a contiguous delete that destroyed it); `openspec doctor` as the pre-init failure check (was: `validate`, which exits 0 with no root); `AI-Used: [claude]` on every commit; no cross-task verdict handoff (the audit and its consequences are one task); no dangling task reference; counts re-derived rather than copied. Round 2: the no-backfill bound is now *enforced* rather than asserted — a fourth verdict `INCOMPLETE` keeps omissions out of the spec-writing path, the trigger is per-Requirement rather than per-file, and Step 6 mechanically traces every written Requirement to an `INCORRECT`/`ORPHANED` audit row; the ratio pipeline uses `-print0`/`xargs -0` after a fixture proved the bare form silently counts a space-containing filename as 0 lines; the spec-format constraints are corrected against the binary (scenario headings are level 4–6, not "exactly four"; failures are loud, not silent; a <50-character Purpose fails `--strict`); the bounded-context list is explicitly passed into the auditors' prompts; backlog ledgers get their own verdict semantics rather than being forced into behavioural-claim shape; README is named canonical for the standard; and every remaining "Expected:" line is mechanically checkable, including the close-out, which is now a fixed output format rather than a request for the right tone.
 
 **Known gap, stated rather than hidden.** The audit is an LLM reading code — verification, not proof. Every spec it produces cites `file:line`, and `old-docs/README.md` and the `context:` block both say the legacy material is authoritative only where verified, so nothing downstream treats an unaudited claim as settled.
