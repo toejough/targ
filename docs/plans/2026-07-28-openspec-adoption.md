@@ -491,6 +491,12 @@ the corrected form as an OpenSpec spec rather than editing it in place. A docume
 that merely *omits* something is not wrong and is not converted. `README.md`'s
 Specifications section is the canonical statement of the migration standard.
 
+If you change that standard, change `openspec/config.yaml`'s `context:` block in
+the same commit. It restates the standard in full — deliberately, because it is
+injected into AI agent prompts where a cross-reference to README would be useless —
+so it is the one copy that cannot be replaced by a pointer, and the one that drifts
+silently if you forget it.
+
 ## Commands
 
 Build, test and lint run through targ, never `go test` directly:
