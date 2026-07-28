@@ -10,7 +10,7 @@ before relying on it.
 - `first-gen/` — the original architecture, design, requirements, task and issue
   docs, plus a research note on `go.mod` tree traversal. Older; predates much of
   the code it describes.
-- `session-learning-prompt.md`, `state.toml`, `updates.jsonl` — process artifacts
+- `session-learning-prompt.md`, `state.toml` (dead workflow state from an abandoned 2026-02-01 run; distinct from `traced/state.toml` above), `updates.jsonl` — process artifacts
   from earlier workflow runs.
 
 ## How this directory shrinks

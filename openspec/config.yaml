@@ -23,6 +23,7 @@ context: |
       claims verified correct against the code. Anything there may be wrong; check
       the source before relying on it.
     - openspec/specs/ is the destination and is authoritative wherever it exists.
+      Currently empty; this absence is expected, not a licence to backfill.
     - When a claim in old-docs/ is found INCORRECT, do not edit it in place: delete
       the incorrect content from old-docs/ and write its corrected form as an
       OpenSpec spec. Proven incorrectness is the only trigger for writing a spec
